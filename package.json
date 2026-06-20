@@ -1,0 +1,23 @@
+{
+  "name": "brokk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CCL's open-source AI coding-agent platform — card → Claude Agent SDK forges code in an isolated worktree → Pull Request.",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm -r --if-present build",
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:api": "pnpm --filter @brokk/api dev",
+    "dev:web": "pnpm --filter @brokk/web dev",
+    "lint": "pnpm -r --if-present lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}
