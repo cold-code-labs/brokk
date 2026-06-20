@@ -76,7 +76,7 @@ async function reviewOne(
   try {
     const { verdict, body } = await reviewPr({ cwd, model: cfg.model, prTitle: pr.title, diff });
     const comment = `🛡️ **Eitri** — *the forge's second smith*\n\n${body}`;
-    await git.postReview(pr.number, comment);
+    await git.postReview(pr.number, comment, verdict);
     await store.insertReview({
       repo: cfg.repo,
       prNumber: pr.number,

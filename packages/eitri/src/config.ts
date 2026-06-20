@@ -6,7 +6,12 @@ export interface EitriConfig {
   /** "owner/name" of the repo to watch. */
   repo: string;
   cloneUrl: string;
+  /** Token used to clone/fetch the repo (the forge account is fine). */
   githubToken: string;
+  /** Token Eitri posts reviews WITH. When it's a distinct account (its own bot),
+   *  Eitri can Approve / Request changes; otherwise it can only comment. */
+  postToken: string;
+  hasOwnIdentity: boolean;
   /** Where bare clones + review worktrees live. */
   workDir: string;
   model: string;
@@ -27,6 +32,8 @@ export function loadEitriConfig(env = process.env): EitriConfig {
     repo,
     cloneUrl: `https://github.com/${repo}.git`,
     githubToken: env.GITHUB_TOKEN ?? "",
+    postToken: env.EITRI_GITHUB_TOKEN || env.GITHUB_TOKEN || "",
+    hasOwnIdentity: Boolean(env.EITRI_GITHUB_TOKEN),
     workDir: env.EITRI_WORKDIR ?? "/tmp/eitri",
     model: env.EITRI_MODEL ?? env.BROKK_DEFAULT_MODEL ?? "sonnet",
     pollIntervalMs: Number(env.EITRI_POLL_MS ?? 30_000),

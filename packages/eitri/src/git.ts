@@ -16,10 +16,22 @@ async function gh(args: string[], env: NodeJS.ProcessEnv): Promise<string> {
 }
 
 export class EitriGit {
-  constructor(private readonly opts: { workDir: string; repo: string; cloneUrl: string; githubToken: string }) {}
+  constructor(
+    private readonly opts: {
+      workDir: string;
+      repo: string;
+      cloneUrl: string;
+      githubToken: string;
+      postToken: string;
+      hasOwnIdentity: boolean;
+    },
+  ) {}
 
   private get env() {
     return { ...process.env, GH_TOKEN: this.opts.githubToken };
+  }
+  private get postEnv() {
+    return { ...process.env, GH_TOKEN: this.opts.postToken };
   }
   private bareDir() {
     return join(this.opts.workDir, "repo.git");
@@ -50,10 +62,16 @@ export class EitriGit {
     return path;
   }
 
-  /** Post the review as a comment (a shared bot identity can't approve its own
-   *  PRs; a dedicated Eitri account unlocks approve/request-changes later). */
-  async postReview(prNumber: number, body: string): Promise<void> {
-    await gh(["pr", "review", String(prNumber), "--repo", this.opts.repo, "--comment", "--body", body], this.env);
+  /** Post the review. With its own identity Eitri can approve / request changes;
+   *  on the shared forge account it can only comment (GitHub blocks reviewing
+   *  your own PR with an approval state). */
+  async postReview(prNumber: number, body: string, verdict: "APPROVE" | "COMMENT" | "REQUEST_CHANGES"): Promise<void> {
+    let flag = "--comment";
+    if (this.opts.hasOwnIdentity) {
+      if (verdict === "APPROVE") flag = "--approve";
+      else if (verdict === "REQUEST_CHANGES") flag = "--request-changes";
+    }
+    await gh(["pr", "review", String(prNumber), "--repo", this.opts.repo, flag, "--body", body], this.postEnv);
   }
 
   async cleanup(path: string): Promise<void> {
