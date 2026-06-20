@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Sidebar from "../components/Sidebar";
 
 export const metadata = {
   title: "Brokk",
@@ -16,7 +17,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           color: "#e6e8ee",
         }}
       >
-        {children}
+        <div style={{ display: "flex", minHeight: "100vh" }}>
+          <Sidebar />
+          <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
+            {children}
+          </div>
+        </div>
       </body>
     </html>
   );

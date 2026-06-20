@@ -1,7 +1,6 @@
-import Board from "../components/Board";
+import Dashboard from "../components/Dashboard";
 
-/** Brokk board — kanban of tasks, live run logs (SSE), PR links. Wired to the
- *  control-plane API via @brokk/sdk through the same-origin /api proxy. */
-export default function BoardPage() {
-  return <Board />;
+/** Brokk dashboard — big-number overview of task statuses. */
+export default function DashboardPage() {
+  return <Dashboard />;
 }

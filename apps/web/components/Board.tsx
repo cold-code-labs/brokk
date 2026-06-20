@@ -95,14 +95,14 @@ export default function Board() {
   return (
     <main style={{ padding: "28px 32px", maxWidth: 1400, margin: "0 auto" }}>
       <header style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 26, letterSpacing: -0.5 }}>🔨 Brokk</h1>
-        <p style={{ margin: "4px 0 0", color: "#9aa3b2", fontSize: 14 }}>
-          The forge — card → agent → PR.{" "}
+        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: -0.3 }}>Kanban</h1>
+        <p style={{ margin: "4px 0 0", color: "#9aa3b2", fontSize: 13 }}>
           {project ? (
             <span style={{ color: "#e6e8ee" }}>{project.name}</span>
           ) : (
             <em>loading project…</em>
           )}
+          {" · card → agent → PR"}
         </p>
       </header>
 
