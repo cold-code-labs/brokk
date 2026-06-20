@@ -159,6 +159,31 @@ export interface Agent {
   updatedAt: string;
 }
 
+/** A team member who can lend a Max seat to the forge. */
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  githubLogin: string | null;
+  role: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A Max subscription (seat) a user lends to Brokk. The token itself is sealed
+ *  at rest and never leaves the server — only a masked preview is exposed. */
+export interface Subscription {
+  id: string;
+  userId: string;
+  kind: string;
+  label: string;
+  tokenPreview: string;
+  status: "active" | "revoked";
+  lastUsedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Pull request opened by a run. */
 export interface PullRequest {
   id: string;

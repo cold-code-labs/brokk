@@ -143,6 +143,33 @@ export const runEvents = pgTable(
   }),
 );
 
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  githubLogin: text("github_login"),
+  role: text("role").notNull().default("member"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** A Max seat a user lends to the forge. `sealed_token` is AES-256-GCM at rest;
+ *  only `token_preview` (last chars) is ever exposed to the UI. */
+export const subscriptions = pgTable("subscriptions", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull().default("max"),
+  label: text("label").notNull().default("Max seat"),
+  sealedToken: text("sealed_token").notNull(),
+  tokenPreview: text("token_preview").notNull().default(""),
+  status: text("status").notNull().default("active"),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const pullRequests = pgTable("pull_requests", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   taskId: uuid("task_id")

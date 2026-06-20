@@ -1,4 +1,13 @@
-import type { Agent, Run, RunEvent, RunStatus, Task, TaskStatus } from "@brokk/core";
+import type {
+  Agent,
+  Run,
+  RunEvent,
+  RunStatus,
+  Subscription,
+  Task,
+  TaskStatus,
+  User,
+} from "@brokk/core";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -9,7 +18,9 @@ import {
   repositories,
   runEvents,
   runs,
+  subscriptions,
   tasks,
+  users,
 } from "./schema.js";
 
 export * from "./schema.js";
@@ -17,7 +28,7 @@ export * from "./schema.js";
 export function createDb(connectionString: string) {
   const client = postgres(connectionString);
   const db = drizzle(client, {
-    schema: { repositories, projects, tasks, agents, runs, runEvents, pullRequests },
+    schema: { repositories, projects, tasks, agents, runs, runEvents, pullRequests, users, subscriptions },
   });
   return { db, client };
 }
@@ -79,6 +90,33 @@ function rowToAgent(row: typeof agents.$inferSelect): Agent {
   };
 }
 
+function rowToUser(row: typeof users.$inferSelect): User {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    githubLogin: row.githubLogin,
+    role: row.role,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+/** Public projection — never includes the sealed token. */
+function rowToSubscription(row: typeof subscriptions.$inferSelect): Subscription {
+  return {
+    id: row.id,
+    userId: row.userId,
+    kind: row.kind,
+    label: row.label,
+    tokenPreview: row.tokenPreview,
+    status: row.status as Subscription["status"],
+    lastUsedAt: iso(row.lastUsedAt),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 function rowToEvent(row: typeof runEvents.$inferSelect): RunEvent {
   return {
     id: row.id,
@@ -105,6 +143,15 @@ export interface Store {
   getTask(id: string): Promise<Task | null>;
   insertTask(values: typeof tasks.$inferInsert): Promise<Task>;
   updateTask(id: string, patch: Partial<typeof tasks.$inferInsert>): Promise<Task>;
+
+  // users + subscriptions (Max seats)
+  listUsers(): Promise<User[]>;
+  getUser(id: string): Promise<User | null>;
+  insertUser(values: typeof users.$inferInsert): Promise<User>;
+  listSubscriptions(userId?: string): Promise<Subscription[]>;
+  insertSubscription(values: typeof subscriptions.$inferInsert): Promise<Subscription>;
+  /** Raw sealed token for one subscription (server-side decrypt only). */
+  getSealedToken(id: string): Promise<string | null>;
 
   // agents (runners)
   registerAgent(host: string, capabilities: string[]): Promise<Agent>;
@@ -166,6 +213,37 @@ export function createStore(db: Db): Store {
         .returning();
       if (!rows[0]) throw new Error(`task ${id} not found`);
       return rowToTask(rows[0]);
+    },
+
+    async listUsers() {
+      const rows = await db.select().from(users).orderBy(asc(users.createdAt));
+      return rows.map(rowToUser);
+    },
+    async getUser(id) {
+      const rows = await db.select().from(users).where(eq(users.id, id)).limit(1);
+      return rows[0] ? rowToUser(rows[0]) : null;
+    },
+    async insertUser(values) {
+      const rows = await db.insert(users).values(values).returning();
+      return rowToUser(rows[0]!);
+    },
+    async listSubscriptions(userId) {
+      const rows = userId
+        ? await db.select().from(subscriptions).where(eq(subscriptions.userId, userId))
+        : await db.select().from(subscriptions);
+      return rows.map(rowToSubscription);
+    },
+    async insertSubscription(values) {
+      const rows = await db.insert(subscriptions).values(values).returning();
+      return rowToSubscription(rows[0]!);
+    },
+    async getSealedToken(id) {
+      const rows = await db
+        .select({ t: subscriptions.sealedToken })
+        .from(subscriptions)
+        .where(eq(subscriptions.id, id))
+        .limit(1);
+      return rows[0]?.t ?? null;
     },
 
     async registerAgent(host, capabilities) {

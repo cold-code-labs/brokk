@@ -5,7 +5,9 @@ import { version } from "../package.json";
 import { projectsRoutes } from "./routes/projects.js";
 import { runnerRoutes } from "./routes/runner.js";
 import { runsRoutes } from "./routes/runs.js";
+import { subscriptionsRoutes } from "./routes/subscriptions.js";
 import { tasksRoutes } from "./routes/tasks.js";
+import { usersRoutes } from "./routes/users.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 
 export interface AppDeps {
@@ -31,6 +33,8 @@ export function buildApp(deps: AppDeps): Hono {
   app.get("/version", (c) => c.json({ version }));
 
   app.route("/projects", projectsRoutes(deps));
+  app.route("/users", usersRoutes(deps));
+  app.route("/subscriptions", subscriptionsRoutes(deps));
   app.route("/tasks", tasksRoutes(deps));
   app.route("/runs", runsRoutes(deps));
   app.route("/runner", runnerRoutes(deps));

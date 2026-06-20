@@ -1,7 +1,9 @@
-import type { Project, Run, RunEvent, Task } from "@brokk/core";
+import type { Project, Run, RunEvent, Subscription, Task, User } from "@brokk/core";
 
 // Re-export the domain types so consumers (web) depend only on the SDK.
-export type { Agent, Project, Run, RunEvent, Task, TaskStatus, RunStatus } from "@brokk/core";
+export type {
+  Agent, Project, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
+} from "@brokk/core";
 
 export interface BrokkClientOptions {
   baseUrl: string;
@@ -33,6 +35,15 @@ export interface BrokkClient {
   getRun(id: string): Promise<Run>;
   /** Subscribe to a run's live event stream (SSE). Returns an unsubscribe fn. */
   streamRunEvents(id: string, onEvent: (e: RunEvent) => void): () => void;
+
+  // users + Max seats
+  listUsers(): Promise<User[]>;
+  createUser(input: { name: string; email: string; githubLogin?: string }): Promise<User>;
+  listSubscriptions(userId?: string): Promise<Subscription[]>;
+  /** Step 1 of connecting a Max seat: returns the authorize URL to open. */
+  connectStart(): Promise<{ sessionId: string; url: string }>;
+  /** Step 2: exchange the pasted code → seals & stores the seat. */
+  connectComplete(input: { sessionId: string; code: string; userId: string; label?: string }): Promise<Subscription>;
 }
 
 export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
@@ -80,6 +91,22 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     },
     getRun(id) {
       return req<Run>("GET", `/runs/${encodeURIComponent(id)}`);
+    },
+    listUsers() {
+      return req<User[]>("GET", "/users");
+    },
+    createUser(input) {
+      return req<User>("POST", "/users", input);
+    },
+    listSubscriptions(userId) {
+      const q = userId ? `/users/${encodeURIComponent(userId)}/subscriptions` : "/subscriptions";
+      return req<Subscription[]>("GET", q);
+    },
+    connectStart() {
+      return req<{ sessionId: string; url: string }>("POST", "/subscriptions/connect/start");
+    },
+    connectComplete(input) {
+      return req<Subscription>("POST", "/subscriptions/connect/complete", input);
     },
     streamRunEvents(id, onEvent) {
       // Browser EventSource; in Node, pass a polyfilled global or poll /runs/:id.
