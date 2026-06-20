@@ -26,7 +26,8 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     runnerSecret,
     host: env.BROKK_RUNNER_HOST ?? env.HOSTNAME ?? "brokk-runner",
     workDir: env.BROKK_RUNNER_WORKDIR ?? "/tmp/brokk",
-    anthropicBaseUrl: env.ANTHROPIC_BASE_URL ?? "http://localhost:8787",
+    // Empty = direct to Anthropic. Set to the headroom proxy to route through it.
+    anthropicBaseUrl: env.ANTHROPIC_BASE_URL ?? "",
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
     githubToken: env.GITHUB_TOKEN ?? "",
     pollIntervalMs: Number(env.BROKK_RUNNER_POLL_MS ?? 3000),

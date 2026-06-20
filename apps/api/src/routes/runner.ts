@@ -33,13 +33,15 @@ export function runnerRoutes(deps: AppDeps): Hono {
   r.post("/register", async (c) => {
     const parsed = RegisterBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    // TODO(P1): upsert into `agents` (store helper not yet exposed). For the
-    // scaffold we echo a synthetic id so the runner loop can proceed.
-    return c.json({ runnerId: parsed.data.runnerId ?? crypto.randomUUID() }, 201);
+    const agent = await deps.store.registerAgent(parsed.data.host, parsed.data.capabilities);
+    return c.json({ runnerId: agent.id }, 201);
   });
 
   r.post("/heartbeat", async (c) => {
-    // TODO(P1): bump agents.lastSeenAt / status.
+    const body = await c.req.json().catch(() => ({}));
+    if (typeof body?.runnerId === "string") {
+      await deps.store.touchAgent(body.runnerId).catch(() => {});
+    }
     return c.json({ ok: true });
   });
 

@@ -15,8 +15,8 @@ but CCL-native, self-hosted, and composable with our context-compression proxy (
 - **Engine = Claude Agent SDK** (headless `query()` / `claude -p`). We don't build an agent.
 - **Stack mirrors Heimdall OSS**: pnpm monorepo · Hono API · Next 15 web · Drizzle + Postgres. **No PocketBase** (legacy/clients only).
 - **Control plane ↔ Runner split**: the API/board is light; the runner does the heavy, isolated work.
-- **Auth-agnostic per project**: Claude via **API key** (through the CCL AI gateway) **or** **Max subscription** (`claude setup-token`). Default to API-key for real automation.
-- **Headroom in the runner's path** (`ANTHROPIC_BASE_URL` → proxy) — stretches the Max window / saves $ on API key.
+- **Internal-only, Max-first**: Brokk runs on the **Max subscription** via the Agent SDK (`claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`). **API-key mode is deferred** — not designed for yet (revisit if/when Brokk goes multi-tenant or OSS). The engine stays auth-agnostic so the API-key path is a later config flip, not a rewrite.
+- **Headroom in the runner's path** (`ANTHROPIC_BASE_URL` → proxy): relevant mode is **`Subscription`** (lossless) — stretches the Max rate-limit window. ($-saving compression only matters in the deferred API-key mode.)
 - **Worktree isolation**: one git worktree per run; many runs in parallel; no cross-contamination.
 
 ## 3. Topology
@@ -97,12 +97,12 @@ Per run it:
 4. On success: commit, push branch, `gh pr create` → store `prUrl`, move task → **review**.
 5. Cleans up the worktree (kept on failure for debugging).
 
-**Auth modes** (per project): `api_key` (default; `ANTHROPIC_API_KEY` via the gateway) or `subscription` (`CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`).
+**Auth modes** (per project): `subscription` (**default/only for now**; `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` on the Max plan) or `api_key` (**deferred**; `ANTHROPIC_API_KEY` via the gateway — wired but not the supported path yet).
 
 ## 9. Headroom integration
 The runner exports `ANTHROPIC_BASE_URL=http://<headroom>:8787` before invoking the SDK.
-- `api_key` mode → headroom compresses + the **gateway** tracks spend (real $ saved).
-- `subscription` mode → headroom's lossless `Subscription` policy stretches the Max rate-limit window.
+- `subscription` mode (current) → headroom's lossless `Subscription` policy stretches the Max rate-limit window.
+- `api_key` mode (deferred) → headroom compresses + the **gateway** tracks spend (real $ saved).
 Per-run we record `headroomSaved` (from the proxy's stats) on the `runs` row.
 
 ## 10. GitHub
@@ -114,9 +114,9 @@ Branch-per-run; PR body links back to the Brokk card. Webhooks close the loop (m
 - Runner isolation: worktrees today; optional per-run container later.
 - Control-plane behind auth (CF Access / Heimdall SSO) — never expose the runner endpoints publicly without the shared secret.
 
-## 12. Billing (decision deferred to runner phase)
-- **API key via the CCL AI gateway** = production default: clean ToS, headroom saves real money, central spend per project.
-- **Max subscription** = light/personal only: ⚠️ server-side automation on a consumer subscription is ToS-gray and shares your interactive rate-limit window.
+## 12. Billing
+- **Max subscription = the model (internal-only)**: Brokk runs on the CCL Max plan via `claude setup-token`. Acceptable because it's internal tooling on our own seat; it shares the interactive rate-limit window (mitigated by headroom's `Subscription` mode).
+- **API key via the CCL AI gateway = deferred**: the path that gives clean ToS + central per-project spend + real $-saving compression. Revisit when Brokk goes multi-tenant/OSS or the Max window becomes the bottleneck.
 
 ## 13. Deployment
 - Control plane: Coolify app (monorepo; `apps/api` + `apps/web`), Postgres (Coolify-managed or via Hauldr).

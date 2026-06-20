@@ -1,4 +1,4 @@
-import { RUN_EVENT_TYPES } from "@brokk/core";
+import { RUN_EVENT_TYPES, type RunEventType } from "@brokk/core";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
@@ -65,7 +65,9 @@ export function runsRoutes(deps: AppDeps): Hono {
   r.post("/:id/events", requireRunnerSecret(deps), async (c) => {
     const parsed = AppendEventsBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const appended = await deps.store.appendEvents(c.req.param("id"), parsed.data.events);
+    // zod validated `type ∈ RUN_EVENT_TYPES`; cast back to the domain shape the store expects.
+    const events = parsed.data.events as { type: RunEventType; payload: unknown }[];
+    const appended = await deps.store.appendEvents(c.req.param("id"), events);
     return c.json({ appended: appended.length }, 201);
   });
 

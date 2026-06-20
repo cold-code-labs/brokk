@@ -26,8 +26,9 @@ export class ClaudeAgentEngine implements AgentEngine {
   constructor(private readonly opts: ClaudeEngineOptions) {}
 
   async run(ctx: AgentRunContext): Promise<RunUsage> {
-    // Route the agent's traffic through headroom (stretches Max window / saves $).
-    process.env.ANTHROPIC_BASE_URL = this.opts.anthropicBaseUrl;
+    // Route the agent's traffic through headroom when configured (stretches the
+    // Max window). Empty = go direct to Anthropic (subscription token / api key).
+    if (this.opts.anthropicBaseUrl) process.env.ANTHROPIC_BASE_URL = this.opts.anthropicBaseUrl;
     if (this.opts.anthropicApiKey) process.env.ANTHROPIC_API_KEY = this.opts.anthropicApiKey;
 
     const usage: RunUsage = { tokensIn: 0, tokensOut: 0, headroomSaved: 0 };

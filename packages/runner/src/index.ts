@@ -84,8 +84,8 @@ async function handleRun(
       task: { id: task.id, title: task.title, body: task.body, labels: task.labels },
       run: { id: run.id, branch, model: run.model, authMode: run.authMode },
       cwd: wt.path,
-      model: run.model ?? "claude-sonnet-4-5",
-      authMode: run.authMode ?? "api_key",
+      model: run.model ?? process.env.BROKK_DEFAULT_MODEL ?? "sonnet",
+      authMode: run.authMode ?? "subscription",
       allowedTools: [],
       emit: (e) => buffer.emit(e),
     });

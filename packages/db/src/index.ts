@@ -1,4 +1,4 @@
-import type { Run, RunEvent, RunStatus, Task, TaskStatus } from "@brokk/core";
+import type { Agent, Run, RunEvent, RunStatus, Task, TaskStatus } from "@brokk/core";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -67,6 +67,18 @@ function rowToRun(row: typeof runs.$inferSelect): Run {
   };
 }
 
+function rowToAgent(row: typeof agents.$inferSelect): Agent {
+  return {
+    id: row.id,
+    host: row.host,
+    capabilities: row.capabilities,
+    status: row.status as Agent["status"],
+    lastSeenAt: iso(row.lastSeenAt),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 function rowToEvent(row: typeof runEvents.$inferSelect): RunEvent {
   return {
     id: row.id,
@@ -93,6 +105,10 @@ export interface Store {
   getTask(id: string): Promise<Task | null>;
   insertTask(values: typeof tasks.$inferInsert): Promise<Task>;
   updateTask(id: string, patch: Partial<typeof tasks.$inferInsert>): Promise<Task>;
+
+  // agents (runners)
+  registerAgent(host: string, capabilities: string[]): Promise<Agent>;
+  touchAgent(id: string): Promise<void>;
 
   // runs
   getRun(id: string): Promise<Run | null>;
@@ -149,6 +165,21 @@ export function createStore(db: Db): Store {
         .returning();
       if (!rows[0]) throw new Error(`task ${id} not found`);
       return rowToTask(rows[0]);
+    },
+
+    async registerAgent(host, capabilities) {
+      // One row per (re)register; the runner uses the returned id for the session.
+      const rows = await db
+        .insert(agents)
+        .values({ host, capabilities, status: "online", lastSeenAt: new Date() })
+        .returning();
+      return rowToAgent(rows[0]!);
+    },
+    async touchAgent(id) {
+      await db
+        .update(agents)
+        .set({ lastSeenAt: new Date(), status: "online", updatedAt: new Date() })
+        .where(eq(agents.id, id));
     },
 
     async getRun(id) {
