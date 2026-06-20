@@ -32,6 +32,11 @@ export default function Board() {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Render only after mount: this is an interactive dashboard and browser
+  // extensions (Dashlane etc.) mutate the form HTML before React hydrates,
+  // which trips hydration warnings. Client-only sidesteps it cleanly.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const refresh = useCallback(async (projectId?: string) => {
     try {
@@ -92,10 +97,12 @@ export default function Board() {
 
   const selectedTask = tasks.find((t) => t.id === selected) ?? null;
 
+  if (!mounted) return null;
+
   return (
-    <main style={{ padding: "28px 32px", maxWidth: 1400, margin: "0 auto" }}>
+    <div style={{ padding: "28px 32px", maxWidth: 1400 }}>
       <header style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 26, letterSpacing: -0.5 }}>🔨 Brokk</h1>
+        <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>Board</h1>
         <p style={{ margin: "4px 0 0", color: "#9aa3b2", fontSize: 14 }}>
           The forge — card → agent → PR.{" "}
           {project ? (
@@ -166,7 +173,7 @@ export default function Board() {
       </div>
 
       {selectedTask && <Detail task={selectedTask} onClose={() => setSelected(null)} />}
-    </main>
+    </div>
   );
 }
 
