@@ -55,9 +55,14 @@ export class GhProvider implements GitProvider {
   }
 
   async push(opts: { cwd: string; branch: string; message: string }): Promise<void> {
+    // Self-contained committer identity so the runner doesn't depend on the
+    // host's global git config (overridable via env).
+    const name = process.env.BROKK_GIT_NAME ?? "Brokk";
+    const email = process.env.BROKK_GIT_EMAIL ?? "brokk@coldcodelabs.com";
+    const ident = ["-c", `user.name=${name}`, "-c", `user.email=${email}`];
     await git(opts.cwd, ["add", "-A"]);
     // Allow empty so a no-op run still produces a (clearly empty) branch.
-    await git(opts.cwd, ["commit", "-m", opts.message, "--allow-empty"]);
+    await git(opts.cwd, [...ident, "commit", "-m", opts.message, "--allow-empty"]);
     await git(opts.cwd, ["push", "-u", "origin", opts.branch]);
   }
 
