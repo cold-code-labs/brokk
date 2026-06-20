@@ -39,12 +39,14 @@ export class EitriGit {
     } catch {
       /* exists */
     }
-    const ref = `eitri/pr-${prNumber}`;
-    await git(bare, ["fetch", "origin", `+pull/${prNumber}/head:${ref}`]);
-    await git(bare, ["worktree", "prune"]).catch(() => {});
+    // Fetch into FETCH_HEAD and check out DETACHED — never a named branch, so a
+    // leftover worktree can't trigger "refusing to fetch into checked-out branch".
+    await git(bare, ["fetch", "origin", `pull/${prNumber}/head`]);
     const path = join(this.opts.workDir, "worktrees", `pr-${prNumber}`);
+    await git(bare, ["worktree", "remove", "--force", path]).catch(() => {});
+    await git(bare, ["worktree", "prune"]).catch(() => {});
     await rm(path, { recursive: true, force: true }).catch(() => {});
-    await git(bare, ["worktree", "add", "--force", path, ref]);
+    await git(bare, ["worktree", "add", "--force", "--detach", path, "FETCH_HEAD"]);
     return path;
   }
 
