@@ -11,6 +11,9 @@ export interface RunnerConfig {
   anthropicBaseUrl: string;
   anthropicApiKey: string;
   githubToken: string;
+  /** Shell command run in the worktree to verify the agent's work before the PR
+   *  (e.g. "pnpm install --silent && pnpm -r typecheck"). Empty = skip. */
+  verifyCmd: string;
   /** Poll interval (ms) between claim attempts when the queue is empty. */
   pollIntervalMs: number;
 }
@@ -30,6 +33,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     anthropicBaseUrl: env.ANTHROPIC_BASE_URL ?? "",
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
     githubToken: env.GITHUB_TOKEN ?? "",
+    verifyCmd: env.BROKK_VERIFY_CMD ?? "",
     pollIntervalMs: Number(env.BROKK_RUNNER_POLL_MS ?? 3000),
   };
 }

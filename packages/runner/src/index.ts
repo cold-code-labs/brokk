@@ -10,9 +10,13 @@
  * ⚠️ This is the P0 skeleton: structurally complete, UNVERIFIED at runtime.
  *    The P1 spike (1 card → real PR) is where this gets exercised.
  */
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 import type { RunEvent, Repository, Run, RunUsage, Task } from "@brokk/core";
 import { runBranch } from "@brokk/core";
 import { loadRunnerConfig, type RunnerConfig } from "./config.js";
+
+const execAsync = promisify(exec);
 import { GhProvider } from "./git.js";
 import { ClaudeAgentEngine } from "./engine.js";
 
@@ -95,6 +99,20 @@ async function handleRun(
       emit: (e) => buffer.emit(e),
     });
 
+    // Verify the agent's work in the worktree before opening the PR. The result
+    // is attached to the PR and decides the run's outcome — this is what lets a
+    // reviewer (human now, Eitri later) trust a green PR.
+    let verify: VerifyResult | null = null;
+    if (cfg.verifyCmd) {
+      buffer.emit({ type: "status", payload: { phase: "verify_start", cmd: cfg.verifyCmd } });
+      verify = await runVerify(cfg.verifyCmd, wt.path);
+      buffer.emit({ type: "status", payload: { phase: "verify_done", ok: verify.ok } });
+      buffer.emit({
+        type: "log",
+        payload: { level: verify.ok ? "info" : "error", verify: verify.output.slice(-4000) },
+      });
+    }
+
     buffer.emit({ type: "status", payload: { phase: "push", branch } });
     await git.push({ cwd: wt.path, branch, message: `brokk: ${task.title}` });
 
@@ -104,17 +122,24 @@ async function handleRun(
       branch,
       baseBranch,
       title: task.title,
-      body: prBody(task),
+      body: prBody(task, verify),
     });
     buffer.emit({ type: "status", payload: { phase: "pr_opened", url: pr.url } });
 
+    // Red verify → the run is a failure even though a PR exists (so the diff is
+    // still inspectable). Green / no-verify → succeeded.
+    const failed = verify ? !verify.ok : false;
     await buffer.flush();
     await api(cfg, "POST", `/runs/${run.id}/complete`, {
-      status: "succeeded",
+      status: failed ? "failed" : "succeeded",
       prUrl: pr.url,
+      error: failed ? `verify failed:\n${verify!.output.slice(-1500)}` : undefined,
       usage,
     });
-    console.log(`[brokk-runner] run ${run.id} → PR ${pr.url}`);
+    console.log(
+      `[brokk-runner] run ${run.id} → PR ${pr.url}` +
+        (verify ? ` · verify ${verify.ok ? "✓" : "✗"}` : ""),
+    );
   } catch (err) {
     buffer.emit({ type: "log", payload: { level: "error", error: String(err) } });
     await buffer.flush().catch(() => {});
@@ -192,13 +217,43 @@ async function resolveRepository(task: Task): Promise<Repository> {
   };
 }
 
-function prBody(task: Task): string {
-  return [
-    task.body || "_(no description)_",
-    "",
-    "---",
-    `🔨 Forged by **Brokk** · task \`${task.id}\``,
-  ].join("\n");
+type VerifyResult = { ok: boolean; output: string };
+
+/** Run the verify command in the worktree. Never throws — a non-zero exit is a
+ *  failed verification, not a runner crash. */
+async function runVerify(cmd: string, cwd: string): Promise<VerifyResult> {
+  try {
+    const { stdout, stderr } = await execAsync(cmd, {
+      cwd,
+      env: { ...process.env },
+      maxBuffer: 1024 * 1024 * 64,
+      timeout: 8 * 60 * 1000,
+    });
+    return { ok: true, output: `${stdout}\n${stderr}`.trim() };
+  } catch (err: any) {
+    const out = `${err?.stdout ?? ""}\n${err?.stderr ?? ""}\n${err?.message ?? err}`.trim();
+    return { ok: false, output: out };
+  }
+}
+
+function prBody(task: Task, verify: VerifyResult | null): string {
+  const lines = [task.body || "_(no description)_", ""];
+  if (verify) {
+    lines.push(
+      `**Verify:** ${verify.ok ? "✅ passed" : "❌ failed"}`,
+      "",
+      "<details><summary>verify output</summary>",
+      "",
+      "```",
+      verify.output.slice(-3000),
+      "```",
+      "",
+      "</details>",
+      "",
+    );
+  }
+  lines.push("---", `🔨 Forged by **Brokk** · task \`${task.id}\``);
+  return lines.join("\n");
 }
 
 /** Thin HTTP helper for the runner-facing (shared-secret) endpoints.
