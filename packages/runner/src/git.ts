@@ -39,13 +39,17 @@ export class GhProvider implements GitProvider {
     const bare = this.bareDir(repo);
     await mkdir(join(this.opts.workDir, "repos"), { recursive: true });
 
-    // TODO(P1): use an authenticated clone URL (token) and `git fetch` when the
-    // bare clone already exists rather than re-cloning.
     try {
       await git(this.opts.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
     } catch {
-      await git(bare, ["fetch", "origin", "+refs/heads/*:refs/heads/*"]);
+      // Bare already exists → refresh ONLY the base branch. A wildcard fetch
+      // (`+refs/heads/*`) would try to clobber the `brokk/*` run branches that
+      // are still checked out in worktrees and git refuses ("refusing to fetch
+      // into branch ... checked out").
+      await git(bare, ["fetch", "origin", `+refs/heads/${baseBranch}:refs/heads/${baseBranch}`]);
     }
+    // Drop bookkeeping for worktrees whose dirs were already removed.
+    await git(bare, ["worktree", "prune"]).catch(() => {});
 
     const path = join(this.opts.workDir, "worktrees", branch.replace(/[/]/g, "__"));
     // A bare clone stores branches as local refs (refs/heads/<branch>), so fork
