@@ -19,7 +19,7 @@ export default function Sidebar() {
           <span style={{ fontSize: 22 }}>🔨</span>
           <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: -0.4 }}>Brokk</span>
         </div>
-        <p style={{ margin: "4px 0 0 31px", fontSize: 11, color: "#5c6575" }}>the forge</p>
+        <p style={{ margin: "4px 0 0 31px", fontSize: 11, color: "#5c6575" }}>the mega forge</p>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 10px" }}>
