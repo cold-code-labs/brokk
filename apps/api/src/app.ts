@@ -1,6 +1,7 @@
 import type { Store } from "@brokk/db";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { version } from "../package.json";
 import { runnerRoutes } from "./routes/runner.js";
 import { runsRoutes } from "./routes/runs.js";
 import { tasksRoutes } from "./routes/tasks.js";
@@ -26,6 +27,7 @@ export function buildApp(deps: AppDeps): Hono {
   });
 
   app.get("/health", (c) => c.json({ ok: true, service: "brokk-api" }));
+  app.get("/version", (c) => c.json({ version }));
 
   app.route("/tasks", tasksRoutes(deps));
   app.route("/runs", runsRoutes(deps));
