@@ -1,4 +1,7 @@
-import type { Run, RunEvent, Task } from "@brokk/core";
+import type { Project, Run, RunEvent, Task } from "@brokk/core";
+
+// Re-export the domain types so consumers (web) depend only on the SDK.
+export type { Agent, Project, Run, RunEvent, Task, TaskStatus, RunStatus } from "@brokk/core";
 
 export interface BrokkClientOptions {
   baseUrl: string;
@@ -20,11 +23,13 @@ export interface CreateTaskInput {
 /** Minimal typed client over the Brokk control-plane API. Shared by the web UI
  *  and external callers (Heimdall, Asgard). */
 export interface BrokkClient {
+  listProjects(): Promise<Project[]>;
   listTasks(projectId?: string): Promise<Task[]>;
   getTask(id: string): Promise<Task>;
   createTask(input: CreateTaskInput): Promise<Task>;
   patchTask(id: string, patch: Partial<Task>): Promise<Task>;
   enqueueTask(id: string): Promise<Task>;
+  listTaskRuns(id: string): Promise<Run[]>;
   getRun(id: string): Promise<Run>;
   /** Subscribe to a run's live event stream (SSE). Returns an unsubscribe fn. */
   streamRunEvents(id: string, onEvent: (e: RunEvent) => void): () => void;
@@ -51,9 +56,15 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
   }
 
   return {
+    listProjects() {
+      return req<Project[]>("GET", "/projects");
+    },
     listTasks(projectId) {
       const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
       return req<Task[]>("GET", `/tasks${q}`);
+    },
+    listTaskRuns(id) {
+      return req<Run[]>("GET", `/tasks/${encodeURIComponent(id)}/runs`);
     },
     getTask(id) {
       return req<Task>("GET", `/tasks/${encodeURIComponent(id)}`);

@@ -112,6 +112,7 @@ export interface Store {
 
   // runs
   getRun(id: string): Promise<Run | null>;
+  listRunsByTask(taskId: string): Promise<Run[]>;
   insertRun(values: typeof runs.$inferInsert): Promise<Run>;
   updateRun(id: string, patch: Partial<typeof runs.$inferInsert>): Promise<Run>;
   /** Atomically claim the next queued task: create a run, flip task → running. */
@@ -185,6 +186,14 @@ export function createStore(db: Db): Store {
     async getRun(id) {
       const rows = await db.select().from(runs).where(eq(runs.id, id)).limit(1);
       return rows[0] ? rowToRun(rows[0]) : null;
+    },
+    async listRunsByTask(taskId) {
+      const rows = await db
+        .select()
+        .from(runs)
+        .where(eq(runs.taskId, taskId))
+        .orderBy(sql`${runs.createdAt} desc`);
+      return rows.map(rowToRun);
     },
     async insertRun(values) {
       const rows = await db.insert(runs).values(values).returning();

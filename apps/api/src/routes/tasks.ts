@@ -44,6 +44,11 @@ export function tasksRoutes(deps: AppDeps): Hono {
     return c.json(task);
   });
 
+  // Runs for a task (newest first) — powers the card's run history + live log.
+  r.get("/:id/runs", async (c) => {
+    return c.json(await deps.store.listRunsByTask(c.req.param("id")));
+  });
+
   // Edit fields or move column.
   r.patch("/:id", async (c) => {
     const parsed = PatchTaskBody.safeParse(await c.req.json().catch(() => ({})));
