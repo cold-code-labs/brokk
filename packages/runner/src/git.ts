@@ -48,7 +48,9 @@ export class GhProvider implements GitProvider {
     }
 
     const path = join(this.opts.workDir, "worktrees", branch.replace(/[/]/g, "__"));
-    await git(bare, ["worktree", "add", "-b", branch, path, `origin/${baseBranch}`]);
+    // A bare clone stores branches as local refs (refs/heads/<branch>), so fork
+    // from `baseBranch` directly — there is no `origin/` remote-tracking prefix.
+    await git(bare, ["worktree", "add", "-b", branch, path, baseBranch]);
     return { path, branch };
   }
 
