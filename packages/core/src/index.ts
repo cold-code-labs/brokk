@@ -186,6 +186,17 @@ export interface Subscription {
   updatedAt: string;
 }
 
+/** A review Eitri posted on a pull request (one per PR head sha). */
+export interface Review {
+  id: string;
+  repo: string;
+  prNumber: number;
+  sha: string;
+  verdict: string;
+  summary: string;
+  createdAt: string;
+}
+
 /** Pull request opened by a run. */
 export interface PullRequest {
   id: string;

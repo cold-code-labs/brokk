@@ -171,6 +171,22 @@ export const subscriptions = pgTable("subscriptions", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Eitri's review ledger — one row per (repo, pr, head sha) so a PR isn't
+ *  re-reviewed until it changes. */
+export const reviews = pgTable(
+  "reviews",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    repo: text("repo").notNull(),
+    prNumber: integer("pr_number").notNull(),
+    sha: text("sha").notNull(),
+    verdict: text("verdict").notNull().default("comment"),
+    summary: text("summary").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ uniq: unique("reviews_repo_pr_sha_uniq").on(t.repo, t.prNumber, t.sha) }),
+);
+
 export const pullRequests = pgTable("pull_requests", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   taskId: uuid("task_id")

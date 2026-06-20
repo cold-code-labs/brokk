@@ -1,5 +1,6 @@
 import type {
   Agent,
+  Review,
   Run,
   RunEvent,
   RunStatus,
@@ -16,6 +17,7 @@ import {
   projects,
   pullRequests,
   repositories,
+  reviews,
   runEvents,
   runs,
   subscriptions,
@@ -28,7 +30,7 @@ export * from "./schema.js";
 export function createDb(connectionString: string) {
   const client = postgres(connectionString);
   const db = drizzle(client, {
-    schema: { repositories, projects, tasks, agents, runs, runEvents, pullRequests, users, subscriptions },
+    schema: { repositories, projects, tasks, agents, runs, runEvents, pullRequests, users, subscriptions, reviews },
   });
   return { db, client };
 }
@@ -154,6 +156,11 @@ export interface Store {
   /** Raw sealed token for one subscription (server-side decrypt only). */
   getSealedToken(id: string): Promise<string | null>;
 
+  // reviews (Eitri)
+  hasReview(repo: string, prNumber: number, sha: string): Promise<boolean>;
+  insertReview(values: typeof reviews.$inferInsert): Promise<Review>;
+  listReviews(repo?: string): Promise<Review[]>;
+
   // agents (runners)
   registerAgent(host: string, capabilities: string[]): Promise<Agent>;
   touchAgent(id: string): Promise<void>;
@@ -249,6 +256,42 @@ export function createStore(db: Db): Store {
         .where(eq(subscriptions.id, id))
         .limit(1);
       return rows[0]?.t ?? null;
+    },
+
+    async hasReview(repo, prNumber, sha) {
+      const rows = await db
+        .select({ id: reviews.id })
+        .from(reviews)
+        .where(and(eq(reviews.repo, repo), eq(reviews.prNumber, prNumber), eq(reviews.sha, sha)))
+        .limit(1);
+      return rows.length > 0;
+    },
+    async insertReview(values) {
+      const rows = await db.insert(reviews).values(values).returning();
+      const r = rows[0]!;
+      return {
+        id: r.id,
+        repo: r.repo,
+        prNumber: r.prNumber,
+        sha: r.sha,
+        verdict: r.verdict,
+        summary: r.summary,
+        createdAt: r.createdAt.toISOString(),
+      };
+    },
+    async listReviews(repo) {
+      const rows = repo
+        ? await db.select().from(reviews).where(eq(reviews.repo, repo))
+        : await db.select().from(reviews);
+      return rows.map((r) => ({
+        id: r.id,
+        repo: r.repo,
+        prNumber: r.prNumber,
+        sha: r.sha,
+        verdict: r.verdict,
+        summary: r.summary,
+        createdAt: r.createdAt.toISOString(),
+      }));
     },
 
     async registerAgent(host, capabilities) {
