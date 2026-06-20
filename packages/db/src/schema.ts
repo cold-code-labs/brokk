@@ -110,6 +110,7 @@ export const runs = pgTable("runs", {
     .references(() => tasks.id, { onDelete: "cascade" }),
   status: runStatus("status").notNull().default("queued"),
   runnerId: uuid("runner_id").references(() => agents.id, { onDelete: "set null" }),
+  subscriptionId: uuid("subscription_id").references(() => subscriptions.id, { onDelete: "set null" }),
   worktree: text("worktree"),
   branch: text("branch"),
   model: text("model"),

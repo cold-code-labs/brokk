@@ -17,7 +17,8 @@ import { GhProvider } from "./git.js";
 import { ClaudeAgentEngine } from "./engine.js";
 
 type EventInput = Omit<RunEvent, "id" | "runId" | "seq" | "at">;
-type Claimed = { task: Task; run: Run };
+type ClaimAuth = { source: "seat" | "env"; token: string | null; subscriptionId: string | null };
+type Claimed = { task: Task; run: Run; auth?: ClaimAuth };
 
 async function main() {
   const cfg = loadRunnerConfig();
@@ -66,9 +67,12 @@ async function handleRun(
   cfg: RunnerConfig,
   git: GhProvider,
   engine: ClaudeAgentEngine,
-  { task, run }: Claimed,
+  { task, run, auth }: Claimed,
 ): Promise<void> {
-  console.log(`[brokk-runner] claimed task "${task.title}" (run ${run.id})`);
+  console.log(
+    `[brokk-runner] claimed task "${task.title}" (run ${run.id})` +
+      (auth?.source === "seat" ? ` · seat ${auth.subscriptionId?.slice(0, 8)}` : " · ambient token"),
+  );
   const buffer = new EventBuffer(cfg, run.id);
   const repo = await resolveRepository(task); // TODO(P1): enrich /runner/claim with project+repo
   const baseBranch = task.baseBranch ?? repo.defaultBranch;
@@ -86,6 +90,7 @@ async function handleRun(
       cwd: wt.path,
       model: run.model ?? process.env.BROKK_DEFAULT_MODEL ?? "sonnet",
       authMode: run.authMode ?? "subscription",
+      authToken: auth?.token ?? undefined,
       allowedTools: [],
       emit: (e) => buffer.emit(e),
     });

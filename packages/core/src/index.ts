@@ -121,6 +121,8 @@ export interface Run {
   taskId: string;
   status: RunStatus;
   runnerId: string | null;
+  /** The Max seat (subscription) that powered this run, if any. */
+  subscriptionId: string | null;
   /** Absolute path of the git worktree the run executed in. */
   worktree: string | null;
   branch: string | null;
@@ -215,6 +217,8 @@ export interface AgentRunContext {
   cwd: string;
   model: string;
   authMode: AuthMode;
+  /** Per-run Max OAuth token (a seat). Overrides the runner's ambient token. */
+  authToken?: string;
   allowedTools: string[];
   /** Emit one event into the run stream (forwarded to the control plane). */
   emit: (event: Omit<RunEvent, "id" | "runId" | "seq" | "at">) => void;

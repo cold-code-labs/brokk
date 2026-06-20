@@ -62,6 +62,7 @@ function rowToRun(row: typeof runs.$inferSelect): Run {
     taskId: row.taskId,
     status: row.status as RunStatus,
     runnerId: row.runnerId,
+    subscriptionId: row.subscriptionId,
     worktree: row.worktree,
     branch: row.branch,
     model: row.model,
@@ -162,8 +163,12 @@ export interface Store {
   listRunsByTask(taskId: string): Promise<Run[]>;
   insertRun(values: typeof runs.$inferInsert): Promise<Run>;
   updateRun(id: string, patch: Partial<typeof runs.$inferInsert>): Promise<Run>;
-  /** Atomically claim the next queued task: create a run, flip task → running. */
-  claimNext(runnerId: string): Promise<{ task: Task; run: Run } | null>;
+  /** Atomically claim the next queued task: create a run, flip task → running,
+   *  and assign the least-recently-used active seat (round-robin). Returns the
+   *  seat's sealed token for the control plane to decrypt, or null seat. */
+  claimNext(
+    runnerId: string,
+  ): Promise<{ task: Task; run: Run; sealedToken: string | null } | null>;
 
   // events (append-only)
   listEvents(runId: string, afterSeq?: number): Promise<RunEvent[]>;
@@ -307,17 +312,39 @@ export function createStore(db: Db): Store {
           .where(eq(tasks.id, taskRow.id))
           .returning();
 
+        // Round-robin: grab the least-recently-used active seat and lock it so
+        // two concurrent claims don't both pick the same one.
+        const seat = await tx
+          .select({ id: subscriptions.id, sealed: subscriptions.sealedToken })
+          .from(subscriptions)
+          .where(eq(subscriptions.status, "active"))
+          .orderBy(sql`${subscriptions.lastUsedAt} asc nulls first`)
+          .limit(1)
+          .for("update", { skipLocked: true });
+        const seatRow = seat[0];
+        if (seatRow) {
+          await tx
+            .update(subscriptions)
+            .set({ lastUsedAt: new Date() })
+            .where(eq(subscriptions.id, seatRow.id));
+        }
+
         const runRows = await tx
           .insert(runs)
           .values({
             taskId: taskRow.id,
             status: "running",
             runnerId,
+            subscriptionId: seatRow?.id ?? null,
             startedAt: new Date(),
           })
           .returning();
 
-        return { task: rowToTask(updatedTask[0]!), run: rowToRun(runRows[0]!) };
+        return {
+          task: rowToTask(updatedTask[0]!),
+          run: rowToRun(runRows[0]!),
+          sealedToken: seatRow?.sealed ?? null,
+        };
       });
     },
 

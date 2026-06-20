@@ -13,6 +13,7 @@ type Row = { task: Task; latest?: Run };
 
 export default function History() {
   const [rows, setRows] = useState<Row[]>([]);
+  const [seatName, setSeatName] = useState<Record<string, string>>({});
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -20,13 +21,21 @@ export default function History() {
     let alive = true;
     const load = async () => {
       try {
-        const tasks = await brokk.listTasks();
+        const [tasks, subs, users] = await Promise.all([
+          brokk.listTasks(),
+          brokk.listSubscriptions().catch(() => []),
+          brokk.listUsers().catch(() => []),
+        ]);
+        const userById = Object.fromEntries(users.map((u) => [u.id, u.name]));
+        const map: Record<string, string> = {};
+        for (const s of subs) map[s.id] = userById[s.userId] ?? s.label;
         const withRuns = await Promise.all(
           tasks.map(async (task) => ({ task, latest: (await brokk.listTaskRuns(task.id).catch(() => []))[0] })),
         );
         if (alive) {
           withRuns.sort((a, b) => (a.task.updatedAt < b.task.updatedAt ? 1 : -1));
           setRows(withRuns);
+          setSeatName(map);
         }
       } catch {
         /* ignore */
@@ -48,7 +57,7 @@ export default function History() {
 
       <div style={table}>
         <div style={{ ...trow, color: "#5c6575", fontSize: 11, textTransform: "uppercase", borderBottom: "1px solid #1c212c" }}>
-          <span>Task</span><span>Status</span><span>Run</span><span>Tokens</span><span>PR</span><span>Updated</span>
+          <span>Task</span><span>Status</span><span>Run</span><span>Seat</span><span>Tokens</span><span>PR</span><span>Updated</span>
         </div>
         {rows.length === 0 && <p style={{ padding: 16, color: "#3f4654", fontSize: 13 }}>No tasks yet.</p>}
         {rows.map(({ task, latest }) => (
@@ -57,6 +66,9 @@ export default function History() {
             <span><Badge text={task.status} color={STATUS_COLOR[task.status]} /></span>
             <span style={{ fontSize: 12, color: "#9aa3b2" }}>
               {latest ? `${latest.status}${duration(latest)}` : "—"}
+            </span>
+            <span style={{ fontSize: 12, color: "#9aa3b2", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {latest?.subscriptionId ? (seatName[latest.subscriptionId] ?? "seat") : "ambient"}
             </span>
             <span style={{ fontSize: 12, color: "#9aa3b2" }}>
               {latest && (latest.tokensIn || latest.tokensOut) ? `${fmt(latest.tokensIn)}/${fmt(latest.tokensOut)}` : "—"}
@@ -103,7 +115,7 @@ function rel(iso: string): string {
 const table: React.CSSProperties = { border: "1px solid #1c212c", borderRadius: 10, overflow: "hidden", background: "#0f121a" };
 const trow: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(0,2.4fr) 0.9fr 1.2fr 0.8fr 0.5fr 0.9fr",
+  gridTemplateColumns: "minmax(0,2.2fr) 0.85fr 1.1fr 0.9fr 0.7fr 0.5fr 0.85fr",
   gap: 10,
   alignItems: "center",
   padding: "11px 16px",

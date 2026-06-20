@@ -31,6 +31,11 @@ export class ClaudeAgentEngine implements AgentEngine {
     if (this.opts.anthropicBaseUrl) process.env.ANTHROPIC_BASE_URL = this.opts.anthropicBaseUrl;
     if (this.opts.anthropicApiKey) process.env.ANTHROPIC_API_KEY = this.opts.anthropicApiKey;
 
+    // Per-run seat token (a member's Max). Override the ambient one for this run
+    // and restore after. Runs are sequential in the runner loop, so this is safe.
+    const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    if (ctx.authToken) process.env.CLAUDE_CODE_OAUTH_TOKEN = ctx.authToken;
+
     const usage: RunUsage = { tokensIn: 0, tokensOut: 0, headroomSaved: 0 };
 
     // Lazy import so the package builds even if the SDK isn't installed yet.
@@ -76,6 +81,12 @@ export class ClaudeAgentEngine implements AgentEngine {
     } catch (err) {
       ctx.emit({ type: "log", payload: { level: "error", error: String(err) } });
       throw err;
+    } finally {
+      // Restore the ambient token so it never leaks into the next run.
+      if (ctx.authToken) {
+        if (prevToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+        else process.env.CLAUDE_CODE_OAUTH_TOKEN = prevToken;
+      }
     }
 
     ctx.emit({ type: "status", payload: { phase: "agent_done", usage } });
