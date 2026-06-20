@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 import { createDb, createStore } from "@brokk/db";
 import { loadEitriConfig } from "./config.js";
 import { EitriGit } from "./git.js";
+import { type AppAuth, getInstallationToken, loadAppAuth } from "./github-app.js";
 import { reviewPr } from "./review.js";
 
 const exec = promisify(execFile);
@@ -36,8 +37,12 @@ async function main() {
   const { db } = createDb(cfg.databaseUrl);
   const store = createStore(db);
   const git = new EitriGit(cfg);
+  const appAuth = loadAppAuth();
 
-  console.log(`[eitri] watching ${cfg.repo} every ${cfg.pollIntervalMs / 1000}s`);
+  console.log(
+    `[eitri] watching ${cfg.repo} every ${cfg.pollIntervalMs / 1000}s` +
+      (appAuth ? " · identity: GitHub App (Eitri[bot])" : cfg.hasOwnIdentity ? " · identity: own token" : " · identity: shared forge account (comment-only)"),
+  );
 
   let stopping = false;
   const stop = () => {
@@ -52,7 +57,7 @@ async function main() {
       for (const pr of prs) {
         if (cfg.skipAuthors.includes(pr.author?.login)) continue;
         if (await store.hasReview(cfg.repo, pr.number, pr.headRefOid)) continue;
-        await reviewOne(cfg, store, git, pr).catch((e) =>
+        await reviewOne(cfg, store, git, appAuth, pr).catch((e) =>
           console.error(`[eitri] review of #${pr.number} failed:`, e),
         );
       }
@@ -68,6 +73,7 @@ async function reviewOne(
   cfg: ReturnType<typeof loadEitriConfig>,
   store: ReturnType<typeof createStore>,
   git: EitriGit,
+  appAuth: AppAuth | null,
   pr: OpenPr,
 ): Promise<void> {
   console.log(`[eitri] reviewing #${pr.number} "${pr.title}" @ ${pr.headRefOid.slice(0, 8)}`);
@@ -76,7 +82,10 @@ async function reviewOne(
   try {
     const { verdict, body } = await reviewPr({ cwd, model: cfg.model, prTitle: pr.title, diff });
     const comment = `🛡️ **Eitri** — *the forge's second smith*\n\n${body}`;
-    await git.postReview(pr.number, comment, verdict);
+    // Post identity: GitHub App token (Eitri[bot]) > own token > shared account.
+    const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;
+    const canReview = Boolean(appAuth) || cfg.hasOwnIdentity;
+    await git.postReview(pr.number, comment, verdict, { token, canReview });
     await store.insertReview({
       repo: cfg.repo,
       prNumber: pr.number,

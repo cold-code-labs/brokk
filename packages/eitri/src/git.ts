@@ -17,21 +17,11 @@ async function gh(args: string[], env: NodeJS.ProcessEnv): Promise<string> {
 
 export class EitriGit {
   constructor(
-    private readonly opts: {
-      workDir: string;
-      repo: string;
-      cloneUrl: string;
-      githubToken: string;
-      postToken: string;
-      hasOwnIdentity: boolean;
-    },
+    private readonly opts: { workDir: string; repo: string; cloneUrl: string; githubToken: string },
   ) {}
 
   private get env() {
     return { ...process.env, GH_TOKEN: this.opts.githubToken };
-  }
-  private get postEnv() {
-    return { ...process.env, GH_TOKEN: this.opts.postToken };
   }
   private bareDir() {
     return join(this.opts.workDir, "repo.git");
@@ -62,16 +52,27 @@ export class EitriGit {
     return path;
   }
 
-  /** Post the review. With its own identity Eitri can approve / request changes;
-   *  on the shared forge account it can only comment (GitHub blocks reviewing
-   *  your own PR with an approval state). */
-  async postReview(prNumber: number, body: string, verdict: "APPROVE" | "COMMENT" | "REQUEST_CHANGES"): Promise<void> {
-    let flag = "--comment";
-    if (this.opts.hasOwnIdentity) {
-      if (verdict === "APPROVE") flag = "--approve";
-      else if (verdict === "REQUEST_CHANGES") flag = "--request-changes";
-    }
-    await gh(["pr", "review", String(prNumber), "--repo", this.opts.repo, flag, "--body", body], this.postEnv);
+  /** Post the review via the API (works cleanly with App installation tokens).
+   *  With its own identity Eitri can approve / request changes; otherwise it can
+   *  only comment (GitHub blocks an approval state on your own PR). */
+  async postReview(
+    prNumber: number,
+    body: string,
+    verdict: "APPROVE" | "COMMENT" | "REQUEST_CHANGES",
+    opts: { token: string; canReview: boolean },
+  ): Promise<void> {
+    const event = !opts.canReview
+      ? "COMMENT"
+      : verdict === "APPROVE"
+        ? "APPROVE"
+        : verdict === "REQUEST_CHANGES"
+          ? "REQUEST_CHANGES"
+          : "COMMENT";
+    const [owner, name] = this.opts.repo.split("/");
+    await gh(
+      ["api", `repos/${owner}/${name}/pulls/${prNumber}/reviews`, "-f", `event=${event}`, "-f", `body=${body}`],
+      { ...process.env, GH_TOKEN: opts.token },
+    );
   }
 
   async cleanup(path: string): Promise<void> {
