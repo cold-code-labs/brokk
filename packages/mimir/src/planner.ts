@@ -12,6 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
+  type ClarifyQuestion,
   FORCA_LEVELS,
   type ForcaLevel,
   forcaToModel,
@@ -38,13 +39,18 @@ Para cada card defina:
 - "dependsOn": lista de "key"s que precisam estar prontos ANTES deste card (o DAG). Camadas de baixo (schema/db) normalmente vêm antes das de cima (api/web).
 - "touches": arquivos ou áreas que o card deve tocar (ex.: "packages/db/src/schema.ts", "apps/web/"). Use o contexto do repo quando houver.
 
+DÚVIDAS (como o Claude faz naturalmente): se o pedido for ambíguo, incompleto ou tiver decisões em aberto que mudariam o plano, levante de 1 a 3 PERGUNTAS curtas em "questions" — NÃO invente a resposta. Mesmo com dúvidas, ainda produza seu MELHOR PALPITE de cards (assumindo o caminho mais provável), para a pessoa ter de onde partir. Se o pedido já estiver claro, deixe "questions" como lista vazia. Cada pergunta tem:
+- "question": a dúvida em si, no idioma do pedido.
+- "why": o que a resposta muda no plano (por que vale perguntar).
+Pergunte só o que de fato altera o plano — não encha de perguntas triviais.
+
 Princípios:
 - Cada card deve ser uma unidade testável e coerente — nem fino demais (1 linha), nem grosso demais (a feature inteira).
 - Ordene por dependência real; cards independentes podem não ter dependsOn.
 - Não invente requisitos que mudem a tarefa.`;
 
 const OUTPUT_CONTRACT = `Responda SOMENTE com um objeto JSON válido, sem markdown, neste formato exato:
-{"mode":"atomic|feature","summary":"<nome curto da feature>","rationale":"<1-3 frases em PT-BR justificando a decomposição>","targetBranch":"dev","cards":[{"key":"db","title":"...","body":"...","forca":"low|medium|high|extra","dependsOn":[],"touches":[]}]}`;
+{"mode":"atomic|feature","summary":"<nome curto da feature>","rationale":"<1-3 frases em PT-BR justificando a decomposição>","targetBranch":"dev","questions":[{"question":"...","why":"..."}],"cards":[{"key":"db","title":"...","body":"...","forca":"low|medium|high|extra","dependsOn":[],"touches":[]}]}`;
 
 type RawCard = {
   key?: unknown;
@@ -54,11 +60,13 @@ type RawCard = {
   dependsOn?: unknown;
   touches?: unknown;
 };
+type RawQuestion = { question?: unknown; why?: unknown };
 type RawPlan = {
   mode?: unknown;
   summary?: unknown;
   rationale?: unknown;
   targetBranch?: unknown;
+  questions?: unknown;
   cards?: unknown;
 };
 
@@ -67,6 +75,22 @@ const asStrArr = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
 const asForca = (v: unknown): ForcaLevel =>
   FORCA_LEVELS.includes(v as ForcaLevel) ? (v as ForcaLevel) : "medium";
+
+/** Sanitize the planner's questions: keep only well-formed ones, cap at 3, and
+ *  assign each a stable local id the UI threads answers back through. */
+function asQuestions(v: unknown): ClarifyQuestion[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((q): ClarifyQuestion | null => {
+      const r = q as RawQuestion;
+      const question = asStr(r.question).trim();
+      if (!question) return null;
+      return { id: "", question, why: asStr(r.why).trim() };
+    })
+    .filter((q): q is ClarifyQuestion => q !== null)
+    .slice(0, 3)
+    .map((q, i) => ({ ...q, id: `q${i + 1}` }));
+}
 
 /** Plan one human prompt into cards. Throws MimirError on AI failure; sanitizes
  *  the model output and never returns an empty plan (falls back to one card). */
@@ -141,6 +165,7 @@ export async function planJob(
     summary: asStr(raw?.summary, clean.slice(0, 60)).trim() || clean.slice(0, 60),
     rationale: asStr(raw?.rationale).trim(),
     targetBranch: asStr(raw?.targetBranch, "dev").trim() || "dev",
+    questions: asQuestions(raw?.questions),
     cards,
     model: config.plannerModel,
   };

@@ -498,6 +498,19 @@ export interface PlannedCard {
   touches: string[];
 }
 
+/** A clarifying question Mímir raises when the intent is ambiguous or missing
+ *  critical info — the forge's equivalent of "let me check before I run". The
+ *  planner still produces best-guess cards alongside; answering and re-planning
+ *  replaces the guess with a grounded plan. */
+export interface ClarifyQuestion {
+  /** Stable local id so an answer can be threaded back to its question. */
+  id: string;
+  /** The question, in the prompt's language. */
+  question: string;
+  /** Why it matters — what the answer changes about the plan. */
+  why: string;
+}
+
 /** The planner's output for one human prompt (advisory until applied). */
 export interface PlanDraft {
   mode: PlanMode;
@@ -505,6 +518,9 @@ export interface PlanDraft {
   rationale: string;
   targetBranch: string;
   cards: PlannedCard[];
+  /** Open questions Mímir wants answered before this plan is trustworthy. Empty
+   *  when the intent was clear enough to plan confidently. */
+  questions: ClarifyQuestion[];
   /** Model the planner itself ran with (the strong one). */
   model: string;
 }

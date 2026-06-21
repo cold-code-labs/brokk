@@ -16,7 +16,7 @@ import type {
 export type {
   Agent, Preview, PreviewStatus, Project, Repository, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
   ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
-  Plan, PlanDraft, PlannedCard, PlanMode, PlanStatus,
+  Plan, PlanDraft, PlannedCard, PlanMode, PlanStatus, ClarifyQuestion,
 } from "@brokk/core";
 
 /** A repo the gh importer found in the org but that isn't connected yet. */

@@ -35,6 +35,10 @@ export default function Planner() {
   const [applying, setApplying] = useState(false);
   const [applied, setApplied] = useState<{ plan: Plan; count: number } | null>(null);
   const [recent, setRecent] = useState<Plan[]>([]);
+  // Answers to Mímir's clarifying questions, keyed by question id; folded back
+  // into the prompt on re-plan.
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [replanning, setReplanning] = useState(false);
 
   useEffect(() => {
     brokk.listProjects().then((p) => {
@@ -48,6 +52,7 @@ export default function Planner() {
     setError("");
     setApplied(null);
     setDraft(null);
+    setAnswers({});
     setPlanning(true);
     try {
       const d = await brokk.planJob(input, projectId || undefined);
@@ -56,6 +61,32 @@ export default function Planner() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setPlanning(false);
+    }
+  }
+
+  const hasAnswer = (q: { id: string }) => Boolean((answers[q.id] ?? "").trim());
+
+  // Fold the answered questions back into the prompt and re-plan — the clarify
+  // loop. The grounded answers become part of the stored intent on forge.
+  async function answerAndReplan() {
+    if (!draft) return;
+    const answered = draft.questions.filter(hasAnswer);
+    if (answered.length === 0) return;
+    const appendix =
+      "\n\n--- Respostas às dúvidas de Mímir ---\n" +
+      answered.map((q) => `• ${q.question}\n  → ${(answers[q.id] ?? "").trim()}`).join("\n");
+    const grounded = `${input.trim()}${appendix}`;
+    setReplanning(true);
+    setError("");
+    try {
+      const d = await brokk.planJob(grounded, projectId || undefined);
+      setInput(grounded);
+      setAnswers({});
+      setDraft(d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReplanning(false);
     }
   }
 
@@ -154,6 +185,48 @@ export default function Planner() {
             <p style={{ color: t.textMuted, fontSize: 13, margin: "0 0 14px" }}>{draft.rationale}</p>
           ) : null}
 
+          {draft.questions.length > 0 ? (
+            <div style={clarifyBox}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 14 }}>✦</span>
+                <strong style={{ fontSize: 13.5, color: "#e3b341" }}>
+                  Mímir tem {draft.questions.length} dúvida{draft.questions.length > 1 ? "s" : ""} antes de firmar o plano
+                </strong>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {draft.questions.map((q) => (
+                  <div key={q.id}>
+                    <div style={{ fontSize: 13.5, color: t.text, marginBottom: 2 }}>{q.question}</div>
+                    {q.why ? (
+                      <div style={{ fontSize: 12, color: t.textFaint, marginBottom: 7 }}>{q.why}</div>
+                    ) : null}
+                    <input
+                      value={answers[q.id] ?? ""}
+                      onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
+                      placeholder="Sua resposta…"
+                      style={{ ...textarea, padding: "8px 11px" }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
+                <button
+                  onClick={answerAndReplan}
+                  disabled={replanning || !draft.questions.some(hasAnswer)}
+                  style={btnPrimary(replanning || !draft.questions.some(hasAnswer))}
+                >
+                  {replanning ? "Re-planejando…" : "Responder e re-planejar"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {draft.questions.length > 0 ? (
+            <p style={{ fontSize: 12, color: t.textFaint, margin: "0 0 8px" }}>
+              Plano provisório (melhor palpite). Responda as dúvidas acima para firmá-lo — ou forje assim mesmo.
+            </p>
+          ) : null}
+
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {draft.cards.map((c, i) => (
               <div key={i} style={cardRow}>
@@ -238,6 +311,13 @@ const cardRow: React.CSSProperties = {
   border: `1px solid ${t.border}`,
   borderRadius: 10,
   padding: 12,
+};
+const clarifyBox: React.CSSProperties = {
+  background: "#1a1605",
+  border: "1px solid #4d3a00",
+  borderRadius: 10,
+  padding: 14,
+  marginBottom: 14,
 };
 const recentRow: React.CSSProperties = {
   display: "flex",
