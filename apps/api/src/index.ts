@@ -21,7 +21,12 @@ async function main() {
     console.warn("[mimir] MIMIR_API_KEY not set — enhance/triage disabled");
   }
 
-  const app = buildApp({ store, runnerSecret: cfg.BROKK_RUNNER_SECRET, mimir });
+  const app = buildApp({
+    store,
+    runnerSecret: cfg.BROKK_RUNNER_SECRET,
+    githubWebhookSecret: cfg.BROKK_GITHUB_WEBHOOK_SECRET,
+    mimir,
+  });
 
   serve({ fetch: app.fetch, port: cfg.BROKK_API_PORT }, ({ port }) => {
     console.log(`brokk control-plane listening on :${port}`);

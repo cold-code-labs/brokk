@@ -19,6 +19,7 @@ const AppendEventsBody = z.object({
 const CompleteBody = z.object({
   status: z.enum(["succeeded", "failed", "cancelled"]),
   prUrl: z.string().nullable().optional(),
+  prNumber: z.number().int().positive().nullable().optional(),
   error: z.string().nullable().optional(),
   usage: z
     .object({
@@ -76,7 +77,7 @@ export function runsRoutes(deps: AppDeps): Hono {
     const id = c.req.param("id");
     const parsed = CompleteBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const { status, prUrl, error, usage } = parsed.data;
+    const { status, prUrl, prNumber, error, usage } = parsed.data;
 
     const run = await deps.store.updateRun(id, {
       status,
@@ -92,16 +93,23 @@ export function runsRoutes(deps: AppDeps): Hono {
         : {}),
     });
 
-    // Map run outcome → task column.
+    // Map run outcome → task column. PR open → review; merge (webhook) → done.
     const taskStatus =
       status === "succeeded" ? "review" : status === "failed" ? "failed" : "cancelled";
+    const resolvedPrNumber = prNumber ?? (prUrl ? prNumberFromUrl(prUrl) : null);
     await deps.store.updateTask(run.taskId, {
       status: taskStatus,
       ...(prUrl ? { prUrl } : {}),
+      ...(resolvedPrNumber ? { prNumber: resolvedPrNumber } : {}),
     });
 
     return c.json(run);
   });
 
   return r;
+}
+
+function prNumberFromUrl(url: string): number | null {
+  const m = url.match(/\/pull\/(\d+)/);
+  return m ? Number(m[1]) : null;
 }

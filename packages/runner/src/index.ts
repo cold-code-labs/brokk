@@ -138,6 +138,7 @@ async function handleRun(
     await api(cfg, "POST", `/runs/${run.id}/complete`, {
       status: failed ? "failed" : "succeeded",
       prUrl: pr.url,
+      prNumber: pr.number ?? undefined,
       error: failed ? `verify failed:\n${verify!.output.slice(-1500)}` : undefined,
       usage,
     });

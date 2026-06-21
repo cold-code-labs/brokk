@@ -238,8 +238,8 @@ function Badge({ text, color }: { text: string; color?: string }) {
   );
 }
 
-const column: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column" };
-const cardList: React.CSSProperties = { maxHeight: 320, overflowY: "auto", overflowX: "hidden" };
+const column: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", minHeight: 0 };
+const cardList: React.CSSProperties = { flex: "1 1 auto", minHeight: 0, maxHeight: 320, overflowY: "auto", overflowX: "hidden" };
 const colHead: React.CSSProperties = { fontSize: 12, textTransform: "uppercase", color: t.textMuted, margin: "0 0 10px", letterSpacing: 0.4 };
 const dot: React.CSSProperties = { width: 7, height: 7, borderRadius: 7, flexShrink: 0, marginTop: 5 };
 const cardFooter: React.CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8, alignItems: "center" };

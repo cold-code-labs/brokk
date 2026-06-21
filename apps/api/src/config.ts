@@ -9,6 +9,9 @@ const Env = z.object({
 
   // Shared secret the runner presents on /runner/* and /runs/:id/{events,complete}.
   BROKK_RUNNER_SECRET: z.string().default(""),
+
+  // GitHub webhook HMAC secret (Settings → Webhooks). Empty = accept unsigned (dev only).
+  BROKK_GITHUB_WEBHOOK_SECRET: z.string().default(""),
 });
 
 export type Config = z.infer<typeof Env>;

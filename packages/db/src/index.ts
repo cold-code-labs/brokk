@@ -228,6 +228,8 @@ export interface Store {
   getTask(id: string): Promise<Task | null>;
   insertTask(values: typeof tasks.$inferInsert): Promise<Task>;
   updateTask(id: string, patch: Partial<typeof tasks.$inferInsert>): Promise<Task>;
+  /** Match a merged PR back to its forge card (by stored pr_url or pr_number). */
+  findTaskForMergedPr(prUrl: string, prNumber: number): Promise<Task | null>;
   /** Is there already a revise task in flight for this PR? (dedup the loop) */
   openReviseExists(prNumber: number): Promise<boolean>;
 
@@ -346,6 +348,18 @@ export function createStore(db: Db): Store {
         .returning();
       if (!rows[0]) throw new Error(`task ${id} not found`);
       return rowToTask(rows[0]);
+    },
+    async findTaskForMergedPr(prUrl, prNumber) {
+      const url = prUrl.replace(/\/$/, "");
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(
+          sql`(${tasks.prUrl} = ${url} OR ${tasks.prUrl} = ${url + "/"} OR ${tasks.prNumber} = ${prNumber})`,
+        )
+        .orderBy(sql`case when ${tasks.status} = 'review' then 0 else 1 end`)
+        .limit(1);
+      return rows[0] ? rowToTask(rows[0]) : null;
     },
     async openReviseExists(prNumber) {
       const rows = await db

@@ -17,6 +17,8 @@ export interface AppDeps {
   store: Store;
   /** Shared secret guarding the runner endpoints. Empty = runner endpoints 503. */
   runnerSecret: string;
+  /** GitHub webhook HMAC secret. Empty = skip signature check (local dev). */
+  githubWebhookSecret: string;
   /** Mímir model config (triador + enhancer). Undefined = enhance/triage → 503. */
   mimir?: MimirConfig;
 }
