@@ -46,6 +46,17 @@ export async function mimirComplete(config: MimirConfig, opts: CompleteOpts): Pr
   return config.provider === "claude" ? claudeComplete(config, opts) : openaiComplete(config, opts);
 }
 
+// Mímir wants a one-shot LLM completion, NOT an agent. `claude -p` defaults to
+// the full agent: it loads the seat's MCP servers + built-in tools and will go
+// agentic on a planning prompt (explore the repo, call tools) — which loops past
+// the 180s timeout and 502s every triage/enhance/plan. Pin it to a pure single
+// answer: --strict-mcp-config (no MCP servers) + disallow every built-in tool so
+// it can't take a turn calling one. Cuts a >180s hang to a ~one-turn success.
+const NO_TOOLS = [
+  "Bash", "Read", "Edit", "Write", "Glob", "Grep",
+  "WebSearch", "WebFetch", "Task", "TodoWrite", "NotebookEdit",
+];
+
 async function claudeComplete(config: MimirConfig, opts: CompleteOpts): Promise<CompleteResult> {
   const prompt = opts.system ? `${opts.system}\n\n${opts.user}` : opts.user;
   const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: config.oauthToken };
@@ -56,7 +67,13 @@ async function claudeComplete(config: MimirConfig, opts: CompleteOpts): Promise<
   try {
     ({ stdout } = await exec(
       config.claudeBin,
-      ["-p", prompt, "--model", opts.model, "--output-format", "json"],
+      [
+        "-p", prompt,
+        "--model", opts.model,
+        "--output-format", "json",
+        "--strict-mcp-config", // ignore the seat's configured MCP servers
+        "--disallowed-tools", ...NO_TOOLS, // no built-in tools → answer directly, one turn
+      ],
       { env, maxBuffer: 1024 * 1024 * 16, timeout: 180_000 },
     ));
   } catch (e) {
