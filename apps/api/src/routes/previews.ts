@@ -37,7 +37,11 @@ export function previewsRoutes(deps: AppDeps): Hono {
     const isDevBranch = branchSlug === "dev" || branch === project.baseBranch;
     const subdomain = isDevBranch ? app : `${app}-${branchSlug}`;
     const url = `https://${subdomain}.preview.coldcodelabs.com`;
-    const hauldrProject = isDevBranch ? `${app}-dev` : `${app}-${branchSlug}`;
+    // Hauldr project names allow only [a-z0-9_] and must start with a letter, so
+    // sanitize hyphens → underscores (the DNS subdomain keeps its hyphens).
+    const hauldrProject = (isDevBranch ? `${app}_dev` : `${app}_${branchSlug}`)
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "_");
 
     const { preview, created } = await deps.store.ensureActivePreview({
       projectId,
