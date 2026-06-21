@@ -144,29 +144,31 @@ export default function Board() {
                 {col.label}
                 <span style={{ color: "#5c6575", marginLeft: 6 }}>{items.length}</span>
               </h2>
-              {items.length === 0 && <p style={{ fontSize: 12, color: "#3f4654" }}>—</p>}
-              {items.map((t) => (
-                <button key={t.id} onClick={() => setSelected(t.id)} style={card(selected === t.id)}>
-                  <span style={{ ...dot, background: STATUS_COLOR[t.status] }} />
-                  <span style={{ fontSize: 13, lineHeight: 1.3 }}>{t.title}</span>
-                  {t.status === "backlog" && (
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        enqueue(t.id);
-                      }}
-                      style={miniBtn}
-                    >
-                      queue →
-                    </span>
-                  )}
-                  {t.prUrl && (
-                    <a href={t.prUrl} target="_blank" rel="noreferrer" style={prLink} onClick={(e) => e.stopPropagation()}>
-                      PR ↗
-                    </a>
-                  )}
-                </button>
-              ))}
+              <div style={cardList}>
+                {items.length === 0 && <p style={{ fontSize: 12, color: "#3f4654" }}>—</p>}
+                {items.map((t) => (
+                  <button key={t.id} onClick={() => setSelected(t.id)} style={card(selected === t.id)}>
+                    <span style={{ ...dot, background: STATUS_COLOR[t.status] }} />
+                    <span style={{ fontSize: 13, lineHeight: 1.3 }}>{t.title}</span>
+                    {t.status === "backlog" && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          enqueue(t.id);
+                        }}
+                        style={miniBtn}
+                      >
+                        queue →
+                      </span>
+                    )}
+                    {t.prUrl && (
+                      <a href={t.prUrl} target="_blank" rel="noreferrer" style={prLink} onClick={(e) => e.stopPropagation()}>
+                        PR ↗
+                      </a>
+                    )}
+                  </button>
+                ))}
+              </div>
             </section>
           );
         })}
@@ -264,7 +266,8 @@ function Badge({ text, color }: { text: string; color?: string }) {
 }
 
 // ── inline styles ─────────────────────────────────────────────────────────────
-const column: React.CSSProperties = { background: "#0f121a", border: "1px solid #1c212c", borderRadius: 10, padding: 10, minHeight: 360 };
+const column: React.CSSProperties = { background: "#0f121a", border: "1px solid #1c212c", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column" };
+const cardList: React.CSSProperties = { maxHeight: 320, overflowY: "auto", overflowX: "hidden" };
 const colHead: React.CSSProperties = { fontSize: 12, textTransform: "uppercase", color: "#9aa3b2", margin: "0 0 10px", letterSpacing: 0.4 };
 const dot: React.CSSProperties = { width: 7, height: 7, borderRadius: 7, flexShrink: 0, marginTop: 5 };
 const prLink: React.CSSProperties = { position: "absolute", right: 8, bottom: 6, fontSize: 11, color: "#a371f7", textDecoration: "none" };
