@@ -48,6 +48,19 @@ The agent authenticates as either:
 - **`api_key`** (default) — `ANTHROPIC_API_KEY`, routed through the CCL AI gateway → headroom saves real $ + central spend.
 - **`subscription`** — `claude setup-token` (Claude Max). ⚠️ Server-side automation on a consumer subscription is ToS-gray and shares your interactive rate-limit window. Use for light/personal only.
 
+## Deploy (Coolify)
+Production stack: `docker-compose.prod.yml` (Postgres + API + Web), same pattern as
+Heimdall OSS / Saga. On Coolify create a **Docker Compose** resource pointing at
+`cold-code-labs/brokk`, branch `main`, compose file `docker-compose.prod.yml`.
+Route the `web` service at `brokk.coldcodelabs.com` via `docker_compose_domains`.
+
+Once deployed, Brokk appears in **Heimdall OSS → Fleet** (Coolify `/services` mirror).
+
+```bash
+# local smoke (needs external coolify network or drop that block):
+docker compose -f docker-compose.prod.yml up --build
+```
+
 ## Status
 **P0 — scaffold.** Structure, schema, and API/runner contracts are in place; the runner
 is an unverified skeleton. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design and the

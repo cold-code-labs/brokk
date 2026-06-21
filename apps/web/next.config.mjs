@@ -1,8 +1,14 @@
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 /** @type {import('next').NextConfig} */
+const here = dirname(fileURLToPath(import.meta.url));
 const API = process.env.BROKK_API_INTERNAL_URL ?? "http://127.0.0.1:8789";
 
 const nextConfig = {
   reactStrictMode: true,
+  output: "standalone",
+  outputFileTracingRoot: join(here, "../../"),
   // @brokk/sdk ships TypeScript source — let Next compile it on build.
   transpilePackages: ["@brokk/sdk"],
   // Proxy the control-plane API under /api so the browser talks to one origin
