@@ -291,6 +291,15 @@ export interface Store {
 
   // previews (ephemeral dev-preview environments)
   insertPreview(values: typeof previews.$inferInsert): Promise<Preview>;
+  /** Atomically ensure exactly one active (starting/live) preview exists for the
+   *  given (projectId, branch) pair.  Uses the DB-level partial unique index to
+   *  prevent duplicates under concurrent requests: it attempts an INSERT and, if
+   *  the index fires a conflict, falls back to SELECT-ing the winning row.
+   *  `created` is true when a new row was inserted, false when an existing one
+   *  was returned. */
+  ensureActivePreview(
+    values: typeof previews.$inferInsert,
+  ): Promise<{ preview: Preview; created: boolean }>;
   getPreview(id: string): Promise<Preview | null>;
   listPreviews(opts?: { projectId?: string }): Promise<Preview[]>;
   getPreviewBySubdomain(subdomain: string): Promise<Preview | null>;
@@ -588,6 +597,31 @@ export function createStore(db: Db): Store {
     async insertPreview(values) {
       const rows = await db.insert(previews).values(values).returning();
       return rowToPreview(rows[0]!);
+    },
+    async ensureActivePreview(values) {
+      // Try to insert; the partial unique index on (project_id, branch) WHERE
+      // status IN ('starting','live') will fire if a concurrent request already
+      // created an active preview for this branch.
+      const inserted = await db
+        .insert(previews)
+        .values(values)
+        .onConflictDoNothing()
+        .returning();
+      if (inserted[0]) return { preview: rowToPreview(inserted[0]), created: true };
+
+      // Conflict: another request won the race — fetch the existing active row.
+      const existing = await db
+        .select()
+        .from(previews)
+        .where(
+          and(
+            eq(previews.projectId, values.projectId as string),
+            eq(previews.branch, (values.branch ?? "dev") as string),
+            sql`${previews.status} in ('starting', 'live')`,
+          ),
+        )
+        .limit(1);
+      return { preview: rowToPreview(existing[0]!), created: false };
     },
     async getPreview(id) {
       const rows = await db.select().from(previews).where(eq(previews.id, id)).limit(1);

@@ -22,22 +22,15 @@ export function previewsRoutes(deps: AppDeps): Hono {
 
     const { projectId, branch } = parsed.data;
 
-    // Ensure: return an active preview when one already exists.
-    const all = await deps.store.listPreviews({ projectId });
-    const active = all.find(
-      (p) => p.branch === branch && (p.status === "starting" || p.status === "live"),
-    );
-    if (active) return c.json(active);
-
-    // Start: generate a unique subdomain and insert the row (status defaults to
-    // 'starting'). The runner will pick this up, provision the environment, and
-    // call setPreviewStatus once it is live.
+    // Atomically ensure an active preview exists for this (project, branch) pair.
+    // ensureActivePreview uses the DB-level partial unique index to prevent
+    // duplicate rows even under concurrent requests — no TOCTOU window.
     const token = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
     const subdomain = token;
     const url = `https://${subdomain}.preview.brokk.dev`;
     const hauldrProject = `preview-${subdomain}`;
 
-    const preview = await deps.store.insertPreview({
+    const { preview, created } = await deps.store.ensureActivePreview({
       projectId,
       branch,
       subdomain,
@@ -46,7 +39,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
       status: "starting",
     });
 
-    return c.json(preview, 201);
+    return c.json(preview, created ? 201 : 200);
   });
 
   /** GET /previews?projectId= — list all previews, optionally filtered by project. */
@@ -64,10 +57,15 @@ export function previewsRoutes(deps: AppDeps): Hono {
 
   /** DELETE /previews/:id — stop a preview (mark stopped, clear pid). */
   r.delete("/:id", async (c) => {
-    const preview = await deps.store.getPreview(c.req.param("id"));
-    if (!preview) return c.json({ error: "not found" }, 404);
-    const stopped = await deps.store.stopPreview(c.req.param("id"));
-    return c.json(stopped);
+    try {
+      const stopped = await deps.store.stopPreview(c.req.param("id"));
+      return c.json(stopped);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("not found")) {
+        return c.json({ error: "not found" }, 404);
+      }
+      throw err;
+    }
   });
 
   return r;
