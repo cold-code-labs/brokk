@@ -28,8 +28,11 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     environment:
-      BROKK_DATABASE_URL: postgres://brokk:${POSTGRES_PASSWORD:-brokk}@brokk-db:5432/brokk
+      # Defaults to the local brokk-db; in prod Coolify injects BROKK_DATABASE_URL
+      # pointing at the Hauldr project db (hauldr-db:5432/db_brokk).
+      BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:-postgres://brokk:brokk@brokk-db:5432/brokk}
       BROKK_API_PORT: "8789"
+      BROKK_SECRETS_KEY: ${BROKK_SECRETS_KEY:-}
       BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
       BROKK_GITHUB_WEBHOOK_SECRET: ${BROKK_GITHUB_WEBHOOK_SECRET:-}
       MIMIR_MODEL: ${MIMIR_MODEL:-gpt-4.1-mini}
@@ -59,6 +62,12 @@ services:
       - traefik.docker.network=coolify
     environment:
       BROKK_API_INTERNAL_URL: http://api:8789
+      # Logto SSO (human auth). Unset = open shell; Coolify injects in prod.
+      LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
+      LOGTO_APP_ID: ${LOGTO_APP_ID:-}
+      LOGTO_APP_SECRET: ${LOGTO_APP_SECRET:-}
+      LOGTO_BASE_URL: ${LOGTO_BASE_URL:-}
+      LOGTO_COOKIE_SECRET: ${LOGTO_COOKIE_SECRET:-}
     depends_on:
       api:
         condition: service_healthy
