@@ -27,15 +27,17 @@ export function previewsRoutes(deps: AppDeps): Hono {
     const repo = await deps.store.getRepository(project.repositoryId);
     if (!repo) return c.json({ error: "repository not found" }, 404);
 
-    // One stable slot per app+branch: "<app>-dev" → <app>-dev.preview.coldcodelabs.com,
-    // backed by the stable Hauldr project "<app>-dev" (so the dev DB persists across
-    // restarts instead of churning a fresh one each time). ensureActivePreview
-    // reactivates a stopped slot or inserts a new one.
+    // The ".preview." zone already implies a dev environment, so the default/dev
+    // branch gets the bare app name → <app>.preview.coldcodelabs.com. Non-default
+    // branches keep an "<app>-<branch>" slug so feature-branch previews don't collide.
+    // The Hauldr DB is ALWAYS a distinct "<app>-dev" project — never the app's prod
+    // Hauldr project — so a preview can never touch production data.
     const app = repo.name;
     const branchSlug = branch.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "dev";
-    const subdomain = `${app}-${branchSlug}`;
+    const isDevBranch = branchSlug === "dev" || branch === project.baseBranch;
+    const subdomain = isDevBranch ? app : `${app}-${branchSlug}`;
     const url = `https://${subdomain}.preview.coldcodelabs.com`;
-    const hauldrProject = subdomain;
+    const hauldrProject = isDevBranch ? `${app}-dev` : `${app}-${branchSlug}`;
 
     const { preview, created } = await deps.store.ensureActivePreview({
       projectId,
