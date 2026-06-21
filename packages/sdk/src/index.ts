@@ -53,6 +53,18 @@ export interface MimirAuthor {
   authorEmail?: string;
 }
 
+/** One row of the calibration loop: a triage decision vs the task's real outcome. */
+export interface MimirCalibrationRow {
+  triageId: string;
+  refino: import("@brokk/core").RefinoLevel;
+  forca: import("@brokk/core").ForcaLevel;
+  taskId: string;
+  taskStatus: import("@brokk/core").TaskStatus | null;
+  runStatus: import("@brokk/core").RunStatus | null;
+  eitriVerdict: string | null;
+  createdAt: string;
+}
+
 export interface BrokkClientOptions {
   baseUrl: string;
   /** Bearer token for the control-plane API (board auth). */
@@ -114,6 +126,10 @@ export interface BrokkClient {
   triagePrompt(input: string): Promise<MimirTriageResult>;
   /** Refine at the chosen mode; records an immutable revision (+ triage if given). */
   enhancePrompt(input: { input: string; mode: MimirMode; triage?: MimirTriageResult & { source?: "auto" | "override" } } & MimirAuthor): Promise<MimirEnhanceResult>;
+  /** Link a triage to the Brokk task its refined prompt became. */
+  linkTriage(triageId: string, taskId: string): Promise<import("@brokk/core").MimirTriage>;
+  /** The calibration view: triage decisions against their real outcomes. */
+  getCalibration(): Promise<MimirCalibrationRow[]>;
 }
 
 export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
@@ -216,6 +232,16 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     },
     enhancePrompt(input) {
       return req<MimirEnhanceResult>("POST", "/mimir/enhance", input);
+    },
+    linkTriage(triageId, taskId) {
+      return req<import("@brokk/core").MimirTriage>(
+        "POST",
+        `/mimir/triage/${encodeURIComponent(triageId)}/link`,
+        { taskId },
+      );
+    },
+    getCalibration() {
+      return req<MimirCalibrationRow[]>("GET", "/mimir/calibration");
     },
     streamRunEvents(id, onEvent) {
       // Browser EventSource; in Node, pass a polyfilled global or poll /runs/:id.

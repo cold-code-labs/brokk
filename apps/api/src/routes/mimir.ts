@@ -35,6 +35,8 @@ const UpdatePromptBody = z.object({
 
 const TriageBody = z.object({ input: z.string().min(1) });
 
+const LinkBody = z.object({ taskId: z.string().min(1) });
+
 const EnhanceBody = z
   .object({
     input: z.string().min(1),
@@ -103,6 +105,17 @@ export function mimirRoutes(deps: AppDeps): Hono {
     const authorId = c.req.query("authorId") || undefined;
     return c.json(await deps.store.listMimirRevisions({ authorId }));
   });
+
+  // ── The calibration loop ────────────────────────────────────────────────────
+  // Link a triage to the task it forged, then read each decision against its real
+  // outcome (run status + Eitri's verdict) to learn whether the levels fit.
+  r.post("/triage/:id/link", async (c) => {
+    const p = LinkBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!p.success) return c.json({ error: p.error.flatten() }, 400);
+    return c.json(await deps.store.linkTriageToTask(c.req.param("id"), p.data.taskId));
+  });
+
+  r.get("/calibration", async (c) => c.json(await deps.store.listTriageCalibration()));
 
   // ── The triador (advisory — no write until an enhance happens) ──────────────
   r.post("/triage", async (c) => {

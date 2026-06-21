@@ -275,6 +275,9 @@ export const mimirTriage = pgTable("mimir_triage", {
   revisionId: uuid("revision_id").references(() => mimirRevisions.id, {
     onDelete: "cascade",
   }),
+  // The Brokk task this triage's refined prompt became (set when forged). Closes
+  // the loop: join the decision to its real outcome (run status + Eitri verdict).
+  taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
   refinoLevel: refinoLevel("refino_level").notNull(),
   refinoConf: real("refino_conf"),
   forcaLevel: forcaLevel("forca_level").notNull(),

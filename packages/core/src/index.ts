@@ -366,6 +366,8 @@ export interface MimirRevision {
 export interface MimirTriage {
   id: string;
   revisionId: string | null;
+  /** The Brokk task the refined prompt became — the loop's link to the outcome. */
+  taskId: string | null;
   refinoLevel: RefinoLevel;
   refinoConf: number | null;
   forcaLevel: ForcaLevel;

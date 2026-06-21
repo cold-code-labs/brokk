@@ -18,7 +18,7 @@ import type {
   TriageSource,
   User,
 } from "@brokk/core";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -192,10 +192,23 @@ function rowToMimirRevision(row: typeof mimirRevisions.$inferSelect): MimirRevis
   };
 }
 
+export interface TriageCalibration {
+  triageId: string;
+  refino: RefinoLevel;
+  forca: ForcaLevel;
+  taskId: string;
+  taskStatus: TaskStatus | null;
+  runStatus: RunStatus | null;
+  /** Eitri's latest verdict on the task's PR (approve/request_changes/comment). */
+  eitriVerdict: string | null;
+  createdAt: string;
+}
+
 function rowToMimirTriage(row: typeof mimirTriage.$inferSelect): MimirTriage {
   return {
     id: row.id,
     revisionId: row.revisionId,
+    taskId: row.taskId,
     refinoLevel: row.refinoLevel as RefinoLevel,
     refinoConf: row.refinoConf,
     forcaLevel: row.forcaLevel as ForcaLevel,
@@ -285,6 +298,11 @@ export interface Store {
   listMimirRevisions(opts?: { authorId?: string; limit?: number }): Promise<MimirRevision[]>;
   insertMimirRevision(values: typeof mimirRevisions.$inferInsert): Promise<MimirRevision>;
   insertMimirTriage(values: typeof mimirTriage.$inferInsert): Promise<MimirTriage>;
+  /** Link a triage decision to the Brokk task its refined prompt became. */
+  linkTriageToTask(triageId: string, taskId: string): Promise<MimirTriage>;
+  /** The calibration view: each linked triage with the task's real outcome
+   *  (status + run + Eitri verdict) — closes the loop on the triador. */
+  listTriageCalibration(): Promise<TriageCalibration[]>;
 }
 
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
@@ -635,6 +653,60 @@ export function createStore(db: Db): Store {
     async insertMimirTriage(values) {
       const rows = await db.insert(mimirTriage).values(values).returning();
       return rowToMimirTriage(rows[0]!);
+    },
+    async linkTriageToTask(triageId, taskId) {
+      const rows = await db
+        .update(mimirTriage)
+        .set({ taskId })
+        .where(eq(mimirTriage.id, triageId))
+        .returning();
+      if (!rows[0]) throw new Error(`mimir triage ${triageId} not found`);
+      return rowToMimirTriage(rows[0]);
+    },
+    async listTriageCalibration() {
+      const tris = await db
+        .select()
+        .from(mimirTriage)
+        .where(isNotNull(mimirTriage.taskId))
+        .orderBy(desc(mimirTriage.createdAt));
+      const out: TriageCalibration[] = [];
+      for (const t of tris) {
+        if (!t.taskId) continue;
+        const task = (
+          await db.select().from(tasks).where(eq(tasks.id, t.taskId)).limit(1)
+        )[0];
+        const lastRun = (
+          await db
+            .select()
+            .from(runs)
+            .where(eq(runs.taskId, t.taskId))
+            .orderBy(desc(runs.createdAt))
+            .limit(1)
+        )[0];
+        let eitriVerdict: string | null = null;
+        if (task?.prNumber != null) {
+          const rev = (
+            await db
+              .select()
+              .from(reviews)
+              .where(eq(reviews.prNumber, task.prNumber))
+              .orderBy(desc(reviews.createdAt))
+              .limit(1)
+          )[0];
+          eitriVerdict = rev?.verdict ?? null;
+        }
+        out.push({
+          triageId: t.id,
+          refino: t.refinoLevel as RefinoLevel,
+          forca: t.forcaLevel as ForcaLevel,
+          taskId: t.taskId,
+          taskStatus: (task?.status as TaskStatus) ?? null,
+          runStatus: (lastRun?.status as RunStatus) ?? null,
+          eitriVerdict,
+          createdAt: t.createdAt.toISOString(),
+        });
+      }
+      return out;
     },
   };
 }
