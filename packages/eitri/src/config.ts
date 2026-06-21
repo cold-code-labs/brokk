@@ -17,6 +17,8 @@ export interface EitriConfig {
   model: string;
   /** Poll interval (ms) between PR scans. */
   pollIntervalMs: number;
+  /** Max revise rounds before Eitri stops looping a PR and leaves it for a human. */
+  maxRevisions: number;
   /** GitHub login of the forge bot — skip its... no, we review ITS PRs; this is
    *  the login to skip (e.g. dependabot) if ever needed. */
   skipAuthors: string[];
@@ -37,6 +39,7 @@ export function loadEitriConfig(env = process.env): EitriConfig {
     workDir: env.EITRI_WORKDIR ?? "/tmp/eitri",
     model: env.EITRI_MODEL ?? env.BROKK_DEFAULT_MODEL ?? "sonnet",
     pollIntervalMs: Number(env.EITRI_POLL_MS ?? 30_000),
+    maxRevisions: Number(env.EITRI_MAX_REVISIONS ?? 3),
     skipAuthors: (env.EITRI_SKIP_AUTHORS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
   };
 }

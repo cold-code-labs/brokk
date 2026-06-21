@@ -6,6 +6,7 @@ import type {
   RunStatus,
   Subscription,
   Task,
+  TaskKind,
   TaskStatus,
   User,
 } from "@brokk/core";
@@ -48,11 +49,15 @@ function rowToTask(row: typeof tasks.$inferSelect): Task {
     title: row.title,
     body: row.body,
     status: row.status as TaskStatus,
+    kind: row.kind as TaskKind,
     priority: row.priority,
     labels: row.labels,
     baseBranch: row.baseBranch,
     createdBy: row.createdBy,
     prUrl: row.prUrl,
+    prNumber: row.prNumber,
+    branch: row.branch,
+    iteration: row.iteration,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -146,6 +151,8 @@ export interface Store {
   getTask(id: string): Promise<Task | null>;
   insertTask(values: typeof tasks.$inferInsert): Promise<Task>;
   updateTask(id: string, patch: Partial<typeof tasks.$inferInsert>): Promise<Task>;
+  /** Is there already a revise task in flight for this PR? (dedup the loop) */
+  openReviseExists(prNumber: number): Promise<boolean>;
 
   // users + subscriptions (Max seats)
   listUsers(): Promise<User[]>;
@@ -225,6 +232,20 @@ export function createStore(db: Db): Store {
         .returning();
       if (!rows[0]) throw new Error(`task ${id} not found`);
       return rowToTask(rows[0]);
+    },
+    async openReviseExists(prNumber) {
+      const rows = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.kind, "revise"),
+            eq(tasks.prNumber, prNumber),
+            sql`${tasks.status} in ('backlog','queued','running')`,
+          ),
+        )
+        .limit(1);
+      return rows.length > 0;
     },
 
     async listUsers() {

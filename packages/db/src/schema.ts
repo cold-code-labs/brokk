@@ -48,6 +48,8 @@ export const runEventType = pgEnum("run_event_type", [
 
 export const authMode = pgEnum("auth_mode", ["api_key", "subscription"]);
 
+export const taskKind = pgEnum("task_kind", ["implement", "revise"]);
+
 // ── Tables ───────────────────────────────────────────────────────────────────
 
 export const repositories = pgTable("repositories", {
@@ -84,11 +86,16 @@ export const tasks = pgTable("tasks", {
   title: text("title").notNull(),
   body: text("body").notNull().default(""),
   status: taskStatus("status").notNull().default("backlog"),
+  kind: taskKind("kind").notNull().default("implement"),
   priority: integer("priority").notNull().default(0),
   labels: jsonb("labels").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   baseBranch: text("base_branch"),
   createdBy: text("created_by"),
   prUrl: text("pr_url"),
+  /** For revise tasks: the PR + head branch to update, and the round number. */
+  prNumber: integer("pr_number"),
+  branch: text("branch"),
+  iteration: integer("iteration").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -19,6 +19,7 @@ const exec = promisify(execFile);
 interface OpenPr {
   number: number;
   title: string;
+  headRefName: string;
   headRefOid: string;
   author: { login: string };
 }
@@ -26,7 +27,7 @@ interface OpenPr {
 async function listOpenPrs(repo: string, githubToken: string): Promise<OpenPr[]> {
   const { stdout } = await exec(
     "gh",
-    ["pr", "list", "--repo", repo, "--state", "open", "--json", "number,title,headRefOid,author"],
+    ["pr", "list", "--repo", repo, "--state", "open", "--json", "number,title,headRefName,headRefOid,author"],
     { env: { ...process.env, GH_TOKEN: githubToken }, maxBuffer: 1024 * 1024 * 8 },
   );
   return JSON.parse(stdout || "[]");
@@ -94,6 +95,40 @@ async function reviewOne(
       summary: firstParagraph(body),
     });
     console.log(`[eitri] #${pr.number} → ${verdict} (posted)`);
+
+    // The iteration loop: if not approved, hand the findings back to Brokk to
+    // revise the same PR — unless it's not a forge PR, the loop is capped, or a
+    // revise is already in flight.
+    if (verdict !== "APPROVE" && pr.headRefName.startsWith("brokk/")) {
+      const rounds = (await store.listReviews(cfg.repo)).filter((r) => r.prNumber === pr.number).length;
+      if (rounds > cfg.maxRevisions) {
+        console.log(`[eitri] #${pr.number} hit ${cfg.maxRevisions}-round cap — leaving for a human`);
+      } else if (await store.openReviseExists(pr.number)) {
+        console.log(`[eitri] #${pr.number} already has a revise in flight`);
+      } else {
+        const projects = await store.listProjects();
+        const projectId = projects[0]?.id;
+        if (projectId) {
+          await store.insertTask({
+            projectId,
+            kind: "revise",
+            status: "queued",
+            title: `Revise PR #${pr.number}: ${pr.title}`,
+            body: [
+              `Address this reviewer (Eitri) feedback on PR #${pr.number} and push fixes to the same branch.`,
+              "Make the changes the review asks for; do not open a new PR.",
+              "",
+              body,
+            ].join("\n"),
+            prNumber: pr.number,
+            branch: pr.headRefName,
+            prUrl: `https://github.com/${cfg.repo}/pull/${pr.number}`,
+            iteration: rounds,
+          });
+          console.log(`[eitri] #${pr.number} → enqueued revise (round ${rounds + 1}/${cfg.maxRevisions})`);
+        }
+      }
+    }
   } finally {
     await git.cleanup(cwd);
   }

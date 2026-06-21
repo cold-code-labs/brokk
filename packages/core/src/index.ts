@@ -62,6 +62,9 @@ export const RUN_EVENT_TYPES: readonly RunEventType[] = [
   "usage",
 ] as const;
 
+/** Whether a card is fresh work or a revision of an existing PR (the Eitri loop). */
+export type TaskKind = "implement" | "revise";
+
 /** How the runner authenticates to Claude. Default: api_key (via the gateway). */
 export type AuthMode = "api_key" | "subscription";
 
@@ -106,11 +109,16 @@ export interface Task {
   title: string;
   body: string;
   status: TaskStatus;
+  kind: TaskKind;
   priority: number;
   labels: string[];
   baseBranch: string | null;
   createdBy: string | null;
   prUrl: string | null;
+  /** revise tasks only: the PR number + head branch to update, and the round. */
+  prNumber: number | null;
+  branch: string | null;
+  iteration: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -251,6 +259,10 @@ export interface GitProvider {
     baseBranch: string;
     branch: string;
   }): Promise<{ path: string; branch: string }>;
+
+  /** Check out an EXISTING remote branch (a PR head) into a worktree, to revise
+   *  it in place. */
+  checkoutBranch(opts: { repo: Repository; branch: string }): Promise<{ path: string; branch: string }>;
 
   /** Commit all changes and push the branch. */
   push(opts: { cwd: string; branch: string; message: string }): Promise<void>;

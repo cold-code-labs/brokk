@@ -80,12 +80,17 @@ async function handleRun(
   const buffer = new EventBuffer(cfg, run.id);
   const repo = await resolveRepository(task); // TODO(P1): enrich /runner/claim with project+repo
   const baseBranch = task.baseBranch ?? repo.defaultBranch;
-  const branch = run.branch ?? runBranch(task.title, run.id);
+  // Revise tasks (the Eitri loop) update an existing PR branch; implement tasks
+  // fork a fresh branch off base.
+  const isRevise = task.kind === "revise" && !!task.branch;
+  const branch = isRevise ? task.branch! : run.branch ?? runBranch(task.title, run.id);
   let worktreePath: string | undefined;
 
   try {
-    buffer.emit({ type: "status", payload: { phase: "worktree", branch, baseBranch } });
-    const wt = await git.worktree({ repo, baseBranch, branch });
+    buffer.emit({ type: "status", payload: { phase: isRevise ? "worktree_revise" : "worktree", branch, baseBranch } });
+    const wt = isRevise
+      ? await git.checkoutBranch({ repo, branch })
+      : await git.worktree({ repo, baseBranch, branch });
     worktreePath = wt.path;
 
     const usage: RunUsage = await engine.run({
@@ -114,17 +119,17 @@ async function handleRun(
     }
 
     buffer.emit({ type: "status", payload: { phase: "push", branch } });
-    await git.push({ cwd: wt.path, branch, message: `brokk: ${task.title}` });
-
-    const pr = await git.openPr({
+    await git.push({
       cwd: wt.path,
-      repo,
       branch,
-      baseBranch,
-      title: task.title,
-      body: prBody(task, verify),
+      message: isRevise ? `brokk: revise — ${task.title}` : `brokk: ${task.title}`,
     });
-    buffer.emit({ type: "status", payload: { phase: "pr_opened", url: pr.url } });
+
+    // Revise updates the existing PR (no new one); implement opens a PR.
+    const pr = isRevise
+      ? { url: task.prUrl ?? "", number: task.prNumber }
+      : await git.openPr({ cwd: wt.path, repo, branch, baseBranch, title: task.title, body: prBody(task, verify) });
+    buffer.emit({ type: "status", payload: { phase: isRevise ? "pr_updated" : "pr_opened", url: pr.url } });
 
     // Red verify → the run is a failure even though a PR exists (so the diff is
     // still inspectable). Green / no-verify → succeeded.

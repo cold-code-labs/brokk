@@ -58,6 +58,27 @@ export class GhProvider implements GitProvider {
     return { path, branch };
   }
 
+  /** Check out an existing remote branch (a PR head) to revise in place. Fetches
+   *  to FETCH_HEAD and resets a local branch of the same name onto it, so a later
+   *  `push origin <branch>` fast-forwards the PR. */
+  async checkoutBranch(opts: { repo: Repository; branch: string }): Promise<{ path: string; branch: string }> {
+    const { repo, branch } = opts;
+    const bare = this.bareDir(repo);
+    await mkdir(join(this.opts.workDir, "repos"), { recursive: true });
+    try {
+      await git(this.opts.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
+    } catch {
+      await git(bare, ["fetch", "origin", `+refs/heads/${repo.defaultBranch}:refs/heads/${repo.defaultBranch}`]);
+    }
+    await git(bare, ["fetch", "origin", `refs/heads/${branch}`]);
+    const path = join(this.opts.workDir, "worktrees", branch.replace(/[/]/g, "__"));
+    await git(bare, ["worktree", "remove", "--force", path]).catch(() => {});
+    await git(bare, ["worktree", "prune"]).catch(() => {});
+    await rm(path, { recursive: true, force: true }).catch(() => {});
+    await git(bare, ["worktree", "add", "--force", "-B", branch, path, "FETCH_HEAD"]);
+    return { path, branch };
+  }
+
   async push(opts: { cwd: string; branch: string; message: string }): Promise<void> {
     // Self-contained committer identity so the runner doesn't depend on the
     // host's global git config (overridable via env).
