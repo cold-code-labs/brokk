@@ -296,3 +296,83 @@ export function taskSlug(title: string): string {
 export function runBranch(title: string, runId: string): string {
   return `brokk/${taskSlug(title)}-${runId.slice(0, 8)}`;
 }
+
+// ── Mímir (the counselor) ─────────────────────────────────────────────────────
+// The prompt intake of the forge: the bank of reusable prompts, the immutable
+// refinement history, and the triador's two-axis decision. Trio: Mímir advises
+// → Brokkr forges → Eitri reviews. Migrated from Heimdall's PocketBase.
+
+/** How much structure the enhancer injects over the raw prompt. The axis is
+ *  *amount of structure*, not quality. Mirrors the original Mímir modes. */
+export type MimirMode = "polish" | "structure" | "engineer";
+
+export const MIMIR_MODES: readonly MimirMode[] = ["polish", "structure", "engineer"] as const;
+
+/** Axis 1 — specification gap → how much to refine. "none" skips the enhancer
+ *  (the prompt is already clear); the rest map 1:1 onto MimirMode, where
+ *  "engineer" is the full archetype. */
+export type RefinoLevel = "none" | MimirMode;
+
+export const REFINO_LEVELS: readonly RefinoLevel[] = [
+  "none",
+  "polish",
+  "structure",
+  "engineer",
+] as const;
+
+/** Axis 2 — task complexity/risk → how hard the forge runs. Mapped to a concrete
+ *  model + reasoning effort downstream (via the gateway / Bifröst). */
+export type ForcaLevel = "low" | "medium" | "high" | "extra";
+
+export const FORCA_LEVELS: readonly ForcaLevel[] = ["low", "medium", "high", "extra"] as const;
+
+/** Whether a triage decision came from the auto router or a human override. */
+export type TriageSource = "auto" | "override";
+
+/** A reusable, refined prompt in the collective bank. */
+export interface MimirPrompt {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  authorId: string | null;
+  authorName: string | null;
+  authorEmail: string | null;
+  refineCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One refinement, recorded immutably (input → output → rationale). */
+export interface MimirRevision {
+  id: string;
+  input: string;
+  output: string | null;
+  rationale: string | null;
+  /** Model the enhancer used. */
+  model: string | null;
+  mode: MimirMode | null;
+  /** If the author saved the result to the bank, the prompt it became. */
+  savedPromptId: string | null;
+  authorId: string | null;
+  authorName: string | null;
+  authorEmail: string | null;
+  createdAt: string;
+}
+
+/** The triador's two-axis decision for a revision: how much to refine + how hard
+ *  to forge. Confidences feed the calibration loop (Eitri's verdict vs the
+ *  levels the router chose). */
+export interface MimirTriage {
+  id: string;
+  revisionId: string | null;
+  refinoLevel: RefinoLevel;
+  refinoConf: number | null;
+  forcaLevel: ForcaLevel;
+  forcaConf: number | null;
+  rationale: string | null;
+  source: TriageSource;
+  /** Model the triador (router) ran with — the cheap one. */
+  triageModel: string | null;
+  createdAt: string;
+}

@@ -1,10 +1,12 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  real,
   text,
   timestamp,
   unique,
@@ -49,6 +51,12 @@ export const runEventType = pgEnum("run_event_type", [
 export const authMode = pgEnum("auth_mode", ["api_key", "subscription"]);
 
 export const taskKind = pgEnum("task_kind", ["implement", "revise"]);
+
+// Mímir (the counselor) — see §"Mímir" in ARCHITECTURE.md.
+export const mimirMode = pgEnum("mimir_mode", ["polish", "structure", "engineer"]);
+export const refinoLevel = pgEnum("refino_level", ["none", "polish", "structure", "engineer"]);
+export const forcaLevel = pgEnum("forca_level", ["low", "medium", "high", "extra"]);
+export const triageSource = pgEnum("triage_source", ["auto", "override"]);
 
 // ── Tables ───────────────────────────────────────────────────────────────────
 
@@ -211,4 +219,69 @@ export const pullRequests = pgTable("pull_requests", {
   state: text("state").notNull().default("open"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Mímir (the counselor) ──────────────────────────────────────────────────────
+// Prompt intake of the forge. Migrated from Heimdall's PocketBase
+// (mimir_prompts / mimir_revisoes). The history + triage are append-only — the
+// app role gets INSERT/SELECT only (no UPDATE/DELETE) on those two.
+
+/** The bank: collective, reusable refined prompts. */
+export const mimirPrompts = pgTable(
+  "mimir_prompts",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    // Was a CSV text field in PB; native array here.
+    tags: jsonb("tags").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // Author as a snapshot (not an FK) — same pattern as PB, simple to read.
+    authorId: text("author_id"),
+    authorName: text("author_name"),
+    authorEmail: text("author_email"),
+    refineCount: integer("refine_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ author: index("mimir_prompts_author_idx").on(t.authorId) }),
+);
+
+/** The history: one row per refinement (input → output → rationale). Immutable. */
+export const mimirRevisions = pgTable(
+  "mimir_revisions",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    input: text("input").notNull(),
+    output: text("output"),
+    rationale: text("rationale"),
+    // Model the ENHANCER used.
+    model: text("model"),
+    mode: mimirMode("mode"),
+    // If the author saved the result to the bank, the prompt it became.
+    savedPromptId: uuid("saved_prompt_id").references(() => mimirPrompts.id, {
+      onDelete: "set null",
+    }),
+    authorId: text("author_id"),
+    authorName: text("author_name"),
+    authorEmail: text("author_email"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ author: index("mimir_revisions_author_idx").on(t.authorId) }),
+);
+
+/** The triador's two-axis decision (refino + força), hung off a revision. */
+export const mimirTriage = pgTable("mimir_triage", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  revisionId: uuid("revision_id").references(() => mimirRevisions.id, {
+    onDelete: "cascade",
+  }),
+  refinoLevel: refinoLevel("refino_level").notNull(),
+  refinoConf: real("refino_conf"),
+  forcaLevel: forcaLevel("forca_level").notNull(),
+  forcaConf: real("forca_conf"),
+  rationale: text("rationale"),
+  source: triageSource("source").notNull().default("auto"),
+  // Model the TRIADOR (router) used — the cheap one.
+  triageModel: text("triage_model"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
