@@ -159,22 +159,26 @@ export class GhProvider implements GitProvider {
     } catch {
       /* already exists — fall through to fetch below */
     }
-    await git(bare, ["fetch", "origin", `+refs/heads/${branch}:refs/heads/${branch}`]);
+    // Fetch to FETCH_HEAD, NOT into refs/heads/<branch>: git refuses to update a
+    // branch ref that's checked out in the persistent worktree ("refusing to
+    // fetch into branch ... checked out").
+    await git(bare, ["fetch", "origin", `refs/heads/${branch}`]);
     await git(bare, ["worktree", "prune"]).catch(() => {});
 
     const parentDir = join(this.opts.workDir, "preview-worktrees");
     const path = join(parentDir, name);
     await mkdir(parentDir, { recursive: true });
 
-    // Try to refresh an existing worktree (the "reuse" path — no teardown).
-    const refreshed = await git(path, ["reset", "--hard", branch])
+    // Try to refresh an existing worktree (the "reuse" path — no teardown):
+    // reset onto the freshly fetched tip.
+    const refreshed = await git(path, ["reset", "--hard", "FETCH_HEAD"])
       .then(() => true)
       .catch(() => false);
     if (refreshed) return { path, branch };
 
-    // First boot (or broken worktree): create fresh from the fetched branch tip.
+    // First boot (or broken worktree): create fresh from the fetched tip.
     await rm(path, { recursive: true, force: true }).catch(() => {});
-    await git(bare, ["worktree", "add", "-B", branch, path, `refs/heads/${branch}`]);
+    await git(bare, ["worktree", "add", "-B", branch, path, "FETCH_HEAD"]);
     return { path, branch };
   }
 }
