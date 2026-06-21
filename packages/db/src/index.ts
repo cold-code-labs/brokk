@@ -6,6 +6,7 @@ import type {
   MimirRevision,
   MimirTriage,
   RefinoLevel,
+  Repository,
   Review,
   Run,
   RunEvent,
@@ -91,6 +92,20 @@ function rowToRun(row: typeof runs.$inferSelect): Run {
     headroomSaved: row.headroomSaved,
     prUrl: row.prUrl,
     error: row.error,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function rowToRepository(row: typeof repositories.$inferSelect): Repository {
+  return {
+    id: row.id,
+    fullName: row.fullName,
+    owner: row.owner,
+    name: row.name,
+    defaultBranch: row.defaultBranch,
+    cloneUrl: row.cloneUrl,
+    installationId: row.installationId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -195,6 +210,12 @@ function rowToMimirTriage(row: typeof mimirTriage.$inferSelect): MimirTriage {
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export interface Store {
+  // repositories (the GitHub repos the forge can work in)
+  listRepositories(): Promise<Repository[]>;
+  getRepository(id: string): Promise<Repository | null>;
+  getRepositoryByFullName(fullName: string): Promise<Repository | null>;
+  insertRepository(values: typeof repositories.$inferInsert): Promise<Repository>;
+
   // projects
   listProjects(): Promise<(typeof projects.$inferSelect)[]>;
   getProject(id: string): Promise<typeof projects.$inferSelect | null>;
@@ -267,6 +288,27 @@ export interface Store {
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
 export function createStore(db: Db): Store {
   return {
+    async listRepositories() {
+      const rows = await db.select().from(repositories).orderBy(asc(repositories.fullName));
+      return rows.map(rowToRepository);
+    },
+    async getRepository(id) {
+      const rows = await db.select().from(repositories).where(eq(repositories.id, id)).limit(1);
+      return rows[0] ? rowToRepository(rows[0]) : null;
+    },
+    async getRepositoryByFullName(fullName) {
+      const rows = await db
+        .select()
+        .from(repositories)
+        .where(eq(repositories.fullName, fullName))
+        .limit(1);
+      return rows[0] ? rowToRepository(rows[0]) : null;
+    },
+    async insertRepository(values) {
+      const rows = await db.insert(repositories).values(values).returning();
+      return rowToRepository(rows[0]!);
+    },
+
     async listProjects() {
       return db.select().from(projects);
     },

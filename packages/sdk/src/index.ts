@@ -3,6 +3,7 @@ import type {
   MimirPrompt,
   MimirRevision,
   Project,
+  Repository,
   Run,
   RunEvent,
   Subscription,
@@ -12,9 +13,19 @@ import type {
 
 // Re-export the domain types so consumers (web) depend only on the SDK.
 export type {
-  Agent, Project, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
+  Agent, Project, Repository, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
   ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
 } from "@brokk/core";
+
+/** A repo the gh importer found in the org but that isn't connected yet. */
+export interface RepoCandidate {
+  fullName: string;
+  owner: string;
+  name: string;
+  defaultBranch: string;
+  description: string;
+  isArchived: boolean;
+}
 
 /** What POST /mimir/triage returns — the two-axis recommendation. */
 export interface MimirTriageResult {
@@ -62,6 +73,16 @@ export interface CreateTaskInput {
 /** Minimal typed client over the Brokk control-plane API. Shared by the web UI
  *  and external callers (Heimdall, Asgard). */
 export interface BrokkClient {
+  // repositories (the forge's GitHub repos)
+  listRepositories(): Promise<Repository[]>;
+  /** Repos in the org not yet connected — the gh-backed import picker. */
+  importCandidates(org?: string): Promise<{ org: string; candidates: RepoCandidate[] }>;
+  /** Connect the chosen repos (and, by default, a default project each). */
+  importRepositories(input: {
+    repos: { fullName: string; defaultBranch?: string }[];
+    createProject?: boolean;
+  }): Promise<Repository[]>;
+
   listProjects(): Promise<Project[]>;
   listTasks(projectId?: string): Promise<Task[]>;
   getTask(id: string): Promise<Task>;
@@ -116,6 +137,19 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
   }
 
   return {
+    listRepositories() {
+      return req<Repository[]>("GET", "/repositories");
+    },
+    importCandidates(org) {
+      const q = org ? `?org=${encodeURIComponent(org)}` : "";
+      return req<{ org: string; candidates: RepoCandidate[] }>(
+        "GET",
+        `/repositories/import/candidates${q}`,
+      );
+    },
+    importRepositories(input) {
+      return req<Repository[]>("POST", "/repositories/import", input);
+    },
     listProjects() {
       return req<Project[]>("GET", "/projects");
     },
