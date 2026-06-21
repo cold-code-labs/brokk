@@ -120,29 +120,31 @@ export default function Board({ projectId }: { projectId?: string }) {
                 {STATUS_LABEL[key]}
                 <span style={{ color: t.textFaint, marginLeft: 6 }}>{items.length}</span>
               </h2>
-              {items.length === 0 && <p style={{ fontSize: 12, color: t.textFaint }}>—</p>}
-              {items.map((task) => (
-                <button key={task.id} onClick={() => setSelected(task.id)} style={card(selected === task.id)}>
-                  <span style={{ display: "flex", gap: 7, alignItems: "start" }}>
-                    <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
-                    <span style={{ fontSize: 13, lineHeight: 1.3 }}>{task.title}</span>
-                  </span>
-                  {(task.status === "backlog" || task.prUrl) && (
-                    <span style={cardFooter}>
-                      {task.status === "backlog" && (
-                        <span onClick={(e) => { e.stopPropagation(); enqueue(task.id); }} style={miniBtn}>
-                          queue →
-                        </span>
-                      )}
-                      {task.prUrl && (
-                        <a href={task.prUrl} target="_blank" rel="noreferrer" style={prLink} onClick={(e) => e.stopPropagation()}>
-                          PR ↗
-                        </a>
-                      )}
+              <div style={cardList}>
+                {items.length === 0 && <p style={{ fontSize: 12, color: t.textFaint }}>—</p>}
+                {items.map((task) => (
+                  <button key={task.id} onClick={() => setSelected(task.id)} style={card(selected === task.id)}>
+                    <span style={{ display: "flex", gap: 7, alignItems: "start" }}>
+                      <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
+                      <span style={{ fontSize: 13, lineHeight: 1.3 }}>{task.title}</span>
                     </span>
-                  )}
-                </button>
-              ))}
+                    {(task.status === "backlog" || task.prUrl) && (
+                      <span style={cardFooter}>
+                        {task.status === "backlog" && (
+                          <span onClick={(e) => { e.stopPropagation(); enqueue(task.id); }} style={miniBtn}>
+                            queue →
+                          </span>
+                        )}
+                        {task.prUrl && (
+                          <a href={task.prUrl} target="_blank" rel="noreferrer" style={prLink} onClick={(e) => e.stopPropagation()}>
+                            PR ↗
+                          </a>
+                        )}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </section>
           );
         })}
@@ -236,7 +238,8 @@ function Badge({ text, color }: { text: string; color?: string }) {
   );
 }
 
-const column: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 10, minHeight: 360 };
+const column: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column" };
+const cardList: React.CSSProperties = { maxHeight: 320, overflowY: "auto", overflowX: "hidden" };
 const colHead: React.CSSProperties = { fontSize: 12, textTransform: "uppercase", color: t.textMuted, margin: "0 0 10px", letterSpacing: 0.4 };
 const dot: React.CSSProperties = { width: 7, height: 7, borderRadius: 7, flexShrink: 0, marginTop: 5 };
 const cardFooter: React.CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8, alignItems: "center" };
