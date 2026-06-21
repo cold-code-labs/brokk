@@ -75,6 +75,28 @@ export class EitriGit {
     );
   }
 
+  /** Squash-merge the PR (into its base, e.g. dev) and delete the branch. Needs
+   *  the posting identity to have Contents: write. */
+  async mergePr(prNumber: number, token: string): Promise<void> {
+    await gh(
+      ["pr", "merge", String(prNumber), "--repo", this.opts.repo, "--squash", "--delete-branch"],
+      { ...process.env, GH_TOKEN: token },
+    );
+  }
+
+  /** Is the PR free of conflicts (safe to merge)? */
+  async isMergeable(prNumber: number): Promise<boolean> {
+    const out = await gh(
+      ["pr", "view", String(prNumber), "--repo", this.opts.repo, "--json", "mergeable"],
+      this.env,
+    );
+    try {
+      return JSON.parse(out).mergeable === "MERGEABLE";
+    } catch {
+      return false;
+    }
+  }
+
   async cleanup(path: string): Promise<void> {
     await rm(path, { recursive: true, force: true }).catch(() => {});
   }

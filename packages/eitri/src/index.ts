@@ -96,18 +96,18 @@ async function reviewOne(
     });
     console.log(`[eitri] #${pr.number} → ${verdict} (posted)`);
 
-    // The iteration loop: if not approved, hand the findings back to Brokk to
-    // revise the same PR — unless it's not a forge PR, the loop is capped, or a
-    // revise is already in flight.
-    if (verdict !== "APPROVE" && pr.headRefName.startsWith("brokk/")) {
+    // Only manage forge PRs (brokk/*). Others get a review but no loop/merge.
+    if (!pr.headRefName.startsWith("brokk/")) return;
+
+    if (verdict === "REQUEST_CHANGES") {
+      // Blocking → hand the findings back to Brokk to revise the same PR.
       const rounds = (await store.listReviews(cfg.repo)).filter((r) => r.prNumber === pr.number).length;
       if (rounds > cfg.maxRevisions) {
         console.log(`[eitri] #${pr.number} hit ${cfg.maxRevisions}-round cap — leaving for a human`);
       } else if (await store.openReviseExists(pr.number)) {
         console.log(`[eitri] #${pr.number} already has a revise in flight`);
       } else {
-        const projects = await store.listProjects();
-        const projectId = projects[0]?.id;
+        const projectId = (await store.listProjects())[0]?.id;
         if (projectId) {
           await store.insertTask({
             projectId,
@@ -125,7 +125,22 @@ async function reviewOne(
             prUrl: `https://github.com/${cfg.repo}/pull/${pr.number}`,
             iteration: rounds,
           });
-          console.log(`[eitri] #${pr.number} → enqueued revise (round ${rounds + 1}/${cfg.maxRevisions})`);
+          console.log(`[eitri] #${pr.number} → enqueued revise (round ${rounds}/${cfg.maxRevisions})`);
+        }
+      }
+    } else {
+      // COMMENT or APPROVE → gate passes → auto-merge into the base (dev).
+      if (!cfg.autoMerge) {
+        console.log(`[eitri] #${pr.number} mergeable (${verdict}) — auto-merge off, leaving for a human`);
+      } else if (!(await git.isMergeable(pr.number))) {
+        console.log(`[eitri] #${pr.number} has conflicts — not merging`);
+      } else {
+        try {
+          const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;
+          await git.mergePr(pr.number, token);
+          console.log(`[eitri] #${pr.number} → MERGED (squash)`);
+        } catch (e) {
+          console.error(`[eitri] #${pr.number} merge failed (App needs Contents:write?):`, String(e).slice(0, 160));
         }
       }
     }
