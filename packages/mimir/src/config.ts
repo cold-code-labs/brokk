@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // MÍMIR config. Both of Mímir's model calls — the triador (router) and the
 // enhancer — hit one OpenAI-compatible endpoint with one cheap model. Point
-// `MIMIR_BASE_URL` at the CCL AI gateway (Bifröst) in prod, or OpenAI directly.
+// `MIMIR_BASE_URL` at the CCL AI gateway in prod, or OpenAI directly.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface MimirConfig {

@@ -73,7 +73,7 @@ retires). Two axes, decided by one cheap structured call (the **triador**, `gpt-
 - **refino** (`none|polish|structure|engineer`) — the *specification gap*: how much the
   **enhancer** restructures the prompt. `engineer` = the full archetype. `none` = already clear.
 - **forca** (`low|medium|high|extra`) — the *task* complexity/risk → a concrete model +
-  reasoning effort downstream (via the gateway / Bifröst).
+  reasoning effort downstream (via the CCL AI gateway).
 
 The axes are **independent**: a clear prompt can describe a brutal task. Auto by default,
 human **override** allowed; the budget ceiling is trusted to the router — **Eitri** reviews
