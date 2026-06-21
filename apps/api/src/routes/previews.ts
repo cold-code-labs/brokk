@@ -22,13 +22,20 @@ export function previewsRoutes(deps: AppDeps): Hono {
 
     const { projectId, branch } = parsed.data;
 
-    // Atomically ensure an active preview exists for this (project, branch) pair.
-    // ensureActivePreview uses the DB-level partial unique index to prevent
-    // duplicate rows even under concurrent requests — no TOCTOU window.
-    const token = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-    const subdomain = token;
-    const url = `https://${subdomain}.preview.brokk.dev`;
-    const hauldrProject = `preview-${subdomain}`;
+    const project = await deps.store.getProject(projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    const repo = await deps.store.getRepository(project.repositoryId);
+    if (!repo) return c.json({ error: "repository not found" }, 404);
+
+    // One stable slot per app+branch: "<app>-dev" → <app>-dev.preview.coldcodelabs.com,
+    // backed by the stable Hauldr project "<app>-dev" (so the dev DB persists across
+    // restarts instead of churning a fresh one each time). ensureActivePreview
+    // reactivates a stopped slot or inserts a new one.
+    const app = repo.name;
+    const branchSlug = branch.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "dev";
+    const subdomain = `${app}-${branchSlug}`;
+    const url = `https://${subdomain}.preview.coldcodelabs.com`;
+    const hauldrProject = subdomain;
 
     const { preview, created } = await deps.store.ensureActivePreview({
       projectId,
