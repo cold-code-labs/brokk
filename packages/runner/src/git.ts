@@ -134,4 +134,47 @@ export class GhProvider implements GitProvider {
     // git worktree prune would also work; rm is simplest for the scaffold.
     await rm(opts.path, { recursive: true, force: true });
   }
+
+  /** Create (or refresh) a **persistent** worktree for a preview branch.
+   *
+   *  Unlike forge worktrees (which are torn down after each run), preview
+   *  worktrees live under `<workDir>/preview-worktrees/<name>` and are NEVER
+   *  deleted — they are refreshed (fetch + `git reset --hard`) on each start so
+   *  the app's `node_modules` / build cache survive restarts.
+   *
+   *  @param name  Stable slug for the worktree directory, e.g. `"brokk-dev"`.
+   */
+  async persistentCheckout(opts: {
+    repo: Repository;
+    branch: string;
+    name: string;
+  }): Promise<{ path: string; branch: string }> {
+    const { repo, branch, name } = opts;
+    const bare = this.bareDir(repo);
+    await mkdir(join(this.opts.workDir, "repos"), { recursive: true });
+
+    // Ensure bare repo exists, then always fetch to get the latest commits.
+    try {
+      await git(this.opts.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
+    } catch {
+      /* already exists — fall through to fetch below */
+    }
+    await git(bare, ["fetch", "origin", `+refs/heads/${branch}:refs/heads/${branch}`]);
+    await git(bare, ["worktree", "prune"]).catch(() => {});
+
+    const parentDir = join(this.opts.workDir, "preview-worktrees");
+    const path = join(parentDir, name);
+    await mkdir(parentDir, { recursive: true });
+
+    // Try to refresh an existing worktree (the "reuse" path — no teardown).
+    const refreshed = await git(path, ["reset", "--hard", branch])
+      .then(() => true)
+      .catch(() => false);
+    if (refreshed) return { path, branch };
+
+    // First boot (or broken worktree): create fresh from the fetched branch tip.
+    await rm(path, { recursive: true, force: true }).catch(() => {});
+    await git(bare, ["worktree", "add", "-B", branch, path, `refs/heads/${branch}`]);
+    return { path, branch };
+  }
 }
