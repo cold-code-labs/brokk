@@ -10,6 +10,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -229,23 +230,34 @@ export const pullRequests = pgTable("pull_requests", {
 });
 
 /** Ephemeral dev-preview environments spun up per branch. */
-export const previews = pgTable("previews", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  branch: text("branch").notNull().default("dev"),
-  subdomain: text("subdomain").notNull().unique(),
-  url: text("url").notNull(),
-  port: integer("port"),
-  hauldrProject: text("hauldr_project").notNull(),
-  status: previewStatus("status").notNull().default("starting"),
-  pid: integer("pid"),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-  expiresAt: timestamp("expires_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const previews = pgTable(
+  "previews",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    branch: text("branch").notNull().default("dev"),
+    subdomain: text("subdomain").notNull().unique(),
+    url: text("url").notNull(),
+    port: integer("port"),
+    hauldrProject: text("hauldr_project").notNull(),
+    status: previewStatus("status").notNull().default("starting"),
+    pid: integer("pid"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    /** Prevent duplicate active environments for the same (project, branch) pair.
+     *  Only one row may be in 'starting' or 'live' status at a time; 'stopped'
+     *  and 'failed' rows are excluded so historical records are kept intact. */
+    activeUniq: uniqueIndex("previews_project_branch_active_uniq")
+      .on(t.projectId, t.branch)
+      .where(sql`${t.status} in ('starting', 'live')`),
+  }),
+);
 
 // ── Mímir (the counselor) ──────────────────────────────────────────────────────
 // Prompt intake of the forge. Migrated from Heimdall's PocketBase

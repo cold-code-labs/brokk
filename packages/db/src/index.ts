@@ -291,6 +291,15 @@ export interface Store {
 
   // previews (ephemeral dev-preview environments)
   insertPreview(values: typeof previews.$inferInsert): Promise<Preview>;
+  /** Atomically ensure exactly one active (starting/live) preview exists for the
+   *  given (projectId, branch) pair.  Uses the DB-level partial unique index to
+   *  prevent duplicates under concurrent requests: it attempts an INSERT and, if
+   *  the index fires a conflict, falls back to SELECT-ing the winning row.
+   *  `created` is true when a new row was inserted, false when an existing one
+   *  was returned. */
+  ensureActivePreview(
+    values: typeof previews.$inferInsert,
+  ): Promise<{ preview: Preview; created: boolean }>;
   getPreview(id: string): Promise<Preview | null>;
   listPreviews(opts?: { projectId?: string }): Promise<Preview[]>;
   getPreviewBySubdomain(subdomain: string): Promise<Preview | null>;
@@ -588,6 +597,32 @@ export function createStore(db: Db): Store {
     async insertPreview(values) {
       const rows = await db.insert(previews).values(values).returning();
       return rowToPreview(rows[0]!);
+    },
+    async ensureActivePreview(values) {
+      // One stable slot per app+branch, keyed by the deterministic subdomain.
+      // Reactivate a stopped/failed slot (reusing its url + Hauldr project) or
+      // insert a fresh one. The partial unique index on (project_id, branch)
+      // WHERE status IN ('starting','live') is the concurrency backstop.
+      const subdomain = values.subdomain as string;
+      const found = await db
+        .select()
+        .from(previews)
+        .where(eq(previews.subdomain, subdomain))
+        .limit(1);
+      const row = found[0];
+      if (row) {
+        if (row.status === "starting" || row.status === "live") {
+          return { preview: rowToPreview(row), created: false };
+        }
+        const reactivated = await db
+          .update(previews)
+          .set({ status: "starting", updatedAt: new Date() })
+          .where(eq(previews.id, row.id))
+          .returning();
+        return { preview: rowToPreview(reactivated[0]!), created: false };
+      }
+      const inserted = await db.insert(previews).values(values).returning();
+      return { preview: rowToPreview(inserted[0]!), created: true };
     },
     async getPreview(id) {
       const rows = await db.select().from(previews).where(eq(previews.id, id)).limit(1);
