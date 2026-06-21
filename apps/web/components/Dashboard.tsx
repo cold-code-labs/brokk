@@ -1,7 +1,7 @@
 "use client";
 
 import type { Project, Task } from "@brokk/sdk";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import { brokk } from "../lib/api";
 
@@ -11,6 +11,7 @@ const STATUS_COLOR: Record<string, string> = {
   running: "#2f81f7",
   review: "#a371f7",
   done: "#2ea043",
+  succeeded: "#2ea043",
   failed: "#f85149",
   cancelled: "#5c6575",
 };
@@ -28,6 +29,7 @@ export default function Dashboard() {
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const projectIdRef = useRef<string | undefined>(undefined);
 
   const refresh = useCallback(async (projectId?: string) => {
     try {
@@ -45,12 +47,13 @@ export default function Dashboard() {
         if (!alive) return;
         const p = projects[0] ?? null;
         setProject(p);
+        projectIdRef.current = p?.id;
         await refresh(p?.id);
       } catch (e) {
         setErr(String(e));
       }
     })();
-    const interval = setInterval(() => refresh(project?.id), 5_000);
+    const interval = setInterval(() => refresh(projectIdRef.current), 5_000);
     return () => {
       alive = false;
       clearInterval(interval);
@@ -63,11 +66,11 @@ export default function Dashboard() {
     return tasks.filter((t) => t.status === key).length;
   }
 
-  // Active = running + queued combined; used for colour logic on the "all" card.
+  // Active = running + queued combined; shown in the project subtitle.
   const activeCount = count("running") + count("queued");
 
   return (
-    <main style={{ padding: "28px 32px", maxWidth: 1100 }}>
+    <main style={{ padding: "28px 32px", maxWidth: 1100, margin: "0 auto" }}>
       {/* Page header */}
       <header style={{ marginBottom: 28 }}>
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: -0.3 }}>
@@ -146,6 +149,14 @@ export default function Dashboard() {
               )}
             </div>
           ))}
+          {tasks.length > 12 && (
+            <p style={{ fontSize: 12, color: "#9aa3b2", margin: "6px 0 0", textAlign: "center" }}>
+              +{tasks.length - 12} more —{" "}
+              <a href="/kanban" style={{ color: "#a371f7", textDecoration: "none" }}>
+                view all in Kanban
+              </a>
+            </p>
+          )}
         </div>
       </section>
     </main>

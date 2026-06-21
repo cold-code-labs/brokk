@@ -32,6 +32,7 @@ export default function Board() {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const projectIdRef = useRef<string | undefined>(undefined);
 
   const refresh = useCallback(async (projectId?: string) => {
     try {
@@ -50,12 +51,13 @@ export default function Board() {
         if (!alive) return;
         const p = projects[0] ?? null;
         setProject(p);
+        projectIdRef.current = p?.id;
         await refresh(p?.id);
       } catch (e) {
         setErr(String(e));
       }
     })();
-    const t = setInterval(() => refresh(project?.id), 3000);
+    const t = setInterval(() => refresh(projectIdRef.current), 3000);
     return () => {
       alive = false;
       clearInterval(t);
