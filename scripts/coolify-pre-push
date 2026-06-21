@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Install: cp scripts/coolify-pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# Auto-deploy Brokk on push to main via Coolify API (mirrors Heimdall's hook).
+APP_UUID="p3yhl41ww6sw00wqnezpppnu"
+COOLIFY_API="http://localhost:8000/api/v1"
+TOKEN_FILE="$HOME/.coolify_token"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    if [ -r "$TOKEN_FILE" ]; then
+      ( sleep 6
+        curl -s -H "Authorization: Bearer $(cat "$TOKEN_FILE")" \
+          "$COOLIFY_API/deploy?uuid=$APP_UUID&force=false" >/dev/null 2>&1
+      ) >/dev/null 2>&1 &
+      disown 2>/dev/null
+      echo "brokk: deploy do main agendado via Coolify API (sobe em ~1-2 min)."
+    else
+      echo "brokk: AVISO — $TOKEN_FILE ilegível, deploy automático NÃO disparado."
+    fi
+  fi
+done
+
+exit 0

@@ -54,6 +54,9 @@ Heimdall OSS / Saga. On Coolify create a **Docker Compose** resource pointing at
 `cold-code-labs/brokk`, branch `main`, compose file `docker-compose.prod.yml`.
 Route the `web` service at `brokk.coldcodelabs.com` via `docker_compose_domains`.
 
+Coolify resource: project `Brokk`, application uuid `p3yhl41ww6sw00wqnezpppnu` (surtr).
+Install the deploy hook: `cp scripts/coolify-pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
+
 Once deployed, Brokk appears in **Heimdall OSS → Fleet** (Coolify `/services` mirror).
 
 ```bash
