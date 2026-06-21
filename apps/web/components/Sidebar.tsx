@@ -12,7 +12,9 @@ const NAV = [
   { href: "/settings", label: "Settings", icon: "⚙", desc: "Project & runner" },
 ] as const;
 
-export default function Sidebar() {
+type SidebarUser = { name: string; role?: string; authDisabled: boolean };
+
+export default function Sidebar({ user }: { user?: SidebarUser }) {
   const path = usePathname();
   return (
     <nav style={rail}>
@@ -39,7 +41,22 @@ export default function Sidebar() {
         })}
       </div>
 
-      <div style={{ marginTop: "auto", padding: 16, borderTop: "1px solid #161b24" }}>
+      {user ? (
+        <div style={{ marginTop: "auto", padding: "12px 16px", borderTop: "1px solid #161b24" }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: "#cfd4de" }}>{user.name}</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 3 }}>
+            <span style={{ fontSize: 10.5, color: "#5c6575" }}>
+              {user.role ?? ""}
+              {user.authDisabled ? "auth off" : ""}
+            </span>
+            <a href="/sign-out" style={{ fontSize: 11, color: "#9aa3b2", textDecoration: "none" }}>
+              sign out
+            </a>
+          </div>
+        </div>
+      ) : null}
+
+      <div style={{ marginTop: user ? 0 : "auto", padding: 16, borderTop: "1px solid #161b24" }}>
         <a href="https://github.com/cold-code-labs/brokk" target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#5c6575", textDecoration: "none" }}>
           cold-code-labs/brokk ↗
         </a>

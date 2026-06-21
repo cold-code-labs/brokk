@@ -1,12 +1,19 @@
 import type { ReactNode } from "react";
+import { redirect } from "next/navigation";
 import Sidebar from "../components/Sidebar";
+import { authEnabled, getSession } from "../lib/logto";
 
 export const metadata = {
   title: "Brokk",
   description: "CCL's AI coding-agent platform — the forge.",
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const session = await getSession();
+  if (authEnabled && !session.isAuthenticated) {
+    redirect("/sign-in");
+  }
+
   return (
     <html lang="en">
       <body
@@ -20,7 +27,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           minHeight: "100vh",
         }}
       >
-        <Sidebar />
+        <Sidebar
+          user={{ name: session.name, role: session.role, authDisabled: session.authDisabled }}
+        />
         <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
       </body>
     </html>
