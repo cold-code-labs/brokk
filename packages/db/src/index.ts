@@ -1,5 +1,12 @@
 import type {
   Agent,
+  ForcaLevel,
+  MimirMode,
+  MimirPrompt,
+  MimirRevision,
+  MimirTriage,
+  RefinoLevel,
+  Repository,
   Review,
   Run,
   RunEvent,
@@ -8,6 +15,7 @@ import type {
   Task,
   TaskKind,
   TaskStatus,
+  TriageSource,
   User,
 } from "@brokk/core";
 import { and, asc, eq, sql } from "drizzle-orm";
@@ -15,6 +23,9 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
   agents,
+  mimirPrompts,
+  mimirRevisions,
+  mimirTriage,
   projects,
   pullRequests,
   repositories,
@@ -31,7 +42,7 @@ export * from "./schema.js";
 export function createDb(connectionString: string) {
   const client = postgres(connectionString);
   const db = drizzle(client, {
-    schema: { repositories, projects, tasks, agents, runs, runEvents, pullRequests, users, subscriptions, reviews },
+    schema: { repositories, projects, tasks, agents, runs, runEvents, pullRequests, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage },
   });
   return { db, client };
 }
@@ -81,6 +92,20 @@ function rowToRun(row: typeof runs.$inferSelect): Run {
     headroomSaved: row.headroomSaved,
     prUrl: row.prUrl,
     error: row.error,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function rowToRepository(row: typeof repositories.$inferSelect): Repository {
+  return {
+    id: row.id,
+    fullName: row.fullName,
+    owner: row.owner,
+    name: row.name,
+    defaultBranch: row.defaultBranch,
+    cloneUrl: row.cloneUrl,
+    installationId: row.installationId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -136,9 +161,61 @@ function rowToEvent(row: typeof runEvents.$inferSelect): RunEvent {
   };
 }
 
+function rowToMimirPrompt(row: typeof mimirPrompts.$inferSelect): MimirPrompt {
+  return {
+    id: row.id,
+    title: row.title,
+    body: row.body,
+    tags: row.tags,
+    authorId: row.authorId,
+    authorName: row.authorName,
+    authorEmail: row.authorEmail,
+    refineCount: row.refineCount,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function rowToMimirRevision(row: typeof mimirRevisions.$inferSelect): MimirRevision {
+  return {
+    id: row.id,
+    input: row.input,
+    output: row.output,
+    rationale: row.rationale,
+    model: row.model,
+    mode: row.mode as MimirMode | null,
+    savedPromptId: row.savedPromptId,
+    authorId: row.authorId,
+    authorName: row.authorName,
+    authorEmail: row.authorEmail,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function rowToMimirTriage(row: typeof mimirTriage.$inferSelect): MimirTriage {
+  return {
+    id: row.id,
+    revisionId: row.revisionId,
+    refinoLevel: row.refinoLevel as RefinoLevel,
+    refinoConf: row.refinoConf,
+    forcaLevel: row.forcaLevel as ForcaLevel,
+    forcaConf: row.forcaConf,
+    rationale: row.rationale,
+    source: row.source as TriageSource,
+    triageModel: row.triageModel,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export interface Store {
+  // repositories (the GitHub repos the forge can work in)
+  listRepositories(): Promise<Repository[]>;
+  getRepository(id: string): Promise<Repository | null>;
+  getRepositoryByFullName(fullName: string): Promise<Repository | null>;
+  insertRepository(values: typeof repositories.$inferInsert): Promise<Repository>;
+
   // projects
   listProjects(): Promise<(typeof projects.$inferSelect)[]>;
   getProject(id: string): Promise<typeof projects.$inferSelect | null>;
@@ -190,11 +267,48 @@ export interface Store {
     runId: string,
     events: { type: RunEvent["type"]; payload: unknown }[],
   ): Promise<RunEvent[]>;
+
+  // mímir (the counselor): bank + immutable history + triage
+  listMimirPrompts(opts?: { authorId?: string }): Promise<MimirPrompt[]>;
+  /** Lexical search over title/body — feeds the "engineer" (archetype) retrieval. */
+  searchMimirPrompts(query: string, limit?: number): Promise<MimirPrompt[]>;
+  getMimirPrompt(id: string): Promise<MimirPrompt | null>;
+  insertMimirPrompt(values: typeof mimirPrompts.$inferInsert): Promise<MimirPrompt>;
+  updateMimirPrompt(
+    id: string,
+    patch: Partial<typeof mimirPrompts.$inferInsert>,
+  ): Promise<MimirPrompt>;
+  deleteMimirPrompt(id: string): Promise<void>;
+  bumpMimirRefineCount(id: string): Promise<void>;
+  listMimirRevisions(opts?: { authorId?: string; limit?: number }): Promise<MimirRevision[]>;
+  insertMimirRevision(values: typeof mimirRevisions.$inferInsert): Promise<MimirRevision>;
+  insertMimirTriage(values: typeof mimirTriage.$inferInsert): Promise<MimirTriage>;
 }
 
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
 export function createStore(db: Db): Store {
   return {
+    async listRepositories() {
+      const rows = await db.select().from(repositories).orderBy(asc(repositories.fullName));
+      return rows.map(rowToRepository);
+    },
+    async getRepository(id) {
+      const rows = await db.select().from(repositories).where(eq(repositories.id, id)).limit(1);
+      return rows[0] ? rowToRepository(rows[0]) : null;
+    },
+    async getRepositoryByFullName(fullName) {
+      const rows = await db
+        .select()
+        .from(repositories)
+        .where(eq(repositories.fullName, fullName))
+        .limit(1);
+      return rows[0] ? rowToRepository(rows[0]) : null;
+    },
+    async insertRepository(values) {
+      const rows = await db.insert(repositories).values(values).returning();
+      return rowToRepository(rows[0]!);
+    },
+
     async listProjects() {
       return db.select().from(projects);
     },
@@ -437,6 +551,76 @@ export function createStore(db: Db): Store {
         const rows = await tx.insert(runEvents).values(values).returning();
         return rows.map(rowToEvent);
       });
+    },
+
+    async listMimirPrompts(opts) {
+      const rows = opts?.authorId
+        ? await db
+            .select()
+            .from(mimirPrompts)
+            .where(eq(mimirPrompts.authorId, opts.authorId))
+            .orderBy(sql`${mimirPrompts.updatedAt} desc`)
+        : await db.select().from(mimirPrompts).orderBy(sql`${mimirPrompts.updatedAt} desc`);
+      return rows.map(rowToMimirPrompt);
+    },
+    async searchMimirPrompts(query, limit = 8) {
+      const q = `%${query}%`;
+      const rows = await db
+        .select()
+        .from(mimirPrompts)
+        .where(sql`${mimirPrompts.title} ilike ${q} or ${mimirPrompts.body} ilike ${q}`)
+        .orderBy(sql`${mimirPrompts.refineCount} desc`)
+        .limit(limit);
+      return rows.map(rowToMimirPrompt);
+    },
+    async getMimirPrompt(id) {
+      const rows = await db.select().from(mimirPrompts).where(eq(mimirPrompts.id, id)).limit(1);
+      return rows[0] ? rowToMimirPrompt(rows[0]) : null;
+    },
+    async insertMimirPrompt(values) {
+      const rows = await db.insert(mimirPrompts).values(values).returning();
+      return rowToMimirPrompt(rows[0]!);
+    },
+    async updateMimirPrompt(id, patch) {
+      const rows = await db
+        .update(mimirPrompts)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(mimirPrompts.id, id))
+        .returning();
+      if (!rows[0]) throw new Error(`mimir prompt ${id} not found`);
+      return rowToMimirPrompt(rows[0]);
+    },
+    async deleteMimirPrompt(id) {
+      await db.delete(mimirPrompts).where(eq(mimirPrompts.id, id));
+    },
+    async bumpMimirRefineCount(id) {
+      await db
+        .update(mimirPrompts)
+        .set({ refineCount: sql`${mimirPrompts.refineCount} + 1`, updatedAt: new Date() })
+        .where(eq(mimirPrompts.id, id));
+    },
+    async listMimirRevisions(opts) {
+      const rows = opts?.authorId
+        ? await db
+            .select()
+            .from(mimirRevisions)
+            .where(eq(mimirRevisions.authorId, opts.authorId))
+            .orderBy(sql`${mimirRevisions.createdAt} desc`)
+            .limit(opts?.limit ?? 100)
+        : await db
+            .select()
+            .from(mimirRevisions)
+            .orderBy(sql`${mimirRevisions.createdAt} desc`)
+            .limit(opts?.limit ?? 100);
+      return rows.map(rowToMimirRevision);
+    },
+    async insertMimirRevision(values) {
+      const rows = await db.insert(mimirRevisions).values(values).returning();
+      return rowToMimirRevision(rows[0]!);
+    },
+    async insertMimirTriage(values) {
+      const rows = await db.insert(mimirTriage).values(values).returning();
+      return rowToMimirTriage(rows[0]!);
     },
   };
 }

@@ -20,6 +20,9 @@ importers:
       '@brokk/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@brokk/mimir':
+        specifier: workspace:*
+        version: link:../../packages/mimir
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.14(hono@4.12.26)
@@ -123,6 +126,19 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/mimir:
+    dependencies:
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

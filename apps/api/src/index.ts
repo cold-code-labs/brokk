@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { createDb, createStore, ensureSchema } from "@brokk/db";
+import { loadMimirConfig } from "@brokk/mimir";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 
@@ -10,7 +11,17 @@ async function main() {
   await ensureSchema(db);
   const store = createStore(db);
 
-  const app = buildApp({ store, runnerSecret: cfg.BROKK_RUNNER_SECRET });
+  // Mímir is optional at boot: without MIMIR_API_KEY the bank still works,
+  // only enhance/triage return 503.
+  let mimir;
+  try {
+    mimir = loadMimirConfig();
+  } catch {
+    mimir = undefined;
+    console.warn("[mimir] MIMIR_API_KEY not set — enhance/triage disabled");
+  }
+
+  const app = buildApp({ store, runnerSecret: cfg.BROKK_RUNNER_SECRET, mimir });
 
   serve({ fetch: app.fetch, port: cfg.BROKK_API_PORT }, ({ port }) => {
     console.log(`brokk control-plane listening on :${port}`);

@@ -1,30 +1,16 @@
 "use client";
 
 import type { Project, Run, RunEvent, Task } from "@brokk/sdk";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { brokk } from "../lib/api";
+import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
 
-const COLUMNS = [
-  { key: "backlog", label: "Backlog" },
-  { key: "queued", label: "Queued" },
-  { key: "running", label: "Running" },
-  { key: "review", label: "Review · PR" },
-  { key: "done", label: "Done" },
-  { key: "failed", label: "Failed" },
-] as const;
+const COLUMNS = ["backlog", "queued", "running", "review", "done", "failed"] as const;
 
-const STATUS_COLOR: Record<string, string> = {
-  backlog: "#5c6575",
-  queued: "#b08900",
-  running: "#2f81f7",
-  review: "#a371f7",
-  done: "#2ea043",
-  failed: "#f85149",
-  cancelled: "#5c6575",
-  succeeded: "#2ea043",
-};
-
-export default function Board() {
+/** Board for a single project. `projectId` selects the repo's board; when omitted
+ *  it falls back to the first project (legacy single-project entry). */
+export default function Board({ projectId }: { projectId?: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -32,40 +18,42 @@ export default function Board() {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  // Render only after mount: this is an interactive dashboard and browser
-  // extensions (Dashlane etc.) mutate the form HTML before React hydrates,
-  // which trips hydration warnings. Client-only sidesteps it cleanly.
+  // Render only after mount: browser extensions (Dashlane etc.) mutate form HTML
+  // before React hydrates, which trips hydration warnings. Client-only sidesteps it.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const refresh = useCallback(async (projectId?: string) => {
+  const refresh = useCallback(async (pid?: string) => {
+    if (!pid) return;
     try {
-      setTasks(await brokk.listTasks(projectId));
+      setTasks(await brokk.listTasks(pid));
     } catch (e) {
       setErr(String(e));
     }
   }, []);
 
-  // Load the (first) project once, then poll tasks.
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         const projects = await brokk.listProjects();
         if (!alive) return;
-        const p = projects[0] ?? null;
+        const p = (projectId ? projects.find((x) => x.id === projectId) : projects[0]) ?? null;
         setProject(p);
         await refresh(p?.id);
       } catch (e) {
         setErr(String(e));
       }
     })();
-    const t = setInterval(() => refresh(project?.id), 3000);
     return () => {
       alive = false;
-      clearInterval(t);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, refresh]);
+
+  useEffect(() => {
+    if (!project?.id) return;
+    const i = setInterval(() => refresh(project.id), 3000);
+    return () => clearInterval(i);
   }, [project?.id, refresh]);
 
   async function createTask(e: React.FormEvent) {
@@ -75,7 +63,7 @@ export default function Board() {
     setErr(null);
     try {
       const task = await brokk.createTask({ projectId: project.id, title: title.trim(), body });
-      await brokk.enqueueTask(task.id); // straight to the queue → a runner claims it
+      await brokk.enqueueTask(task.id);
       setTitle("");
       setBody("");
       await refresh(project.id);
@@ -95,76 +83,64 @@ export default function Board() {
     }
   }
 
-  const selectedTask = tasks.find((t) => t.id === selected) ?? null;
-
+  const selectedTask = tasks.find((x) => x.id === selected) ?? null;
   if (!mounted) return null;
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 1400 }}>
+    <div style={{ padding: "28px 32px", maxWidth: 1500 }}>
       <header style={{ marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>Board</h1>
-        <p style={{ margin: "4px 0 0", color: "#9aa3b2", fontSize: 14 }}>
+        <Link href="/" style={{ fontSize: 12, color: t.textMuted, textDecoration: "none" }}>
+          ← Fleet
+        </Link>
+        <h1 style={{ margin: "6px 0 0", fontSize: 22, letterSpacing: -0.4 }}>
+          {project ? project.name : "Board"}
+        </h1>
+        <p style={{ margin: "4px 0 0", color: t.textMuted, fontSize: 14 }}>
           The forge — card → agent → PR.{" "}
-          {project ? (
-            <span style={{ color: "#e6e8ee" }}>{project.name}</span>
-          ) : (
-            <em>loading project…</em>
-          )}
+          {project && <span style={{ color: t.textFaint }}>model {project.model}</span>}
         </p>
       </header>
 
       <form onSubmit={createTask} style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="New task title…"
-          style={inp(280)}
-        />
-        <input
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Description (what the agent should do)…"
-          style={inp(460)}
-        />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New task title…" style={inp(280)} />
+        <input value={body} onChange={(e) => setBody(e.target.value)} placeholder="What the agent should do…" style={inp(460)} />
         <button type="submit" disabled={busy || !project || !title.trim()} style={btn(true)}>
           {busy ? "Forging…" : "Queue task →"}
         </button>
       </form>
 
-      {err && (
-        <p style={{ color: "#f85149", fontSize: 13, margin: "0 0 12px" }}>⚠ {err}</p>
-      )}
+      {err && <p style={{ color: STATUS_COLOR.failed, fontSize: 13, margin: "0 0 12px" }}>⚠ {err}</p>}
 
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0,1fr))`, gap: 12 }}>
-        {COLUMNS.map((col) => {
-          const items = tasks.filter((t) => t.status === col.key);
+        {COLUMNS.map((key) => {
+          const items = tasks.filter((x) => x.status === key);
           return (
-            <section key={col.key} style={column}>
+            <section key={key} style={column}>
               <h2 style={colHead}>
-                {col.label}
-                <span style={{ color: "#5c6575", marginLeft: 6 }}>{items.length}</span>
+                {STATUS_LABEL[key]}
+                <span style={{ color: t.textFaint, marginLeft: 6 }}>{items.length}</span>
               </h2>
               <div style={cardList}>
-                {items.length === 0 && <p style={{ fontSize: 12, color: "#3f4654" }}>—</p>}
-                {items.map((t) => (
-                  <button key={t.id} onClick={() => setSelected(t.id)} style={card(selected === t.id)}>
-                    <span style={{ ...dot, background: STATUS_COLOR[t.status] }} />
-                    <span style={{ fontSize: 13, lineHeight: 1.3 }}>{t.title}</span>
-                    {t.status === "backlog" && (
-                      <span
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          enqueue(t.id);
-                        }}
-                        style={miniBtn}
-                      >
-                        queue →
+                {items.length === 0 && <p style={{ fontSize: 12, color: t.textFaint }}>—</p>}
+                {items.map((task) => (
+                  <button key={task.id} onClick={() => setSelected(task.id)} style={card(selected === task.id)}>
+                    <span style={{ display: "flex", gap: 7, alignItems: "start" }}>
+                      <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
+                      <span style={{ fontSize: 13, lineHeight: 1.3 }}>{task.title}</span>
+                    </span>
+                    {(task.status === "backlog" || task.prUrl) && (
+                      <span style={cardFooter}>
+                        {task.status === "backlog" && (
+                          <span onClick={(e) => { e.stopPropagation(); enqueue(task.id); }} style={miniBtn}>
+                            queue →
+                          </span>
+                        )}
+                        {task.prUrl && (
+                          <a href={task.prUrl} target="_blank" rel="noreferrer" style={prLink} onClick={(e) => e.stopPropagation()}>
+                            PR ↗
+                          </a>
+                        )}
                       </span>
-                    )}
-                    {t.prUrl && (
-                      <a href={t.prUrl} target="_blank" rel="noreferrer" style={prLink} onClick={(e) => e.stopPropagation()}>
-                        PR ↗
-                      </a>
                     )}
                   </button>
                 ))}
@@ -184,7 +160,6 @@ function Detail({ task, onClose }: { task: Task; onClose: () => void }) {
   const [events, setEvents] = useState<RunEvent[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Load runs for the task; subscribe to the latest run's live stream.
   useEffect(() => {
     let unsub: (() => void) | undefined;
     setEvents([]);
@@ -219,20 +194,18 @@ function Detail({ task, onClose }: { task: Task; onClose: () => void }) {
             </a>
           )}
         </div>
-        {task.body && <p style={{ color: "#aab2c0", fontSize: 13, whiteSpace: "pre-wrap" }}>{task.body}</p>}
-        {latest?.error && (
-          <pre style={{ ...logBox, color: "#f85149", maxHeight: 120 }}>{latest.error}</pre>
-        )}
+        {task.body && <p style={{ color: t.textMuted, fontSize: 13, whiteSpace: "pre-wrap" }}>{task.body}</p>}
+        {latest?.error && <pre style={{ ...logBox, color: STATUS_COLOR.failed, maxHeight: 120 }}>{latest.error}</pre>}
 
-        <h3 style={{ fontSize: 12, textTransform: "uppercase", color: "#9aa3b2", margin: "16px 0 6px" }}>
+        <h3 style={{ fontSize: 12, textTransform: "uppercase", color: t.textMuted, margin: "16px 0 6px" }}>
           Live run log{latest ? ` · ${latest.id.slice(0, 8)}` : ""}
         </h3>
         <div ref={logRef} style={logBox}>
-          {events.length === 0 && <span style={{ color: "#3f4654" }}>no events yet…</span>}
+          {events.length === 0 && <span style={{ color: t.textFaint }}>no events yet…</span>}
           {events.map((e, i) => (
             <div key={i} style={{ marginBottom: 4 }}>
-              <span style={{ color: STATUS_COLOR[e.type] ?? "#5c6575", fontWeight: 600 }}>{e.type}</span>{" "}
-              <span style={{ color: "#8b94a3" }}>{summarize(e)}</span>
+              <span style={{ color: STATUS_COLOR[e.type] ?? t.textFaint, fontWeight: 600 }}>{e.type}</span>{" "}
+              <span style={{ color: t.textMuted }}>{summarize(e)}</span>
             </div>
           ))}
         </div>
@@ -259,29 +232,29 @@ function summarize(e: RunEvent): string {
 
 function Badge({ text, color }: { text: string; color?: string }) {
   return (
-    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: "#1a1f29", color: color ?? "#9aa3b2", border: `1px solid ${color ?? "#2a2f3a"}33` }}>
+    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: t.surface3, color: color ?? t.textMuted, border: `1px solid ${color ?? t.border2}33` }}>
       {text}
     </span>
   );
 }
 
-// ── inline styles ─────────────────────────────────────────────────────────────
-const column: React.CSSProperties = { background: "#0f121a", border: "1px solid #1c212c", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column" };
+const column: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column" };
 const cardList: React.CSSProperties = { maxHeight: 320, overflowY: "auto", overflowX: "hidden" };
-const colHead: React.CSSProperties = { fontSize: 12, textTransform: "uppercase", color: "#9aa3b2", margin: "0 0 10px", letterSpacing: 0.4 };
+const colHead: React.CSSProperties = { fontSize: 12, textTransform: "uppercase", color: t.textMuted, margin: "0 0 10px", letterSpacing: 0.4 };
 const dot: React.CSSProperties = { width: 7, height: 7, borderRadius: 7, flexShrink: 0, marginTop: 5 };
-const prLink: React.CSSProperties = { position: "absolute", right: 8, bottom: 6, fontSize: 11, color: "#a371f7", textDecoration: "none" };
-const miniBtn: React.CSSProperties = { position: "absolute", right: 8, top: 8, fontSize: 10, color: "#b08900", border: "1px solid #b0890044", borderRadius: 6, padding: "1px 6px" };
+const cardFooter: React.CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8, alignItems: "center" };
+const prLink: React.CSSProperties = { fontSize: 11, color: t.purple, textDecoration: "none" };
+const miniBtn: React.CSSProperties = { fontSize: 11, color: STATUS_COLOR.queued, border: `1px solid ${STATUS_COLOR.queued}44`, borderRadius: 6, padding: "2px 8px" };
 const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 50 };
-const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%", background: "#0d1017", borderLeft: "1px solid #1c212c", padding: 22, overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" };
-const logBox: React.CSSProperties = { background: "#08090d", border: "1px solid #1c212c", borderRadius: 8, padding: 10, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };
+const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%", background: t.bg, borderLeft: `1px solid ${t.border}`, padding: 22, overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" };
+const logBox: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };
 
 function card(active: boolean): React.CSSProperties {
-  return { position: "relative", display: "flex", gap: 7, alignItems: "start", width: "100%", textAlign: "left", background: active ? "#1a2030" : "#141823", border: `1px solid ${active ? "#2f81f7" : "#222836"}`, borderRadius: 8, padding: "9px 10px 18px", marginBottom: 8, color: "#e6e8ee", cursor: "pointer" };
+  return { display: "flex", flexDirection: "column", width: "100%", textAlign: "left", background: active ? t.surface3 : t.surface2, border: `1px solid ${active ? t.borderActive : t.border2}`, borderRadius: 8, padding: "9px 10px", marginBottom: 8, color: t.text, cursor: "pointer" };
 }
 function inp(w: number): React.CSSProperties {
-  return { flex: `1 1 ${w}px`, minWidth: 160, background: "#0f121a", border: "1px solid #222836", borderRadius: 8, padding: "9px 11px", color: "#e6e8ee", fontSize: 13 };
+  return { flex: `1 1 ${w}px`, minWidth: 160, background: t.surface, border: `1px solid ${t.border2}`, borderRadius: 8, padding: "9px 11px", color: t.text, fontSize: 13 };
 }
 function btn(primary: boolean): React.CSSProperties {
-  return { background: primary ? "#2f81f7" : "#1a1f29", border: "1px solid #2a2f3a", color: primary ? "#fff" : "#9aa3b2", borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer" };
+  return { background: primary ? t.accent : t.surface3, border: `1px solid ${t.border2}`, color: primary ? "#fff" : t.textMuted, borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer" };
 }

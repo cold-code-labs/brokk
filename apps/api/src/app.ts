@@ -1,8 +1,11 @@
 import type { Store } from "@brokk/db";
+import type { MimirConfig } from "@brokk/mimir";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { version } from "../package.json";
+import { mimirRoutes } from "./routes/mimir.js";
 import { projectsRoutes } from "./routes/projects.js";
+import { repositoriesRoutes } from "./routes/repositories.js";
 import { runnerRoutes } from "./routes/runner.js";
 import { runsRoutes } from "./routes/runs.js";
 import { subscriptionsRoutes } from "./routes/subscriptions.js";
@@ -14,6 +17,8 @@ export interface AppDeps {
   store: Store;
   /** Shared secret guarding the runner endpoints. Empty = runner endpoints 503. */
   runnerSecret: string;
+  /** Mímir model config (triador + enhancer). Undefined = enhance/triage → 503. */
+  mimir?: MimirConfig;
 }
 
 /** Assemble the control-plane HTTP app from its dependencies. Pure wiring — no
@@ -33,7 +38,9 @@ export function buildApp(deps: AppDeps): Hono {
   app.get("/ping", (c) => c.json({ pong: true }));
   app.get("/version", (c) => c.json({ version }));
 
+  app.route("/repositories", repositoriesRoutes(deps));
   app.route("/projects", projectsRoutes(deps));
+  app.route("/mimir", mimirRoutes(deps));
   app.route("/users", usersRoutes(deps));
   app.route("/subscriptions", subscriptionsRoutes(deps));
   app.route("/tasks", tasksRoutes(deps));

@@ -66,6 +66,23 @@ brokk/
 `backlog → queued → running → review (PR open) → done(merged)` · side states: `failed`, `cancelled`.
 Moving a card to **queued** enqueues a run. PR merge (webhook) → **done**.
 
+### 5.1 Mímir — the counselor (prompt intake)  `@brokk/mimir`
+The forge takes **qualified prompts**, not just tasks — and Mímir is the front door that
+gets a card there. Migrated from Heimdall (PocketBase → Postgres; Heimdall's `/mimir`
+retires). Two axes, decided by one cheap structured call (the **triador**, `gpt-4.1-mini`):
+- **refino** (`none|polish|structure|engineer`) — the *specification gap*: how much the
+  **enhancer** restructures the prompt. `engineer` = the full archetype. `none` = already clear.
+- **forca** (`low|medium|high|extra`) — the *task* complexity/risk → a concrete model +
+  reasoning effort downstream (via the CCL AI gateway).
+
+The axes are **independent**: a clear prompt can describe a brutal task. Auto by default,
+human **override** allowed; the budget ceiling is trusted to the router — **Eitri** reviews
+after, and its verdict + the chosen levels feed the calibration loop.
+Trio: **Mímir advises → Brokkr forges → Eitri reviews.**
+Tables: `mimir_prompts` (the bank), `mimir_revisions` (immutable history),
+`mimir_triage` (the two-axis decision, linked to a revision). History + triage are
+INSERT/SELECT-only at the DB role level.
+
 ## 6. Database (Postgres / Drizzle)  `@brokk/db`
 Tables: `projects`, `repositories`, `tasks`, `runs`, `run_events`, `agents`, `pull_requests`.
 - UUID PKs, `created_at/updated_at`, FKs with cascade.

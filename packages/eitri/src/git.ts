@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await exec("git", args, { cwd, maxBuffer: 1024 * 1024 * 64 });
@@ -73,6 +74,36 @@ export class EitriGit {
       ["api", `repos/${owner}/${name}/pulls/${prNumber}/reviews`, "-f", `event=${event}`, "-f", `body=${body}`],
       { ...process.env, GH_TOKEN: opts.token },
     );
+  }
+
+  /** Squash-merge the PR (into its base, e.g. dev) and delete the branch. Needs
+   *  the posting identity to have Contents: write. */
+  async mergePr(prNumber: number, token: string): Promise<void> {
+    await gh(
+      ["pr", "merge", String(prNumber), "--repo", this.opts.repo, "--squash", "--delete-branch"],
+      { ...process.env, GH_TOKEN: token },
+    );
+  }
+
+  /** Is the PR free of conflicts (safe to merge)?
+   *  GitHub often returns UNKNOWN for fresh PRs — poll briefly before giving up. */
+  async isMergeable(prNumber: number, retries = 4, delayMs = 5_000): Promise<boolean> {
+    for (let i = 0; i < retries; i++) {
+      const out = await gh(
+        ["pr", "view", String(prNumber), "--repo", this.opts.repo, "--json", "mergeable"],
+        this.env,
+      );
+      try {
+        const state = JSON.parse(out).mergeable as string;
+        if (state === "MERGEABLE") return true;
+        if (state === "CONFLICTING") return false;
+        // UNKNOWN — GitHub still computing; wait and retry.
+        if (i < retries - 1) await sleep(delayMs);
+      } catch {
+        return false;
+      }
+    }
+    return false;
   }
 
   async cleanup(path: string): Promise<void> {
