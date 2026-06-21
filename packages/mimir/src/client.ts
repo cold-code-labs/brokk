@@ -46,15 +46,6 @@ export async function mimirComplete(config: MimirConfig, opts: CompleteOpts): Pr
   return config.provider === "claude" ? claudeComplete(config, opts) : openaiComplete(config, opts);
 }
 
-// Mímir wants a one-shot LLM completion, NOT an agent. `claude -p` defaults to
-// the full agent: it loads the seat's MCP servers + built-in tools and goes
-// agentic on a planning prompt (it explored + looped 32 turns past the 180s
-// timeout, 502-ing every plan). Pin it to a pure single answer: --strict-mcp-config
-// (ignore the seat's MCP servers) + --tools "" (empty tool set → no tool to call,
-// so it answers directly in one turn). Enumerating --disallowed-tools is NOT
-// enough — it misses tools and still loops; an empty allow-set is the real fix.
-// Verified: the real planner prompt went from a >180s hang to ~16s, one turn.
-
 async function claudeComplete(config: MimirConfig, opts: CompleteOpts): Promise<CompleteResult> {
   const prompt = opts.system ? `${opts.system}\n\n${opts.user}` : opts.user;
   const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: config.oauthToken };
@@ -65,13 +56,7 @@ async function claudeComplete(config: MimirConfig, opts: CompleteOpts): Promise<
   try {
     ({ stdout } = await exec(
       config.claudeBin,
-      [
-        "-p", prompt,
-        "--model", opts.model,
-        "--output-format", "json",
-        "--strict-mcp-config", // ignore the seat's configured MCP servers
-        "--tools", "", // empty tool set → no tool to call → answers directly, one turn
-      ],
+      ["-p", prompt, "--model", opts.model, "--output-format", "json"],
       { env, maxBuffer: 1024 * 1024 * 16, timeout: 180_000 },
     ));
   } catch (e) {
