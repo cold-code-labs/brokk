@@ -3,6 +3,7 @@
 import type { Project, Task } from "@brokk/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
+import Link from "next/link";
 import { brokk } from "../lib/api";
 
 const STATUS_COLOR: Record<string, string> = {
@@ -59,7 +60,7 @@ export default function Dashboard() {
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, refresh]);
+  }, [refresh]);
 
   function count(key: string): number {
     if (key === "all") return tasks.length;
@@ -84,7 +85,7 @@ export default function Dashboard() {
               <span>{activeCount} active</span>
             </>
           ) : (
-            <em>Loading project…</em>
+            <em>loading project…</em>
           )}
         </p>
       </header>
@@ -152,9 +153,9 @@ export default function Dashboard() {
           {tasks.length > 12 && (
             <p style={{ fontSize: 12, color: "#9aa3b2", margin: "6px 0 0", textAlign: "center" }}>
               +{tasks.length - 12} more —{" "}
-              <a href="/kanban" style={{ color: "#a371f7", textDecoration: "none" }}>
+              <Link href="/kanban" style={{ color: "#a371f7", textDecoration: "none" }}>
                 view all in Kanban
-              </a>
+              </Link>
             </p>
           )}
         </div>
