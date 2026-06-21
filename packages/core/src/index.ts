@@ -62,6 +62,16 @@ export const RUN_EVENT_TYPES: readonly RunEventType[] = [
   "usage",
 ] as const;
 
+/** Lifecycle status of a dev-preview environment. */
+export type PreviewStatus = "starting" | "live" | "stopped" | "failed";
+
+export const PREVIEW_STATUSES: readonly PreviewStatus[] = [
+  "starting",
+  "live",
+  "stopped",
+  "failed",
+] as const;
+
 /** Whether a card is fresh work or a revision of an existing PR (the Eitri loop). */
 export type TaskKind = "implement" | "revise";
 
@@ -205,6 +215,27 @@ export interface Review {
   createdAt: string;
 }
 
+/** An ephemeral Supabase/Hauldr dev-preview environment spun up for a branch. */
+export interface Preview {
+  id: string;
+  projectId: string;
+  /** The git branch this preview tracks. */
+  branch: string;
+  /** DNS subdomain for the preview (e.g. "abc123.preview.brokk.dev"). */
+  subdomain: string;
+  /** Full public URL of the preview. */
+  url: string;
+  /** Local port the preview listens on (on the runner host). */
+  port: number | null;
+  /** Name of the Hauldr project backing this preview. */
+  hauldrProject: string;
+  status: PreviewStatus;
+  lastSeenAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** Pull request opened by a run. */
 export interface PullRequest {
   id: string;
@@ -279,6 +310,24 @@ export interface GitProvider {
 
   /** Remove the worktree (kept on failure for debugging). */
   cleanup(opts: { path: string }): Promise<void>;
+}
+
+/** The shape the Hauldr control-plane returns for GET /v1/projects/:name. */
+export interface HauldrProject {
+  database: string;
+  gotrueUrl: string;
+  jwtSecret: string;
+  postgrestUrl: string;
+  dbUrl: string;
+}
+
+/** Port for the Hauldr control-plane. Concrete implementation lives in
+ *  @brokk/runner. No implementation here — types + interface only. */
+export interface Hauldr {
+  /** Create the Hauldr project if it does not exist, then return its details. */
+  ensureProject(name: string): Promise<HauldrProject>;
+  /** Fetch an existing project by name. */
+  getProject(name: string): Promise<HauldrProject>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
