@@ -30,6 +30,7 @@ export function buildApp(deps: AppDeps): Hono {
   });
 
   app.get("/health", (c) => c.json({ ok: true, service: "brokk-api" }));
+  app.get("/ping", (c) => c.json({ pong: true }));
   app.get("/version", (c) => c.json({ version }));
 
   app.route("/projects", projectsRoutes(deps));
