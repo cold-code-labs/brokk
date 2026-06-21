@@ -21,7 +21,6 @@ const STATUS_COLOR: Record<string, string> = {
   done: "#2ea043",
   failed: "#f85149",
   cancelled: "#5c6575",
-  succeeded: "#2ea043",
 };
 
 export default function Board() {
@@ -37,6 +36,7 @@ export default function Board() {
   const refresh = useCallback(async (projectId?: string) => {
     try {
       setTasks(await brokk.listTasks(projectId));
+      setErr(null);
     } catch (e) {
       setErr(String(e));
     }
@@ -62,8 +62,7 @@ export default function Board() {
       alive = false;
       clearInterval(t);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project?.id, refresh]);
+  }, [refresh]);
 
   async function createTask(e: React.FormEvent) {
     e.preventDefault();

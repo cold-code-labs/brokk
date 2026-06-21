@@ -12,7 +12,6 @@ const STATUS_COLOR: Record<string, string> = {
   running: "#2f81f7",
   review: "#a371f7",
   done: "#2ea043",
-  succeeded: "#2ea043",
   failed: "#f85149",
   cancelled: "#5c6575",
 };
@@ -35,6 +34,7 @@ export default function Dashboard() {
   const refresh = useCallback(async (projectId?: string) => {
     try {
       setTasks(await brokk.listTasks(projectId));
+      setErr(null);
     } catch (e) {
       setErr(String(e));
     }
@@ -59,7 +59,6 @@ export default function Dashboard() {
       alive = false;
       clearInterval(interval);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh]);
 
   function count(key: string): number {
