@@ -230,6 +230,8 @@ export interface Preview {
   /** Name of the Hauldr project backing this preview. */
   hauldrProject: string;
   status: PreviewStatus;
+  /** OS PID of the preview process on the runner host, if running. */
+  pid: number | null;
   lastSeenAt: string | null;
   expiresAt: string | null;
   createdAt: string;
