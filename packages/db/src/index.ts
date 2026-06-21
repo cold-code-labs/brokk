@@ -5,6 +5,8 @@ import type {
   MimirPrompt,
   MimirRevision,
   MimirTriage,
+  Preview,
+  PreviewStatus,
   RefinoLevel,
   Repository,
   Review,
@@ -26,6 +28,7 @@ import {
   mimirPrompts,
   mimirRevisions,
   mimirTriage,
+  previews,
   projects,
   pullRequests,
   repositories,
@@ -42,7 +45,7 @@ export * from "./schema.js";
 export function createDb(connectionString: string) {
   const client = postgres(connectionString);
   const db = drizzle(client, {
-    schema: { repositories, projects, tasks, agents, runs, runEvents, pullRequests, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage },
+    schema: { repositories, projects, tasks, agents, runs, runEvents, pullRequests, previews, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage },
   });
   return { db, client };
 }
@@ -220,6 +223,24 @@ function rowToMimirTriage(row: typeof mimirTriage.$inferSelect): MimirTriage {
   };
 }
 
+function rowToPreview(row: typeof previews.$inferSelect): Preview {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    branch: row.branch,
+    subdomain: row.subdomain,
+    url: row.url,
+    port: row.port,
+    hauldrProject: row.hauldrProject,
+    status: row.status as PreviewStatus,
+    pid: row.pid,
+    lastSeenAt: iso(row.lastSeenAt),
+    expiresAt: iso(row.expiresAt),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 export interface Store {
@@ -303,6 +324,23 @@ export interface Store {
   /** The calibration view: each linked triage with the task's real outcome
    *  (status + run + Eitri verdict) — closes the loop on the triador. */
   listTriageCalibration(): Promise<TriageCalibration[]>;
+
+  // previews (ephemeral dev-preview environments)
+  insertPreview(values: typeof previews.$inferInsert): Promise<Preview>;
+  /** Atomically ensure exactly one active (starting/live) preview exists for the
+   *  given (projectId, branch) pair. Relies on the partial unique index; on a
+   *  conflict it returns the existing row. `created` is true on insert. */
+  ensureActivePreview(
+    values: typeof previews.$inferInsert,
+  ): Promise<{ preview: Preview; created: boolean }>;
+  getPreview(id: string): Promise<Preview | null>;
+  listPreviews(opts?: { projectId?: string }): Promise<Preview[]>;
+  getPreviewBySubdomain(subdomain: string): Promise<Preview | null>;
+  setPreviewStatus(id: string, status: PreviewStatus, pid?: number | null): Promise<Preview>;
+  /** Bump last_seen_at to now and slide expires_at forward by 24 hours. */
+  touchPreview(id: string): Promise<void>;
+  /** Mark a preview stopped and clear its pid. */
+  stopPreview(id: string): Promise<Preview>;
 }
 
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
@@ -707,6 +745,78 @@ export function createStore(db: Db): Store {
         });
       }
       return out;
+    },
+
+    async insertPreview(values) {
+      const rows = await db.insert(previews).values(values).returning();
+      return rowToPreview(rows[0]!);
+    },
+    async ensureActivePreview(values) {
+      // Try to insert; the partial unique index on (project_id, branch) WHERE
+      // status IN ('starting','live') fires if a concurrent request already
+      // created an active preview for this branch.
+      const inserted = await db
+        .insert(previews)
+        .values(values)
+        .onConflictDoNothing()
+        .returning();
+      if (inserted[0]) return { preview: rowToPreview(inserted[0]), created: true };
+
+      // Conflict: another request won the race — fetch the existing active row.
+      const existing = await db
+        .select()
+        .from(previews)
+        .where(
+          and(
+            eq(previews.projectId, values.projectId as string),
+            eq(previews.branch, (values.branch ?? "dev") as string),
+            sql`${previews.status} in ('starting', 'live')`,
+          ),
+        )
+        .limit(1);
+      return { preview: rowToPreview(existing[0]!), created: false };
+    },
+    async getPreview(id) {
+      const rows = await db.select().from(previews).where(eq(previews.id, id)).limit(1);
+      return rows[0] ? rowToPreview(rows[0]) : null;
+    },
+    async listPreviews(opts) {
+      const rows = opts?.projectId
+        ? await db.select().from(previews).where(eq(previews.projectId, opts.projectId))
+        : await db.select().from(previews);
+      return rows.map(rowToPreview);
+    },
+    async getPreviewBySubdomain(subdomain) {
+      const rows = await db
+        .select()
+        .from(previews)
+        .where(eq(previews.subdomain, subdomain))
+        .limit(1);
+      return rows[0] ? rowToPreview(rows[0]) : null;
+    },
+    async setPreviewStatus(id, status, pid) {
+      const patch: Partial<typeof previews.$inferInsert> = { status, updatedAt: new Date() };
+      if (pid !== undefined) patch.pid = pid;
+      const rows = await db.update(previews).set(patch).where(eq(previews.id, id)).returning();
+      if (!rows[0]) throw new Error(`preview ${id} not found`);
+      return rowToPreview(rows[0]);
+    },
+    async touchPreview(id) {
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      await db
+        .update(previews)
+        .set({ lastSeenAt: now, expiresAt, updatedAt: now })
+        .where(eq(previews.id, id));
+    },
+    async stopPreview(id) {
+      const rows = await db
+        .update(previews)
+        .set({ status: "stopped", pid: null, updatedAt: new Date() })
+        .where(eq(previews.id, id))
+        .returning();
+      if (!rows[0]) throw new Error(`preview ${id} not found`);
+      return rowToPreview(rows[0]);
     },
   };
 }

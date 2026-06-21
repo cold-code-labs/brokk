@@ -8,6 +8,13 @@
       "when": 1782025945389,
       "tag": "0000_silly_hellfire_club",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782031373974,
+      "tag": "0001_glorious_juggernaut",
+      "breakpoints": true
     }
   ]
 }

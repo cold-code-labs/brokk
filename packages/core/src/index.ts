@@ -219,6 +219,26 @@ export interface PullRequest {
   updatedAt: string;
 }
 
+/** Lifecycle of an ephemeral dev-preview environment. */
+export type PreviewStatus = "starting" | "live" | "stopped" | "failed";
+
+/** An ephemeral dev-preview environment spun up per branch. */
+export interface Preview {
+  id: string;
+  projectId: string;
+  branch: string;
+  subdomain: string;
+  url: string;
+  port: number | null;
+  hauldrProject: string;
+  status: PreviewStatus;
+  pid: number | null;
+  lastSeenAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Ports (implemented by the runner) ────────────────────────────────────────
 
 /** Token usage reported back at the end of a run. */
