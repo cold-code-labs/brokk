@@ -20,6 +20,7 @@ interface OpenPr {
   number: number;
   title: string;
   headRefName: string;
+  baseRefName: string;
   headRefOid: string;
   author: { login: string };
 }
@@ -27,7 +28,7 @@ interface OpenPr {
 async function listOpenPrs(repo: string, githubToken: string): Promise<OpenPr[]> {
   const { stdout } = await exec(
     "gh",
-    ["pr", "list", "--repo", repo, "--state", "open", "--json", "number,title,headRefName,headRefOid,author"],
+    ["pr", "list", "--repo", repo, "--state", "open", "--json", "number,title,headRefName,baseRefName,headRefOid,author"],
     { env: { ...process.env, GH_TOKEN: githubToken }, maxBuffer: 1024 * 1024 * 8 },
   );
   return JSON.parse(stdout || "[]");
@@ -130,7 +131,10 @@ async function reviewOne(
       }
     } else {
       // COMMENT or APPROVE → gate passes → auto-merge into the base (dev).
-      if (!cfg.autoMerge) {
+      if (pr.baseRefName === "main") {
+        // Safety rail: never auto-merge into main. Promotion dev→main is separate.
+        console.log(`[eitri] #${pr.number} targets main — not auto-merging (protected)`);
+      } else if (!cfg.autoMerge) {
         console.log(`[eitri] #${pr.number} mergeable (${verdict}) — auto-merge off, leaving for a human`);
       } else if (!(await git.isMergeable(pr.number))) {
         console.log(`[eitri] #${pr.number} has conflicts — not merging`);
