@@ -214,6 +214,15 @@ export class PreviewSupervisor {
           BROKK_HAULDR_GOTRUE_URL: hp.gotrueUrl,
           BROKK_HAULDR_JWT_SECRET: hp.jwtSecret,
           BROKK_HAULDR_POSTGREST_URL: hp.postgrestUrl,
+          // CCL template-light contract: it switches off stub mode only when
+          // AUTH_MODE/DATA_MODE are set, and reads its own HAULDR_*/DATA_API_URL
+          // vars (not the Supabase names). Without these the preview boots in
+          // demo (stub) mode and never touches the Hauldr dev DB.
+          AUTH_MODE: "hauldr",
+          DATA_MODE: "postgrest",
+          HAULDR_GOTRUE_URL: hp.gotrueUrl,
+          HAULDR_JWT_SECRET: hp.jwtSecret,
+          DATA_API_URL: hp.postgrestUrl,
         };
         console.log(
           `[preview-supervisor] Hauldr project "${preview.hauldrProject}" ready`,
