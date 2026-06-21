@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { version } from "../package.json";
 import { mimirRoutes } from "./routes/mimir.js";
+import { previewsRoutes } from "./routes/previews.js";
 import { projectsRoutes } from "./routes/projects.js";
 import { repositoriesRoutes } from "./routes/repositories.js";
 import { runnerRoutes } from "./routes/runner.js";
@@ -37,10 +38,12 @@ export function buildApp(deps: AppDeps): Hono {
   });
 
   app.get("/health", (c) => c.json({ ok: true, service: "brokk-api" }));
+  app.get("/ping", (c) => c.json({ pong: true }));
   app.get("/version", (c) => c.json({ version }));
 
   app.route("/repositories", repositoriesRoutes(deps));
   app.route("/projects", projectsRoutes(deps));
+  app.route("/previews", previewsRoutes(deps));
   app.route("/mimir", mimirRoutes(deps));
   app.route("/users", usersRoutes(deps));
   app.route("/subscriptions", subscriptionsRoutes(deps));

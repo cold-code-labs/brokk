@@ -1,10 +1,11 @@
 "use client";
 
-import type { Project, Run, RunEvent, Task } from "@brokk/sdk";
+import type { Preview, Project, Run, RunEvent, Task } from "@brokk/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { brokk } from "../lib/api";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
+import { PreviewChip } from "./PreviewChip";
 
 const COLUMNS = ["backlog", "queued", "running", "review", "done", "failed"] as const;
 
@@ -22,6 +23,10 @@ export default function Board({ projectId }: { projectId?: string }) {
   // before React hydrates, which trips hydration warnings. Client-only sidesteps it.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
 
   const refresh = useCallback(async (pid?: string) => {
     if (!pid) return;
@@ -55,6 +60,59 @@ export default function Board({ projectId }: { projectId?: string }) {
     const i = setInterval(() => refresh(project.id), 3000);
     return () => clearInterval(i);
   }, [project?.id, refresh]);
+
+  // Load the most-recent active preview when the project becomes known.
+  useEffect(() => {
+    if (!project?.id) return;
+    brokk
+      .listPreviews(project.id)
+      .then((ps) => {
+        const active = ps.find((x) => x.status === "starting" || x.status === "live");
+        setPreview(active ?? null);
+      })
+      .catch(() => {});
+  }, [project?.id]);
+
+  // Poll the preview status every 2 s while it is still starting.
+  const previewId = preview?.id;
+  const previewStatus = preview?.status;
+  useEffect(() => {
+    if (!previewId || previewStatus !== "starting") return;
+    const id = previewId;
+    const i = setInterval(() => {
+      brokk.getPreview(id).then(setPreview).catch(() => {});
+    }, 2000);
+    return () => clearInterval(i);
+  }, [previewId, previewStatus]);
+
+  async function handlePreview() {
+    if (!project) return;
+    setPreviewBusy(true);
+    setPreviewErr(null);
+    try {
+      const pv = await brokk.createPreview({ projectId: project.id });
+      setPreview(pv);
+    } catch (e) {
+      setPreviewErr(String(e));
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
+  async function handleStopPreview() {
+    if (!preview) return;
+    // Failed previews are just dismissed locally; live/starting ones are stopped via API.
+    if (preview.status === "failed") {
+      setPreview(null);
+      return;
+    }
+    try {
+      await brokk.stopPreview(preview.id);
+      setPreview(null);
+    } catch (e) {
+      setPreviewErr(String(e));
+    }
+  }
 
   async function createTask(e: React.FormEvent) {
     e.preventDefault();
@@ -92,9 +150,25 @@ export default function Board({ projectId }: { projectId?: string }) {
         <Link href="/" style={{ fontSize: 12, color: t.textMuted, textDecoration: "none" }}>
           ← Fleet
         </Link>
-        <h1 style={{ margin: "6px 0 0", fontSize: 22, letterSpacing: -0.4 }}>
-          {project ? project.name : "Board"}
-        </h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 6 }}>
+          <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>
+            {project ? project.name : "Board"}
+          </h1>
+          {project && (
+            preview && preview.status !== "stopped" ? (
+              <PreviewChip preview={preview} onStop={handleStopPreview} />
+            ) : (
+              <button
+                type="button"
+                onClick={handlePreview}
+                disabled={previewBusy}
+                style={previewBtnBoard}
+              >
+                {previewBusy ? "starting…" : "Preview dev"}
+              </button>
+            )
+          )}
+        </div>
         <p style={{ margin: "4px 0 0", color: t.textMuted, fontSize: 14 }}>
           The forge — card → agent → PR.{" "}
           {project && <span style={{ color: t.textFaint }}>model {project.model}</span>}
@@ -110,6 +184,7 @@ export default function Board({ projectId }: { projectId?: string }) {
       </form>
 
       {err && <p style={{ color: STATUS_COLOR.failed, fontSize: 13, margin: "0 0 12px" }}>⚠ {err}</p>}
+      {previewErr && <p style={{ color: STATUS_COLOR.failed, fontSize: 13, margin: "0 0 12px" }}>⚠ preview: {previewErr}</p>}
 
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0,1fr))`, gap: 12 }}>
         {COLUMNS.map((key) => {
@@ -248,6 +323,8 @@ const miniBtn: React.CSSProperties = { fontSize: 11, color: STATUS_COLOR.queued,
 const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 50 };
 const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%", background: t.bg, borderLeft: `1px solid ${t.border}`, padding: 22, overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" };
 const logBox: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };
+
+const previewBtnBoard: React.CSSProperties = { fontSize: 12, color: t.accent, background: t.surface3, border: `1px solid ${t.border2}`, borderRadius: 20, padding: "4px 12px", cursor: "pointer" };
 
 function card(active: boolean): React.CSSProperties {
   return { display: "flex", flexDirection: "column", width: "100%", textAlign: "left", background: active ? t.surface3 : t.surface2, border: `1px solid ${active ? t.borderActive : t.border2}`, borderRadius: 8, padding: "9px 10px", marginBottom: 8, color: t.text, cursor: "pointer" };

@@ -19,6 +19,8 @@ import { loadRunnerConfig, type RunnerConfig } from "./config.js";
 const execAsync = promisify(exec);
 import { GhProvider } from "./git.js";
 import { ClaudeAgentEngine } from "./engine.js";
+import { HauldrClient } from "./hauldr.js";
+import { PreviewSupervisor } from "./preview.js";
 
 type EventInput = Omit<RunEvent, "id" | "runId" | "seq" | "at">;
 type ClaimAuth = { source: "seat" | "env"; token: string | null; subscriptionId: string | null };
@@ -42,6 +44,20 @@ async function main() {
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
 
+  // ── Preview supervisor (parallel loop) ──────────────────────────────────────
+  // Runs alongside the forge claim loop; each is independent.
+  const hauldr = cfg.hauldrControlUrl
+    ? new HauldrClient(cfg.hauldrControlUrl, cfg.hauldrToken)
+    : null;
+  if (!hauldr) {
+    console.log(
+      "[brokk-runner] HAULDR_CONTROL_URL not set — preview Hauldr provisioning disabled",
+    );
+  }
+  const supervisor = new PreviewSupervisor(cfg, git, hauldr);
+  const supervisorDone = supervisor.run(() => stopping);
+  // ────────────────────────────────────────────────────────────────────────────
+
   const heartbeat = setInterval(
     () => api(cfg, "POST", "/runner/heartbeat", { runnerId }).catch(() => {}),
     15_000,
@@ -64,6 +80,7 @@ async function main() {
   }
 
   clearInterval(heartbeat);
+  await supervisorDone; // wait for preview supervisor graceful shutdown
   console.log("[brokk-runner] stopped");
 }
 
