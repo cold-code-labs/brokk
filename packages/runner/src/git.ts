@@ -51,6 +51,14 @@ export class GhProvider implements GitProvider {
     // Drop bookkeeping for worktrees whose dirs were already removed.
     await git(bare, ["worktree", "prune"]).catch(() => {});
 
+    // Bootstrap: if baseBranch doesn't exist in the bare clone yet (e.g. "dev"
+    // hasn't been created on the remote), create it off the repo default branch
+    // so the worktree add below has a valid start point.
+    const baseBranchExists = await git(bare, ["rev-parse", "--verify", `refs/heads/${baseBranch}`]).catch(() => null);
+    if (baseBranchExists === null) {
+      await git(bare, ["branch", baseBranch, repo.defaultBranch]);
+    }
+
     const path = join(this.opts.workDir, "worktrees", branch.replace(/[/]/g, "__"));
     // A bare clone stores branches as local refs (refs/heads/<branch>), so fork
     // from `baseBranch` directly — there is no `origin/` remote-tracking prefix.
