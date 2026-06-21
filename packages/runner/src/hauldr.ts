@@ -7,41 +7,73 @@
  */
 import type { Hauldr, HauldrProject } from "@brokk/core";
 
+/** A provisioned service block in the control-plane status response. */
+interface RawService {
+  url?: string | null;
+  ready?: boolean;
+}
+
 /** Wire format of GET/POST /v1/projects from the Hauldr control-plane.
- *  Field names may be snake_case or camelCase depending on the version. */
+ *  The status (GET) response nests endpoints under `services` and secrets under
+ *  `internal`; older/flat shapes are also tolerated. */
 interface RawProject {
   name?: string;
-  // Connection DB string
+  status?: string;
   database?: string;
   db?: string;
   db_url?: string;
   dbUrl?: string;
-  // Auth (GoTrue / Supabase Auth)
+  // Flat (legacy) endpoint fields
   gotrue_url?: string;
   gotrueUrl?: string;
   auth_url?: string;
-  // JWT / service-role key
   jwt_secret?: string;
   jwtSecret?: string;
   service_role_key?: string;
   anon_key?: string;
-  // PostgREST
   postgrest_url?: string;
   postgrestUrl?: string;
   rest_url?: string;
+  // Status (current) shape
+  services?: {
+    auth?: RawService | null;
+    rest?: RawService | null;
+    realtime?: RawService | null;
+  };
+  internal?: {
+    dbUrl?: string;
+    jwtSecret?: string;
+    [key: string]: unknown;
+  };
   [key: string]: unknown;
 }
 
 function toHauldrProject(raw: RawProject): HauldrProject {
+  const s = raw.services ?? {};
+  const internal = raw.internal ?? {};
   return {
     database: raw.database ?? raw.db ?? "",
-    gotrueUrl: raw.gotrue_url ?? raw.gotrueUrl ?? raw.auth_url ?? "",
+    gotrueUrl:
+      s.auth?.url ?? raw.gotrue_url ?? raw.gotrueUrl ?? raw.auth_url ?? "",
     jwtSecret:
-      raw.jwt_secret ?? raw.jwtSecret ?? raw.service_role_key ?? raw.anon_key ?? "",
-    postgrestUrl: raw.postgrest_url ?? raw.postgrestUrl ?? raw.rest_url ?? "",
-    dbUrl: raw.db_url ?? raw.dbUrl ?? "",
+      internal.jwtSecret ??
+      raw.jwt_secret ??
+      raw.jwtSecret ??
+      raw.service_role_key ??
+      raw.anon_key ??
+      "",
+    postgrestUrl:
+      s.rest?.url ?? raw.postgrest_url ?? raw.postgrestUrl ?? raw.rest_url ?? "",
+    dbUrl: internal.dbUrl ?? raw.db_url ?? raw.dbUrl ?? "",
   };
 }
+
+/** A project is usable once its auth + rest services report ready. */
+function isReady(raw: RawProject): boolean {
+  return Boolean(raw.services?.auth?.ready && raw.services?.rest?.ready);
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Thin HTTP client for the Hauldr control-plane.
  *
@@ -74,29 +106,45 @@ export class HauldrClient implements Hauldr {
     return (await res.json()) as T;
   }
 
-  /** Fetch an existing Hauldr project by name. Throws on 404. */
-  async getProject(name: string): Promise<HauldrProject> {
-    const raw = await this.req<RawProject>(
-      "GET",
-      `/v1/projects/${encodeURIComponent(name)}`,
-    );
-    return toHauldrProject(raw);
+  private getRaw(name: string): Promise<RawProject> {
+    return this.req<RawProject>("GET", `/v1/projects/${encodeURIComponent(name)}`);
   }
 
-  /** Ensure the Hauldr project exists, creating it if necessary.
+  /** Fetch an existing Hauldr project by name. Throws on 404. */
+  async getProject(name: string): Promise<HauldrProject> {
+    return toHauldrProject(await this.getRaw(name));
+  }
+
+  /** Ensure the Hauldr project exists AND is ready, creating it if necessary.
    *
-   *  Flow: optimistic GET → if 404, POST to create → return result.
-   *  Hauldr treats POST as idempotent on name conflicts (returns the existing
-   *  project), so this is safe under concurrent calls.
+   *  Provisioning is asynchronous: POST returns `{status:"provisioning"}` with no
+   *  endpoints, and the data plane (PostgREST) must be explicitly requested
+   *  (`rest:true`). So: optimistic GET → create if 404 → poll until auth+rest are
+   *  ready, then return the populated endpoints. Falls back to a best-effort
+   *  result if readiness times out (the preview still boots, just degraded).
    */
   async ensureProject(name: string): Promise<HauldrProject> {
+    let exists = false;
     try {
-      return await this.getProject(name);
+      const raw = await this.getRaw(name);
+      exists = true;
+      if (isReady(raw)) return toHauldrProject(raw);
     } catch (err: unknown) {
-      // Only swallow 404; re-throw anything else
       if (!(err instanceof Error && err.message.includes("404"))) throw err;
     }
-    const raw = await this.req<RawProject>("POST", "/v1/projects", { name });
-    return toHauldrProject(raw);
+
+    // Create (idempotent on name conflict). Always request the PostgREST data
+    // plane — clients that only need auth simply ignore the rest endpoint.
+    if (!exists) await this.req("POST", "/v1/projects", { name, rest: true });
+
+    // Poll until ready (auth + rest), ~3 min budget.
+    let last: RawProject | null = null;
+    for (let i = 0; i < 60; i++) {
+      last = await this.getRaw(name).catch(() => null);
+      if (last && isReady(last)) return toHauldrProject(last);
+      await sleep(3000);
+    }
+    // Timed out — return whatever we have so the preview can still start.
+    return toHauldrProject(last ?? { name });
   }
 }
