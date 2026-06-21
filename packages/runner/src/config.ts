@@ -16,6 +16,25 @@ export interface RunnerConfig {
   verifyCmd: string;
   /** Poll interval (ms) between claim attempts when the queue is empty. */
   pollIntervalMs: number;
+
+  // ── Preview supervisor ──────────────────────────────────────────────────────
+
+  /** Hauldr control-plane base URL (e.g. https://api.hauldr.io). Empty = Hauldr
+   *  provisioning is skipped (app starts without Hauldr env vars). */
+  hauldrControlUrl: string;
+  /** Bearer token for the Hauldr API. */
+  hauldrToken: string;
+  /** Shell command used to boot a preview app. `$PORT` is substituted with the
+   *  allocated port number. Per-project override: BROKK_PREVIEW_CMD env var.
+   *  Default: `next build && next start -p $PORT` (Next.js apps). */
+  previewCmd: string;
+  /** How long a preview lives without a touch before the reaper kills it (ms).
+   *  Configurable via BROKK_PREVIEW_TTL_MS. Default: 45 minutes. */
+  previewTtlMs: number;
+  /** Lowest port the supervisor may allocate for preview processes. */
+  previewPortMin: number;
+  /** Highest port (inclusive) the supervisor may allocate for preview processes. */
+  previewPortMax: number;
 }
 
 export function loadRunnerConfig(env = process.env): RunnerConfig {
@@ -35,5 +54,12 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     githubToken: env.GITHUB_TOKEN ?? "",
     verifyCmd: env.BROKK_VERIFY_CMD ?? "",
     pollIntervalMs: Number(env.BROKK_RUNNER_POLL_MS ?? 3000),
+    // Preview supervisor
+    hauldrControlUrl: (env.HAULDR_CONTROL_URL ?? "").replace(/\/$/, ""),
+    hauldrToken: env.HAULDR_TOKEN ?? "",
+    previewCmd: env.BROKK_PREVIEW_CMD ?? "next build && next start -p $PORT",
+    previewTtlMs: Number(env.BROKK_PREVIEW_TTL_MS ?? 45 * 60 * 1000),
+    previewPortMin: Number(env.BROKK_PREVIEW_PORT_MIN ?? 4100),
+    previewPortMax: Number(env.BROKK_PREVIEW_PORT_MAX ?? 4199),
   };
 }

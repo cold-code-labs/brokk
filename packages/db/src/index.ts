@@ -304,6 +304,18 @@ export interface Store {
   listPreviews(opts?: { projectId?: string }): Promise<Preview[]>;
   getPreviewBySubdomain(subdomain: string): Promise<Preview | null>;
   setPreviewStatus(id: string, status: PreviewStatus, pid?: number | null): Promise<Preview>;
+  /** Update arbitrary mutable fields on a preview row (used by the runner
+   *  supervisor to set status, pid, port and expiresAt in one call). */
+  patchPreview(
+    id: string,
+    patch: {
+      status?: PreviewStatus;
+      pid?: number | null;
+      port?: number | null;
+      expiresAt?: Date | null;
+      lastSeenAt?: Date | null;
+    },
+  ): Promise<Preview>;
   /** Bump last_seen_at to now and slide expires_at forward by 24 hours. */
   touchPreview(id: string): Promise<void>;
   /** Mark a preview stopped and clear its pid. */
@@ -646,6 +658,21 @@ export function createStore(db: Db): Store {
       const patch: Partial<typeof previews.$inferInsert> = { status, updatedAt: new Date() };
       if (pid !== undefined) patch.pid = pid;
       const rows = await db.update(previews).set(patch).where(eq(previews.id, id)).returning();
+      if (!rows[0]) throw new Error(`preview ${id} not found`);
+      return rowToPreview(rows[0]);
+    },
+    async patchPreview(id, patch) {
+      const set: Partial<typeof previews.$inferInsert> = { updatedAt: new Date() };
+      if (patch.status !== undefined) set.status = patch.status;
+      if (patch.pid !== undefined) set.pid = patch.pid;
+      if (patch.port !== undefined) set.port = patch.port;
+      if (patch.expiresAt !== undefined) set.expiresAt = patch.expiresAt ?? undefined;
+      if (patch.lastSeenAt !== undefined) set.lastSeenAt = patch.lastSeenAt ?? undefined;
+      const rows = await db
+        .update(previews)
+        .set(set)
+        .where(eq(previews.id, id))
+        .returning();
       if (!rows[0]) throw new Error(`preview ${id} not found`);
       return rowToPreview(rows[0]);
     },
