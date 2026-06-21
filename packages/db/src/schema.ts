@@ -52,6 +52,13 @@ export const authMode = pgEnum("auth_mode", ["api_key", "subscription"]);
 
 export const taskKind = pgEnum("task_kind", ["implement", "revise"]);
 
+export const previewStatus = pgEnum("preview_status", [
+  "starting",
+  "live",
+  "stopped",
+  "failed",
+]);
+
 // Mímir (the counselor) — see §"Mímir" in ARCHITECTURE.md.
 export const mimirMode = pgEnum("mimir_mode", ["polish", "structure", "engineer"]);
 export const refinoLevel = pgEnum("refino_level", ["none", "polish", "structure", "engineer"]);
@@ -217,6 +224,25 @@ export const pullRequests = pgTable("pull_requests", {
   url: text("url").notNull(),
   branch: text("branch").notNull(),
   state: text("state").notNull().default("open"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Ephemeral dev-preview environments spun up per branch. */
+export const previews = pgTable("previews", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  branch: text("branch").notNull().default("dev"),
+  subdomain: text("subdomain").notNull().unique(),
+  url: text("url").notNull(),
+  port: integer("port"),
+  hauldrProject: text("hauldr_project").notNull(),
+  status: previewStatus("status").notNull().default("starting"),
+  pid: integer("pid"),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
