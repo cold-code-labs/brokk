@@ -97,11 +97,15 @@ export function runsRoutes(deps: AppDeps): Hono {
     const taskStatus =
       status === "succeeded" ? "review" : status === "failed" ? "failed" : "cancelled";
     const resolvedPrNumber = prNumber ?? (prUrl ? prNumberFromUrl(prUrl) : null);
-    await deps.store.updateTask(run.taskId, {
+    const task = await deps.store.updateTask(run.taskId, {
       status: taskStatus,
       ...(prUrl ? { prUrl } : {}),
       ...(resolvedPrNumber ? { prNumber: resolvedPrNumber } : {}),
     });
+
+    // If this card belongs to a plan, advance the plan once all its cards have
+    // landed (every card in review/done) → the single feature PR is ready.
+    if (task.planId) await deps.store.maybeAdvancePlan(task.planId).catch(() => {});
 
     return c.json(run);
   });

@@ -66,6 +66,53 @@ export class GhProvider implements GitProvider {
     return { path, branch };
   }
 
+  /** Worktree on a plan's SHARED feature branch. The first card forks it off
+   *  `baseBranch`; later cards continue from the branch's current remote tip (so
+   *  each card sees the prior cards' commits). All cards push here → ONE PR. */
+  async featureWorktree(opts: {
+    repo: Repository;
+    baseBranch: string;
+    featureBranch: string;
+  }): Promise<{ path: string; branch: string; firstCard: boolean }> {
+    const { repo, baseBranch, featureBranch } = opts;
+    const bare = this.bareDir(repo);
+    await mkdir(join(this.opts.workDir, "repos"), { recursive: true });
+    try {
+      await git(this.opts.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
+    } catch {
+      await git(bare, ["fetch", "origin", `+refs/heads/${baseBranch}:refs/heads/${baseBranch}`]).catch(
+        () => {},
+      );
+    }
+    await git(bare, ["worktree", "prune"]).catch(() => {});
+
+    // Does the feature branch already exist on the remote? (i.e. a prior card
+    // pushed it). If so, continue from its tip; otherwise fork off base.
+    const hasFeature = await git(bare, ["fetch", "origin", `refs/heads/${featureBranch}`])
+      .then(() => true)
+      .catch(() => false);
+
+    // Make sure base exists locally for the first-card fork.
+    const baseExists = await git(bare, ["rev-parse", "--verify", `refs/heads/${baseBranch}`]).catch(
+      () => null,
+    );
+    if (baseExists === null) {
+      await git(bare, ["branch", baseBranch, repo.defaultBranch]);
+    }
+
+    const path = join(this.opts.workDir, "worktrees", featureBranch.replace(/[/]/g, "__"));
+    await git(bare, ["worktree", "remove", "--force", path]).catch(() => {});
+    await git(bare, ["worktree", "prune"]).catch(() => {});
+    await rm(path, { recursive: true, force: true }).catch(() => {});
+
+    if (hasFeature) {
+      await git(bare, ["worktree", "add", "--force", "-B", featureBranch, path, "FETCH_HEAD"]);
+    } else {
+      await git(bare, ["worktree", "add", "-b", featureBranch, path, baseBranch]);
+    }
+    return { path, branch: featureBranch, firstCard: !hasFeature };
+  }
+
   /** Check out an existing remote branch (a PR head) to revise in place. Fetches
    *  to FETCH_HEAD and resets a local branch of the same name onto it, so a later
    *  `push origin <branch>` fast-forwards the PR. */

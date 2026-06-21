@@ -5,8 +5,12 @@ import type {
   MimirPrompt,
   MimirRevision,
   MimirTriage,
+  Plan,
+  PlanMode,
+  PlanStatus,
   Preview,
   PreviewStatus,
+  Project,
   RefinoLevel,
   Repository,
   Review,
@@ -20,7 +24,8 @@ import type {
   TriageSource,
   User,
 } from "@brokk/core";
-import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { forcaToModel } from "@brokk/core";
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -28,6 +33,7 @@ import {
   mimirPrompts,
   mimirRevisions,
   mimirTriage,
+  plans,
   previews,
   projects,
   pullRequests,
@@ -45,7 +51,7 @@ export * from "./schema.js";
 export function createDb(connectionString: string) {
   const client = postgres(connectionString);
   const db = drizzle(client, {
-    schema: { repositories, projects, tasks, agents, runs, runEvents, pullRequests, previews, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage },
+    schema: { repositories, projects, plans, tasks, agents, runs, runEvents, pullRequests, previews, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage },
   });
   return { db, client };
 }
@@ -72,6 +78,45 @@ function rowToTask(row: typeof tasks.$inferSelect): Task {
     prNumber: row.prNumber,
     branch: row.branch,
     iteration: row.iteration,
+    planId: row.planId,
+    planKey: row.planKey,
+    dependsOn: row.dependsOn,
+    forca: row.forca as ForcaLevel | null,
+    touches: row.touches,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function rowToProject(row: typeof projects.$inferSelect): Project {
+  return {
+    id: row.id,
+    name: row.name,
+    repositoryId: row.repositoryId,
+    model: row.model,
+    authMode: row.authMode,
+    allowedTools: row.allowedTools,
+    baseBranch: row.baseBranch,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function rowToPlan(row: typeof plans.$inferSelect): Plan {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    prompt: row.prompt,
+    summary: row.summary,
+    rationale: row.rationale,
+    mode: row.mode as PlanMode,
+    status: row.status as PlanStatus,
+    featureBranch: row.featureBranch,
+    baseBranch: row.baseBranch,
+    prUrl: row.prUrl,
+    prNumber: row.prNumber,
+    model: row.model,
+    createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -243,6 +288,18 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
+/** What a runner gets when it claims a card: the task + its run + the resolved
+ *  repository/project (the footgun fix — no more BROKK_DEFAULT_REPO), the plan it
+ *  composes into (if any), and the seat's sealed token. */
+export interface ClaimResult {
+  task: Task;
+  run: Run;
+  repository: Repository;
+  project: Project;
+  plan: Plan | null;
+  sealedToken: string | null;
+}
+
 export interface Store {
   // repositories (the GitHub repos the forge can work in)
   listRepositories(): Promise<Repository[]>;
@@ -290,12 +347,23 @@ export interface Store {
   listRunsByTask(taskId: string): Promise<Run[]>;
   insertRun(values: typeof runs.$inferInsert): Promise<Run>;
   updateRun(id: string, patch: Partial<typeof runs.$inferInsert>): Promise<Run>;
-  /** Atomically claim the next queued task: create a run, flip task → running,
-   *  and assign the least-recently-used active seat (round-robin). Returns the
-   *  seat's sealed token for the control plane to decrypt, or null seat. */
-  claimNext(
-    runnerId: string,
-  ): Promise<{ task: Task; run: Run; sealedToken: string | null } | null>;
+  /** Atomically claim the next forge-ready queued task: skips cards whose plan
+   *  dependencies haven't landed yet (the DAG), creates a run, flips task →
+   *  running, resolves repo/project, and assigns the least-recently-used active
+   *  seat (round-robin). Returns null when nothing is ready. */
+  claimNext(runnerId: string): Promise<ClaimResult | null>;
+
+  // plans (Mímir planner → cards → one PR)
+  insertPlan(values: typeof plans.$inferInsert): Promise<Plan>;
+  getPlan(id: string): Promise<Plan | null>;
+  listPlans(opts?: { projectId?: string }): Promise<Plan[]>;
+  updatePlan(id: string, patch: Partial<typeof plans.$inferInsert>): Promise<Plan>;
+  getPlanTasks(planId: string): Promise<Task[]>;
+  /** Set the plan's PR the first time a card pushes; returns the effective PR
+   *  (idempotent — concurrent first cards converge on one). */
+  setPlanPrIfUnset(planId: string, url: string, number: number | null): Promise<Plan>;
+  /** If every card of the plan is in review/done, advance the plan → review. */
+  maybeAdvancePlan(planId: string): Promise<Plan | null>;
 
   // events (append-only)
   listEvents(runId: string, afterSeq?: number): Promise<RunEvent[]>;
@@ -553,18 +621,56 @@ export function createStore(db: Db): Store {
     },
 
     async claimNext(runnerId) {
-      // Pick the oldest, highest-priority queued task and lock it so concurrent
-      // runners don't grab the same one.
       return db.transaction(async (tx) => {
-        const picked = await tx
+        // Lock a window of queued candidates (skip-locked so concurrent runners
+        // don't fight). We then pick the first one whose plan dependencies have
+        // landed — a plan card forges only after the cards it depends on are in
+        // review/done (their commits are already on the feature branch).
+        const candidates = await tx
           .select()
           .from(tasks)
           .where(eq(tasks.status, "queued"))
           .orderBy(sql`${tasks.priority} desc`, asc(tasks.createdAt))
-          .limit(1)
+          .limit(10)
           .for("update", { skipLocked: true });
-        const taskRow = picked[0];
+
+        let taskRow: typeof tasks.$inferSelect | undefined;
+        for (const cand of candidates) {
+          if (!cand.planId || cand.dependsOn.length === 0) {
+            taskRow = cand; // standalone card or no deps → always ready
+            break;
+          }
+          const deps = await tx
+            .select({ key: tasks.planKey, status: tasks.status })
+            .from(tasks)
+            .where(and(eq(tasks.planId, cand.planId), inArray(tasks.planKey, cand.dependsOn)));
+          const ready =
+            deps.length === cand.dependsOn.length &&
+            deps.every((d) => d.status === "review" || d.status === "done");
+          if (ready) {
+            taskRow = cand;
+            break;
+          }
+        }
         if (!taskRow) return null;
+
+        // Resolve repo + project (the footgun fix — the runner no longer guesses
+        // from BROKK_DEFAULT_REPO).
+        const projRows = await tx.select().from(projects).where(eq(projects.id, taskRow.projectId)).limit(1);
+        const projRow = projRows[0];
+        if (!projRow) throw new Error(`task ${taskRow.id} has no project ${taskRow.projectId}`);
+        const repoRows = await tx
+          .select()
+          .from(repositories)
+          .where(eq(repositories.id, projRow.repositoryId))
+          .limit(1);
+        const repoRow = repoRows[0];
+        if (!repoRow) throw new Error(`project ${projRow.id} has no repository ${projRow.repositoryId}`);
+
+        const planRows = taskRow.planId
+          ? await tx.select().from(plans).where(eq(plans.id, taskRow.planId)).limit(1)
+          : [];
+        const planRow = planRows[0];
 
         const updatedTask = await tx
           .update(tasks)
@@ -596,6 +702,7 @@ export function createStore(db: Db): Store {
             status: "running",
             runnerId,
             subscriptionId: seatRow?.id ?? null,
+            model: taskRow.forca ? forcaToModel(taskRow.forca as ForcaLevel).model : null,
             startedAt: new Date(),
           })
           .returning();
@@ -603,9 +710,70 @@ export function createStore(db: Db): Store {
         return {
           task: rowToTask(updatedTask[0]!),
           run: rowToRun(runRows[0]!),
+          repository: rowToRepository(repoRow),
+          project: rowToProject(projRow),
+          plan: planRow ? rowToPlan(planRow) : null,
           sealedToken: seatRow?.sealed ?? null,
         };
       });
+    },
+
+    async insertPlan(values) {
+      const rows = await db.insert(plans).values(values).returning();
+      return rowToPlan(rows[0]!);
+    },
+    async getPlan(id) {
+      const rows = await db.select().from(plans).where(eq(plans.id, id)).limit(1);
+      return rows[0] ? rowToPlan(rows[0]) : null;
+    },
+    async listPlans(opts) {
+      const rows = opts?.projectId
+        ? await db
+            .select()
+            .from(plans)
+            .where(eq(plans.projectId, opts.projectId))
+            .orderBy(desc(plans.createdAt))
+        : await db.select().from(plans).orderBy(desc(plans.createdAt));
+      return rows.map(rowToPlan);
+    },
+    async updatePlan(id, patch) {
+      const rows = await db
+        .update(plans)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(plans.id, id))
+        .returning();
+      if (!rows[0]) throw new Error(`plan ${id} not found`);
+      return rowToPlan(rows[0]);
+    },
+    async getPlanTasks(planId) {
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(eq(tasks.planId, planId))
+        .orderBy(asc(tasks.createdAt));
+      return rows.map(rowToTask);
+    },
+    async setPlanPrIfUnset(planId, url, number) {
+      // First card to push wins the PR; later cards keep the same one.
+      await db
+        .update(plans)
+        .set({ prUrl: url, prNumber: number, status: "forging", updatedAt: new Date() })
+        .where(and(eq(plans.id, planId), sql`${plans.prUrl} is null`));
+      const rows = await db.select().from(plans).where(eq(plans.id, planId)).limit(1);
+      if (!rows[0]) throw new Error(`plan ${planId} not found`);
+      return rowToPlan(rows[0]);
+    },
+    async maybeAdvancePlan(planId) {
+      const rows = await db.select().from(tasks).where(eq(tasks.planId, planId));
+      if (rows.length === 0) return null;
+      const allDone = rows.every((t) => t.status === "review" || t.status === "done");
+      if (!allDone) return null;
+      const updated = await db
+        .update(plans)
+        .set({ status: "review", updatedAt: new Date() })
+        .where(and(eq(plans.id, planId), inArray(plans.status, ["planning", "forging"])))
+        .returning();
+      return updated[0] ? rowToPlan(updated[0]) : null;
     },
 
     async listEvents(runId, afterSeq = -1) {

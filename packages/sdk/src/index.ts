@@ -16,6 +16,7 @@ import type {
 export type {
   Agent, Preview, PreviewStatus, Project, Repository, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
   ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
+  Plan, PlanDraft, PlannedCard, PlanMode, PlanStatus,
 } from "@brokk/core";
 
 /** A repo the gh importer found in the org but that isn't connected yet. */
@@ -131,6 +132,18 @@ export interface BrokkClient {
   linkTriage(triageId: string, taskId: string): Promise<import("@brokk/core").MimirTriage>;
   /** The calibration view: triage decisions against their real outcomes. */
   getCalibration(): Promise<MimirCalibrationRow[]>;
+
+  // mímir — the planner (one intent → cards → one PR)
+  /** Advisory: decompose a prompt into an atomic card or a feature DAG. */
+  planJob(input: string, projectId?: string): Promise<import("@brokk/core").PlanDraft>;
+  /** Persist a (reviewed/edited) plan + queue its cards. Returns plan + tasks. */
+  applyPlan(input: {
+    input: string;
+    projectId: string;
+    plan: import("@brokk/core").PlanDraft;
+  } & MimirAuthor): Promise<{ plan: import("@brokk/core").Plan; tasks: Task[] }>;
+  listPlans(projectId?: string): Promise<import("@brokk/core").Plan[]>;
+  getPlan(id: string): Promise<{ plan: import("@brokk/core").Plan; tasks: Task[] }>;
 
   // previews — ephemeral dev-preview environments per branch
   /** Ensure+start: returns an existing starting/live preview or creates a fresh one. */
@@ -251,6 +264,26 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     },
     getCalibration() {
       return req<MimirCalibrationRow[]>("GET", "/mimir/calibration");
+    },
+    planJob(input, projectId) {
+      return req<import("@brokk/core").PlanDraft>("POST", "/mimir/plan", { input, projectId });
+    },
+    applyPlan(input) {
+      return req<{ plan: import("@brokk/core").Plan; tasks: Task[] }>(
+        "POST",
+        "/mimir/plan/apply",
+        input,
+      );
+    },
+    listPlans(projectId) {
+      const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+      return req<import("@brokk/core").Plan[]>("GET", `/mimir/plans${q}`);
+    },
+    getPlan(id) {
+      return req<{ plan: import("@brokk/core").Plan; tasks: Task[] }>(
+        "GET",
+        `/mimir/plans/${encodeURIComponent(id)}`,
+      );
     },
     streamRunEvents(id, onEvent) {
       // Browser EventSource; in Node, pass a polyfilled global or poll /runs/:id.

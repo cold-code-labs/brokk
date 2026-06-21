@@ -6,7 +6,8 @@ import { usePathname } from "next/navigation";
 const NAV = [
   { href: "/", label: "Fleet", icon: "▦", desc: "All repos & queues" },
   { href: "/connect", label: "Connect", icon: "＋", desc: "Add CCL repos" },
-  { href: "/mimir", label: "Mímir", icon: "✦", desc: "Prompts & refine" },
+  { href: "/plan", label: "Planejador", icon: "✦", desc: "Intent → cards → PR" },
+  { href: "/mimir", label: "Mímir", icon: "✧", desc: "Prompts & refine" },
   { href: "/history", label: "History", icon: "≡", desc: "All tasks & PRs" },
   { href: "/users", label: "Users", icon: "◐", desc: "Seats & subscriptions" },
   { href: "/settings", label: "Settings", icon: "⚙", desc: "Project & runner" },

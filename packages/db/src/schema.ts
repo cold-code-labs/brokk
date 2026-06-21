@@ -53,6 +53,16 @@ export const authMode = pgEnum("auth_mode", ["api_key", "subscription"]);
 
 export const taskKind = pgEnum("task_kind", ["implement", "revise"]);
 
+// Mímir planner — one human intent → one atomic card or a feature DAG → one PR.
+export const planMode = pgEnum("plan_mode", ["atomic", "feature"]);
+export const planStatus = pgEnum("plan_status", [
+  "planning",
+  "forging",
+  "review",
+  "done",
+  "failed",
+]);
+
 // Mímir (the counselor) — see §"Mímir" in ARCHITECTURE.md.
 export const mimirMode = pgEnum("mimir_mode", ["polish", "structure", "engineer"]);
 export const refinoLevel = pgEnum("refino_level", ["none", "polish", "structure", "engineer"]);
@@ -94,6 +104,27 @@ export const projects = pgTable("projects", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** A Mímir plan: groups the cards that compose into ONE feature PR. */
+export const plans = pgTable("plans", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  prompt: text("prompt").notNull(),
+  summary: text("summary").notNull(),
+  rationale: text("rationale"),
+  mode: planMode("mode").notNull().default("feature"),
+  status: planStatus("status").notNull().default("planning"),
+  featureBranch: text("feature_branch").notNull(),
+  baseBranch: text("base_branch").notNull().default("dev"),
+  prUrl: text("pr_url"),
+  prNumber: integer("pr_number"),
+  model: text("model"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const tasks = pgTable("tasks", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: uuid("project_id")
@@ -112,6 +143,16 @@ export const tasks = pgTable("tasks", {
   prNumber: integer("pr_number"),
   branch: text("branch"),
   iteration: integer("iteration").notNull().default(0),
+  // ── Plan composition (Mímir planner) ──
+  planId: uuid("plan_id").references(() => plans.id, { onDelete: "set null" }),
+  /** Stable local key within the plan; siblings reference it in dependsOn. */
+  planKey: text("plan_key"),
+  /** planKeys that must land before this card forges (the DAG). */
+  dependsOn: jsonb("depends_on").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  /** Planner-assigned complexity (drove model/effort). */
+  forca: forcaLevel("forca"),
+  /** Files/areas this card is expected to touch — seed for the warm index (#5). */
+  touches: jsonb("touches").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

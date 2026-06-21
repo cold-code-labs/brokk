@@ -55,7 +55,7 @@ export function runnerRoutes(deps: AppDeps): Hono {
     const claimed = await deps.store.claimNext(runnerId);
     if (!claimed) return c.body(null, 204);
 
-    const { task, run, sealedToken } = claimed;
+    const { task, run, repository, project, plan, sealedToken } = claimed;
     let auth: { source: "seat" | "env"; token: string | null; subscriptionId: string | null } = {
       source: "env",
       token: null,
@@ -68,7 +68,20 @@ export function runnerRoutes(deps: AppDeps): Hono {
         // Sealing key missing/rotated → leave the runner on its ambient token.
       }
     }
-    return c.json({ task, run, auth });
+    // repository/project resolve the footgun (no more BROKK_DEFAULT_REPO); plan
+    // (if any) carries the shared feature branch the card composes into.
+    return c.json({ task, run, repository, project, plan, auth });
+  });
+
+  // Set a plan's PR the first time one of its cards pushes (idempotent — later
+  // cards get the same PR back). The runner calls this before opening a PR.
+  r.post("/plans/:id/pr", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const url = typeof body?.url === "string" ? body.url : "";
+    if (!url) return c.json({ error: "url required" }, 400);
+    const number = typeof body?.number === "number" ? body.number : null;
+    const plan = await deps.store.setPlanPrIfUnset(c.req.param("id"), url, number);
+    return c.json(plan);
   });
 
   return r;

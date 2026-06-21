@@ -1,18 +1,22 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // MÍMIR ENHANCER — refines a raw prompt into a better one. One-shot structured
-// rewrite (not tool orchestration): a non-reasoning model delivers quality close
-// to a flagship at ~1/8 the cost. Returns the refined prompt + a short rationale
-// of what improved, so the history shows the curve over time.
+// rewrite (not tool orchestration). Returns the refined prompt + a short
+// rationale of what improved, so the history shows the curve over time.
 //
-// Ported verbatim from Heimdall's lib/mimir/enhance.ts; the only change is that
-// model/endpoint/key come from MimirConfig (so it can route through Bifröst)
-// instead of Asgard's env.
+// Routes through the shared model client (Max seat by default), at the cheap
+// `enhanceModel` tier — refinement is cosmetic, not the high-leverage reasoning.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { MimirMode } from "@brokk/core";
 
+import { extractJson, mimirComplete } from "./client.js";
 import type { MimirConfig } from "./config.js";
+import { MimirError } from "./errors.js";
 import { DEFAULT_MODE, isMimirMode } from "./types.js";
+
+// Re-export so existing imports (`import { MimirError } from "@brokk/mimir"` and
+// `from "./enhance.js"`) keep working now that the class lives in errors.ts.
+export { MimirError } from "./errors.js";
 
 export type EnhanceResult = {
   enhanced: string;
@@ -20,24 +24,6 @@ export type EnhanceResult = {
   model: string;
   mode: MimirMode;
 };
-
-export class MimirError extends Error {
-  status: number;
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "MimirError";
-    this.status = status;
-  }
-  userMessage(): string {
-    if (this.status === 429) {
-      return "Mímir está sem saldo na conta de IA no momento. Adicione créditos e o refino volta.";
-    }
-    if (this.status === 401 || this.status === 403) {
-      return "A chave de IA foi recusada (401/403). Verifique a `MIMIR_API_KEY`.";
-    }
-    return "Não consegui refinar o prompt agora. Tente de novo em instantes.";
-  }
-}
 
 // Common preamble: Mímir's persona + the invariants shared by all three modes +
 // the JSON output contract. Each mode only appends its specific instructions.
@@ -114,62 +100,24 @@ export async function enhancePrompt(
   if (!clean) throw new MimirError("Prompt vazio", 400);
   const safeMode: MimirMode = isMimirMode(mode) ? mode : DEFAULT_MODE;
 
-  const res = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [
-        { role: "system", content: systemFor(safeMode) },
-        { role: "user", content: clean },
-      ],
-      response_format: { type: "json_object" },
-      max_completion_tokens: MODE_MAX_TOKENS[safeMode],
-    }),
+  const { text } = await mimirComplete(config, {
+    system: systemFor(safeMode),
+    user: clean,
+    model: config.enhanceModel,
+    json: true,
+    maxTokens: MODE_MAX_TOKENS[safeMode],
   });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("[mimir] enhance", res.status, body.slice(0, 300));
-    throw new MimirError(`OpenAI ${res.status}`, res.status);
-  }
-
-  const json = (await res.json().catch(() => null)) as ChatCompletion | null;
-  const raw = json?.choices?.[0]?.message?.content ?? "";
-  const parsed = safeParse(raw);
-  if (!parsed.enhanced) {
-    console.error("[mimir] enhance: no 'enhanced' in response", raw.slice(0, 300));
+  const parsed = extractJson<{ enhanced?: string; rationale?: string }>(text);
+  if (!parsed?.enhanced) {
+    console.error("[mimir] enhance: no 'enhanced' in response", text.slice(0, 300));
     throw new MimirError("Resposta inesperada do modelo.", 502);
   }
 
   return {
     enhanced: parsed.enhanced.trim(),
     rationale: (parsed.rationale ?? "").trim(),
-    model: config.model,
+    model: config.enhanceModel,
     mode: safeMode,
   };
-}
-
-type ChatCompletion = {
-  choices?: { message?: { content?: string } }[];
-};
-
-function safeParse(raw: string): { enhanced?: string; rationale?: string } {
-  try {
-    return JSON.parse(raw) as { enhanced?: string; rationale?: string };
-  } catch {
-    // Model sometimes wraps in ```json … ``` — try to extract the object.
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (m) {
-      try {
-        return JSON.parse(m[0]) as { enhanced?: string; rationale?: string };
-      } catch {
-        /* fall through */
-      }
-    }
-    return {};
-  }
 }

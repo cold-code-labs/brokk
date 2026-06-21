@@ -129,6 +129,18 @@ export interface Task {
   prNumber: number | null;
   branch: string | null;
   iteration: number;
+  /** If this card belongs to a Mímir plan, the plan it composes into. The cards
+   *  of one plan share a feature branch and compose into ONE PR. */
+  planId: string | null;
+  /** Stable local id within the plan (e.g. "db", "api") that siblings reference
+   *  in `dependsOn`. Null for standalone cards. */
+  planKey: string | null;
+  /** planKeys of sibling cards that must land before this one forges (the DAG). */
+  dependsOn: string[];
+  /** Planner-assigned complexity → drove the model/effort for this card. */
+  forca: ForcaLevel | null;
+  /** Files/areas this card is expected to touch — seed for the warm index (#5). */
+  touches: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -348,6 +360,28 @@ export function runBranch(title: string, runId: string): string {
   return `brokk/${taskSlug(title)}-${runId.slice(0, 8)}`;
 }
 
+/** Shared feature branch for a plan's cards: `brokk/feat-<slug>-<short-plan-id>`.
+ *  Every card of the plan commits here; ONE PR is opened feature→base. */
+export function featureBranch(summary: string, planId: string): string {
+  return `brokk/feat-${taskSlug(summary)}-${planId.slice(0, 8)}`;
+}
+
+/** Map a complexity level to a concrete forge model + reasoning effort. The
+ *  planner assigns `forca` per card; this is the single place that resolves it.
+ *  Cheap work runs cheap; only the hard cards pull a flagship. */
+export function forcaToModel(forca: ForcaLevel): { model: string; effort: "low" | "medium" | "high" } {
+  switch (forca) {
+    case "low":
+      return { model: "haiku", effort: "low" };
+    case "medium":
+      return { model: "sonnet", effort: "medium" };
+    case "high":
+      return { model: "sonnet", effort: "high" };
+    case "extra":
+      return { model: "opus", effort: "high" };
+  }
+}
+
 // ── Mímir (the counselor) ─────────────────────────────────────────────────────
 // The prompt intake of the forge: the bank of reusable prompts, the immutable
 // refinement history, and the triador's two-axis decision. Trio: Mímir advises
@@ -428,4 +462,71 @@ export interface MimirTriage {
   /** Model the triador (router) ran with — the cheap one. */
   triageModel: string | null;
   createdAt: string;
+}
+
+// ── The planner (Mímir → many cards → one PR) ──────────────────────────────────
+// Mímir's planner turns one human intent into a forge plan: a single atomic card,
+// or a feature decomposed into an ordered DAG of cards that compose into ONE PR.
+
+/** atomic = one card (today's behaviour); feature = N cards on a shared branch. */
+export type PlanMode = "atomic" | "feature";
+
+export const PLAN_MODES: readonly PlanMode[] = ["atomic", "feature"] as const;
+
+/** Lifecycle of a plan: being drafted, forging its cards, ready for review, done. */
+export type PlanStatus = "planning" | "forging" | "review" | "done" | "failed";
+
+export const PLAN_STATUSES: readonly PlanStatus[] = [
+  "planning",
+  "forging",
+  "review",
+  "done",
+  "failed",
+] as const;
+
+/** One card the planner proposes (pre-persistence). `key` is local to the plan;
+ *  `dependsOn` references sibling keys; `touches` seeds the warm index (#5). */
+export interface PlannedCard {
+  key: string;
+  title: string;
+  body: string;
+  forca: ForcaLevel;
+  /** Resolved from `forca` via forcaToModel — the model this card will forge with. */
+  model: string;
+  effort: "low" | "medium" | "high";
+  dependsOn: string[];
+  touches: string[];
+}
+
+/** The planner's output for one human prompt (advisory until applied). */
+export interface PlanDraft {
+  mode: PlanMode;
+  summary: string;
+  rationale: string;
+  targetBranch: string;
+  cards: PlannedCard[];
+  /** Model the planner itself ran with (the strong one). */
+  model: string;
+}
+
+/** A persisted plan: groups the cards that compose into one feature PR. */
+export interface Plan {
+  id: string;
+  projectId: string;
+  /** The raw human intent that produced the plan. */
+  prompt: string;
+  summary: string;
+  rationale: string | null;
+  mode: PlanMode;
+  status: PlanStatus;
+  /** The shared branch all the plan's cards commit to. */
+  featureBranch: string;
+  baseBranch: string;
+  /** The single PR the plan composes into (set by the first card to push). */
+  prUrl: string | null;
+  prNumber: number | null;
+  model: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

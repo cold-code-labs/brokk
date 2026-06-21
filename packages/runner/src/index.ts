@@ -12,7 +12,7 @@
  */
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { RunEvent, Repository, Run, RunUsage, Task } from "@brokk/core";
+import type { Plan, Project, RunEvent, Repository, Run, RunUsage, Task } from "@brokk/core";
 import { runBranch } from "@brokk/core";
 import { loadRunnerConfig, type RunnerConfig } from "./config.js";
 
@@ -24,7 +24,16 @@ import { PreviewSupervisor } from "./preview.js";
 
 type EventInput = Omit<RunEvent, "id" | "runId" | "seq" | "at">;
 type ClaimAuth = { source: "seat" | "env"; token: string | null; subscriptionId: string | null };
-type Claimed = { task: Task; run: Run; auth?: ClaimAuth };
+type Claimed = {
+  task: Task;
+  run: Run;
+  /** Resolved by the control plane (footgun fix — no BROKK_DEFAULT_REPO guess). */
+  repository?: Repository;
+  project?: Project;
+  /** If the card belongs to a plan, the shared feature branch it composes into. */
+  plan?: Plan | null;
+  auth?: ClaimAuth;
+};
 
 async function main() {
   const cfg = loadRunnerConfig();
@@ -88,26 +97,37 @@ async function handleRun(
   cfg: RunnerConfig,
   git: GhProvider,
   engine: ClaudeAgentEngine,
-  { task, run, auth }: Claimed,
+  { task, run, repository, project, plan, auth }: Claimed,
 ): Promise<void> {
   console.log(
     `[brokk-runner] claimed task "${task.title}" (run ${run.id})` +
+      (plan ? ` · plan ${plan.id.slice(0, 8)} [${task.planKey}]` : "") +
       (auth?.source === "seat" ? ` · seat ${auth.subscriptionId?.slice(0, 8)}` : " · ambient token"),
   );
   const buffer = new EventBuffer(cfg, run.id);
-  const repo = await resolveRepository(task); // TODO(P1): enrich /runner/claim with project+repo
-  const baseBranch = task.baseBranch ?? repo.defaultBranch;
-  // Revise tasks (the Eitri loop) update an existing PR branch; implement tasks
-  // fork a fresh branch off base.
+  // Repo comes resolved from the control plane now (footgun fix); fall back to
+  // the env stopgap only if an old control plane didn't send it.
+  const repo = repository ?? (await resolveRepository(task));
+  // A plan card forges on the plan's shared feature branch; revise updates an
+  // existing PR branch; a standalone implement card forks a fresh branch.
+  const isPlan = !!plan;
   const isRevise = task.kind === "revise" && !!task.branch;
-  const branch = isRevise ? task.branch! : run.branch ?? runBranch(task.title, run.id);
+  const baseBranch = plan?.baseBranch ?? task.baseBranch ?? project?.baseBranch ?? repo.defaultBranch;
+  const branch = isPlan
+    ? plan!.featureBranch
+    : isRevise
+      ? task.branch!
+      : (run.branch ?? runBranch(task.title, run.id));
   let worktreePath: string | undefined;
 
   try {
-    buffer.emit({ type: "status", payload: { phase: isRevise ? "worktree_revise" : "worktree", branch, baseBranch } });
-    const wt = isRevise
-      ? await git.checkoutBranch({ repo, branch })
-      : await git.worktree({ repo, baseBranch, branch });
+    const phase = isPlan ? "worktree_plan" : isRevise ? "worktree_revise" : "worktree";
+    buffer.emit({ type: "status", payload: { phase, branch, baseBranch } });
+    const wt = isPlan
+      ? await git.featureWorktree({ repo, baseBranch, featureBranch: branch })
+      : isRevise
+        ? await git.checkoutBranch({ repo, branch })
+        : await git.worktree({ repo, baseBranch, branch });
     worktreePath = wt.path;
 
     const usage: RunUsage = await engine.run({
@@ -139,14 +159,55 @@ async function handleRun(
     await git.push({
       cwd: wt.path,
       branch,
-      message: isRevise ? `brokk: revise — ${task.title}` : `brokk: ${task.title}`,
+      message: isPlan
+        ? `brokk: ${task.title} [${task.planKey}]`
+        : isRevise
+          ? `brokk: revise — ${task.title}`
+          : `brokk: ${task.title}`,
     });
 
-    // Revise updates the existing PR (no new one); implement opens a PR.
-    const pr = isRevise
-      ? { url: task.prUrl ?? "", number: task.prNumber }
-      : await git.openPr({ cwd: wt.path, repo, branch, baseBranch, title: task.title, body: prBody(task, verify) });
-    buffer.emit({ type: "status", payload: { phase: isRevise ? "pr_updated" : "pr_opened", url: pr.url } });
+    // PR routing:
+    //  - plan   → ONE shared PR (feature→base). The first card opens it; the
+    //             control plane records it so later cards reuse the same PR.
+    //  - revise → update the existing PR (no new one).
+    //  - implement → open a fresh PR.
+    let pr: { url: string; number: number | null };
+    let prPhase = "pr_opened";
+    if (isPlan) {
+      if (plan!.prUrl) {
+        pr = { url: plan!.prUrl, number: plan!.prNumber };
+        prPhase = "pr_reused";
+      } else {
+        const opened = await git.openPr({
+          cwd: wt.path,
+          repo,
+          branch,
+          baseBranch,
+          title: `${plan!.summary}`,
+          body: planPrBody(plan!, verify),
+        });
+        const updated = await api<{ prUrl: string | null; prNumber: number | null }>(
+          cfg,
+          "POST",
+          `/runner/plans/${plan!.id}/pr`,
+          { url: opened.url, number: opened.number },
+        ).catch(() => null);
+        pr = { url: updated?.prUrl ?? opened.url, number: updated?.prNumber ?? opened.number };
+      }
+    } else if (isRevise) {
+      pr = { url: task.prUrl ?? "", number: task.prNumber };
+      prPhase = "pr_updated";
+    } else {
+      pr = await git.openPr({
+        cwd: wt.path,
+        repo,
+        branch,
+        baseBranch,
+        title: task.title,
+        body: prBody(task, verify),
+      });
+    }
+    buffer.emit({ type: "status", payload: { phase: prPhase, url: pr.url } });
 
     // Red verify → the run is a failure even though a PR exists (so the diff is
     // still inspectable). Green / no-verify → succeeded.
@@ -276,6 +337,23 @@ function prBody(task: Task, verify: VerifyResult | null): string {
     );
   }
   lines.push("---", `🔨 Forged by **Brokk** · task \`${task.id}\``);
+  return lines.join("\n");
+}
+
+/** PR body for a plan's shared feature PR (opened by the first card). Describes
+ *  the feature; the individual cards land as commits on this branch. */
+function planPrBody(plan: Plan, verify: VerifyResult | null): string {
+  const lines = [plan.rationale || plan.summary, ""];
+  lines.push(`**Plan:** ${plan.mode} · base \`${plan.baseBranch}\``, "");
+  if (verify) {
+    lines.push(`**Verify (first card):** ${verify.ok ? "✅ passed" : "❌ failed"}`, "");
+  }
+  lines.push(
+    "_Cards of this plan compose into this single PR; each lands as a commit on the feature branch._",
+    "",
+    "---",
+    `🔨 Forged by **Brokk** · plan \`${plan.id}\``,
+  );
   return lines.join("\n");
 }
 

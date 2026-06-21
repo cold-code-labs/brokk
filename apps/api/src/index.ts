@@ -11,14 +11,13 @@ async function main() {
   await ensureSchema(db);
   const store = createStore(db);
 
-  // Mímir is optional at boot: without MIMIR_API_KEY the bank still works,
-  // only enhance/triage return 503.
-  let mimir;
-  try {
-    mimir = loadMimirConfig();
-  } catch {
-    mimir = undefined;
-    console.warn("[mimir] MIMIR_API_KEY not set — enhance/triage disabled");
+  // Mímir is optional at boot: without a usable provider (Max seat or OpenAI
+  // key) the bank still works, only enhance/triage/plan return 503.
+  const mimir = loadMimirConfig();
+  if (!mimir) {
+    console.warn("[mimir] no provider (CLAUDE_CODE_OAUTH_TOKEN / MIMIR_API_KEY) — enhance/triage/plan disabled");
+  } else {
+    console.log(`[mimir] provider=${mimir.provider} planner=${mimir.plannerModel}`);
   }
 
   const app = buildApp({

@@ -1,11 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // MÍMIR TRIADOR — the front door. Sizes a job on TWO independent axes in one
-// cheap structured call:
+// structured call:
 //
 //   1. refino — the specification gap (how clear the *prompt* is) → how much the
 //      enhancer should restructure it. "none" = already clear, skip refining.
 //   2. forca  — the task's complexity/risk → how hard the forge should run.
-//      Maps downstream to a concrete model + reasoning effort (via Bifröst).
+//      Maps downstream to a concrete model + reasoning effort (forcaToModel).
 //
 // These correlate but are distinct: a crystal-clear prompt can describe a brutal
 // task (refino baixo, força alta) and vice-versa — so they're estimated apart.
@@ -20,8 +20,9 @@ import {
   type RefinoLevel,
 } from "@brokk/core";
 
+import { extractJson, mimirComplete } from "./client.js";
 import type { MimirConfig } from "./config.js";
-import { MimirError } from "./enhance.js";
+import { MimirError } from "./errors.js";
 
 export type TriageResult = {
   refino: RefinoLevel;
@@ -65,53 +66,6 @@ function asForca(v: unknown): ForcaLevel {
   return FORCA_LEVELS.includes(v as ForcaLevel) ? (v as ForcaLevel) : "medium";
 }
 
-/** Triage a raw request into the two-axis decision. Throws MimirError on AI
- *  failure; never invents — falls back to safe middles (structure / medium). */
-export async function triagePrompt(input: string, config: MimirConfig): Promise<TriageResult> {
-  const clean = input.trim();
-  if (!clean) throw new MimirError("Pedido vazio", 400);
-
-  const res = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      messages: [
-        { role: "system", content: `${SYSTEM}\n\n${OUTPUT_CONTRACT}` },
-        { role: "user", content: clean },
-      ],
-      response_format: { type: "json_object" },
-      max_completion_tokens: 500,
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("[mimir] triage", res.status, body.slice(0, 300));
-    throw new MimirError(`OpenAI ${res.status}`, res.status);
-  }
-
-  const json = (await res.json().catch(() => null)) as ChatCompletion | null;
-  const raw = json?.choices?.[0]?.message?.content ?? "";
-  const p = safeParse(raw);
-
-  return {
-    refino: asRefino(p.refino),
-    refinoConf: clampConf(p.refino_conf),
-    forca: asForca(p.forca),
-    forcaConf: clampConf(p.forca_conf),
-    rationale: (p.rationale ?? "").trim(),
-    model: config.model,
-  };
-}
-
-type ChatCompletion = {
-  choices?: { message?: { content?: string } }[];
-};
-
 type RawTriage = {
   refino?: unknown;
   refino_conf?: unknown;
@@ -120,18 +74,27 @@ type RawTriage = {
   rationale?: string;
 };
 
-function safeParse(raw: string): RawTriage {
-  try {
-    return JSON.parse(raw) as RawTriage;
-  } catch {
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (m) {
-      try {
-        return JSON.parse(m[0]) as RawTriage;
-      } catch {
-        /* fall through */
-      }
-    }
-    return {};
-  }
+/** Triage a raw request into the two-axis decision. Throws MimirError on AI
+ *  failure; never invents — falls back to safe middles (structure / medium). */
+export async function triagePrompt(input: string, config: MimirConfig): Promise<TriageResult> {
+  const clean = input.trim();
+  if (!clean) throw new MimirError("Pedido vazio", 400);
+
+  const { text } = await mimirComplete(config, {
+    system: `${SYSTEM}\n\n${OUTPUT_CONTRACT}`,
+    user: clean,
+    model: config.triageModel,
+    json: true,
+    maxTokens: 500,
+  });
+
+  const p = extractJson<RawTriage>(text) ?? {};
+  return {
+    refino: asRefino(p.refino),
+    refinoConf: clampConf(p.refino_conf),
+    forca: asForca(p.forca),
+    forcaConf: clampConf(p.forca_conf),
+    rationale: (p.rationale ?? "").trim(),
+    model: config.triageModel,
+  };
 }
