@@ -1,9 +1,46 @@
-import type { Project, Run, RunEvent, Subscription, Task, User } from "@brokk/core";
+import type {
+  MimirMode,
+  MimirPrompt,
+  MimirRevision,
+  Project,
+  Run,
+  RunEvent,
+  Subscription,
+  Task,
+  User,
+} from "@brokk/core";
 
 // Re-export the domain types so consumers (web) depend only on the SDK.
 export type {
   Agent, Project, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
+  ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
 } from "@brokk/core";
+
+/** What POST /mimir/triage returns — the two-axis recommendation. */
+export interface MimirTriageResult {
+  refino: import("@brokk/core").RefinoLevel;
+  refinoConf: number;
+  forca: import("@brokk/core").ForcaLevel;
+  forcaConf: number;
+  rationale: string;
+  model: string;
+}
+
+/** What POST /mimir/enhance returns — the refined prompt + the recorded ids. */
+export interface MimirEnhanceResult {
+  enhanced: string;
+  rationale: string;
+  model: string;
+  mode: MimirMode;
+  revisionId: string;
+  triageId?: string;
+}
+
+export interface MimirAuthor {
+  authorId?: string;
+  authorName?: string;
+  authorEmail?: string;
+}
 
 export interface BrokkClientOptions {
   baseUrl: string;
@@ -44,6 +81,18 @@ export interface BrokkClient {
   connectStart(): Promise<{ sessionId: string; url: string }>;
   /** Step 2: exchange the pasted code → seals & stores the seat. */
   connectComplete(input: { sessionId: string; code: string; userId: string; label?: string }): Promise<Subscription>;
+
+  // mímir — the counselor (prompt bank + triador + enhancer)
+  listMimirPrompts(authorId?: string): Promise<MimirPrompt[]>;
+  searchMimirPrompts(query: string): Promise<MimirPrompt[]>;
+  createMimirPrompt(input: { title: string; body: string; tags?: string[] } & MimirAuthor): Promise<MimirPrompt>;
+  updateMimirPrompt(id: string, patch: { title?: string; body?: string; tags?: string[] }): Promise<MimirPrompt>;
+  deleteMimirPrompt(id: string): Promise<{ ok: true }>;
+  listMimirRevisions(authorId?: string): Promise<MimirRevision[]>;
+  /** Advisory: size the request on both axes (refino + força). */
+  triagePrompt(input: string): Promise<MimirTriageResult>;
+  /** Refine at the chosen mode; records an immutable revision (+ triage if given). */
+  enhancePrompt(input: { input: string; mode: MimirMode; triage?: MimirTriageResult & { source?: "auto" | "override" } } & MimirAuthor): Promise<MimirEnhanceResult>;
 }
 
 export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
@@ -107,6 +156,32 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     },
     connectComplete(input) {
       return req<Subscription>("POST", "/subscriptions/connect/complete", input);
+    },
+    listMimirPrompts(authorId) {
+      const q = authorId ? `?authorId=${encodeURIComponent(authorId)}` : "";
+      return req<MimirPrompt[]>("GET", `/mimir/prompts${q}`);
+    },
+    searchMimirPrompts(query) {
+      return req<MimirPrompt[]>("GET", `/mimir/prompts/search?q=${encodeURIComponent(query)}`);
+    },
+    createMimirPrompt(input) {
+      return req<MimirPrompt>("POST", "/mimir/prompts", input);
+    },
+    updateMimirPrompt(id, patch) {
+      return req<MimirPrompt>("PATCH", `/mimir/prompts/${encodeURIComponent(id)}`, patch);
+    },
+    deleteMimirPrompt(id) {
+      return req<{ ok: true }>("DELETE", `/mimir/prompts/${encodeURIComponent(id)}`);
+    },
+    listMimirRevisions(authorId) {
+      const q = authorId ? `?authorId=${encodeURIComponent(authorId)}` : "";
+      return req<MimirRevision[]>("GET", `/mimir/revisions${q}`);
+    },
+    triagePrompt(input) {
+      return req<MimirTriageResult>("POST", "/mimir/triage", { input });
+    },
+    enhancePrompt(input) {
+      return req<MimirEnhanceResult>("POST", "/mimir/enhance", input);
     },
     streamRunEvents(id, onEvent) {
       // Browser EventSource; in Node, pass a polyfilled global or poll /runs/:id.

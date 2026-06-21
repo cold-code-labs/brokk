@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const NAV = [
   { href: "/", label: "Board", icon: "▦", desc: "Cards & runs" },
+  { href: "/mimir", label: "Mímir", icon: "✦", desc: "Prompts & refine" },
   { href: "/history", label: "History", icon: "≡", desc: "All tasks & PRs" },
   { href: "/users", label: "Users", icon: "◐", desc: "Seats & subscriptions" },
   { href: "/settings", label: "Settings", icon: "⚙", desc: "Project & runner" },
