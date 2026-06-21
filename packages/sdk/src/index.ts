@@ -2,6 +2,7 @@ import type {
   MimirMode,
   MimirPrompt,
   MimirRevision,
+  Preview,
   Project,
   Repository,
   Run,
@@ -13,8 +14,8 @@ import type {
 
 // Re-export the domain types so consumers (web) depend only on the SDK.
 export type {
-  Agent, Project, Repository, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
-  ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
+  Agent, Preview, PreviewStatus, Project, Repository, Run, RunEvent, Subscription, Task,
+  TaskStatus, RunStatus, User, ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
 } from "@brokk/core";
 
 /** A repo the gh importer found in the org but that isn't connected yet. */
@@ -114,6 +115,14 @@ export interface BrokkClient {
   triagePrompt(input: string): Promise<MimirTriageResult>;
   /** Refine at the chosen mode; records an immutable revision (+ triage if given). */
   enhancePrompt(input: { input: string; mode: MimirMode; triage?: MimirTriageResult & { source?: "auto" | "override" } } & MimirAuthor): Promise<MimirEnhanceResult>;
+
+  // previews — ephemeral dev-preview environments per branch
+  /** Ensure+start: returns an existing starting/live preview or creates a fresh one. */
+  createPreview(input: { projectId: string; branch?: string }): Promise<Preview>;
+  getPreview(id: string): Promise<Preview>;
+  listPreviews(projectId?: string): Promise<Preview[]>;
+  /** Stop a running preview (marks it stopped). */
+  stopPreview(id: string): Promise<Preview>;
 }
 
 export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
@@ -229,6 +238,19 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
       };
       es.onmessage = handler;
       return () => es.close();
+    },
+    createPreview(input) {
+      return req<Preview>("POST", "/previews", input);
+    },
+    getPreview(id) {
+      return req<Preview>("GET", `/previews/${encodeURIComponent(id)}`);
+    },
+    listPreviews(projectId) {
+      const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+      return req<Preview[]>("GET", `/previews${q}`);
+    },
+    stopPreview(id) {
+      return req<Preview>("DELETE", `/previews/${encodeURIComponent(id)}`);
     },
   };
 }
