@@ -94,6 +94,14 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
     });
   });
 
+  // Single repo by id — the preview supervisor resolves a project's repo here.
+  // Registered after the static "/import/candidates" route so it doesn't shadow it.
+  r.get("/:id", async (c) => {
+    const repo = await deps.store.getRepository(c.req.param("id"));
+    if (!repo) return c.json({ error: "not found" }, 404);
+    return c.json(repo);
+  });
+
   // Bulk-connect selected repos (and, by default, a project each).
   r.post("/import", async (c) => {
     const parsed = ImportBody.safeParse(await c.req.json().catch(() => ({})));
