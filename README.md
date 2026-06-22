@@ -52,21 +52,40 @@ The agent authenticates as either:
 - **`api_key`** (default) — `ANTHROPIC_API_KEY`, routed through the CCL AI gateway → headroom saves real $ + central spend.
 - **`subscription`** — `claude setup-token` (Claude Max). ⚠️ Server-side automation on a consumer subscription is ToS-gray and shares your interactive rate-limit window. Use for light/personal only.
 
-## Deploy (Coolify)
-Production stack: `docker-compose.prod.yml` (Postgres + API + Web), same pattern as
-Heimdall OSS / Saga. On Coolify create a **Docker Compose** resource pointing at
-`cold-code-labs/brokk`, branch `main`, compose file `docker-compose.prod.yml`.
-Route the `web` service at `brokk.coldcodelabs.com` via `docker_compose_domains`.
-
-Coolify resource: project `Brokk`, application uuid `p3yhl41ww6sw00wqnezpppnu` (surtr).
-Install the deploy hook: `cp scripts/coolify-pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push`
-
-Once deployed, Brokk appears in **Heimdall OSS → Fleet** (Coolify `/services` mirror).
+## Deploy (self-host)
+The whole platform is containers — `docker compose up` and you have the board;
+add `--profile forge` and you have the workers.
 
 ```bash
-# local smoke (needs external coolify network or drop that block):
-docker compose -f docker-compose.prod.yml up --build
+cp .env.example .env          # set POSTGRES_PASSWORD, BROKK_RUNNER_SECRET, ANTHROPIC_API_KEY, …
+docker compose up -d                  # board: Postgres + API + Next web, behind Traefik (:80)
+docker compose --profile forge up -d  # + runner (forge) + eitri (PR review) + gateway (previews)
 ```
+
+Only `web` is public, fronted by **Traefik**; the browser reaches the API through
+same-origin Next rewrites. Override the entrypoint port with `BROKK_HTTP_PORT` and
+the host match with `BROKK_TRAEFIK_RULE='Host(\`brokk.example.com\`)'`.
+
+**Zero-downtime releases.** `web` runs with no fixed name or host port, so a deploy
+can momentarily scale it to two replicas; Traefik load-balances across them and only
+routes to **healthy** containers. Roll a new build out without dropping a request:
+
+```bash
+scripts/rolling-deploy.sh web     # build → boot new replica → health-gate → drain old
+```
+
+It builds the new image, brings a second replica up beside the live one, waits for its
+healthcheck, then drains and removes the old one (and rolls back automatically if the
+new replica never goes healthy).
+
+**The forge worker** (`runner`) ships with `git`, `gh`, and the Claude Code CLI. To let
+the agent *build and run* a target repo, mount the host Docker socket (it launches builds
+as sibling containers — "Docker-out-of-Docker"); see the commented block in
+`docker-compose.yml`. That's root-equivalent on the host, so it's single-tenant self-host
+only — multi-tenant wants rootless/microVM isolation.
+
+> CCL runs this on Coolify (a Docker Compose resource → `web` routed at
+> `brokk.coldcodelabs.com`); any orchestrator with healthcheck-aware rolling works the same.
 
 ## Status
 **P0 — scaffold.** Structure, schema, and API/runner contracts are in place; the runner

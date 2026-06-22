@@ -1,0 +1,13 @@
+# Keep the build context lean — everything below is rebuilt inside the image.
+**/node_modules
+**/.next
+**/dist
+**/.turbo
+.git
+.github
+**/*.log
+.env
+.env.*
+!.env.example
+backups
+**/coverage
