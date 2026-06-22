@@ -364,6 +364,10 @@ export interface Store {
   setPlanPrIfUnset(planId: string, url: string, number: number | null): Promise<Plan>;
   /** If every card of the plan is in review/done, advance the plan → review. */
   maybeAdvancePlan(planId: string): Promise<Plan | null>;
+  /** Match a merged PR back to its plan (the shared feature PR). */
+  findPlanForMergedPr(prUrl: string, prNumber: number): Promise<Plan | null>;
+  /** PR merged → mark the plan and every one of its cards done (one tx). */
+  markPlanDone(planId: string, prUrl: string, prNumber: number | null): Promise<Plan>;
 
   // events (append-only)
   listEvents(runId: string, afterSeq?: number): Promise<RunEvent[]>;
@@ -778,6 +782,32 @@ export function createStore(db: Db): Store {
         .where(and(eq(plans.id, planId), inArray(plans.status, ["planning", "forging"])))
         .returning();
       return updated[0] ? rowToPlan(updated[0]) : null;
+    },
+    async findPlanForMergedPr(prUrl, prNumber) {
+      const url = prUrl.replace(/\/$/, "");
+      const rows = await db
+        .select()
+        .from(plans)
+        .where(
+          sql`(${plans.prUrl} = ${url} OR ${plans.prUrl} = ${url + "/"} OR ${plans.prNumber} = ${prNumber})`,
+        )
+        .limit(1);
+      return rows[0] ? rowToPlan(rows[0]) : null;
+    },
+    async markPlanDone(planId, prUrl, prNumber) {
+      return db.transaction(async (tx) => {
+        await tx
+          .update(tasks)
+          .set({ status: "done", prUrl, prNumber, updatedAt: new Date() })
+          .where(and(eq(tasks.planId, planId), sql`${tasks.status} <> 'done'`));
+        const rows = await tx
+          .update(plans)
+          .set({ status: "done", updatedAt: new Date() })
+          .where(eq(plans.id, planId))
+          .returning();
+        if (!rows[0]) throw new Error(`plan ${planId} not found`);
+        return rowToPlan(rows[0]);
+      });
     },
 
     async listEvents(runId, afterSeq = -1) {

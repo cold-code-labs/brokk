@@ -99,7 +99,9 @@ export const projects = pgTable("projects", {
   model: text("model").notNull(),
   authMode: authMode("auth_mode").notNull().default("api_key"),
   allowedTools: jsonb("allowed_tools").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
-  baseBranch: text("base_branch").notNull().default("main"),
+  // Forge PRs target `dev` so Eitri can auto-merge them (it refuses `main` — the
+  // prod rail). Promotion dev→main stays a human merge. See docs/DEV-PREVIEW.md §7.
+  baseBranch: text("base_branch").notNull().default("dev"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

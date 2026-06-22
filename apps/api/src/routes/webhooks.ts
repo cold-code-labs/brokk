@@ -4,7 +4,7 @@ import type { AppDeps } from "../app.js";
 
 /**
  * GitHub webhooks (ARCHITECTURE.md §10). Closes the loop:
- *  - pull_request `closed` + merged → task `done`
+ *  - pull_request `closed` + merged → plan `done` (shared PR) or task `done`
  *  - pull_request_review_comment → optional follow-up run (P3)
  */
 export function webhooksRoutes(deps: AppDeps): Hono {
@@ -30,6 +30,14 @@ export function webhooksRoutes(deps: AppDeps): Hono {
     if (event === "pull_request" && payload.action === "closed") {
       const pr = payload.pull_request;
       if (pr?.merged && pr.html_url && pr.number) {
+        // A plan's shared feature PR closes the whole plan + all its cards.
+        const plan = await deps.store.findPlanForMergedPr(pr.html_url, pr.number);
+        if (plan) {
+          if (plan.status !== "done") {
+            await deps.store.markPlanDone(plan.id, pr.html_url, pr.number);
+          }
+          return c.json({ ok: true, event, planId: plan.id, status: "done" });
+        }
         const task = await deps.store.findTaskForMergedPr(pr.html_url, pr.number);
         if (task && task.status !== "done") {
           await deps.store.updateTask(task.id, {
