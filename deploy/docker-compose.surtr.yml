@@ -27,7 +27,7 @@ services:
     environment: !reset null
     env_file:
       - /home/brokk/brokk.env
-    user: "1000:1000"
+    user: "1001:1001"
 
   web-blue:
     environment: !reset null
@@ -52,7 +52,7 @@ services:
     env_file:
       - /home/brokk/brokk.env
       - /home/brokk/brokk.worker.env
-    user: "1000:1000"
+    user: "1001:1001"
     volumes: !override
       - /home/brokk/work:/home/brokk/work
       - /home/brokk/.config/gh:/home/brokk/.config/gh:ro
@@ -65,7 +65,7 @@ services:
     env_file:
       - /home/brokk/brokk.env
       - /home/brokk/brokk.worker.env
-    user: "1000:1000"
+    user: "1001:1001"
     volumes:
       - /home/brokk/eitri-app.pem:/home/brokk/eitri-app.pem:ro
 
@@ -75,4 +75,4 @@ services:
     expose: !reset null
     env_file:
       - /home/brokk/brokk.env
-    user: "1000:1000"
+    user: "1001:1001"
