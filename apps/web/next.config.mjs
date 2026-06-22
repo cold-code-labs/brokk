@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 
 /** @type {import('next').NextConfig} */
 const here = dirname(fileURLToPath(import.meta.url));
-const API = process.env.BROKK_API_INTERNAL_URL ?? "http://127.0.0.1:8789";
 
 const nextConfig = {
   reactStrictMode: true,
@@ -11,11 +10,9 @@ const nextConfig = {
   outputFileTracingRoot: join(here, "../../"),
   // @brokk/sdk ships TypeScript source — let Next compile it on build.
   transpilePackages: ["@brokk/sdk"],
-  // Proxy the control-plane API under /api so the browser talks to one origin
-  // (no CORS, single public host). SSE (/api/runs/:id/events) streams through.
-  async rewrites() {
-    return [{ source: "/api/:path*", destination: `${API}/:path*` }];
-  },
+  // The control-plane API is proxied under /api by a runtime route handler
+  // (app/api/[...path]/route.ts) — NOT a rewrite. `output: "standalone"` freezes
+  // rewrite destinations at build time, which broke runtime BROKK_API_INTERNAL_URL.
 };
 
 export default nextConfig;
