@@ -310,6 +310,9 @@ export interface Store {
   // projects
   listProjects(): Promise<(typeof projects.$inferSelect)[]>;
   getProject(id: string): Promise<typeof projects.$inferSelect | null>;
+  /** Repos that at least one project forges into `dev` — Eitri's fleet watch set.
+   *  Deduped by repo; each entry carries one projectId (for the revise enqueue). */
+  listFleetDevRepos(): Promise<{ fullName: string; cloneUrl: string; projectId: string }[]>;
   insertProject(
     values: typeof projects.$inferInsert,
   ): Promise<typeof projects.$inferSelect>;
@@ -457,6 +460,20 @@ export function createStore(db: Db): Store {
     async getProject(id) {
       const rows = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
       return rows[0] ?? null;
+    },
+    async listFleetDevRepos() {
+      const rows = await db
+        .select({
+          fullName: repositories.fullName,
+          cloneUrl: repositories.cloneUrl,
+          projectId: projects.id,
+        })
+        .from(projects)
+        .innerJoin(repositories, eq(repositories.id, projects.repositoryId))
+        .where(eq(projects.baseBranch, "dev"));
+      const seen = new Map<string, { fullName: string; cloneUrl: string; projectId: string }>();
+      for (const r of rows) if (!seen.has(r.fullName)) seen.set(r.fullName, r);
+      return [...seen.values()];
     },
     async insertProject(values) {
       const rows = await db.insert(projects).values(values).returning();

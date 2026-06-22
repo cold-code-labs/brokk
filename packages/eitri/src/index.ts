@@ -1,12 +1,14 @@
 /**
  * @brokk/eitri — the forge's second smith.
  *
- * Loop: poll the repo's open PRs → for each head sha not yet reviewed, check out
- * the PR, run the Agent SDK reviewer, post the verdict as a comment, and record
- * it. Standalone daemon — it never touches the forge (runner) machinery; it just
- * shares Brokk's Postgres for its review ledger.
+ * Loop: for every repo in the watch set (each fleet project that forges into
+ * `dev`, plus the seed BROKK_DEFAULT_REPO), poll its open PRs → for each head sha
+ * not yet reviewed, check out the PR, run the Agent SDK reviewer, post the verdict
+ * as a comment, and record it. Standalone daemon — it never touches the forge
+ * (runner) machinery; it just shares Brokk's Postgres for its review ledger.
  */
 import { execFile } from "node:child_process";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { createDb, createStore } from "@brokk/db";
 import { loadEitriConfig } from "./config.js";
@@ -26,6 +28,13 @@ interface OpenPr {
   author: { login: string };
 }
 
+/** One repo Eitri watches + the project to attribute its revise tasks to. */
+interface WatchRepo {
+  repo: string;
+  cloneUrl: string;
+  projectId: string | null;
+}
+
 async function listOpenPrs(repo: string, githubToken: string): Promise<OpenPr[]> {
   const { stdout } = await exec(
     "gh",
@@ -35,15 +44,59 @@ async function listOpenPrs(repo: string, githubToken: string): Promise<OpenPr[]>
   return JSON.parse(stdout || "[]");
 }
 
+/** The watch set, rebuilt every poll so a newly-created dev project is picked up
+ *  without a restart: every fleet project on `dev`, unioned with the seed repo. */
+async function buildWatchSet(
+  store: ReturnType<typeof createStore>,
+  cfg: ReturnType<typeof loadEitriConfig>,
+  seedProjectId: string | null,
+): Promise<WatchRepo[]> {
+  const fleet = await store.listFleetDevRepos();
+  const set = new Map<string, WatchRepo>();
+  for (const r of fleet) set.set(r.fullName, { repo: r.fullName, cloneUrl: r.cloneUrl, projectId: r.projectId });
+  // The seed is always watched (e.g. the Brokk dogfood repo, even if it targets main).
+  if (cfg.repo && !set.has(cfg.repo)) {
+    set.set(cfg.repo, { repo: cfg.repo, cloneUrl: cfg.cloneUrl, projectId: seedProjectId });
+  }
+  return [...set.values()];
+}
+
+async function resolveProjectId(
+  store: ReturnType<typeof createStore>,
+  repoFullName: string,
+): Promise<string | null> {
+  const repo = await store.getRepositoryByFullName(repoFullName).catch(() => null);
+  if (!repo) return null;
+  const proj = (await store.listProjects()).find((p) => p.repositoryId === repo.id);
+  return proj?.id ?? null;
+}
+
 async function main() {
   const cfg = loadEitriConfig();
   const { db } = createDb(cfg.databaseUrl);
   const store = createStore(db);
-  const git = new EitriGit(cfg);
   const appAuth = loadAppAuth();
 
+  // One bare clone + worktree dir per repo, created lazily and cached.
+  const gits = new Map<string, EitriGit>();
+  const gitFor = (repo: string, cloneUrl: string): EitriGit => {
+    let g = gits.get(repo);
+    if (!g) {
+      g = new EitriGit({
+        workDir: join(cfg.workDir, repo.replace("/", "__")),
+        repo,
+        cloneUrl,
+        githubToken: cfg.githubToken,
+      });
+      gits.set(repo, g);
+    }
+    return g;
+  };
+
+  const seedProjectId = cfg.repo ? await resolveProjectId(store, cfg.repo) : null;
+
   console.log(
-    `[eitri] watching ${cfg.repo} every ${cfg.pollIntervalMs / 1000}s` +
+    `[eitri] watching the fleet (projects on dev) + seed ${cfg.repo} every ${cfg.pollIntervalMs / 1000}s` +
       (appAuth ? " · identity: GitHub App (Eitri[bot])" : cfg.hasOwnIdentity ? " · identity: own token" : " · identity: shared forge account (comment-only)"),
   );
 
@@ -55,24 +108,33 @@ async function main() {
   process.on("SIGTERM", stop);
 
   while (!stopping) {
+    let watch: WatchRepo[] = [];
     try {
-      const prs = await listOpenPrs(cfg.repo, cfg.githubToken);
-      for (const pr of prs) {
-        if (cfg.skipAuthors.includes(pr.author?.login)) continue;
-        if (await store.hasReview(cfg.repo, pr.number, pr.headRefOid)) {
-          // Review already posted — retry merge if the first attempt was skipped
-          // (e.g. GitHub returned mergeable=UNKNOWN right after the PR opened).
-          await tryAutoMerge(cfg, store, git, appAuth, pr).catch((e) =>
-            console.error(`[eitri] merge retry for #${pr.number} failed:`, e),
-          );
-          continue;
-        }
-        await reviewOne(cfg, store, git, appAuth, pr).catch((e) =>
-          console.error(`[eitri] review of #${pr.number} failed:`, e),
-        );
-      }
+      watch = await buildWatchSet(store, cfg, seedProjectId);
     } catch (e) {
-      console.error("[eitri] poll failed:", e);
+      console.error("[eitri] watch-set build failed:", e);
+    }
+    for (const w of watch) {
+      const git = gitFor(w.repo, w.cloneUrl);
+      try {
+        const prs = await listOpenPrs(w.repo, cfg.githubToken);
+        for (const pr of prs) {
+          if (cfg.skipAuthors.includes(pr.author?.login)) continue;
+          if (await store.hasReview(w.repo, pr.number, pr.headRefOid)) {
+            // Review already posted — retry merge if the first attempt was skipped
+            // (e.g. GitHub returned mergeable=UNKNOWN right after the PR opened).
+            await tryAutoMerge(cfg, store, git, appAuth, w.repo, pr).catch((e) =>
+              console.error(`[eitri] ${w.repo}#${pr.number} merge retry failed:`, e),
+            );
+            continue;
+          }
+          await reviewOne(cfg, store, git, appAuth, w.repo, w.projectId, pr).catch((e) =>
+            console.error(`[eitri] ${w.repo}#${pr.number} review failed:`, e),
+          );
+        }
+      } catch (e) {
+        console.error(`[eitri] poll of ${w.repo} failed:`, e);
+      }
     }
     await sleep(cfg.pollIntervalMs);
   }
@@ -84,9 +146,11 @@ async function reviewOne(
   store: ReturnType<typeof createStore>,
   git: EitriGit,
   appAuth: AppAuth | null,
+  repo: string,
+  projectId: string | null,
   pr: OpenPr,
 ): Promise<void> {
-  console.log(`[eitri] reviewing #${pr.number} "${pr.title}" @ ${pr.headRefOid.slice(0, 8)}`);
+  console.log(`[eitri] reviewing ${repo}#${pr.number} "${pr.title}" @ ${pr.headRefOid.slice(0, 8)}`);
   const diff = await git.diff(pr.number);
   const cwd = await git.checkoutPr(pr.number);
   try {
@@ -137,7 +201,7 @@ async function reviewOne(
     const canReview = Boolean(appAuth) || cfg.hasOwnIdentity;
     await git.postReview(pr.number, comment, verdict, { token, canReview });
     await store.insertReview({
-      repo: cfg.repo,
+      repo,
       prNumber: pr.number,
       sha: pr.headRefOid,
       verdict: verdict.toLowerCase(),
@@ -145,9 +209,9 @@ async function reviewOne(
       scanBlocking: scan?.blocking.length ?? 0,
       scanTotal: scan?.findings.length ?? 0,
     });
-    console.log(`[eitri] #${pr.number} → ${verdict} (posted)`);
+    console.log(`[eitri] ${repo}#${pr.number} → ${verdict} (posted)`);
 
-    await handleForgeVerdict(cfg, store, git, appAuth, pr, verdict, body);
+    await handleForgeVerdict(cfg, store, git, appAuth, repo, projectId, pr, verdict, body);
   } finally {
     await git.cleanup(cwd);
   }
@@ -159,13 +223,14 @@ async function tryAutoMerge(
   store: ReturnType<typeof createStore>,
   git: EitriGit,
   appAuth: AppAuth | null,
+  repo: string,
   pr: OpenPr,
 ): Promise<void> {
   if (!pr.headRefName.startsWith("brokk/")) return;
-  const reviews = await store.listReviews(cfg.repo);
+  const reviews = await store.listReviews(repo);
   const review = reviews.find((r) => r.prNumber === pr.number && r.sha === pr.headRefOid);
   if (!review || review.verdict === "request_changes") return;
-  await attemptMerge(cfg, git, appAuth, pr, review.verdict.toUpperCase());
+  await attemptMerge(cfg, git, appAuth, repo, pr, review.verdict.toUpperCase());
 }
 
 async function handleForgeVerdict(
@@ -173,6 +238,8 @@ async function handleForgeVerdict(
   store: ReturnType<typeof createStore>,
   git: EitriGit,
   appAuth: AppAuth | null,
+  repo: string,
+  projectId: string | null,
   pr: OpenPr,
   verdict: "APPROVE" | "COMMENT" | "REQUEST_CHANGES",
   body: string,
@@ -182,35 +249,34 @@ async function handleForgeVerdict(
 
   if (verdict === "REQUEST_CHANGES") {
     // Blocking → hand the findings back to Brokk to revise the same PR.
-    const rounds = (await store.listReviews(cfg.repo)).filter((r) => r.prNumber === pr.number).length;
+    const rounds = (await store.listReviews(repo)).filter((r) => r.prNumber === pr.number).length;
     if (rounds > cfg.maxRevisions) {
-      console.log(`[eitri] #${pr.number} hit ${cfg.maxRevisions}-round cap — leaving for a human`);
+      console.log(`[eitri] ${repo}#${pr.number} hit ${cfg.maxRevisions}-round cap — leaving for a human`);
     } else if (await store.openReviseExists(pr.number)) {
-      console.log(`[eitri] #${pr.number} already has a revise in flight`);
+      console.log(`[eitri] ${repo}#${pr.number} already has a revise in flight`);
+    } else if (!projectId) {
+      console.log(`[eitri] ${repo}#${pr.number} REQUEST_CHANGES but no project maps to this repo — skipping revise`);
     } else {
-      const projectId = (await store.listProjects())[0]?.id;
-      if (projectId) {
-        await store.insertTask({
-          projectId,
-          kind: "revise",
-          status: "queued",
-          title: `Revise PR #${pr.number}: ${pr.title}`,
-          body: [
-            `Address this reviewer (Eitri) feedback on PR #${pr.number} and push fixes to the same branch.`,
-            "Make the changes the review asks for; do not open a new PR.",
-            "",
-            body,
-          ].join("\n"),
-          prNumber: pr.number,
-          branch: pr.headRefName,
-          prUrl: `https://github.com/${cfg.repo}/pull/${pr.number}`,
-          iteration: rounds,
-        });
-        console.log(`[eitri] #${pr.number} → enqueued revise (round ${rounds}/${cfg.maxRevisions})`);
-      }
+      await store.insertTask({
+        projectId,
+        kind: "revise",
+        status: "queued",
+        title: `Revise PR #${pr.number}: ${pr.title}`,
+        body: [
+          `Address this reviewer (Eitri) feedback on PR #${pr.number} and push fixes to the same branch.`,
+          "Make the changes the review asks for; do not open a new PR.",
+          "",
+          body,
+        ].join("\n"),
+        prNumber: pr.number,
+        branch: pr.headRefName,
+        prUrl: `https://github.com/${repo}/pull/${pr.number}`,
+        iteration: rounds,
+      });
+      console.log(`[eitri] ${repo}#${pr.number} → enqueued revise (round ${rounds}/${cfg.maxRevisions})`);
     }
   } else {
-    await attemptMerge(cfg, git, appAuth, pr, verdict);
+    await attemptMerge(cfg, git, appAuth, repo, pr, verdict);
   }
 }
 
@@ -218,22 +284,23 @@ async function attemptMerge(
   cfg: ReturnType<typeof loadEitriConfig>,
   git: EitriGit,
   appAuth: AppAuth | null,
+  repo: string,
   pr: OpenPr,
   verdict: string,
 ): Promise<void> {
   if (pr.baseRefName === "main") {
-    console.log(`[eitri] #${pr.number} targets main — not auto-merging (protected)`);
+    console.log(`[eitri] ${repo}#${pr.number} targets main — not auto-merging (protected)`);
   } else if (!cfg.autoMerge) {
-    console.log(`[eitri] #${pr.number} mergeable (${verdict}) — auto-merge off, leaving for a human`);
+    console.log(`[eitri] ${repo}#${pr.number} mergeable (${verdict}) — auto-merge off, leaving for a human`);
   } else if (!(await git.isMergeable(pr.number))) {
-    console.log(`[eitri] #${pr.number} not mergeable yet — will retry on next poll`);
+    console.log(`[eitri] ${repo}#${pr.number} not mergeable yet — will retry on next poll`);
   } else {
     try {
       const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;
       await git.mergePr(pr.number, token);
-      console.log(`[eitri] #${pr.number} → MERGED (squash)`);
+      console.log(`[eitri] ${repo}#${pr.number} → MERGED (squash)`);
     } catch (e) {
-      console.error(`[eitri] #${pr.number} merge failed (App needs Contents:write?):`, String(e).slice(0, 160));
+      console.error(`[eitri] ${repo}#${pr.number} merge failed (App needs Contents:write?):`, String(e).slice(0, 160));
     }
   }
 }
