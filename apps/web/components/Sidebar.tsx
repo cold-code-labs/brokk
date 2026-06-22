@@ -21,7 +21,8 @@ export default function Sidebar({ user }: { user?: SidebarUser }) {
     <nav style={rail}>
       <div style={{ padding: "22px 18px 18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          <span style={{ fontSize: 22 }}>🔨</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brokk.svg" alt="Brokk" width={22} height={31} style={{ display: "block" }} />
           <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: -0.4 }}>Brokk</span>
         </div>
         <p style={{ margin: "4px 0 0 31px", fontSize: 11, color: "#5c6575" }}>the mega forge</p>

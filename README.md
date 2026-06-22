@@ -1,6 +1,10 @@
-# 🔨 Brokk
+<p align="center">
+  <img src="apps/web/public/brokk.svg" alt="Brokk" height="160" />
+</p>
 
-**CCL's open-source AI coding-agent platform — the forge.**
+<h1 align="center">Brokk</h1>
+
+<p align="center"><strong>CCL's open-source AI coding-agent platform — the forge.</strong></p>
 
 Brokk is the **code** pillar of the CCL triad:
 
