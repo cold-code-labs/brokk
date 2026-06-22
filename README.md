@@ -94,3 +94,5 @@ reviews every PR (semgrep + trivy + LLM) and a webhook closes the plan on merge.
 in production on **surtr** — container-first, blue/green `web` behind Traefik — and powers
 an on-demand **dev preview lane** (`*.preview.coldcodelabs.com`). Still private; Apache-2.0
 once hardened. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design and roadmap.
+
+![Build](https://github.com/cold-code-labs/brokk/actions/workflows/ci.yml/badge.svg)
