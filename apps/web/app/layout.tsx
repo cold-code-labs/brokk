@@ -8,6 +8,12 @@ export const metadata = {
   description: "CCL's AI coding-agent platform — the forge.",
 };
 
+// Auth is enforced per-request in this layout (getSession reads cookies + the
+// runtime LOGTO_* env). Force dynamic rendering so the gate is never baked into a
+// static prerender — otherwise a build without LOGTO_* set would ship the open
+// (unauthenticated) shell as static HTML, bypassing login at runtime.
+export const dynamic = "force-dynamic";
+
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const session = await getSession();
   if (authEnabled && !session.isAuthenticated) {
