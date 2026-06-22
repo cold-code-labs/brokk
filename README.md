@@ -4,6 +4,8 @@
 
 <h1 align="center">Brokk</h1>
 
+<p align="center">For a high-level overview of the system, see <a href="ARCHITECTURE.md">ARCHITECTURE.md</a>.</p>
+
 <p align="center"><strong>CCL's open-source AI coding-agent platform — the forge.</strong></p>
 
 Brokk is the **code** pillar of the CCL triad:
