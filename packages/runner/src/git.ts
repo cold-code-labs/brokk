@@ -29,6 +29,23 @@ export class GhProvider implements GitProvider {
     return join(this.opts.workDir, "repos", `${repo.owner}__${repo.name}.git`);
   }
 
+  private refExists(bare: string, ref: string): Promise<boolean> {
+    return git(bare, ["rev-parse", "--verify", ref]).then(() => true).catch(() => false);
+  }
+
+  /** Refresh `baseBranch` into a REMOTE-TRACKING ref and return the freshest start
+   *  point to fork from. Never fetches into `refs/heads/<base>`: the preview
+   *  supervisor may have that branch checked out in a persistent worktree of this
+   *  same bare clone, and git refuses to fetch into a checked-out branch. */
+  private async resolveBase(bare: string, baseBranch: string, defaultBranch: string): Promise<string> {
+    await git(bare, ["fetch", "origin", `+refs/heads/${baseBranch}:refs/remotes/origin/${baseBranch}`]).catch(
+      () => {},
+    );
+    if (await this.refExists(bare, `refs/remotes/origin/${baseBranch}`)) return `refs/remotes/origin/${baseBranch}`;
+    if (await this.refExists(bare, `refs/heads/${baseBranch}`)) return `refs/heads/${baseBranch}`;
+    return defaultBranch; // base not created on the remote yet → fork off default
+  }
+
   /** Clone (or fetch) a cached bare repo, then add a worktree on a new branch. */
   async worktree(opts: {
     repo: Repository;
@@ -39,30 +56,25 @@ export class GhProvider implements GitProvider {
     const bare = this.bareDir(repo);
     await mkdir(join(this.opts.workDir, "repos"), { recursive: true });
 
+    let fresh = false;
     try {
       await git(this.opts.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
+      fresh = true;
     } catch {
-      // Bare already exists → refresh ONLY the base branch. A wildcard fetch
-      // (`+refs/heads/*`) would try to clobber the `brokk/*` run branches that
-      // are still checked out in worktrees and git refuses ("refusing to fetch
-      // into branch ... checked out").
-      await git(bare, ["fetch", "origin", `+refs/heads/${baseBranch}:refs/heads/${baseBranch}`]);
+      /* bare already exists — refreshed below */
     }
     // Drop bookkeeping for worktrees whose dirs were already removed.
     await git(bare, ["worktree", "prune"]).catch(() => {});
 
-    // Bootstrap: if baseBranch doesn't exist in the bare clone yet (e.g. "dev"
-    // hasn't been created on the remote), create it off the repo default branch
-    // so the worktree add below has a valid start point.
-    const baseBranchExists = await git(bare, ["rev-parse", "--verify", `refs/heads/${baseBranch}`]).catch(() => null);
-    if (baseBranchExists === null) {
-      await git(bare, ["branch", baseBranch, repo.defaultBranch]);
-    }
+    // Fork point: on a fresh bare clone every remote head is a local ref, so the
+    // base is already present; otherwise refresh it into a remote-tracking ref
+    // (never refs/heads/<base>, which the preview may have checked out).
+    const startPoint = fresh
+      ? (await this.refExists(bare, `refs/heads/${baseBranch}`)) ? `refs/heads/${baseBranch}` : repo.defaultBranch
+      : await this.resolveBase(bare, baseBranch, repo.defaultBranch);
 
     const path = join(this.opts.workDir, "worktrees", branch.replace(/[/]/g, "__"));
-    // A bare clone stores branches as local refs (refs/heads/<branch>), so fork
-    // from `baseBranch` directly — there is no `origin/` remote-tracking prefix.
-    await git(bare, ["worktree", "add", "-b", branch, path, baseBranch]);
+    await git(bare, ["worktree", "add", "-b", branch, path, startPoint]);
     return { path, branch };
   }
 
@@ -77,28 +89,26 @@ export class GhProvider implements GitProvider {
     const { repo, baseBranch, featureBranch } = opts;
     const bare = this.bareDir(repo);
     await mkdir(join(this.opts.workDir, "repos"), { recursive: true });
+    let fresh = false;
     try {
       await git(this.opts.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
+      fresh = true;
     } catch {
-      await git(bare, ["fetch", "origin", `+refs/heads/${baseBranch}:refs/heads/${baseBranch}`]).catch(
-        () => {},
-      );
+      /* bare already exists */
     }
     await git(bare, ["worktree", "prune"]).catch(() => {});
+
+    // Fork point for the first card — never fetch into refs/heads/<base> (the
+    // preview may have it checked out); use a remote-tracking ref on a warm clone.
+    const baseRef = fresh
+      ? (await this.refExists(bare, `refs/heads/${baseBranch}`)) ? `refs/heads/${baseBranch}` : repo.defaultBranch
+      : await this.resolveBase(bare, baseBranch, repo.defaultBranch);
 
     // Does the feature branch already exist on the remote? (i.e. a prior card
     // pushed it). If so, continue from its tip; otherwise fork off base.
     const hasFeature = await git(bare, ["fetch", "origin", `refs/heads/${featureBranch}`])
       .then(() => true)
       .catch(() => false);
-
-    // Make sure base exists locally for the first-card fork.
-    const baseExists = await git(bare, ["rev-parse", "--verify", `refs/heads/${baseBranch}`]).catch(
-      () => null,
-    );
-    if (baseExists === null) {
-      await git(bare, ["branch", baseBranch, repo.defaultBranch]);
-    }
 
     const path = join(this.opts.workDir, "worktrees", featureBranch.replace(/[/]/g, "__"));
     await git(bare, ["worktree", "remove", "--force", path]).catch(() => {});
@@ -108,7 +118,7 @@ export class GhProvider implements GitProvider {
     if (hasFeature) {
       await git(bare, ["worktree", "add", "--force", "-B", featureBranch, path, "FETCH_HEAD"]);
     } else {
-      await git(bare, ["worktree", "add", "-b", featureBranch, path, baseBranch]);
+      await git(bare, ["worktree", "add", "-b", featureBranch, path, baseRef]);
     }
     return { path, branch: featureBranch, firstCard: !hasFeature };
   }
