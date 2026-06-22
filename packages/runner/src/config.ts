@@ -35,6 +35,14 @@ export interface RunnerConfig {
   previewPortMin: number;
   /** Highest port (inclusive) the supervisor may allocate for preview processes. */
   previewPortMax: number;
+  /** When true (default), the supervisor deprovisions a preview's Hauldr compute
+   *  (auth + rest, keeping the DB) once it stops/expires, so an idle backend
+   *  costs zero containers. BROKK_PREVIEW_EPHEMERAL=false keeps it standing. */
+  previewEphemeral: boolean;
+  /** Hauldr projects the supervisor must NEVER deprovision — pinned standing
+   *  envs (e.g. a client staging DB) that happen to share a preview slug.
+   *  CSV via BROKK_PREVIEW_PINNED. */
+  previewPinned: Set<string>;
 }
 
 export function loadRunnerConfig(env = process.env): RunnerConfig {
@@ -61,5 +69,12 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     previewTtlMs: Number(env.BROKK_PREVIEW_TTL_MS ?? 45 * 60 * 1000),
     previewPortMin: Number(env.BROKK_PREVIEW_PORT_MIN ?? 4100),
     previewPortMax: Number(env.BROKK_PREVIEW_PORT_MAX ?? 4199),
+    previewEphemeral: (env.BROKK_PREVIEW_EPHEMERAL ?? "true") !== "false",
+    previewPinned: new Set(
+      (env.BROKK_PREVIEW_PINNED ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
   };
 }

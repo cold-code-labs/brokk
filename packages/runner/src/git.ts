@@ -224,8 +224,13 @@ export class GhProvider implements GitProvider {
     if (refreshed) return { path, branch };
 
     // First boot (or broken worktree): create fresh from the fetched tip.
+    // Prune AFTER removing the dir so git drops any stale registration that
+    // still pins `branch` to the old path, then add with --force — otherwise
+    // git aborts with "'<branch>' is already used by worktree" (the documented
+    // stale-worktree boot failure).
     await rm(path, { recursive: true, force: true }).catch(() => {});
-    await git(bare, ["worktree", "add", "-B", branch, path, "FETCH_HEAD"]);
+    await git(bare, ["worktree", "prune"]).catch(() => {});
+    await git(bare, ["worktree", "add", "--force", "-B", branch, path, "FETCH_HEAD"]);
     return { path, branch };
   }
 }

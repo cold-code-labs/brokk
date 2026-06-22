@@ -341,10 +341,15 @@ export interface HauldrProject {
 /** Port for the Hauldr control-plane. Concrete implementation lives in
  *  @brokk/runner. No implementation here — types + interface only. */
 export interface Hauldr {
-  /** Create the Hauldr project if it does not exist, then return its details. */
+  /** Create the Hauldr project if it does not exist, bringing up any missing
+   *  compute sidecars (auth + rest), then return its details. */
   ensureProject(name: string): Promise<HauldrProject>;
   /** Fetch an existing project by name. */
   getProject(name: string): Promise<HauldrProject>;
+  /** Drop the project's compute sidecars (auth + rest) while KEEPING the
+   *  database, so an idle preview backend costs ~MB of DB and zero containers.
+   *  Idempotent; re-provisioned on the next {@link ensureProject}. */
+  deprovisionCompute(name: string): Promise<void>;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -124,21 +124,35 @@ export class HauldrClient implements Hauldr {
    *  result if readiness times out (the preview still boots, just degraded).
    */
   async ensureProject(name: string): Promise<HauldrProject> {
+    const enc = encodeURIComponent(name);
+    let raw: RawProject | null = null;
     let exists = false;
     try {
-      const raw = await this.getRaw(name);
+      raw = await this.getRaw(name);
       exists = true;
       if (isReady(raw)) return toHauldrProject(raw);
     } catch (err: unknown) {
       if (!(err instanceof Error && err.message.includes("404"))) throw err;
     }
 
-    // Create (idempotent on name conflict). Always request the PostgREST data
-    // plane — clients that only need auth simply ignore the rest endpoint.
-    if (!exists) await this.req("POST", "/v1/projects", { name, rest: true });
+    if (!exists) {
+      // Fresh project: create with the PostgREST data plane requested. Clients
+      // that only need auth simply ignore the rest endpoint.
+      await this.req("POST", "/v1/projects", { name, rest: true });
+    } else {
+      // Project exists but its compute is down — the expected state after an
+      // idle preview backend was deprovisioned (DB kept). Bring the missing
+      // sidecars back up; both endpoints are idempotent server-side.
+      if (!raw?.services?.auth?.ready) {
+        await this.req("POST", `/v1/projects/${enc}/services/auth`).catch(() => {});
+      }
+      if (!raw?.services?.rest?.ready) {
+        await this.req("POST", `/v1/projects/${enc}/services/rest`).catch(() => {});
+      }
+    }
 
     // Poll until ready (auth + rest), ~3 min budget.
-    let last: RawProject | null = null;
+    let last: RawProject | null = raw;
     for (let i = 0; i < 60; i++) {
       last = await this.getRaw(name).catch(() => null);
       if (last && isReady(last)) return toHauldrProject(last);
@@ -146,5 +160,14 @@ export class HauldrClient implements Hauldr {
     }
     // Timed out — return whatever we have so the preview can still start.
     return toHauldrProject(last ?? { name });
+  }
+
+  /** Drop the project's compute sidecars (rest first to release its DB
+   *  connections, then auth) while keeping the database. Idempotent: a missing
+   *  service is a no-op. */
+  async deprovisionCompute(name: string): Promise<void> {
+    const enc = encodeURIComponent(name);
+    await this.req("DELETE", `/v1/projects/${enc}/services/rest`).catch(() => {});
+    await this.req("DELETE", `/v1/projects/${enc}/services/auth`).catch(() => {});
   }
 }

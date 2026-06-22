@@ -142,6 +142,7 @@ export class PreviewSupervisor {
               pid: null,
               port: null,
             }).catch(() => {});
+            await this.reapBackend(p);
             break;
           }
 
@@ -154,6 +155,7 @@ export class PreviewSupervisor {
               pid: null,
               port: null,
             }).catch(() => {});
+            await this.reapBackend(p);
           }
           break;
         }
@@ -167,6 +169,7 @@ export class PreviewSupervisor {
               `[preview-supervisor] ${p.subdomain} marked ${p.status}, killing`,
             );
             this.killAndClean(p.id, lp);
+            await this.reapBackend(p);
           }
           break;
         }
@@ -306,6 +309,7 @@ export class PreviewSupervisor {
             pid: null,
             port: null,
           }).catch(() => {});
+          void this.reapBackend(preview).catch(() => {});
         }
       }
     });
@@ -340,6 +344,35 @@ export class PreviewSupervisor {
       lp.proc.kill("SIGTERM");
     } catch {
       /* already dead */
+    }
+  }
+
+  /** Tear down a stopped preview's Hauldr compute (auth + rest), keeping the
+   *  database, so an idle backend costs ~MB of DB and zero containers. No-op
+   *  when ephemeral mode is off, Hauldr is unconfigured, or the project is
+   *  pinned (a standing env that happens to share the slug). Called on TTL
+   *  expiry / manual stop / unexpected exit — NEVER on graceful shutdown, where
+   *  previews are meant to resume after the runner restarts. */
+  private async reapBackend(preview: Preview): Promise<void> {
+    if (!this.cfg.previewEphemeral || !this.hauldr) return;
+    const project = preview.hauldrProject;
+    if (!project) return;
+    if (this.cfg.previewPinned.has(project)) {
+      console.log(
+        `[preview-supervisor] ${preview.subdomain}: ${project} pinned — keeping compute`,
+      );
+      return;
+    }
+    try {
+      await this.hauldr.deprovisionCompute(project);
+      console.log(
+        `[preview-supervisor] ${preview.subdomain}: deprovisioned compute for ${project} (DB kept)`,
+      );
+    } catch (err) {
+      console.warn(
+        `[preview-supervisor] ${preview.subdomain}: deprovision failed for ${project}:`,
+        err,
+      );
     }
   }
 
