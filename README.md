@@ -49,8 +49,8 @@ pnpm --filter @brokk/runner start
 
 ## Auth & billing
 The agent authenticates as either:
-- **`api_key`** (default) — `ANTHROPIC_API_KEY`, routed through the CCL AI gateway → headroom saves real $ + central spend.
-- **`subscription`** — `claude setup-token` (Claude Max). ⚠️ Server-side automation on a consumer subscription is ToS-gray and shares your interactive rate-limit window. Use for light/personal only.
+- **`subscription`** (default) — a lent Claude **Max** seat (`claude setup-token` → sealed `CLAUDE_CODE_OAUTH_TOKEN`), routed through headroom to stretch the Max rate-limit window. CCL's internal mode. ⚠️ Server-side automation on a consumer subscription is ToS-gray and shares that seat's interactive rate-limit window.
+- **`api_key`** — `ANTHROPIC_API_KEY` via the CCL AI gateway (central spend + headroom $-saving compression). The path for multi-tenant / public self-host; **deferred** while Brokk is internal.
 
 ## Deploy (self-host)
 The whole platform is containers — `docker compose up` and you have the board;

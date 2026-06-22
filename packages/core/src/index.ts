@@ -75,7 +75,8 @@ export const PREVIEW_STATUSES: readonly PreviewStatus[] = [
 /** Whether a card is fresh work or a revision of an existing PR (the Eitri loop). */
 export type TaskKind = "implement" | "revise";
 
-/** How the runner authenticates to Claude. Default: api_key (via the gateway). */
+/** How the runner authenticates to Claude. Default: subscription (lent Max seat);
+ *  api_key (via the gateway) is the deferred multi-tenant/public path. */
 export type AuthMode = "api_key" | "subscription";
 
 export const AUTH_MODES: readonly AuthMode[] = ["api_key", "subscription"] as const;
