@@ -307,9 +307,13 @@ type VerifyResult = { ok: boolean; output: string };
  *  failed verification, not a runner crash. */
 async function runVerify(cmd: string, cwd: string): Promise<VerifyResult> {
   try {
+    // The runner process runs with NODE_ENV=production, but verification needs the
+    // worktree's *dev* toolchain (tsc, eslint, types) — `pnpm install` under
+    // production omits devDependencies, which makes `pnpm typecheck` fail with
+    // "tsc: not found". Force a dev env for the verify subprocess only.
     const { stdout, stderr } = await execAsync(cmd, {
       cwd,
-      env: { ...process.env },
+      env: { ...process.env, NODE_ENV: "development" },
       maxBuffer: 1024 * 1024 * 64,
       timeout: 8 * 60 * 1000,
     });

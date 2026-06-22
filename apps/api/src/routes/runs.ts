@@ -103,9 +103,19 @@ export function runsRoutes(deps: AppDeps): Hono {
       ...(resolvedPrNumber ? { prNumber: resolvedPrNumber } : {}),
     });
 
-    // If this card belongs to a plan, advance the plan once all its cards have
-    // landed (every card in review/done) → the single feature PR is ready.
-    if (task.planId) await deps.store.maybeAdvancePlan(task.planId).catch(() => {});
+    // Plan bookkeeping. A failed card would otherwise stall its dependents in
+    // `queued` forever (the DAG never sees it reach review/done), so surface the
+    // stall by failing the plan. A succeeded card advances the plan once all its
+    // siblings have landed (every card in review/done) → the feature PR is ready.
+    if (task.planId) {
+      if (status === "failed") {
+        await deps.store
+          .updatePlan(task.planId, { status: "failed" })
+          .catch(() => {});
+      } else {
+        await deps.store.maybeAdvancePlan(task.planId).catch(() => {});
+      }
+    }
 
     return c.json(run);
   });
