@@ -561,6 +561,8 @@ export function createStore(db: Db): Store {
         sha: r.sha,
         verdict: r.verdict,
         summary: r.summary,
+        scanBlocking: r.scanBlocking,
+        scanTotal: r.scanTotal,
         createdAt: r.createdAt.toISOString(),
       };
     },
@@ -575,6 +577,8 @@ export function createStore(db: Db): Store {
         sha: r.sha,
         verdict: r.verdict,
         summary: r.summary,
+        scanBlocking: r.scanBlocking,
+        scanTotal: r.scanTotal,
         createdAt: r.createdAt.toISOString(),
       }));
     },

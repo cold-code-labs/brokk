@@ -13,6 +13,7 @@ import { loadEitriConfig } from "./config.js";
 import { EitriGit } from "./git.js";
 import { type AppAuth, getInstallationToken, loadAppAuth } from "./github-app.js";
 import { reviewPr } from "./review.js";
+import { formatScanMarkdown, runScan, scanPromptBlock } from "./scan.js";
 
 const exec = promisify(execFile);
 
@@ -89,7 +90,47 @@ async function reviewOne(
   const diff = await git.diff(pr.number);
   const cwd = await git.checkoutPr(pr.number);
   try {
-    const { verdict, body } = await reviewPr({ cwd, model: cfg.model, prTitle: pr.title, diff });
+    // Security ward: run the OSS scanners over the worktree, scoped to the PR's
+    // changed files. HIGH/CRITICAL findings deterministically gate the verdict.
+    const changedFiles = await git.changedFiles(pr.number).catch(() => [] as string[]);
+    const scan = await runScan({
+      cwd,
+      changedFiles,
+      config: {
+        enabled: cfg.securityScan,
+        semgrepConfig: cfg.semgrepConfig,
+        blockSeverity: cfg.scanBlockSeverity,
+      },
+    }).catch((e) => {
+      console.error(`[eitri] scan of #${pr.number} failed:`, e);
+      return null;
+    });
+    if (scan?.scanned) {
+      console.log(
+        `[eitri] #${pr.number} scan: ${scan.blocking.length} blocking / ${scan.findings.length} total` +
+          ` (ran ${scan.toolsRun.join(",") || "none"})`,
+      );
+    }
+
+    const llm = await reviewPr({
+      cwd,
+      model: cfg.model,
+      prTitle: pr.title,
+      diff,
+      scanBlock: scan ? scanPromptBlock(scan) : undefined,
+    });
+    // The scan gates independently of the LLM: any blocking finding → REQUEST_CHANGES.
+    const gated = Boolean(scan && scan.blocking.length > 0);
+    const verdict = gated ? "REQUEST_CHANGES" : llm.verdict;
+    const scanMd = scan ? formatScanMarkdown(scan) : "";
+    // When the security ward overrides a softer LLM verdict, say so up front so the
+    // comment's own "VERDICT: ..." line isn't read as contradictory.
+    const banner =
+      gated && llm.verdict !== "REQUEST_CHANGES"
+        ? `> ⛔ **REQUEST_CHANGES forced by the security ward** — ${scan!.blocking.length} blocking ` +
+          `finding(s) in changed files. Eitri's code review (below) judged it \`${llm.verdict}\`.\n\n`
+        : "";
+    const body = scanMd ? `${banner}${scanMd}\n\n---\n\n${llm.body}` : llm.body;
     const comment = `🛡️ **Eitri** — *the forge's second smith*\n\n${body}`;
     // Post identity: GitHub App token (Eitri[bot]) > own token > shared account.
     const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;
@@ -101,6 +142,8 @@ async function reviewOne(
       sha: pr.headRefOid,
       verdict: verdict.toLowerCase(),
       summary: firstParagraph(body),
+      scanBlocking: scan?.blocking.length ?? 0,
+      scanTotal: scan?.findings.length ?? 0,
     });
     console.log(`[eitri] #${pr.number} → ${verdict} (posted)`);
 

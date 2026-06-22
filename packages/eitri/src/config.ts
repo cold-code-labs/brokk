@@ -24,6 +24,12 @@ export interface EitriConfig {
   /** GitHub login of the forge bot — skip its... no, we review ITS PRs; this is
    *  the login to skip (e.g. dependabot) if ever needed. */
   skipAuthors: string[];
+  /** Run the OSS vulnerability scanners (semgrep + trivy) before each review. */
+  securityScan: boolean;
+  /** semgrep ruleset, e.g. "auto" (registry) or "p/security-audit". */
+  semgrepConfig: string;
+  /** Minimum scanner severity (in changed files) that forces REQUEST_CHANGES. */
+  scanBlockSeverity: "critical" | "high" | "medium" | "low";
 }
 
 export function loadEitriConfig(env = process.env): EitriConfig {
@@ -44,5 +50,13 @@ export function loadEitriConfig(env = process.env): EitriConfig {
     maxRevisions: Number(env.EITRI_MAX_REVISIONS ?? 3),
     autoMerge: env.EITRI_AUTO_MERGE !== "false",
     skipAuthors: (env.EITRI_SKIP_AUTHORS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    securityScan: env.EITRI_SECURITY_SCAN !== "false",
+    semgrepConfig: env.EITRI_SEMGREP_CONFIG ?? "auto",
+    scanBlockSeverity: normalizeSeverity(env.EITRI_SCAN_BLOCK_SEVERITY),
   };
+}
+
+function normalizeSeverity(v?: string): "critical" | "high" | "medium" | "low" {
+  const s = (v ?? "high").toLowerCase();
+  return s === "critical" || s === "medium" || s === "low" ? s : "high";
 }

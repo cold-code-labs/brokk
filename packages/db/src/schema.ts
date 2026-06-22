@@ -246,6 +246,9 @@ export const reviews = pgTable(
     sha: text("sha").notNull(),
     verdict: text("verdict").notNull().default("comment"),
     summary: text("summary").notNull().default(""),
+    /** Eitri security ward — vulnerability findings in the PR's changed files. */
+    scanBlocking: integer("scan_blocking").notNull().default(0),
+    scanTotal: integer("scan_total").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ uniq: unique("reviews_repo_pr_sha_uniq").on(t.repo, t.prNumber, t.sha) }),

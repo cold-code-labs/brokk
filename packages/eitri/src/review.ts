@@ -29,8 +29,14 @@ export async function reviewPr(opts: {
   model: string;
   prTitle: string;
   diff: string;
+  /** Pre-computed security-scan context, injected so the LLM weighs it. */
+  scanBlock?: string;
 }): Promise<ReviewResult> {
   const { query } = (await import("@anthropic-ai/claude-agent-sdk")) as any;
+
+  const scanSection = opts.scanBlock
+    ? ["", "--- SECURITY SCAN ---", opts.scanBlock, "--- END SECURITY SCAN ---", ""]
+    : [];
 
   const prompt = [
     SYSTEM_PROMPT,
@@ -39,6 +45,7 @@ export async function reviewPr(opts: {
     "",
     "The repository is your working directory — open the changed files to understand",
     "the surrounding code before judging. The unified diff is below.",
+    ...scanSection,
     "",
     "Reply with a markdown review in EXACTLY this shape:",
     "  First line: `VERDICT: APPROVE` or `VERDICT: COMMENT` or `VERDICT: REQUEST_CHANGES`.",

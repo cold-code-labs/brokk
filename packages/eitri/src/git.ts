@@ -33,6 +33,15 @@ export class EitriGit {
     return gh(["pr", "diff", String(prNumber), "--repo", this.opts.repo], this.env);
   }
 
+  /** Repo-relative paths the PR touches — the scope for the security scan. */
+  async changedFiles(prNumber: number): Promise<string[]> {
+    const out = await gh(
+      ["pr", "diff", String(prNumber), "--repo", this.opts.repo, "--name-only"],
+      this.env,
+    );
+    return out.split("\n").map((s) => s.trim()).filter(Boolean);
+  }
+
   /** Check out the PR head into an isolated worktree; returns its path. */
   async checkoutPr(prNumber: number): Promise<string> {
     const bare = this.bareDir();

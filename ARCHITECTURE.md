@@ -79,6 +79,17 @@ The axes are **independent**: a clear prompt can describe a brutal task. Auto by
 human **override** allowed; the budget ceiling is trusted to the router — **Eitri** reviews
 after, and its verdict + the chosen levels feed the calibration loop.
 Trio: **Mímir advises → Brokkr forges → Eitri reviews.**
+
+**Eitri's security ward.** Before the LLM review, Eitri runs OSS vulnerability
+scanners over the PR's worktree — **semgrep** (SAST) and **trivy** (dependency
+CVEs + secrets) — and scopes the findings to the files the PR *changed*, so a
+pre-existing CVE in an untouched dependency never blocks an unrelated change. A
+HIGH/CRITICAL finding (threshold via `EITRI_SCAN_BLOCK_SEVERITY`) **deterministically
+forces `REQUEST_CHANGES`**, independent of the LLM's judgment — which feeds the same
+revise loop the reviewer uses, so Brokk patches the vulnerability on the next round.
+The scan summary is injected into the reviewer prompt and recorded per head-sha in
+`reviews` (`scan_blocking`, `scan_total`). Scanners are optional: a missing binary is
+skipped gracefully, and `EITRI_SECURITY_SCAN=false` turns the ward off entirely.
 Tables: `mimir_prompts` (the bank), `mimir_revisions` (immutable history),
 `mimir_triage` (the two-axis decision, linked to a revision). History + triage are
 INSERT/SELECT-only at the DB role level.

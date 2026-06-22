@@ -224,6 +224,9 @@ export interface Review {
   sha: string;
   verdict: string;
   summary: string;
+  /** Eitri security ward: vulnerability findings in the PR's changed files. */
+  scanBlocking: number;
+  scanTotal: number;
   createdAt: string;
 }
 
