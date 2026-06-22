@@ -88,6 +88,9 @@ only — multi-tenant wants rootless/microVM isolation.
 > `brokk.coldcodelabs.com`); any orchestrator with healthcheck-aware rolling works the same.
 
 ## Status
-**P0 — scaffold.** Structure, schema, and API/runner contracts are in place; the runner
-is an unverified skeleton. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design and the
-phased roadmap (P1 = first real card→PR spike).
+**Operational (internal).** The full loop runs end-to-end: a card → the planner fans it
+into a DAG of cards → a runner forges each in an isolated worktree → opens a PR; **Eitri**
+reviews every PR (semgrep + trivy + LLM) and a webhook closes the plan on merge. Brokk runs
+in production on **surtr** — container-first, blue/green `web` behind Traefik — and powers
+an on-demand **dev preview lane** (`*.preview.coldcodelabs.com`). Still private; Apache-2.0
+once hardened. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design and roadmap.
