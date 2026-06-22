@@ -48,7 +48,18 @@ services:
   runner:
     network_mode: host
     depends_on: !reset null
-    environment: !reset null
+    # Container runs as uid 1001 with HOME=/home/brokk read-only, so pnpm/corepack's
+    # default ~/.cache/node/corepack mkdir EACCESes and preview builds die. Redirect
+    # every cache/store to the writable /home/brokk/work volume (mounted below).
+    # !override replaces the base env map wholesale (host-net runtime values come
+    # from the env_files), exactly like the !reset null it stands in for — plus these.
+    environment: !override
+      COREPACK_HOME: /home/brokk/work/.cache/corepack
+      XDG_CACHE_HOME: /home/brokk/work/.cache
+      XDG_DATA_HOME: /home/brokk/work/.local/share
+      PNPM_HOME: /home/brokk/work/.local/share/pnpm
+      npm_config_cache: /home/brokk/work/.cache/npm
+      npm_config_store_dir: /home/brokk/work/.pnpm-store
     env_file:
       - /home/brokk/brokk.env
       - /home/brokk/brokk.worker.env
