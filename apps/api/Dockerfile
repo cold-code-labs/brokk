@@ -16,6 +16,9 @@ RUN pnpm --filter @brokk/api deploy --prod /out
 FROM base AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+# `gh` — the /repositories/import/candidates route shells out to `gh repo list`
+# to offer connectable org repos (auth via the GITHUB_TOKEN env).
+RUN apk add --no-cache github-cli
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/apps/api/dist ./dist
 COPY --from=build /repo/apps/api/package.json ./package.json
