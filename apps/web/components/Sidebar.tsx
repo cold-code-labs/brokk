@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const NAV = [
   { href: "/", label: "Fleet", icon: "▦", desc: "All repos & queues" },
+  { href: "/dashboard", label: "Dashboard", icon: "◴", desc: "Numbers at a glance" },
   { href: "/connect", label: "Connect", icon: "＋", desc: "Add CCL repos" },
   { href: "/plan", label: "Planejador", icon: "✦", desc: "Intent → cards → PR" },
   { href: "/mimir", label: "Mímir", icon: "✧", desc: "Prompts & refine" },
