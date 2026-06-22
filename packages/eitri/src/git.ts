@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -6,8 +7,8 @@ import { promisify } from "node:util";
 const exec = promisify(execFile);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await exec("git", args, { cwd, maxBuffer: 1024 * 1024 * 64 });
+async function git(cwd: string, args: string[], env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  const { stdout } = await exec("git", args, { cwd, env, maxBuffer: 1024 * 1024 * 64 });
   return stdout.trim();
 }
 
@@ -23,6 +24,16 @@ export class EitriGit {
 
   private get env() {
     return { ...process.env, GH_TOKEN: this.opts.githubToken };
+  }
+  /** git over HTTPS authenticated via gh's credential helper (the Eitri image has
+   *  gh but no global `gh auth setup-git`, so wire it per-command). Without this,
+   *  cloning a private fleet repo fails with "could not read Username". */
+  private gitAuthed(cwd: string, args: string[]): Promise<string> {
+    return git(
+      cwd,
+      ["-c", "credential.https://github.com.helper=!gh auth git-credential", ...args],
+      this.env,
+    );
   }
   private bareDir() {
     return join(this.opts.workDir, "repo.git");
@@ -46,14 +57,15 @@ export class EitriGit {
   async checkoutPr(prNumber: number): Promise<string> {
     const bare = this.bareDir();
     await mkdir(this.opts.workDir, { recursive: true });
-    try {
-      await git(this.opts.workDir, ["clone", "--bare", this.opts.cloneUrl, bare]);
-    } catch {
-      /* exists */
+    if (!existsSync(bare)) {
+      // Only clone when the bare is actually missing — so a real clone failure
+      // (e.g. auth) surfaces instead of being swallowed as "already exists" and
+      // then ENOENT-ing on the next git call against a non-existent bare dir.
+      await this.gitAuthed(this.opts.workDir, ["clone", "--bare", this.opts.cloneUrl, bare]);
     }
     // Fetch into FETCH_HEAD and check out DETACHED — never a named branch, so a
     // leftover worktree can't trigger "refusing to fetch into checked-out branch".
-    await git(bare, ["fetch", "origin", `pull/${prNumber}/head`]);
+    await this.gitAuthed(bare, ["fetch", "origin", `pull/${prNumber}/head`]);
     const path = join(this.opts.workDir, "worktrees", `pr-${prNumber}`);
     await git(bare, ["worktree", "remove", "--force", path]).catch(() => {});
     await git(bare, ["worktree", "prune"]).catch(() => {});
