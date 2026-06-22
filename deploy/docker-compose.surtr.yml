@@ -1,0 +1,78 @@
+# Surtr production override for ../docker-compose.yml.  (run from the repo root:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.surtr.yml ... )
+#
+# api / runner / eitri / gateway run with HOST networking — drop-in for the old
+# systemd units: they read /home/brokk/brokk.env verbatim, reach host-published
+# services (Hauldr db :5434, headroom :8793, hauldr control 10.10.0.2:8787, api
+# localhost:8789) on their existing addresses, and the *.preview lane keeps working
+# (gateway + runner share the host loopback exactly as before). They run as uid 1000
+# (brokk) so the mode-600 creds (gh config, eitri .pem) are readable and worktree
+# files stay brokk-owned (clean rollback to systemd).
+#
+# web runs bridged behind Traefik (host :3010 — the cloudflared tunnel target) as
+# two blue/green replicas for zero-downtime rolling. No bundled Postgres.
+name: brokk
+
+services:
+  traefik:
+    ports: !override
+      - "127.0.0.1:3010:80"
+
+  db: !reset null
+
+  api:
+    network_mode: host
+    depends_on: !reset null
+    expose: !reset null
+    environment: !reset null
+    env_file:
+      - /home/brokk/brokk.env
+    user: "1000:1000"
+
+  web-blue:
+    environment: !reset null
+    env_file:
+      - /home/brokk/brokk.env
+      - /home/brokk/brokk.web.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  web-green:
+    environment: !reset null
+    env_file:
+      - /home/brokk/brokk.env
+      - /home/brokk/brokk.web.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  runner:
+    network_mode: host
+    depends_on: !reset null
+    environment: !reset null
+    env_file:
+      - /home/brokk/brokk.env
+      - /home/brokk/brokk.worker.env
+    user: "1000:1000"
+    volumes: !override
+      - /home/brokk/work:/home/brokk/work
+      - /home/brokk/.config/gh:/home/brokk/.config/gh:ro
+      - /home/brokk/.gitconfig:/home/brokk/.gitconfig:ro
+
+  eitri:
+    network_mode: host
+    depends_on: !reset null
+    environment: !reset null
+    env_file:
+      - /home/brokk/brokk.env
+      - /home/brokk/brokk.worker.env
+    user: "1000:1000"
+    volumes:
+      - /home/brokk/eitri-app.pem:/home/brokk/eitri-app.pem:ro
+
+  gateway:
+    network_mode: host
+    environment: !reset null
+    expose: !reset null
+    env_file:
+      - /home/brokk/brokk.env
+    user: "1000:1000"
