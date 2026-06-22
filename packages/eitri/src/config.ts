@@ -51,7 +51,9 @@ export function loadEitriConfig(env = process.env): EitriConfig {
     autoMerge: env.EITRI_AUTO_MERGE !== "false",
     skipAuthors: (env.EITRI_SKIP_AUTHORS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     securityScan: env.EITRI_SECURITY_SCAN !== "false",
-    semgrepConfig: env.EITRI_SEMGREP_CONFIG ?? "auto",
+    // Pinned pack (not "auto"): "auto" needs metrics ON to resolve rules, which we
+    // keep off. p/default is semgrep's curated, low-noise security/correctness set.
+    semgrepConfig: env.EITRI_SEMGREP_CONFIG ?? "p/default",
     scanBlockSeverity: normalizeSeverity(env.EITRI_SCAN_BLOCK_SEVERITY),
   };
 }

@@ -144,7 +144,9 @@ async function runSemgrep(cwd: string, changedFiles: string[], config: string): 
     `--config=${config}`,
     "--json",
     "--quiet",
-    "--metrics=off",
+    // semgrep's `auto` config refuses to run with metrics off (it picks rules via
+    // the registry/telemetry); pinned packs (p/…) run fine with metrics disabled.
+    ...(config === "auto" ? [] : ["--metrics=off"]),
     "--timeout=120",
     "--disable-version-check",
     ...targets,
