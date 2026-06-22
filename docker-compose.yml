@@ -1,14 +1,15 @@
 # Brokk — canonical self-host stack.
 #
-#   docker compose up -d                  # the board: Postgres + API + Next web, behind Traefik
+#   docker compose up -d                  # the board: Postgres + API + Next web (2 replicas), behind Traefik
 #   docker compose --profile forge up -d  # + the forge workers (runner, eitri, gateway)
 #
 # Public entrypoint is Traefik on ${BROKK_HTTP_PORT:-80}; only `web` is routed.
 # The browser reaches the API through same-origin Next rewrites (/api → api:8789).
 #
-# Zero-downtime deploys: `web` runs with no fixed name/port so it can momentarily
-# scale to 2 replicas. Traefik load-balances across them and only routes to
-# healthy ones — so a release never drops a request. See scripts/rolling-deploy.sh.
+# Zero-downtime deploys: `web` runs as two always-on replicas (web-blue/web-green).
+# Traefik (file provider — no Docker socket, so it works on any Docker version)
+# load-balances across them with a healthcheck + retry. A release recreates one
+# replica at a time; the other keeps serving. See scripts/rolling-deploy.sh.
 name: brokk
 
 x-restart: &restart
@@ -18,17 +19,13 @@ services:
   traefik:
     image: traefik:v3.5
     command:
-      - --providers.docker=true
-      - --providers.docker.exposedByDefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
       - --entrypoints.web.address=:80
-    environment:
-      # Pin the Docker Engine API version: very new daemons (29+) reject the
-      # client's negotiation fallback (1.24). 1.43 is supported by Docker 24+.
-      DOCKER_API_VERSION: "1.43"
     ports:
       - "${BROKK_HTTP_PORT:-80}:80"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./deploy/traefik:/etc/traefik/dynamic:ro
     <<: *restart
 
   db:
@@ -50,6 +47,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+    image: brokk-api:local
     environment:
       BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:-postgres://brokk:brokk@db:5432/brokk}
       BROKK_API_PORT: "8789"
@@ -71,13 +69,16 @@ services:
       - "8789"
     <<: *restart
 
-  web:
+  # web — two always-on replicas behind Traefik (blue/green). Both run the same
+  # image (brokk-web:local), built once on web-blue. rolling-deploy.sh recreates
+  # them one at a time for zero-downtime releases.
+  web-blue: &web
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+    image: brokk-web:local
     environment:
       BROKK_API_INTERNAL_URL: http://api:8789
-      # Logto SSO (human auth). Unset = open shell.
       LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
       LOGTO_APP_ID: ${LOGTO_APP_ID:-}
       LOGTO_APP_SECRET: ${LOGTO_APP_SECRET:-}
@@ -88,15 +89,29 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 30
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.brokk.rule=${BROKK_TRAEFIK_RULE:-PathPrefix(`/`)}"
-      - "traefik.http.routers.brokk.entrypoints=web"
-      - "traefik.http.services.brokk.loadbalancer.server.port=3000"
-    # No container_name / no host port → safe to scale to 2 during a rolling deploy.
+    <<: *restart
+
+  web-green:
+    # Same image/config as web-blue (no build — shares brokk-web:local).
+    image: brokk-web:local
+    environment:
+      BROKK_API_INTERNAL_URL: http://api:8789
+      LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
+      LOGTO_APP_ID: ${LOGTO_APP_ID:-}
+      LOGTO_APP_SECRET: ${LOGTO_APP_SECRET:-}
+      LOGTO_BASE_URL: ${LOGTO_BASE_URL:-}
+      LOGTO_COOKIE_SECRET: ${LOGTO_COOKIE_SECRET:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
     <<: *restart
 
   # ── forge workers (opt-in: --profile forge) ───────────────────────────────────
@@ -104,16 +119,16 @@ services:
     build:
       context: .
       dockerfile: packages/runner/Dockerfile
+    image: brokk-runner:local
     profiles: ["forge"]
     environment:
       BROKK_CONTROL_URL: http://api:8789
       BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:?set BROKK_RUNNER_SECRET to run the forge}
       BROKK_RUNNER_WORKDIR: /work
-      # Auth: api_key (ANTHROPIC_API_KEY, optionally via headroom ANTHROPIC_BASE_URL)
-      # or subscription (CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`).
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       BROKK_GIT_NAME: ${BROKK_GIT_NAME:-Brokk}
       BROKK_GIT_EMAIL: ${BROKK_GIT_EMAIL:-brokk@localhost}
     volumes:
@@ -131,6 +146,7 @@ services:
     build:
       context: .
       dockerfile: packages/eitri/Dockerfile
+    image: brokk-eitri:local
     profiles: ["forge"]
     environment:
       BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:-postgres://brokk:brokk@db:5432/brokk}
@@ -148,6 +164,7 @@ services:
     build:
       context: .
       dockerfile: apps/gateway/Dockerfile
+    image: brokk-gateway:local
     profiles: ["forge"]
     environment:
       BROKK_GATEWAY_PORT: "3020"
