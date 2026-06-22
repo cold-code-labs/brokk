@@ -21,7 +21,7 @@ http:
     brokk:
       loadBalancer:
         healthCheck:
-          path: /
+          path: /brokk.svg
           interval: "3s"
           timeout: "2s"
         servers:
