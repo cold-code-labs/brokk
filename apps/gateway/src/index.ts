@@ -116,6 +116,34 @@ function patchPreviewTtl(id: string, expiresAt: string): void {
   req.end();
 }
 
+/**
+ * Fire-and-forget POST /previews to wake a reaped (stopped) preview when a
+ * visitor lands on its URL. Idempotent on the control plane — an already-starting
+ * preview is returned, not duplicated — so a repeat hit during the thaw is safe.
+ */
+function firePreview(projectId: string, branch: string): void {
+  const payload = JSON.stringify({ projectId, branch });
+  const req = http.request(
+    {
+      hostname: cpBase.hostname,
+      port: cpBase.port,
+      path: "/previews",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+        Authorization: `Bearer ${cfg.BROKK_RUNNER_SECRET}`,
+      },
+    },
+    (res) => res.resume(),
+  );
+  req.on("error", (err) => {
+    console.error(`[gateway] wake POST /previews failed:`, err.message);
+  });
+  req.write(payload);
+  req.end();
+}
+
 // ── Preview cache (subdomain → port + id) ────────────────────────────────────
 
 interface CacheEntry {
@@ -129,6 +157,10 @@ const CACHE_TTL_MS = 5_000;
 let cache: Map<string, CacheEntry> = new Map();
 let cacheTs = 0; // epoch ms of last successful refresh
 
+/** Every known preview (any status) by subdomain → how to wake it. Lets the
+ *  gateway auto-fire a reaped preview when a visitor lands on its URL. */
+let wakeable: Map<string, { projectId: string; branch: string }> = new Map();
+
 /**
  * Return the current cache map, refreshing it from the control plane if stale.
  * On refresh error the stale map is returned so transient CP outages don't
@@ -141,14 +173,23 @@ async function resolveCache(): Promise<Map<string, CacheEntry>> {
   try {
     const previews = await fetchPreviews();
     const next = new Map<string, CacheEntry>();
+    const nextWake = new Map<string, { projectId: string; branch: string }>();
     for (const p of previews) {
+      if (p === null || typeof p !== "object" || !("subdomain" in p) || typeof p.subdomain !== "string") {
+        continue;
+      }
+      // Any preview (live or not) is wakeable as long as we know its project + branch.
       if (
-        p !== null &&
-        typeof p === "object" &&
+        "projectId" in p &&
+        typeof p.projectId === "string" &&
+        "branch" in p &&
+        typeof p.branch === "string"
+      ) {
+        nextWake.set(p.subdomain, { projectId: p.projectId, branch: p.branch });
+      }
+      if (
         "status" in p &&
         p.status === "live" &&
-        "subdomain" in p &&
-        typeof p.subdomain === "string" &&
         "port" in p &&
         typeof p.port === "number" &&
         "id" in p &&
@@ -158,8 +199,9 @@ async function resolveCache(): Promise<Map<string, CacheEntry>> {
       }
     }
     cache = next;
+    wakeable = nextWake;
     cacheTs = now;
-    console.log(`[gateway] cache refreshed — ${next.size} live preview(s)`);
+    console.log(`[gateway] cache refreshed — ${next.size} live preview(s), ${nextWake.size} wakeable`);
   } catch (err) {
     console.error("[gateway] cache refresh failed (serving stale):", err instanceof Error ? err.message : err);
   }
@@ -180,6 +222,19 @@ function maybeBump(id: string): void {
 
   const expiresAt = new Date(now + cfg.BROKK_PREVIEW_TTL_MS).toISOString();
   patchPreviewTtl(id, expiresAt);
+}
+
+// ── Auto-wake (at most once per 15 s per subdomain) ──────────────────────────
+
+const WAKE_THROTTLE_MS = 15_000;
+const lastWakeAt = new Map<string, number>();
+
+function maybeWake(subdomain: string, projectId: string, branch: string): void {
+  const now = Date.now();
+  if (now - (lastWakeAt.get(subdomain) ?? 0) < WAKE_THROTTLE_MS) return;
+  lastWakeAt.set(subdomain, now);
+  console.log(`[gateway] waking ${subdomain} (project ${projectId}, branch ${branch})`);
+  firePreview(projectId, branch);
 }
 
 // ── Static HTML error pages ───────────────────────────────────────────────────
@@ -232,6 +287,51 @@ const HTML_502 = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// Friendly, client-facing "we're warming this up" page. Served when a visitor
+// lands on a reaped/starting preview — the gateway fires the wake in the
+// background and this page auto-refreshes until the app answers. On-brand for
+// Cold Code Labs (the environment is "thawing"). Self-contained, no external deps.
+const HTML_THAWING = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="4">
+<title>Preparando seu preview…</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; margin:0;
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:#eef4fb; color:#0c2740; }
+  .card { text-align:center; padding:3rem 2.5rem; max-width:440px; }
+  .flake { width:54px; height:54px; margin:0 auto 1.7rem; position:relative;
+    animation: spin 3.4s linear infinite, pulse 1.9s ease-in-out infinite; }
+  .flake span { position:absolute; inset:0; }
+  .flake span::before { content:""; position:absolute; left:50%; top:0; width:3px; height:100%;
+    margin-left:-1.5px; border-radius:3px; background:#5b9bdc; }
+  .flake span:nth-child(2){ transform:rotate(60deg); }
+  .flake span:nth-child(3){ transform:rotate(120deg); }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+  h1 { font-size:1.4rem; font-weight:600; margin:0 0 .6rem; }
+  p  { color:#3e5d78; margin:0; line-height:1.6; font-size:1.02rem; }
+  .bar { margin:1.9rem auto 0; width:210px; height:5px; border-radius:5px; background:#d6e4f4; overflow:hidden; }
+  .bar i { display:block; height:100%; width:40%; border-radius:5px; background:#3a82d6;
+    animation: slide 1.5s ease-in-out infinite; }
+  @keyframes slide { 0%{transform:translateX(-110%)} 100%{transform:translateX(380%)} }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="flake"><span></span><span></span><span></span></div>
+    <h1>Preparando seu preview</h1>
+    <p>Estamos descongelando o ambiente — leva só alguns segundos.<br>
+       Esta página abre sozinha assim que estiver pronto.</p>
+    <div class="bar"><i></i></div>
+  </div>
+</body>
+</html>`;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Extract the leftmost DNS label from the Host header, e.g. "brokk-dev". */
@@ -249,6 +349,7 @@ function respondHtml(res: http.ServerResponse, status: number, body: string): vo
   res.writeHead(status, {
     "Content-Type": "text/html; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
+    "Cache-Control": "no-store",
   });
   res.end(body);
 }
@@ -276,6 +377,16 @@ async function handleRequest(
   const entries = await resolveCache();
   const entry = entries.get(subdomain);
   if (!entry) {
+    // No LIVE preview. If we know how to wake this one (a reaped/starting row
+    // exists for the subdomain), fire it in the background and show the friendly
+    // "thawing" page that auto-refreshes until the app answers. Only a subdomain
+    // we've never seen falls through to the real not-found page.
+    const wake = wakeable.get(subdomain);
+    if (wake) {
+      maybeWake(subdomain, wake.projectId, wake.branch);
+      respondHtml(res, 200, HTML_THAWING);
+      return;
+    }
     respondHtml(res, 404, HTML_404);
     return;
   }
