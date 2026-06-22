@@ -17,8 +17,11 @@
  * TTL: set by BROKK_PREVIEW_TTL_MS (default 45 min) — stored in expiresAt on
  * each start.  The supervisor never depends on the db's hardcoded 24 h touch.
  */
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import type { Preview, Repository } from "@brokk/core";
 import type { RunnerConfig } from "./config.js";
 import type { GhProvider } from "./git.js";
@@ -197,9 +200,11 @@ export class PreviewSupervisor {
 
     // Provision (or fetch) the Hauldr dev-DB for this preview
     let hauldrEnv: Record<string, string> = {};
+    let migrateToken = "";
     if (this.hauldr) {
       try {
         const hp = await this.hauldr.ensureProject(preview.hauldrProject);
+        migrateToken = hp.migrateToken;
         // Inject the full set of Supabase-compatible env vars so any Supabase /
         // Hauldr client works out of the box.
         hauldrEnv = {
@@ -247,6 +252,38 @@ export class PreviewSupervisor {
       branch: preview.branch,
       name: preview.hauldrProject,
     });
+
+    // Schema-as-code parity with prod: if the checkout ships db/migrations + the
+    // migrate client, apply them to this preview's Hauldr project BEFORE boot —
+    // mirroring what the prod Docker entrypoint does on deploy. Idempotent
+    // (tracked in _hauldr_migrations) so only new files run. Dev logs-and-continues
+    // where prod aborts: a broken migration surfaces in the preview, not silently.
+    const migrateScript = join(wtPath, "scripts/hauldr-migrate.mjs");
+    if (migrateToken && this.cfg.hauldrControlUrl && existsSync(migrateScript)) {
+      try {
+        const { stdout } = await promisify(execFile)(
+          "node",
+          ["scripts/hauldr-migrate.mjs"],
+          {
+            cwd: wtPath,
+            env: {
+              ...process.env,
+              HAULDR_CONTROL_URL: this.cfg.hauldrControlUrl,
+              HAULDR_PROJECT: preview.hauldrProject,
+              HAULDR_MIGRATE_TOKEN: migrateToken,
+            },
+          },
+        );
+        console.log(
+          `[preview-supervisor] ${preview.subdomain}: migrations applied\n${stdout.trim()}`,
+        );
+      } catch (err) {
+        console.error(
+          `[preview-supervisor] ${preview.subdomain}: hauldr-migrate FAILED (booting anyway):`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
     const port = this.allocatePort();
     const cmd = this.expandCmd(this.cfg.previewCmd, port);

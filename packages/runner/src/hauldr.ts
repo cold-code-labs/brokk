@@ -43,8 +43,10 @@ interface RawProject {
   internal?: {
     dbUrl?: string;
     jwtSecret?: string;
+    migrateToken?: string;
     [key: string]: unknown;
   };
+  migrate_token?: string;
   [key: string]: unknown;
 }
 
@@ -65,6 +67,7 @@ function toHauldrProject(raw: RawProject): HauldrProject {
     postgrestUrl:
       s.rest?.url ?? raw.postgrest_url ?? raw.postgrestUrl ?? raw.rest_url ?? "",
     dbUrl: internal.dbUrl ?? raw.db_url ?? raw.dbUrl ?? "",
+    migrateToken: internal.migrateToken ?? raw.migrate_token ?? "",
   };
 }
 

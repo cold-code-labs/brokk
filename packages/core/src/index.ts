@@ -336,6 +336,9 @@ export interface HauldrProject {
   jwtSecret: string;
   postgrestUrl: string;
   dbUrl: string;
+  /** Per-project, migrate-scoped token (authorizes POST /v1/projects/:name/migrate
+   *  for THIS project only). Lets a preview apply db/migrations to its dev DB. */
+  migrateToken: string;
 }
 
 /** Port for the Hauldr control-plane. Concrete implementation lives in
