@@ -410,7 +410,17 @@ async function handleRequest(
     },
   );
 
-  proxyReq.on("error", () => respondHtml(res, 502, HTML_502));
+  proxyReq.on("error", () => {
+    // Upstream unreachable: the preview can be marked "live" a beat before Next
+    // is actually listening (cold start), or it was just reaped. Serve the
+    // thawing page (200, auto-refreshes) instead of a hard 502 — a 502 gets
+    // replaced by Cloudflare's own non-refreshing error page, stranding the
+    // visitor. Nudge the wake in case the process is gone, and let the page
+    // self-recover on its next refresh once the app answers.
+    const w = wakeable.get(subdomain);
+    if (w) maybeWake(subdomain, w.projectId, w.branch);
+    respondHtml(res, 200, HTML_THAWING);
+  });
   req.pipe(proxyReq, { end: true });
   req.on("error", () => proxyReq.destroy());
 }
