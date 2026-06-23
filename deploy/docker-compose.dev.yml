@@ -1,0 +1,47 @@
+# Surtr DEV-lane override for ../docker-compose.yml.  (run from the repo root:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.dev.yml -p brokk-dev ... )
+#
+# The permanent dev/preview lane of Brokk's own UI — https://brokk.preview.coldcodelabs.com
+# (open shell, no Logto), serving the `dev` branch against the isolated brokk-db-dev.
+#
+# Mirrors the prod surtr override, but single-replica and Traefik-less: the cloudflared
+# tunnel points brokk.preview straight at the web container on host 127.0.0.1:3011.
+#
+#   api  — HOST networking, drop-in for the old brokk-api-dev systemd unit: binds :8790
+#          (BROKK_API_PORT in brokk-dev.env), reaches brokk-db-dev (127.0.0.1:5435),
+#          headroom (:8793) and Hauldr control (10.10.0.2:8787) on their host addresses.
+#   web  — bridged, publishes 127.0.0.1:3011:3000 (the tunnel target). Reaches the
+#          host-net api via host.docker.internal:8790.
+#   db   — not bundled; the standalone brokk-db-dev container holds the dev data.
+name: brokk-dev
+
+services:
+  traefik: !reset null
+  db: !reset null
+  web-green: !reset null
+
+  api:
+    image: brokk-api-dev:local
+    network_mode: host
+    depends_on: !reset null
+    expose: !reset null
+    environment: !reset null
+    env_file:
+      - /home/brokk/brokk-dev.env
+    user: "1001:1001"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8790/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  web-blue:
+    image: brokk-web-dev:local
+    ports:
+      - "127.0.0.1:3011:3000"
+    environment:
+      BROKK_API_INTERNAL_URL: http://host.docker.internal:8790
+    env_file:
+      - /home/brokk/brokk-dev.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
