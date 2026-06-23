@@ -44,6 +44,7 @@ async function main() {
   const engine = new ClaudeAgentEngine({
     anthropicBaseUrl: cfg.anthropicBaseUrl,
     anthropicApiKey: cfg.anthropicApiKey,
+    browser: cfg.browser,
   });
 
   const runnerId = await register(cfg);

@@ -21,8 +21,16 @@ ENV NODE_ENV=production
 # Host tools the forge shells out to: git + gh, and the Claude Code CLI that the
 # Agent SDK drives. To let the agent *build/run* target repos, add `docker-cli`
 # here and mount the host Docker socket in compose (DoD — see docker-compose.yml).
+#
+# Chromium powers the Playwright verify-lane (BROKK_BROWSER / forge-authored e2e
+# specs). On Alpine/musl, Playwright's own browser download won't run, so install
+# the system chromium and point Playwright + @playwright/mcp at it via
+# PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH. Inert unless the browser lane is enabled.
 RUN apk add --no-cache git github-cli openssh-client \
+      chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-emoji \
  && npm install -g @anthropic-ai/claude-code
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/packages/runner/dist ./dist
 COPY --from=build /repo/packages/runner/package.json ./package.json

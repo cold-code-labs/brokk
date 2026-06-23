@@ -23,7 +23,38 @@ export interface ClaudeEngineOptions {
   anthropicApiKey: string;
   /** Extra system prompt prepended to every task. */
   systemPrompt?: string;
+  /** Give the forge agent a real headless browser via the Playwright MCP server,
+   *  so it can drive a running app while forging (e.g. to check a card's
+   *  acceptance against a live preview). Default OFF — when false the agent gets
+   *  exactly today's tools (file/bash/git), no `mcpServers`, no browser. Gated by
+   *  BROKK_BROWSER in the runner config. */
+  browser?: boolean;
 }
+
+/**
+ * Playwright MCP server, wired as a stdio MCP server per the installed
+ * @anthropic-ai/claude-agent-sdk Options shape (verified against the .d.ts in
+ * node_modules — `options.mcpServers: Record<string, McpStdioServerConfig>`, and
+ * its tools surface as `mcp__playwright__*` names to put in `allowedTools`).
+ *
+ * Flags: `--headless` (no display on the runner host) and `--isolated` (ephemeral
+ * browser profile per session — nothing persists between forges).
+ */
+function playwrightMcpServer() {
+  // Point @playwright/mcp at a specific chromium when PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+  // is set (the runner image installs system chromium for musl/Alpine); unset on
+  // dev hosts → it uses Playwright's bundled browser.
+  const exe = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+  const args = ["@playwright/mcp@latest", "--headless", "--isolated", "--browser", "chromium"];
+  if (exe) args.push("--executable-path", exe);
+  return { playwright: { type: "stdio" as const, command: "npx", args } };
+}
+
+/** Allow the Playwright MCP tools when the browser is on. The trailing `__` form
+ *  ("mcp__playwright" without a tool suffix) whitelists every tool the server
+ *  exposes (navigate/click/snapshot/…), so we don't have to track the exact set
+ *  per @playwright/mcp version. */
+const PLAYWRIGHT_ALLOWED_TOOLS = ["mcp__playwright"];
 
 export class ClaudeAgentEngine implements AgentEngine {
   constructor(private readonly opts: ClaudeEngineOptions) {}
@@ -44,6 +75,16 @@ export class ClaudeAgentEngine implements AgentEngine {
     // Lazy import so the package builds even if the SDK isn't installed yet.
     const { query } = (await import("@anthropic-ai/claude-agent-sdk")) as any;
 
+    // Browser lane (BROKK_BROWSER): when on, attach the Playwright MCP server and
+    // allow its tools so the agent can drive a headless browser during the forge.
+    // When off, both stay empty and the spread below is a no-op — behaviour is
+    // byte-for-byte today's (no `mcpServers`, default file/bash/git tools only).
+    const mcpServers = this.opts.browser ? playwrightMcpServer() : undefined;
+    const allowedTools = [
+      ...ctx.allowedTools,
+      ...(this.opts.browser ? PLAYWRIGHT_ALLOWED_TOOLS : []),
+    ];
+
     // One agent pass over the worktree. Fresh session each call — the changes
     // live in the worktree, so a heal pass re-reads the files; we don't depend on
     // the SDK's (version-uncertain) session-resume to carry forge context.
@@ -54,7 +95,8 @@ export class ClaudeAgentEngine implements AgentEngine {
           cwd: ctx.cwd,
           model: ctx.model,
           permissionMode: "bypassPermissions",
-          ...(ctx.allowedTools.length ? { allowedTools: ctx.allowedTools } : {}),
+          ...(allowedTools.length ? { allowedTools } : {}),
+          ...(mcpServers ? { mcpServers } : {}),
         },
       });
       for await (const message of stream as AsyncIterable<any>) {
@@ -88,7 +130,7 @@ export class ClaudeAgentEngine implements AgentEngine {
 
     try {
       ctx.emit({ type: "status", payload: { phase: "agent_start", model: ctx.model } });
-      await forge(buildPrompt(ctx, this.opts.systemPrompt));
+      await forge(buildPrompt(ctx, this.opts.systemPrompt, this.opts.browser));
 
       // Verify → self-heal loop (#1). Forge, verify, and while it's red and we
       // still have heal budget, hand the failure back and forge a fix.
@@ -129,8 +171,18 @@ export class ClaudeAgentEngine implements AgentEngine {
 /** Assemble the task prompt. Repo conventions (CLAUDE.md/AGENTS.md) are picked
  *  up by the agent itself from `cwd`; here we add the task, its success condition,
  *  and the per-repo memory (learned conventions / past review failures). */
-function buildPrompt(ctx: AgentRunContext, systemPrompt?: string): string {
+function buildPrompt(ctx: AgentRunContext, systemPrompt?: string, browser?: boolean): string {
   const labels = ctx.task.labels.length ? `\nLabels: ${ctx.task.labels.join(", ")}` : "";
+  const browserHint = browser
+    ? [
+        "",
+        "## Browser available",
+        "You have a headless browser via the Playwright MCP tools (`mcp__playwright__*`).",
+        "When a card's acceptance is a UI or HTTP behaviour, drive the running app to check it,",
+        "and commit a Playwright e2e spec (under `e2e/`, reading `process.env.BASE_URL`) that proves",
+        "it — that spec is the durable acceptance receipt the verify step re-runs.",
+      ].join("\n")
+    : "";
   const acceptance = ctx.task.acceptance
     ? [
         "",
@@ -155,6 +207,7 @@ function buildPrompt(ctx: AgentRunContext, systemPrompt?: string): string {
     labels,
     acceptance,
     memory,
+    browserHint,
     "",
     "When done, ensure changes are committed-ready (Brokk will commit, push, and open the PR).",
   ].join("\n");

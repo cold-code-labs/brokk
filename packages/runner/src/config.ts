@@ -17,6 +17,12 @@ export interface RunnerConfig {
   /** Max self-heal rounds (#1): on a red verify, re-prompt the agent with the
    *  failure and forge a fix, up to this many times. 0 = verify once, no heal. */
   healAttempts: number;
+  /** When true, attach the Playwright MCP server to the forge agent so it can
+   *  drive a real headless browser while forging (e.g. to check a running app
+   *  against the card's acceptance criteria). Default OFF — when unset the agent
+   *  behaves exactly as today (file/bash/git tools only, no browser). Toggled by
+   *  BROKK_BROWSER ("1"/"true"). See engine.ts for the wiring. */
+  browser: boolean;
   /** Poll interval (ms) between claim attempts when the queue is empty. */
   pollIntervalMs: number;
 
@@ -65,6 +71,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     githubToken: env.GITHUB_TOKEN ?? "",
     verifyCmd: env.BROKK_VERIFY_CMD ?? "",
     healAttempts: Number(env.BROKK_HEAL_ATTEMPTS ?? 2),
+    browser: /^(1|true|yes)$/i.test(env.BROKK_BROWSER ?? ""),
     pollIntervalMs: Number(env.BROKK_RUNNER_POLL_MS ?? 3000),
     // Preview supervisor
     hauldrControlUrl: (env.HAULDR_CONTROL_URL ?? "").replace(/\/$/, ""),
