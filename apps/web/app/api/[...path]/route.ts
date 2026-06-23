@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { getSession } from "../../../lib/logto";
 
 /**
  * Runtime reverse-proxy to the control-plane API under /api (one public origin,
@@ -27,6 +28,19 @@ const STRIP = new Set([
 ]);
 
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] }> }) {
+  // Mutations require a logged-in human (Logto session). Otherwise the secret the
+  // proxy injects below would let any anonymous caller create/enqueue forge runs
+  // through the public origin. Reads stay open. Logto-off (dev) = open shell.
+  if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
+    const session = await getSession();
+    if (!session.isAuthenticated) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    }
+  }
+
   const { path = [] } = await ctx.params;
   const target = `${API}/${path.join("/")}${req.nextUrl.search}`;
 
