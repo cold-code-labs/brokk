@@ -30,6 +30,19 @@ export interface EitriConfig {
   semgrepConfig: string;
   /** Minimum scanner severity (in changed files) that forces REQUEST_CHANGES. */
   scanBlockSeverity: "critical" | "high" | "medium" | "low";
+
+  // ── Confidence-scored promotion (#5) ──────────────────────────────────────
+  /** Master switch: after a high-confidence forge PR merges into dev, ensure a
+   *  promotion PR (dev → prod). Default OFF — promotion is opt-in. */
+  promote: boolean;
+  /** The prod branch forge changes are promoted INTO (the human/prod rail). */
+  promoteBase: string;
+  /** Confidence (0..1) a merge must reach for an AUTO promotion merge; below it,
+   *  the promotion PR is opened and left for a human (escalation, not silence). */
+  promoteMinConfidence: number;
+  /** When true, a promotion PR at/above the confidence threshold is auto-merged
+   *  into prod. When false, Eitri only ever OPENS the promotion PR (human merges). */
+  promoteAutoMerge: boolean;
 }
 
 export function loadEitriConfig(env = process.env): EitriConfig {
@@ -55,7 +68,17 @@ export function loadEitriConfig(env = process.env): EitriConfig {
     // keep off. p/default is semgrep's curated, low-noise security/correctness set.
     semgrepConfig: env.EITRI_SEMGREP_CONFIG ?? "p/default",
     scanBlockSeverity: normalizeSeverity(env.EITRI_SCAN_BLOCK_SEVERITY),
+    // Promotion (#5) — opt-in, and auto-merge of the prod PR is a SECOND opt-in.
+    promote: env.EITRI_PROMOTE === "true",
+    promoteBase: env.EITRI_PROMOTE_BASE ?? "main",
+    promoteMinConfidence: clamp01(Number(env.EITRI_PROMOTE_MIN_CONFIDENCE ?? 0.8)),
+    promoteAutoMerge: env.EITRI_PROMOTE_AUTO_MERGE === "true",
   };
+}
+
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0.8;
+  return Math.max(0, Math.min(1, n));
 }
 
 function normalizeSeverity(v?: string): "critical" | "high" | "medium" | "low" {

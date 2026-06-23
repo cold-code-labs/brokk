@@ -71,6 +71,7 @@ const PlannedCardSchema = z.object({
   effort: z.enum(["low", "medium", "high"]),
   dependsOn: z.array(z.string()).default([]),
   touches: z.array(z.string()).default([]),
+  acceptance: z.string().default(""),
 });
 
 const PlanApplyBody = z
@@ -92,6 +93,31 @@ const asRefino = (v: string): RefinoLevel =>
   (REFINO_LEVELS as readonly string[]).includes(v) ? (v as RefinoLevel) : "structure";
 const asForca = (v: string): ForcaLevel =>
   (FORCA_LEVELS as readonly string[]).includes(v) ? (v as ForcaLevel) : "medium";
+
+/** Assemble the planner's repo context (#2 + #4): the warm repo map (tree +
+ *  packages, refreshed by the runner after each forge) and the per-repo memory
+ *  (conventions, pitfalls, past review failures). Empty string when the project
+ *  is unknown or nothing's been learned/mapped yet — the planner runs without it. */
+async function buildRepoContext(
+  store: AppDeps["store"],
+  projectId?: string,
+): Promise<string | undefined> {
+  if (!projectId) return undefined;
+  const project = await store.getProject(projectId).catch(() => null);
+  if (!project) return undefined;
+  const repo = await store.getRepository(project.repositoryId).catch(() => null);
+  if (!repo) return undefined;
+  const memories = await store.listRepoMemories(repo.id).catch(() => []);
+  const blocks: string[] = [];
+  if (repo.repoMap) blocks.push(`## Mapa do repositório\n${repo.repoMap}`);
+  if (memories.length) {
+    const lines = memories.map((m) => `- (${m.kind}, peso ${m.weight}) ${m.content}`);
+    blocks.push(
+      `## Memória do repositório (lições aprendidas — RESPEITE)\n${lines.join("\n")}`,
+    );
+  }
+  return blocks.length ? blocks.join("\n\n") : undefined;
+}
 
 export function mimirRoutes(deps: AppDeps): Hono {
   const r = new Hono();
@@ -210,7 +236,8 @@ export function mimirRoutes(deps: AppDeps): Hono {
     const p = PlanBody.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: p.error.flatten() }, 400);
     try {
-      return c.json(await planJob(p.data.input, mimir));
+      const repoContext = await buildRepoContext(deps.store, p.data.projectId);
+      return c.json(await planJob(p.data.input, mimir, repoContext));
     } catch (e) {
       if (e instanceof MimirError)
         return c.json({ error: e.userMessage() }, (e.status || 500) as ContentfulStatusCode);
@@ -259,6 +286,7 @@ export function mimirRoutes(deps: AppDeps): Hono {
           dependsOn: card.dependsOn,
           forca: card.forca,
           touches: card.touches,
+          acceptance: card.acceptance || null,
           baseBranch: plan.targetBranch,
           createdBy,
         }),

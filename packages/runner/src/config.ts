@@ -14,6 +14,9 @@ export interface RunnerConfig {
   /** Shell command run in the worktree to verify the agent's work before the PR
    *  (e.g. "pnpm install --silent && pnpm -r typecheck"). Empty = skip. */
   verifyCmd: string;
+  /** Max self-heal rounds (#1): on a red verify, re-prompt the agent with the
+   *  failure and forge a fix, up to this many times. 0 = verify once, no heal. */
+  healAttempts: number;
   /** Poll interval (ms) between claim attempts when the queue is empty. */
   pollIntervalMs: number;
 
@@ -61,6 +64,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
     githubToken: env.GITHUB_TOKEN ?? "",
     verifyCmd: env.BROKK_VERIFY_CMD ?? "",
+    healAttempts: Number(env.BROKK_HEAL_ATTEMPTS ?? 2),
     pollIntervalMs: Number(env.BROKK_RUNNER_POLL_MS ?? 3000),
     // Preview supervisor
     hauldrControlUrl: (env.HAULDR_CONTROL_URL ?? "").replace(/\/$/, ""),

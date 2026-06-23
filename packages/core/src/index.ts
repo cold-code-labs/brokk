@@ -109,6 +109,42 @@ export interface Repository {
   cloneUrl: string;
   /** GitHub App installation id, if installed. */
   installationId: string | null;
+  /** The warm index (#4): a cheap, refreshed-after-each-forge map of the repo
+   *  (tree + packages) the planner reads so it picks realistic keys/touches
+   *  WITHOUT a checkout. Null until the runner has forged once. */
+  repoMap: string | null;
+  /** When repoMap was last refreshed by a runner. */
+  repoMapAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** What kind of thing a per-repo memory captures. `review_failure` is the
+ *  highest-signal one (Eitri's rejections, fed back so the same mistake isn't
+ *  repeated); `convention`/`pitfall`/`decision` are learned facts about the repo. */
+export type RepoMemoryKind = "convention" | "pitfall" | "review_failure" | "decision";
+
+export const REPO_MEMORY_KINDS: readonly RepoMemoryKind[] = [
+  "convention",
+  "pitfall",
+  "review_failure",
+  "decision",
+] as const;
+
+/** One thing Brokk learned about a repo, persisted across runs (#2). The planner
+ *  and the forge both read these so the agent stops forging cold every time. */
+export interface RepoMemory {
+  id: string;
+  repositoryId: string;
+  kind: RepoMemoryKind;
+  /** The fact, in one or two sentences. */
+  content: string;
+  /** Who wrote it: the planner, the forge, Eitri (review), or a human. */
+  source: string;
+  /** Bumped each time the same fact recurs — higher = more load-bearing. */
+  weight: number;
+  /** The PR/task this memory came from, when applicable. */
+  prNumber: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -142,6 +178,10 @@ export interface Task {
   forca: ForcaLevel | null;
   /** Files/areas this card is expected to touch — seed for the warm index (#5). */
   touches: string[];
+  /** The success condition for this card (#3): how the forge proves it's done —
+   *  the behaviour a test must cover. The forge is required to make it pass; the
+   *  verify loop runs it. Null for pre-acceptance cards. */
+  acceptance: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -277,9 +317,26 @@ export interface RunUsage {
   headroomSaved: number;
 }
 
+/** The result of running the project's verify command in the worktree. */
+export interface VerifyOutcome {
+  ok: boolean;
+  /** Combined stdout+stderr (trimmed/tailed by the caller for storage). */
+  output: string;
+}
+
+/** What an engine run produces: token usage, the FINAL verify outcome after any
+ *  self-heal iterations, and how many heal rounds it took. */
+export interface RunResult {
+  usage: RunUsage;
+  /** Final verification after self-heal, or null when no verify was configured. */
+  verify: VerifyOutcome | null;
+  /** Heal iterations the agent ran (0 = passed first try / no verify). */
+  healAttempts: number;
+}
+
 /** What the runner needs to execute one task. */
 export interface AgentRunContext {
-  task: Pick<Task, "id" | "title" | "body" | "labels">;
+  task: Pick<Task, "id" | "title" | "body" | "labels" | "acceptance">;
   run: Pick<Run, "id" | "branch" | "model" | "authMode">;
   /** Working directory the agent operates in (the worktree). */
   cwd: string;
@@ -288,6 +345,17 @@ export interface AgentRunContext {
   /** Per-run Max OAuth token (a seat). Overrides the runner's ambient token. */
   authToken?: string;
   allowedTools: string[];
+  /** Per-repo memory (#2): facts Brokk learned about this repo (conventions,
+   *  pitfalls, past review failures). Injected into the forge prompt so the agent
+   *  doesn't repeat known mistakes. Pre-formatted lines, highest-weight first. */
+  memory?: string[];
+  /** Run the project's verify command in the worktree (#1). Provided by the
+   *  runner so the engine can self-heal: forge → verify → (on fail) re-prompt →
+   *  repeat. Undefined = no verification (the engine forges once and returns). */
+  verify?: () => Promise<VerifyOutcome>;
+  /** Max self-heal iterations after a failed verify (#1). 0 = verify once, no
+   *  heal. Ignored when `verify` is undefined. */
+  maxHealAttempts?: number;
   /** Emit one event into the run stream (forwarded to the control plane). */
   emit: (event: Omit<RunEvent, "id" | "runId" | "seq" | "at">) => void;
 }
@@ -295,8 +363,9 @@ export interface AgentRunContext {
 /** The brain: a headless agent that forges code for a task and emits events.
  *  Concrete impl lives in @brokk/runner over the Claude Agent SDK. */
 export interface AgentEngine {
-  /** Run the agent to completion, returning the usage it consumed. */
-  run(ctx: AgentRunContext): Promise<RunUsage>;
+  /** Forge the task to completion (verifying + self-healing if configured),
+   *  returning the usage it consumed and the final verify outcome. */
+  run(ctx: AgentRunContext): Promise<RunResult>;
 }
 
 /** Git/GitHub operations the runner performs around a run. Concrete impl in
@@ -508,6 +577,9 @@ export interface PlannedCard {
   effort: "low" | "medium" | "high";
   dependsOn: string[];
   touches: string[];
+  /** The card's success condition (#3): the observable behaviour the forge must
+   *  make true and cover with a test. Empty when the planner couldn't state one. */
+  acceptance: string;
 }
 
 /** A clarifying question Mímir raises when the intent is ambiguous or missing

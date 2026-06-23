@@ -106,6 +106,40 @@ export class EitriGit {
     );
   }
 
+  /** Number of the open PR from `head` into `base`, or null if none — the
+   *  idempotency check for the promotion PR (#5). */
+  async findOpenPr(head: string, base: string): Promise<number | null> {
+    const out = await gh(
+      ["pr", "list", "--repo", this.opts.repo, "--state", "open", "--head", head, "--base", base, "--json", "number"],
+      this.env,
+    );
+    try {
+      const arr = JSON.parse(out) as { number: number }[];
+      return arr[0]?.number ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Open a PR from `head` into `base` (no branch delete on merge — promotion
+   *  branches like `dev` persist). Returns the new PR number. */
+  async openPr(head: string, base: string, title: string, body: string, token: string): Promise<number | null> {
+    const url = await gh(
+      ["pr", "create", "--repo", this.opts.repo, "--head", head, "--base", base, "--title", title, "--body", body],
+      { ...process.env, GH_TOKEN: token },
+    );
+    const m = url.match(/\/pull\/(\d+)/);
+    return m ? Number(m[1]) : null;
+  }
+
+  /** Squash-merge a promotion PR WITHOUT deleting the branch (dev must survive). */
+  async mergePromotionPr(prNumber: number, token: string): Promise<void> {
+    await gh(
+      ["pr", "merge", String(prNumber), "--repo", this.opts.repo, "--squash"],
+      { ...process.env, GH_TOKEN: token },
+    );
+  }
+
   /** Is the PR free of conflicts (safe to merge)?
    *  GitHub often returns UNKNOWN for fresh PRs — poll briefly before giving up. */
   async isMergeable(prNumber: number, retries = 4, delayMs = 5_000): Promise<boolean> {

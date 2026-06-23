@@ -38,6 +38,7 @@ Para cada card defina:
 - "forca": complexidade/risco DO CARD → "low" (trivial/isolado), "medium" (escopo moderado), "high" (toca código compartilhado, exige cuidado), "extra" (arquitetural/ambíguo). Isso decide o modelo que vai forjar o card; seja honesto, não infle.
 - "dependsOn": lista de "key"s que precisam estar prontos ANTES deste card (o DAG). Camadas de baixo (schema/db) normalmente vêm antes das de cima (api/web).
 - "touches": arquivos ou áreas que o card deve tocar (ex.: "packages/db/src/schema.ts", "apps/web/"). Use o contexto do repo quando houver.
+- "acceptance": a CONDIÇÃO DE SUCESSO observável do card — o comportamento concreto que prova que ficou pronto e que um teste deve cobrir (ex.: "GET /health responde 200 com {status:'ok'}", "criar pedido sem itens retorna erro 422"). Uma frase, verificável. NÃO é "o código compila" — é o comportamento. O Brokk é obrigado a fazer passar e a cobrir com teste.
 
 DÚVIDAS (como o Claude faz naturalmente): se o pedido for ambíguo, incompleto ou tiver decisões em aberto que mudariam o plano, levante de 1 a 3 PERGUNTAS curtas em "questions" — NÃO invente a resposta. Mesmo com dúvidas, ainda produza seu MELHOR PALPITE de cards (assumindo o caminho mais provável), para a pessoa ter de onde partir. Se o pedido já estiver claro, deixe "questions" como lista vazia. Cada pergunta tem:
 - "question": a dúvida em si, no idioma do pedido.
@@ -45,12 +46,13 @@ DÚVIDAS (como o Claude faz naturalmente): se o pedido for ambíguo, incompleto 
 Pergunte só o que de fato altera o plano — não encha de perguntas triviais.
 
 Princípios:
-- Cada card deve ser uma unidade testável e coerente — nem fino demais (1 linha), nem grosso demais (a feature inteira).
+- Cada card deve ser uma unidade testável e coerente — nem fino demais (1 linha), nem grosso demais (a feature inteira). Todo card tem uma "acceptance" verificável.
 - Ordene por dependência real; cards independentes podem não ter dependsOn.
-- Não invente requisitos que mudem a tarefa.`;
+- Não invente requisitos que mudem a tarefa.
+- Se o CONTEXTO DO REPOSITÓRIO trouxer MEMÓRIA (convenções, armadilhas, motivos de rejeições passadas), RESPEITE — não repita um erro já registrado e siga as convenções listadas.`;
 
 const OUTPUT_CONTRACT = `Responda SOMENTE com um objeto JSON válido, sem markdown, neste formato exato:
-{"mode":"atomic|feature","summary":"<nome curto da feature>","rationale":"<1-3 frases em PT-BR justificando a decomposição>","targetBranch":"dev","questions":[{"question":"...","why":"..."}],"cards":[{"key":"db","title":"...","body":"...","forca":"low|medium|high|extra","dependsOn":[],"touches":[]}]}`;
+{"mode":"atomic|feature","summary":"<nome curto da feature>","rationale":"<1-3 frases em PT-BR justificando a decomposição>","targetBranch":"dev","questions":[{"question":"...","why":"..."}],"cards":[{"key":"db","title":"...","body":"...","forca":"low|medium|high|extra","dependsOn":[],"touches":[],"acceptance":"<condição de sucesso observável e testável>"}]}`;
 
 type RawCard = {
   key?: unknown;
@@ -59,6 +61,7 @@ type RawCard = {
   forca?: unknown;
   dependsOn?: unknown;
   touches?: unknown;
+  acceptance?: unknown;
 };
 type RawQuestion = { question?: unknown; why?: unknown };
 type RawPlan = {
@@ -135,6 +138,7 @@ export async function planJob(
         effort,
         dependsOn: asStrArr(c.dependsOn).filter((k) => k !== key),
         touches: asStrArr(c.touches),
+        acceptance: asStr(c.acceptance).trim(),
       };
     })
     .filter((c) => c.body.length > 0);
@@ -151,6 +155,7 @@ export async function planJob(
       effort,
       dependsOn: [],
       touches: [],
+      acceptance: "",
     });
   }
 

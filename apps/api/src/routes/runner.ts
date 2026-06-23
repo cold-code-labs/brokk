@@ -55,7 +55,7 @@ export function runnerRoutes(deps: AppDeps): Hono {
     const claimed = await deps.store.claimNext(runnerId);
     if (!claimed) return c.body(null, 204);
 
-    const { task, run, repository, project, plan, sealedToken } = claimed;
+    const { task, run, repository, project, plan, sealedToken, memory } = claimed;
     let auth: { source: "seat" | "env"; token: string | null; subscriptionId: string | null } = {
       source: "env",
       token: null,
@@ -69,8 +69,19 @@ export function runnerRoutes(deps: AppDeps): Hono {
       }
     }
     // repository/project resolve the footgun (no more BROKK_DEFAULT_REPO); plan
-    // (if any) carries the shared feature branch the card composes into.
-    return c.json({ task, run, repository, project, plan, auth });
+    // (if any) carries the shared feature branch the card composes into; memory
+    // is the per-repo learned context the forge prompt injects (#2).
+    return c.json({ task, run, repository, project, plan, auth, memory });
+  });
+
+  // Refresh a repo's warm map (#4). The runner POSTs this after a forge so the
+  // planner reads the current tree without a checkout of its own.
+  r.post("/repos/:id/map", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const map = typeof body?.map === "string" ? body.map : "";
+    if (!map) return c.json({ error: "map required" }, 400);
+    await deps.store.setRepoMap(c.req.param("id"), map);
+    return c.json({ ok: true });
   });
 
   // Set a plan's PR the first time one of its cards pushes (idempotent — later

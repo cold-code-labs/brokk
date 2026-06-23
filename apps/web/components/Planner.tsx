@@ -255,6 +255,17 @@ export default function Planner() {
                   rows={3}
                   style={{ ...textarea, fontSize: 12.5 }}
                 />
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: t.textFaint, minWidth: 70 }} title="Condição de sucesso — o Brokk forja um teste que prova isto">
+                    ✓ aceite
+                  </span>
+                  <input
+                    value={c.acceptance ?? ""}
+                    onChange={(e) => patchCard(i, { acceptance: e.target.value })}
+                    placeholder="condição de sucesso testável (ex.: GET /health → 200)"
+                    style={{ ...titleInput, fontSize: 12 }}
+                  />
+                </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
                   {c.dependsOn.map((d) => (
                     <span key={d} style={depChip}>↳ {d}</span>

@@ -86,9 +86,45 @@ export const repositories = pgTable("repositories", {
   defaultBranch: text("default_branch").notNull().default("main"),
   cloneUrl: text("clone_url").notNull(),
   installationId: text("installation_id"),
+  // The warm index (#4): a cheap repo map (tree + packages) the runner refreshes
+  // after each forge, read by the planner so it plans WITHOUT a checkout.
+  repoMap: text("repo_map"),
+  repoMapAt: timestamp("repo_map_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Per-repo memory (#2): facts Brokk learned about a repo, persisted across runs.
+ *  Eitri writes review failures here; the planner + forge read them so the agent
+ *  stops forging cold. (repository_id, kind, content) is unique so a recurring
+ *  fact bumps `weight` instead of duplicating. */
+export const repoMemoryKind = pgEnum("repo_memory_kind", [
+  "convention",
+  "pitfall",
+  "review_failure",
+  "decision",
+]);
+
+export const repoMemories = pgTable(
+  "repo_memories",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    kind: repoMemoryKind("kind").notNull().default("pitfall"),
+    content: text("content").notNull(),
+    source: text("source").notNull().default("eitri"),
+    weight: integer("weight").notNull().default(1),
+    prNumber: integer("pr_number"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    repo: index("repo_memories_repo_idx").on(t.repositoryId),
+    uniq: unique("repo_memories_repo_kind_content_uniq").on(t.repositoryId, t.kind, t.content),
+  }),
+);
 
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -155,6 +191,9 @@ export const tasks = pgTable("tasks", {
   forca: forcaLevel("forca"),
   /** Files/areas this card is expected to touch — seed for the warm index (#5). */
   touches: jsonb("touches").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  /** The card's success condition (#3) — what the forge must make true + cover
+   *  with a test. The verify loop runs it. */
+  acceptance: text("acceptance"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

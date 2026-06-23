@@ -12,6 +12,8 @@ import type {
   PreviewStatus,
   Project,
   RefinoLevel,
+  RepoMemory,
+  RepoMemoryKind,
   Repository,
   Review,
   Run,
@@ -37,6 +39,7 @@ import {
   previews,
   projects,
   pullRequests,
+  repoMemories,
   repositories,
   reviews,
   runEvents,
@@ -51,7 +54,7 @@ export * from "./schema.js";
 export function createDb(connectionString: string) {
   const client = postgres(connectionString);
   const db = drizzle(client, {
-    schema: { repositories, projects, plans, tasks, agents, runs, runEvents, pullRequests, previews, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage },
+    schema: { repositories, repoMemories, projects, plans, tasks, agents, runs, runEvents, pullRequests, previews, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage },
   });
   return { db, client };
 }
@@ -83,6 +86,7 @@ function rowToTask(row: typeof tasks.$inferSelect): Task {
     dependsOn: row.dependsOn,
     forca: row.forca as ForcaLevel | null,
     touches: row.touches,
+    acceptance: row.acceptance,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -154,6 +158,22 @@ function rowToRepository(row: typeof repositories.$inferSelect): Repository {
     defaultBranch: row.defaultBranch,
     cloneUrl: row.cloneUrl,
     installationId: row.installationId,
+    repoMap: row.repoMap,
+    repoMapAt: iso(row.repoMapAt),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function rowToRepoMemory(row: typeof repoMemories.$inferSelect): RepoMemory {
+  return {
+    id: row.id,
+    repositoryId: row.repositoryId,
+    kind: row.kind as RepoMemoryKind,
+    content: row.content,
+    source: row.source,
+    weight: row.weight,
+    prNumber: row.prNumber,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -298,6 +318,8 @@ export interface ClaimResult {
   project: Project;
   plan: Plan | null;
   sealedToken: string | null;
+  /** Per-repo memory (#2) for the forge prompt — highest-weight first. */
+  memory: RepoMemory[];
 }
 
 export interface Store {
@@ -306,6 +328,21 @@ export interface Store {
   getRepository(id: string): Promise<Repository | null>;
   getRepositoryByFullName(fullName: string): Promise<Repository | null>;
   insertRepository(values: typeof repositories.$inferInsert): Promise<Repository>;
+  /** Refresh the warm repo map (#4) — called by the runner after a forge. */
+  setRepoMap(id: string, map: string): Promise<void>;
+
+  // repo memory (#2): facts learned about a repo, persisted across runs
+  /** Top memories for a repo, highest-weight first (for planner + forge context). */
+  listRepoMemories(repositoryId: string, limit?: number): Promise<RepoMemory[]>;
+  /** Record a learned fact; if the exact (kind, content) already exists for the
+   *  repo, bump its weight + timestamp instead of duplicating. */
+  recordRepoMemory(values: {
+    repositoryId: string;
+    kind: RepoMemoryKind;
+    content: string;
+    source?: string;
+    prNumber?: number | null;
+  }): Promise<RepoMemory>;
 
   // projects
   listProjects(): Promise<(typeof projects.$inferSelect)[]>;
@@ -452,6 +489,41 @@ export function createStore(db: Db): Store {
     async insertRepository(values) {
       const rows = await db.insert(repositories).values(values).returning();
       return rowToRepository(rows[0]!);
+    },
+    async setRepoMap(id, map) {
+      await db
+        .update(repositories)
+        .set({ repoMap: map, repoMapAt: new Date(), updatedAt: new Date() })
+        .where(eq(repositories.id, id));
+    },
+
+    async listRepoMemories(repositoryId, limit = 14) {
+      const rows = await db
+        .select()
+        .from(repoMemories)
+        .where(eq(repoMemories.repositoryId, repositoryId))
+        .orderBy(desc(repoMemories.weight), desc(repoMemories.updatedAt))
+        .limit(limit);
+      return rows.map(rowToRepoMemory);
+    },
+    async recordRepoMemory(values) {
+      // Idempotent on (repo, kind, content): a recurring fact bumps weight rather
+      // than piling up duplicates — so load-bearing lessons float to the top.
+      const rows = await db
+        .insert(repoMemories)
+        .values({
+          repositoryId: values.repositoryId,
+          kind: values.kind,
+          content: values.content,
+          source: values.source ?? "eitri",
+          prNumber: values.prNumber ?? null,
+        })
+        .onConflictDoUpdate({
+          target: [repoMemories.repositoryId, repoMemories.kind, repoMemories.content],
+          set: { weight: sql`${repoMemories.weight} + 1`, updatedAt: new Date() },
+        })
+        .returning();
+      return rowToRepoMemory(rows[0]!);
     },
 
     async listProjects() {
@@ -697,6 +769,14 @@ export function createStore(db: Db): Store {
           : [];
         const planRow = planRows[0];
 
+        // Per-repo memory (#2) — highest-weight facts, injected into the forge.
+        const memoryRows = await tx
+          .select()
+          .from(repoMemories)
+          .where(eq(repoMemories.repositoryId, repoRow.id))
+          .orderBy(desc(repoMemories.weight), desc(repoMemories.updatedAt))
+          .limit(14);
+
         const updatedTask = await tx
           .update(tasks)
           .set({ status: "running", updatedAt: new Date() })
@@ -739,6 +819,7 @@ export function createStore(db: Db): Store {
           project: rowToProject(projRow),
           plan: planRow ? rowToPlan(planRow) : null,
           sealedToken: seatRow?.sealed ?? null,
+          memory: memoryRows.map(rowToRepoMemory),
         };
       });
     },

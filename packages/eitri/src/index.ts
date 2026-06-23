@@ -230,7 +230,7 @@ async function tryAutoMerge(
   const reviews = await store.listReviews(repo);
   const review = reviews.find((r) => r.prNumber === pr.number && r.sha === pr.headRefOid);
   if (!review || review.verdict === "request_changes") return;
-  await attemptMerge(cfg, git, appAuth, repo, pr, review.verdict.toUpperCase());
+  await attemptMerge(cfg, store, git, appAuth, repo, pr, review.verdict.toUpperCase());
 }
 
 async function handleForgeVerdict(
@@ -248,6 +248,10 @@ async function handleForgeVerdict(
   if (!pr.headRefName.startsWith("brokk/")) return;
 
   if (verdict === "REQUEST_CHANGES") {
+    // Learn from the rejection (#2): persist the lesson so the planner + the next
+    // forge see it and don't repeat the mistake. Keyed by (repo, kind, content),
+    // so a recurring failure floats up in weight rather than duplicating.
+    await recordReviewFailure(store, repo, pr, body);
     // Blocking → hand the findings back to Brokk to revise the same PR.
     const rounds = (await store.listReviews(repo)).filter((r) => r.prNumber === pr.number).length;
     if (rounds > cfg.maxRevisions) {
@@ -276,12 +280,13 @@ async function handleForgeVerdict(
       console.log(`[eitri] ${repo}#${pr.number} → enqueued revise (round ${rounds}/${cfg.maxRevisions})`);
     }
   } else {
-    await attemptMerge(cfg, git, appAuth, repo, pr, verdict);
+    await attemptMerge(cfg, store, git, appAuth, repo, pr, verdict);
   }
 }
 
 async function attemptMerge(
   cfg: ReturnType<typeof loadEitriConfig>,
+  store: ReturnType<typeof createStore>,
   git: EitriGit,
   appAuth: AppAuth | null,
   repo: string,
@@ -299,9 +304,123 @@ async function attemptMerge(
       const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;
       await git.mergePr(pr.number, token);
       console.log(`[eitri] ${repo}#${pr.number} → MERGED (squash)`);
+      // The change is on dev now. Consider promoting dev → prod (#5).
+      await maybePromote(cfg, store, git, appAuth, repo, pr, token).catch((e) =>
+        console.error(`[eitri] ${repo}#${pr.number} promotion check failed:`, String(e).slice(0, 200)),
+      );
     } catch (e) {
       console.error(`[eitri] ${repo}#${pr.number} merge failed (App needs Contents:write?):`, String(e).slice(0, 160));
     }
+  }
+}
+
+/** Confidence (0..1) that a merged forge change is safe to ship to prod (#5),
+ *  from the signals Eitri already has: its verdict, the security scan, and how
+ *  many revise rounds the PR needed. A blocking scan finding is an automatic 0;
+ *  each extra revise round and each non-blocking finding chips away at trust. */
+export function promotionConfidence(opts: {
+  verdict: string;
+  scanBlocking: number;
+  scanTotal: number;
+  rounds: number;
+}): number {
+  if (opts.scanBlocking > 0) return 0;
+  const v = opts.verdict.toLowerCase();
+  let c = v === "approve" ? 0.9 : v === "comment" ? 0.7 : 0; // request_changes never promotes
+  c -= Math.max(0, opts.rounds - 1) * 0.15; // bounced once = fine; repeatedly = risky
+  c -= Math.min(0.1, Math.max(0, opts.scanTotal) * 0.02); // non-blocking noise penalty
+  return Math.max(0, Math.min(1, c));
+}
+
+/** After a forge PR merges into dev, ensure a promotion PR (dev → prod) and, if
+ *  confidence clears the bar AND auto-merge is enabled, ship it. Otherwise the PR
+ *  is left open as a human escalation — autonomy that's earned, never silent. */
+async function maybePromote(
+  cfg: ReturnType<typeof loadEitriConfig>,
+  store: ReturnType<typeof createStore>,
+  git: EitriGit,
+  appAuth: AppAuth | null,
+  repo: string,
+  pr: OpenPr,
+  token: string,
+): Promise<void> {
+  if (!cfg.promote) return;
+  const devBranch = pr.baseRefName;
+  if (devBranch === cfg.promoteBase) return; // already merged to prod — nothing to promote
+
+  const reviews = (await store.listReviews(repo))
+    .filter((r) => r.prNumber === pr.number)
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const latest = reviews[0];
+  if (!latest) return;
+  const confidence = promotionConfidence({
+    verdict: latest.verdict,
+    scanBlocking: latest.scanBlocking,
+    scanTotal: latest.scanTotal,
+    rounds: reviews.length,
+  });
+  const pct = Math.round(confidence * 100);
+  const note =
+    `Promotion triggered by ${repo}#${pr.number} — “${pr.title}”.\n\n` +
+    `**Confidence: ${pct}%** (verdict \`${latest.verdict}\`, ${latest.scanBlocking} blocking / ` +
+    `${latest.scanTotal} scan finding(s), ${reviews.length} review round(s)).`;
+
+  // Idempotent: one promotion PR per (dev → prod) window; reuse if open.
+  let promoNumber = await git.findOpenPr(devBranch, cfg.promoteBase);
+  if (promoNumber == null) {
+    promoNumber = await git.openPr(
+      devBranch,
+      cfg.promoteBase,
+      `Promote ${devBranch} → ${cfg.promoteBase}`,
+      `🛡️ **Eitri promotion** — *the forge's second smith*\n\n${note}\n\n` +
+        `_Threshold for auto-merge: ${Math.round(cfg.promoteMinConfidence * 100)}%; ` +
+        `auto-merge ${cfg.promoteAutoMerge ? "ON" : "OFF"}._`,
+      token,
+    );
+    console.log(`[eitri] ${repo} opened promotion PR ${devBranch}→${cfg.promoteBase} (#${promoNumber}) · ${pct}%`);
+  } else {
+    console.log(`[eitri] ${repo} promotion PR #${promoNumber} already open (${devBranch}→${cfg.promoteBase}) · ${pct}%`);
+  }
+  if (promoNumber == null) return;
+
+  if (confidence >= cfg.promoteMinConfidence && cfg.promoteAutoMerge) {
+    if (await git.isMergeable(promoNumber)) {
+      await git.mergePromotionPr(promoNumber, token);
+      console.log(`[eitri] ${repo}#${promoNumber} → PROMOTED to ${cfg.promoteBase} (${pct}% ≥ ${Math.round(cfg.promoteMinConfidence * 100)}%)`);
+    } else {
+      console.log(`[eitri] ${repo}#${promoNumber} promotion not mergeable yet — will retry on next poll`);
+    }
+  } else {
+    console.log(
+      `[eitri] ${repo}#${promoNumber} promotion left for a human` +
+        ` (${pct}% < ${Math.round(cfg.promoteMinConfidence * 100)}% or auto-merge off)`,
+    );
+  }
+}
+
+/** Persist the lesson from a blocking review (#2). Best-effort; keyed by
+ *  (repo, kind, content) so a recurring failure bumps weight, not row count. */
+async function recordReviewFailure(
+  store: ReturnType<typeof createStore>,
+  repo: string,
+  pr: OpenPr,
+  body: string,
+): Promise<void> {
+  try {
+    const repository = await store.getRepositoryByFullName(repo);
+    if (!repository) return;
+    const lesson = firstParagraph(body).trim();
+    if (!lesson) return;
+    await store.recordRepoMemory({
+      repositoryId: repository.id,
+      kind: "review_failure",
+      content: lesson.slice(0, 400),
+      source: "eitri",
+      prNumber: pr.number,
+    });
+    console.log(`[eitri] ${repo}#${pr.number} → recorded review-failure memory`);
+  } catch (e) {
+    console.error(`[eitri] ${repo}#${pr.number} memory record failed:`, String(e).slice(0, 160));
   }
 }
 

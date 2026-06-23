@@ -12,7 +12,7 @@
  */
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { Plan, Project, RunEvent, Repository, Run, RunUsage, Task } from "@brokk/core";
+import type { Plan, Project, RepoMemory, RunEvent, Repository, Run, RunResult, Task } from "@brokk/core";
 import { runBranch } from "@brokk/core";
 import { loadRunnerConfig, type RunnerConfig } from "./config.js";
 
@@ -21,6 +21,7 @@ import { GhProvider } from "./git.js";
 import { ClaudeAgentEngine } from "./engine.js";
 import { HauldrClient } from "./hauldr.js";
 import { PreviewSupervisor } from "./preview.js";
+import { buildRepoMap } from "./repomap.js";
 
 type EventInput = Omit<RunEvent, "id" | "runId" | "seq" | "at">;
 type ClaimAuth = { source: "seat" | "env"; token: string | null; subscriptionId: string | null };
@@ -33,6 +34,8 @@ type Claimed = {
   /** If the card belongs to a plan, the shared feature branch it composes into. */
   plan?: Plan | null;
   auth?: ClaimAuth;
+  /** Per-repo memory (#2) the control plane attached, for the forge prompt. */
+  memory?: RepoMemory[];
 };
 
 async function main() {
@@ -97,7 +100,7 @@ async function handleRun(
   cfg: RunnerConfig,
   git: GhProvider,
   engine: ClaudeAgentEngine,
-  { task, run, repository, project, plan, auth }: Claimed,
+  { task, run, repository, project, plan, auth, memory }: Claimed,
 ): Promise<void> {
   console.log(
     `[brokk-runner] claimed task "${task.title}" (run ${run.id})` +
@@ -130,30 +133,31 @@ async function handleRun(
         : await git.worktree({ repo, baseBranch, branch });
     worktreePath = wt.path;
 
-    const usage: RunUsage = await engine.run({
-      task: { id: task.id, title: task.title, body: task.body, labels: task.labels },
+    // Forge → verify → self-heal (#1). The engine owns the loop: it forges, runs
+    // the verify command we hand it (in the worktree), and on a red verify
+    // re-prompts itself with the failure to fix — up to cfg.healAttempts rounds.
+    // The final verify outcome decides the run's success and rides on the PR.
+    const result: RunResult = await engine.run({
+      task: {
+        id: task.id,
+        title: task.title,
+        body: task.body,
+        labels: task.labels,
+        acceptance: task.acceptance,
+      },
       run: { id: run.id, branch, model: run.model, authMode: run.authMode },
       cwd: wt.path,
       model: run.model ?? process.env.BROKK_DEFAULT_MODEL ?? "sonnet",
       authMode: run.authMode ?? "subscription",
       authToken: auth?.token ?? undefined,
       allowedTools: [],
+      memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
+      verify: cfg.verifyCmd ? () => runVerify(cfg.verifyCmd, wt.path) : undefined,
+      maxHealAttempts: cfg.healAttempts,
       emit: (e) => buffer.emit(e),
     });
-
-    // Verify the agent's work in the worktree before opening the PR. The result
-    // is attached to the PR and decides the run's outcome — this is what lets a
-    // reviewer (human now, Eitri later) trust a green PR.
-    let verify: VerifyResult | null = null;
-    if (cfg.verifyCmd) {
-      buffer.emit({ type: "status", payload: { phase: "verify_start", cmd: cfg.verifyCmd } });
-      verify = await runVerify(cfg.verifyCmd, wt.path);
-      buffer.emit({ type: "status", payload: { phase: "verify_done", ok: verify.ok } });
-      buffer.emit({
-        type: "log",
-        payload: { level: verify.ok ? "info" : "error", verify: verify.output.slice(-4000) },
-      });
-    }
+    const usage = result.usage;
+    const verify = result.verify;
 
     buffer.emit({ type: "status", payload: { phase: "push", branch } });
     await git.push({
@@ -222,8 +226,21 @@ async function handleRun(
     });
     console.log(
       `[brokk-runner] run ${run.id} → PR ${pr.url}` +
-        (verify ? ` · verify ${verify.ok ? "✓" : "✗"}` : ""),
+        (verify ? ` · verify ${verify.ok ? "✓" : "✗"}` : "") +
+        (result.healAttempts ? ` · healed ×${result.healAttempts}` : ""),
     );
+
+    // Refresh the warm index (#4) from the just-forged worktree, so the planner
+    // sees the current tree next time. Best-effort — never fails the run. Skipped
+    // for the env stopgap repo (id "env"), which isn't a real control-plane row.
+    if (repository && repository.id !== "env") {
+      try {
+        const map = await buildRepoMap(wt.path);
+        if (map) await api(cfg, "POST", `/runner/repos/${repository.id}/map`, { map });
+      } catch (e) {
+        console.error(`[brokk-runner] repo map refresh failed for ${repository.fullName}:`, e);
+      }
+    }
   } catch (err) {
     buffer.emit({ type: "log", payload: { level: "error", error: String(err) } });
     await buffer.flush().catch(() => {});
@@ -296,6 +313,8 @@ async function resolveRepository(task: Task): Promise<Repository> {
     defaultBranch: process.env.BROKK_DEFAULT_BRANCH ?? "main",
     cloneUrl: `https://github.com/${full}.git`,
     installationId: null,
+    repoMap: null,
+    repoMapAt: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
