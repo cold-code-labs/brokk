@@ -14,6 +14,7 @@ import type { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 
 const API = process.env.BROKK_API_INTERNAL_URL ?? "http://127.0.0.1:8789";
+const API_SECRET = process.env.BROKK_API_SECRET ?? "";
 
 // Hop-by-hop / length headers must not be forwarded verbatim.
 const STRIP = new Set([
@@ -33,6 +34,9 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
   req.headers.forEach((value, key) => {
     if (!STRIP.has(key.toLowerCase())) headers.set(key, value);
   });
+  // Inject the API secret server-side so mutating calls are authorized. The
+  // browser never sees it; a direct caller to the API origin can't forge runs.
+  if (API_SECRET) headers.set("authorization", `Bearer ${API_SECRET}`);
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const init: RequestInit & { duplex?: "half" } = {

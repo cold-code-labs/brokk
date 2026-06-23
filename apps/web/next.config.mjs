@@ -6,6 +6,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 const nextConfig = {
   reactStrictMode: true,
+  // Don't advertise the framework (CCL-02 fingerprinting finding).
+  poweredByHeader: false,
   output: "standalone",
   outputFileTracingRoot: join(here, "../../"),
   // @brokk/sdk ships TypeScript source — let Next compile it on build.

@@ -12,6 +12,11 @@ const Env = z.object({
 
   // GitHub webhook HMAC secret (Settings → Webhooks). Empty = accept unsigned (dev only).
   BROKK_GITHUB_WEBHOOK_SECRET: z.string().default(""),
+
+  // Bearer secret guarding mutating API calls (POST/PUT/PATCH/DELETE). The web
+  // proxy injects it server-side; external callers can't enqueue forge runs.
+  // Empty = open (local/dev). Reads stay open; /runner & /webhooks self-auth.
+  BROKK_API_SECRET: z.string().default(""),
 });
 
 export type Config = z.infer<typeof Env>;

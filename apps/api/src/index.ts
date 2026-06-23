@@ -23,6 +23,7 @@ async function main() {
   const app = buildApp({
     store,
     runnerSecret: cfg.BROKK_RUNNER_SECRET,
+    apiSecret: cfg.BROKK_API_SECRET,
     githubWebhookSecret: cfg.BROKK_GITHUB_WEBHOOK_SECRET,
     mimir,
   });

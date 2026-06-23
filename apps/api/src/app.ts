@@ -18,6 +18,9 @@ export interface AppDeps {
   store: Store;
   /** Shared secret guarding the runner endpoints. Empty = runner endpoints 503. */
   runnerSecret: string;
+  /** Bearer secret guarding mutating API calls (POST/PUT/PATCH/DELETE). The web
+   *  proxy injects it server-side. Empty = open (local/dev). */
+  apiSecret: string;
   /** GitHub webhook HMAC secret. Empty = skip signature check (local dev). */
   githubWebhookSecret: string;
   /** Mímir model config (triador + enhancer). Undefined = enhance/triage → 503. */
@@ -40,6 +43,20 @@ export function buildApp(deps: AppDeps): Hono {
   app.get("/health", (c) => c.json({ ok: true, service: "brokk-api" }));
   app.get("/ping", (c) => c.json({ pong: true }));
   app.get("/version", (c) => c.json({ version }));
+
+  // Guard mutating calls behind the API secret. The browser reaches the API only
+  // through the web's server-side proxy, which injects the bearer; a direct caller
+  // (e.g. a leaked origin port) can't create/enqueue tasks. /runner self-auths with
+  // its own secret, /webhooks with the GitHub HMAC, and reads stay open.
+  app.use("*", async (c, next) => {
+    if (!deps.apiSecret) return next();
+    const method = c.req.method;
+    if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
+    const path = c.req.path;
+    if (path.startsWith("/runner") || path.startsWith("/webhooks")) return next();
+    if (c.req.header("authorization") === `Bearer ${deps.apiSecret}`) return next();
+    return c.json({ error: "unauthorized" }, 401);
+  });
 
   app.route("/repositories", repositoriesRoutes(deps));
   app.route("/projects", projectsRoutes(deps));
