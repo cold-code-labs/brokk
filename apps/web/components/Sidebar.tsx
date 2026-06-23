@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { t } from "../lib/theme";
+import { ThemeToggle } from "./ThemeToggle";
 
 const NAV = [
   { href: "/", label: "Fleet", icon: "▦", desc: "All repos & queues" },
@@ -25,8 +27,11 @@ export default function Sidebar({ user }: { user?: SidebarUser }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brokk.svg" alt="Brokk" width={22} height={31} style={{ display: "block" }} />
           <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: -0.4 }}>Brokk</span>
+          <span style={{ marginLeft: "auto" }}>
+            <ThemeToggle />
+          </span>
         </div>
-        <p style={{ margin: "4px 0 0 31px", fontSize: 11, color: "#5c6575" }}>the mega forge</p>
+        <p style={{ margin: "4px 0 0 31px", fontSize: 11, color: t.textFaint }}>the mega forge</p>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 10px" }}>
@@ -37,7 +42,7 @@ export default function Sidebar({ user }: { user?: SidebarUser }) {
               <span style={{ fontSize: 15, width: 18, textAlign: "center", opacity: active ? 1 : 0.7 }}>{n.icon}</span>
               <span style={{ display: "flex", flexDirection: "column" }}>
                 <span style={{ fontSize: 13.5, fontWeight: active ? 600 : 500 }}>{n.label}</span>
-                <span style={{ fontSize: 10.5, color: "#5c6575" }}>{n.desc}</span>
+                <span style={{ fontSize: 10.5, color: t.textFaint }}>{n.desc}</span>
               </span>
             </Link>
           );
@@ -45,22 +50,22 @@ export default function Sidebar({ user }: { user?: SidebarUser }) {
       </div>
 
       {user ? (
-        <div style={{ marginTop: "auto", padding: "12px 16px", borderTop: "1px solid #161b24" }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: "#cfd4de" }}>{user.name}</div>
+        <div style={{ marginTop: "auto", padding: "12px 16px", borderTop: `1px solid ${t.border}` }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: t.text }}>{user.name}</div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 3 }}>
-            <span style={{ fontSize: 10.5, color: "#5c6575" }}>
+            <span style={{ fontSize: 10.5, color: t.textFaint }}>
               {user.role ?? ""}
               {user.authDisabled ? "auth off" : ""}
             </span>
-            <a href="/sign-out" style={{ fontSize: 11, color: "#9aa3b2", textDecoration: "none" }}>
+            <a href="/sign-out" style={{ fontSize: 11, color: t.textMuted, textDecoration: "none" }}>
               sign out
             </a>
           </div>
         </div>
       ) : null}
 
-      <div style={{ marginTop: user ? 0 : "auto", padding: 16, borderTop: "1px solid #161b24" }}>
-        <a href="https://github.com/cold-code-labs/brokk" target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#5c6575", textDecoration: "none" }}>
+      <div style={{ marginTop: user ? 0 : "auto", padding: 16, borderTop: `1px solid ${t.border}` }}>
+        <a href="https://github.com/cold-code-labs/brokk" target="_blank" rel="noreferrer" style={{ fontSize: 11, color: t.textFaint, textDecoration: "none" }}>
           cold-code-labs/brokk ↗
         </a>
       </div>
@@ -76,8 +81,8 @@ const rail: React.CSSProperties = {
   top: 0,
   display: "flex",
   flexDirection: "column",
-  background: "#0a0c11",
-  borderRight: "1px solid #161b24",
+  background: t.surface,
+  borderRight: `1px solid ${t.border}`,
 };
 
 function item(active: boolean): React.CSSProperties {
@@ -88,8 +93,8 @@ function item(active: boolean): React.CSSProperties {
     padding: "9px 11px",
     borderRadius: 9,
     textDecoration: "none",
-    color: active ? "#e6e8ee" : "#9aa3b2",
-    background: active ? "#161c28" : "transparent",
-    border: `1px solid ${active ? "#222b3a" : "transparent"}`,
+    color: active ? t.text : t.textMuted,
+    background: active ? t.surface3 : "transparent",
+    border: `1px solid ${active ? t.border2 : "transparent"}`,
   };
 }

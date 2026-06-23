@@ -47,6 +47,8 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-api:local
     environment:
       BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:-postgres://brokk:brokk@db:5432/brokk}
@@ -76,6 +78,8 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-web:local
     environment:
       BROKK_API_INTERNAL_URL: http://api:8789
@@ -119,6 +123,8 @@ services:
     build:
       context: .
       dockerfile: packages/runner/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-runner:local
     profiles: ["forge"]
     environment:
@@ -146,6 +152,8 @@ services:
     build:
       context: .
       dockerfile: packages/eitri/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-eitri:local
     profiles: ["forge"]
     environment:
@@ -164,6 +172,8 @@ services:
     build:
       context: .
       dockerfile: apps/gateway/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-gateway:local
     profiles: ["forge"]
     environment:

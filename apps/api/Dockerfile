@@ -6,8 +6,11 @@ RUN corepack enable
 WORKDIR /repo
 
 FROM base AS build
+# Read-only GitHub Packages token for the private @cold-code-labs/* deps the
+# workspace install resolves (build-stage only; runtime image carries no token).
+ARG NODE_AUTH_TOKEN
 COPY . .
-RUN pnpm install --no-frozen-lockfile
+RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
 RUN pnpm --filter @brokk/api build
 # Self-contained prod tree (only @brokk/api's external deps; workspace
 # packages are already bundled into dist by tsup).

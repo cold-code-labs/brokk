@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import Link from "next/link";
 import { brokk } from "../lib/api";
+import { t } from "../lib/theme";
 
 const STATUS_COLOR: Record<string, string> = {
   backlog: "#5c6575",
@@ -76,10 +77,10 @@ export default function Dashboard() {
         <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: -0.3 }}>
           Dashboard
         </h1>
-        <p style={{ margin: "4px 0 0", color: "#9aa3b2", fontSize: 13 }}>
+        <p style={{ margin: "4px 0 0", color: t.textMuted, fontSize: 13 }}>
           {project ? (
             <>
-              <span style={{ color: "#e6e8ee" }}>{project.name}</span>
+              <span style={{ color: t.text }}>{project.name}</span>
               {" · "}
               <span>{activeCount} active</span>
             </>
@@ -107,7 +108,7 @@ export default function Dashboard() {
               key={s.key}
               label={s.label}
               value={count(s.key)}
-              color={s.key === "all" ? "#e6e8ee" : STATUS_COLOR[s.key]}
+              color={s.key === "all" ? t.text : STATUS_COLOR[s.key]}
             />
           ))}
         </div>
@@ -118,7 +119,7 @@ export default function Dashboard() {
         <h2 style={sectionHead}>Recent tasks</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {tasks.length === 0 && (
-            <p style={{ color: "#3f4654", fontSize: 13 }}>No tasks yet.</p>
+            <p style={{ color: t.textFaint, fontSize: 13 }}>No tasks yet.</p>
           )}
           {tasks.slice(0, 12).map((task) => (
             <div key={task.id} style={taskRowStyle}>
@@ -127,14 +128,14 @@ export default function Dashboard() {
                   width: 8,
                   height: 8,
                   borderRadius: "50%",
-                  background: STATUS_COLOR[task.status] ?? "#5c6575",
+                  background: STATUS_COLOR[task.status] ?? t.textFaint,
                   flexShrink: 0,
                 }}
               />
-              <span style={{ flex: 1, fontSize: 13, color: "#e6e8ee", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span style={{ flex: 1, fontSize: 13, color: t.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {task.title}
               </span>
-              <span style={{ fontSize: 11, color: "#5c6575", textTransform: "uppercase", letterSpacing: 0.3, flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: t.textFaint, textTransform: "uppercase", letterSpacing: 0.3, flexShrink: 0 }}>
                 {task.status}
               </span>
               {task.prUrl && (
@@ -142,7 +143,7 @@ export default function Dashboard() {
                   href={task.prUrl}
                   target="_blank"
                   rel="noreferrer"
-                  style={{ fontSize: 11, color: "#a371f7", textDecoration: "none", flexShrink: 0 }}
+                  style={{ fontSize: 11, color: t.purple, textDecoration: "none", flexShrink: 0 }}
                 >
                   PR ↗
                 </a>
@@ -150,9 +151,9 @@ export default function Dashboard() {
             </div>
           ))}
           {tasks.length > 12 && (
-            <p style={{ fontSize: 12, color: "#9aa3b2", margin: "6px 0 0", textAlign: "center" }}>
+            <p style={{ fontSize: 12, color: t.textMuted, margin: "6px 0 0", textAlign: "center" }}>
               +{tasks.length - 12} more —{" "}
-              <Link href="/history" style={{ color: "#a371f7", textDecoration: "none" }}>
+              <Link href="/history" style={{ color: t.purple, textDecoration: "none" }}>
                 view all in History
               </Link>
             </p>
@@ -181,7 +182,7 @@ function StatCard({ label, value, color }: { label: string; value: number; color
       <div
         style={{
           fontSize: 11,
-          color: "#6b7585",
+          color: t.textFaint,
           marginTop: 8,
           textTransform: "uppercase",
           letterSpacing: 0.6,
@@ -196,8 +197,8 @@ function StatCard({ label, value, color }: { label: string; value: number; color
 // ── styles ────────────────────────────────────────────────────────────────────
 
 const statCardStyle: React.CSSProperties = {
-  background: "#0f121a",
-  border: "1px solid #1c212c",
+  background: t.surface,
+  border: `1px solid ${t.border}`,
   borderRadius: 12,
   padding: "22px 24px 20px",
 };
@@ -206,7 +207,7 @@ const sectionHead: React.CSSProperties = {
   fontSize: 12,
   textTransform: "uppercase",
   letterSpacing: 0.5,
-  color: "#9aa3b2",
+  color: t.textMuted,
   margin: "0 0 10px",
 };
 
@@ -215,7 +216,7 @@ const taskRowStyle: React.CSSProperties = {
   alignItems: "center",
   gap: 10,
   padding: "9px 14px",
-  background: "#0f121a",
-  border: "1px solid #1c212c",
+  background: t.surface,
+  border: `1px solid ${t.border}`,
   borderRadius: 8,
 };

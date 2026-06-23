@@ -3,6 +3,7 @@
 import type { Subscription, User } from "@brokk/sdk";
 import { useEffect, useState } from "react";
 import { brokk } from "../lib/api";
+import { t } from "../lib/theme";
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([]);
@@ -42,7 +43,7 @@ export default function Users() {
   return (
     <div style={{ padding: "28px 32px", maxWidth: 860 }}>
       <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>Users &amp; seats</h1>
-      <p style={{ margin: "4px 0 20px", color: "#9aa3b2", fontSize: 14 }}>
+      <p style={{ margin: "4px 0 20px", color: t.textMuted, fontSize: 14 }}>
         Each member lends a <strong>Max seat</strong>; the forge spreads runs across them.
       </p>
 
@@ -56,7 +57,7 @@ export default function Users() {
       {err && <p style={{ color: "#f85149", fontSize: 13 }}>⚠ {err}</p>}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {users.length === 0 && <p style={{ color: "#3f4654", fontSize: 13 }}>No members yet.</p>}
+        {users.length === 0 && <p style={{ color: t.textFaint, fontSize: 13 }}>No members yet.</p>}
         {users.map((u) => {
           const seats = subs.filter((s) => s.userId === u.id);
           return (
@@ -64,7 +65,7 @@ export default function Users() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 600 }}>{u.name}</div>
-                  <div style={{ fontSize: 12, color: "#5c6575" }}>
+                  <div style={{ fontSize: 12, color: t.textFaint }}>
                     {u.email}{u.githubLogin ? ` · @${u.githubLogin}` : ""}
                   </div>
                 </div>
@@ -74,11 +75,11 @@ export default function Users() {
               </div>
 
               <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                {seats.length === 0 && <span style={{ fontSize: 12, color: "#3f4654" }}>no seats connected</span>}
+                {seats.length === 0 && <span style={{ fontSize: 12, color: t.textFaint }}>no seats connected</span>}
                 {seats.map((s) => (
                   <span key={s.id} style={seat}>
-                    <span style={{ ...dot, background: s.status === "active" ? "#2ea043" : "#5c6575" }} />
-                    {s.label} <span style={{ color: "#5c6575", fontFamily: "ui-monospace, monospace" }}>{s.tokenPreview}</span>
+                    <span style={{ ...dot, background: s.status === "active" ? "#2ea043" : t.textFaint }} />
+                    {s.label} <span style={{ color: t.textFaint, fontFamily: "ui-monospace, monospace" }}>{s.tokenPreview}</span>
                   </span>
                 ))}
               </div>
@@ -156,7 +157,7 @@ function ConnectFlow({
         <>
           <p style={pTxt}>
             Authorize page opened.{" "}
-            <a href={state.url} target="_blank" rel="noreferrer" style={{ color: "#2f81f7" }}>reopen ↗</a>{" "}
+            <a href={state.url} target="_blank" rel="noreferrer" style={{ color: t.accent }}>reopen ↗</a>{" "}
             — paste the code (looks like <code style={codeS}>abc…#xyz</code>):
           </p>
           <div style={{ display: "flex", gap: 8 }}>
@@ -173,16 +174,16 @@ function ConnectFlow({
   );
 }
 
-const cardBox: React.CSSProperties = { background: "#0f121a", border: "1px solid #1c212c", borderRadius: 10, padding: 16 };
-const seat: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, background: "#141823", border: "1px solid #222836", borderRadius: 20, padding: "4px 10px" };
+const cardBox: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 16 };
+const seat: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, background: t.surface2, border: `1px solid ${t.border2}`, borderRadius: 20, padding: "4px 10px" };
 const dot: React.CSSProperties = { width: 7, height: 7, borderRadius: 7 };
-const panel: React.CSSProperties = { marginTop: 12, padding: 14, background: "#0b0e15", border: "1px solid #222836", borderRadius: 9 };
-const pTxt: React.CSSProperties = { margin: "0 0 10px", fontSize: 13, color: "#aab2c0", lineHeight: 1.5 };
-const codeS: React.CSSProperties = { background: "#161c28", padding: "1px 5px", borderRadius: 4 };
+const panel: React.CSSProperties = { marginTop: 12, padding: 14, background: t.inset, border: `1px solid ${t.border2}`, borderRadius: 9 };
+const pTxt: React.CSSProperties = { margin: "0 0 10px", fontSize: 13, color: t.text, lineHeight: 1.5 };
+const codeS: React.CSSProperties = { background: t.surface3, padding: "1px 5px", borderRadius: 4 };
 
 function inp(w: number): React.CSSProperties {
-  return { flex: `0 1 ${w}px`, minWidth: 120, background: "#0f121a", border: "1px solid #222836", borderRadius: 8, padding: "8px 11px", color: "#e6e8ee", fontSize: 13 };
+  return { flex: `0 1 ${w}px`, minWidth: 120, background: t.surface, border: `1px solid ${t.border2}`, borderRadius: 8, padding: "8px 11px", color: t.text, fontSize: 13 };
 }
 function btn(primary: boolean): React.CSSProperties {
-  return { background: primary ? "#2f81f7" : "#1a1f29", border: "1px solid #2a2f3a", color: primary ? "#fff" : "#9aa3b2", borderRadius: 8, padding: "8px 13px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
+  return { background: primary ? t.accent : t.surface3, border: `1px solid ${t.border2}`, color: primary ? "#fff" : t.textMuted, borderRadius: 8, padding: "8px 13px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
 }

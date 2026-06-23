@@ -3,22 +3,23 @@
  *  (and fixes the low-contrast empty states the old inline styles shipped). */
 
 export const t = {
-  // surfaces (darkest → lightest)
-  bg: "#0b0d12",
-  surface: "#0f121a",
-  surface2: "#141823",
-  surface3: "#1a2030",
-  inset: "#08090d",
+  // surfaces (darkest → lightest) — routed to Yggdrasil tokens so every inline
+  // style={{…}} flips with the light/dark toggle for free.
+  bg: "var(--bg)",
+  surface: "var(--panel)",
+  surface2: "var(--panel-2)",
+  surface3: "var(--bg-soft)",
+  inset: "var(--bg)",
   // borders
-  border: "#1c212c",
-  border2: "#222836",
-  borderActive: "#2f81f7",
-  // text — faint bumped to ≥4.5:1 on surface (old #3f4654 was ~1.6:1, invisible)
-  text: "#e6e8ee",
-  textMuted: "#9aa3b2",
-  textFaint: "#6b7488",
-  // accents
-  accent: "#2f81f7",
+  border: "var(--line)",
+  border2: "var(--line-soft)",
+  borderActive: "var(--accent)",
+  // text
+  text: "var(--fg)",
+  textMuted: "var(--fg-soft)",
+  textFaint: "var(--fg-dim)",
+  // accent (structural) → token; `purple` stays a literal (semantic signal).
+  accent: "var(--accent)",
   purple: "#a371f7",
 } as const;
 

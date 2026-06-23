@@ -6,8 +6,11 @@ RUN corepack enable
 WORKDIR /repo
 
 FROM base AS build
+# Read-only GitHub Packages token for the private @cold-code-labs/* deps.
+# Build-stage only — this stage is discarded; the runtime image carries no token.
+ARG NODE_AUTH_TOKEN
 COPY . .
-RUN pnpm install --no-frozen-lockfile
+RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
 RUN pnpm --filter @brokk/web build
 
 FROM node:22-alpine AS runtime

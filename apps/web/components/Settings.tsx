@@ -3,6 +3,7 @@
 import type { Project } from "@brokk/sdk";
 import { useEffect, useState } from "react";
 import { brokk } from "../lib/api";
+import { t } from "../lib/theme";
 
 export default function Settings() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -18,7 +19,7 @@ export default function Settings() {
   return (
     <div style={{ padding: "28px 32px", maxWidth: 820 }}>
       <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>Settings</h1>
-      <p style={{ margin: "4px 0 20px", color: "#9aa3b2", fontSize: 14 }}>
+      <p style={{ margin: "4px 0 20px", color: t.textMuted, fontSize: 14 }}>
         Projects the forge works on — repo, model, and auth mode.
       </p>
 
@@ -32,18 +33,18 @@ export default function Settings() {
           <Row k="Project id" v={p.id} mono />
         </section>
       ))}
-      {projects.length === 0 && <p style={{ color: "#3f4654", fontSize: 13 }}>No projects.</p>}
+      {projects.length === 0 && <p style={{ color: t.textFaint, fontSize: 13 }}>No projects.</p>}
     </div>
   );
 }
 
 function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: 12, padding: "7px 0", borderTop: "1px solid #12151c" }}>
-      <span style={{ fontSize: 13, color: "#5c6575" }}>{k}</span>
+    <div style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: 12, padding: "7px 0", borderTop: `1px solid ${t.border}` }}>
+      <span style={{ fontSize: 13, color: t.textFaint }}>{k}</span>
       <span style={{ fontSize: 13, fontFamily: mono ? "ui-monospace, monospace" : undefined }}>{v}</span>
     </div>
   );
 }
 
-const card: React.CSSProperties = { background: "#0f121a", border: "1px solid #1c212c", borderRadius: 10, padding: 18, marginBottom: 14 };
+const card: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 18, marginBottom: 14 };

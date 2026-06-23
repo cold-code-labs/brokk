@@ -10,6 +10,7 @@ import type {
 } from "@brokk/sdk";
 import { useEffect, useState } from "react";
 import { brokk } from "../lib/api";
+import { t as theme } from "../lib/theme";
 
 const MODES: { mode: MimirMode; label: string; hint: string }[] = [
   { mode: "polish", label: "Leve", hint: "Só clareza/gramática" },
@@ -132,7 +133,7 @@ export default function Mimir() {
   return (
     <div style={{ padding: "28px 32px", maxWidth: 920 }}>
       <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>Mímir</h1>
-      <p style={{ margin: "4px 0 22px", color: "#9aa3b2", fontSize: 14 }}>
+      <p style={{ margin: "4px 0 22px", color: theme.textMuted, fontSize: 14 }}>
         O conselheiro da forja: triagem em dois eixos + refino. <strong>Mímir aconselha → Brokkr forja → Eitri revisa.</strong>
       </p>
 
@@ -174,7 +175,7 @@ export default function Mimir() {
           <div style={triageBox}>
             <span style={badge("#1f6feb")}>refino: {REFINO_LABEL[triage.refino]}</span>
             <span style={badge(FORCA_COLOR[triage.forca])}>força: {FORCA_LABEL[triage.forca]}</span>
-            <span style={{ fontSize: 12.5, color: "#9aa3b2", flex: 1, minWidth: 200 }}>{triage.rationale}</span>
+            <span style={{ fontSize: 12.5, color: theme.textMuted, flex: 1, minWidth: 200 }}>{triage.rationale}</span>
           </div>
         )}
       </section>
@@ -183,7 +184,7 @@ export default function Mimir() {
       {result && (
         <section style={{ ...cardBox, marginTop: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontSize: 12, color: "#5c6575" }}>
+            <span style={{ fontSize: 12, color: theme.textFaint }}>
               refinado · {result.mode} · {result.model}
             </span>
             <div style={{ display: "flex", gap: 8 }}>
@@ -193,8 +194,8 @@ export default function Mimir() {
           </div>
           <pre style={pre}>{result.enhanced}</pre>
           {result.rationale && (
-            <p style={{ margin: "10px 0 0", fontSize: 12.5, color: "#9aa3b2" }}>
-              <strong style={{ color: "#aab2c0" }}>O que melhorou:</strong> {result.rationale}
+            <p style={{ margin: "10px 0 0", fontSize: 12.5, color: theme.textMuted }}>
+              <strong style={{ color: theme.text }}>O que melhorou:</strong> {result.rationale}
             </p>
           )}
           {saving && (
@@ -222,7 +223,7 @@ export default function Mimir() {
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {bank.length === 0 && <p style={{ color: "#3f4654", fontSize: 13 }}>Nenhum prompt no banco.</p>}
+        {bank.length === 0 && <p style={{ color: theme.textFaint, fontSize: 13 }}>Nenhum prompt no banco.</p>}
         {bank.map((p) => (
           <section key={p.id} style={cardBox}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12 }}>
@@ -249,22 +250,22 @@ export default function Mimir() {
   );
 }
 
-const cardBox: React.CSSProperties = { background: "#0f121a", border: "1px solid #1c212c", borderRadius: 10, padding: 16 };
-const triageBox: React.CSSProperties = { display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap", paddingTop: 12, borderTop: "1px solid #1c212c" };
-const ta: React.CSSProperties = { width: "100%", boxSizing: "border-box", background: "#0b0e15", border: "1px solid #222836", borderRadius: 8, padding: "10px 12px", color: "#e6e8ee", fontSize: 13.5, fontFamily: "ui-sans-serif, system-ui", resize: "vertical", lineHeight: 1.5 };
-const pre: React.CSSProperties = { margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12.5, lineHeight: 1.55, color: "#cdd3dd", background: "#0b0e15", border: "1px solid #1c212c", borderRadius: 8, padding: 12, fontFamily: "ui-monospace, SFMono-Regular, monospace" };
-const tag: React.CSSProperties = { fontSize: 11, color: "#9aa3b2", background: "#141823", border: "1px solid #222836", borderRadius: 20, padding: "2px 9px" };
+const cardBox: React.CSSProperties = { background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, padding: 16 };
+const triageBox: React.CSSProperties = { display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap", paddingTop: 12, borderTop: `1px solid ${theme.border}` };
+const ta: React.CSSProperties = { width: "100%", boxSizing: "border-box", background: theme.inset, border: `1px solid ${theme.border2}`, borderRadius: 8, padding: "10px 12px", color: theme.text, fontSize: 13.5, fontFamily: "ui-sans-serif, system-ui", resize: "vertical", lineHeight: 1.5 };
+const pre: React.CSSProperties = { margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12.5, lineHeight: 1.55, color: theme.text, background: theme.inset, border: `1px solid ${theme.border}`, borderRadius: 8, padding: 12, fontFamily: "ui-monospace, SFMono-Regular, monospace" };
+const tag: React.CSSProperties = { fontSize: 11, color: theme.textMuted, background: theme.surface2, border: `1px solid ${theme.border2}`, borderRadius: 20, padding: "2px 9px" };
 
 function badge(color: string): React.CSSProperties {
   return { fontSize: 12, fontWeight: 600, color: "#fff", background: color, borderRadius: 6, padding: "3px 9px" };
 }
 function inp(w: number): React.CSSProperties {
-  return { flex: `0 1 ${w}px`, minWidth: 120, background: "#0f121a", border: "1px solid #222836", borderRadius: 8, padding: "8px 11px", color: "#e6e8ee", fontSize: 13 };
+  return { flex: `0 1 ${w}px`, minWidth: 120, background: theme.surface, border: `1px solid ${theme.border2}`, borderRadius: 8, padding: "8px 11px", color: theme.text, fontSize: 13 };
 }
 function btn(primary: boolean): React.CSSProperties {
-  return { background: primary ? "#2f81f7" : "#1a1f29", border: "1px solid #2a2f3a", color: primary ? "#fff" : "#9aa3b2", borderRadius: 8, padding: "8px 13px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
+  return { background: primary ? theme.accent : theme.surface3, border: `1px solid ${theme.border2}`, color: primary ? "#fff" : theme.textMuted, borderRadius: 8, padding: "8px 13px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
 }
-const btnDanger: React.CSSProperties = { background: "#1a1f29", border: "1px solid #3a2530", color: "#f85149", borderRadius: 8, padding: "8px 13px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
+const btnDanger: React.CSSProperties = { background: theme.surface3, border: "1px solid #3a2530", color: "#f85149", borderRadius: 8, padding: "8px 13px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
 function seg(active: boolean): React.CSSProperties {
-  return { background: active ? "#161c28" : "transparent", border: `1px solid ${active ? "#2a2f3a" : "#1c212c"}`, color: active ? "#e6e8ee" : "#9aa3b2", borderRadius: 7, padding: "8px 12px", fontSize: 12.5, cursor: "pointer" };
+  return { background: active ? theme.surface3 : "transparent", border: `1px solid ${active ? theme.border2 : theme.border}`, color: active ? theme.text : theme.textMuted, borderRadius: 7, padding: "8px 12px", fontSize: 12.5, cursor: "pointer" };
 }
