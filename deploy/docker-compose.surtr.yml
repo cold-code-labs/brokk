@@ -3,7 +3,7 @@
 #
 # api / runner / eitri / gateway run with HOST networking — drop-in for the old
 # systemd units: they read /home/brokk/brokk.env verbatim, reach host-published
-# services (Hauldr db :5434, headroom :8793, hauldr control 10.10.0.2:8787, api
+# services (Hauldr db :5434, headroom :8793, hauldr control <hauldr-control-host>:8787, api
 # localhost:8789) on their existing addresses, and the *.preview lane keeps working
 # (gateway + runner share the host loopback exactly as before). They run as uid 1000
 # (brokk) so the mode-600 creds (gh config, eitri .pem) are readable and worktree

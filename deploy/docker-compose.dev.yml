@@ -9,7 +9,7 @@
 #
 #   api  — HOST networking, drop-in for the old brokk-api-dev systemd unit: binds :8790
 #          (BROKK_API_PORT in brokk-dev.env), reaches brokk-db-dev (127.0.0.1:5435),
-#          headroom (:8793) and Hauldr control (10.10.0.2:8787) on their host addresses.
+#          headroom (:8793) and Hauldr control (<hauldr-control-host>:8787) on their host addresses.
 #   web  — bridged, publishes 127.0.0.1:3011:3000 (the tunnel target). Reaches the
 #          host-net api via host.docker.internal:8790.
 #   db   — not bundled; the standalone brokk-db-dev container holds the dev data.
