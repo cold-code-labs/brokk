@@ -21,6 +21,12 @@ import type { AgentEngine, AgentRunContext, RunResult, RunUsage, VerifyOutcome }
 export interface ClaudeEngineOptions {
   anthropicBaseUrl: string;
   anthropicApiKey: string;
+  /** Gateway mode (Ratatoskr/LiteLLM): a bearer token the SDK sends to the LLM
+   *  gateway (ANTHROPIC_AUTH_TOKEN). When set, the gateway holds the real
+   *  subscription credential and we DON'T use a per-run OAuth seat token or an
+   *  API key — `anthropicBaseUrl` points at the gateway. Empty = legacy
+   *  subscription/api-key path (per-run CLAUDE_CODE_OAUTH_TOKEN). */
+  anthropicAuthToken: string;
   /** Extra system prompt prepended to every task. */
   systemPrompt?: string;
   /** Give the forge agent a real headless browser via the Playwright MCP server,
@@ -60,15 +66,30 @@ export class ClaudeAgentEngine implements AgentEngine {
   constructor(private readonly opts: ClaudeEngineOptions) {}
 
   async run(ctx: AgentRunContext): Promise<RunResult> {
-    // Route the agent's traffic through headroom when configured (stretches the
-    // Max window). Empty = go direct to Anthropic (subscription token / api key).
+    // Route the agent's traffic. In gateway mode the base url is the LLM gateway
+    // (LiteLLM → Ratatoskr); otherwise it's headroom (or empty = direct).
     if (this.opts.anthropicBaseUrl) process.env.ANTHROPIC_BASE_URL = this.opts.anthropicBaseUrl;
-    if (this.opts.anthropicApiKey) process.env.ANTHROPIC_API_KEY = this.opts.anthropicApiKey;
 
-    // Per-run seat token (a member's Max). Override the ambient one for this run
-    // and restore after. Runs are sequential in the runner loop, so this is safe.
-    const prevToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-    if (ctx.authToken) process.env.CLAUDE_CODE_OAUTH_TOKEN = ctx.authToken;
+    const gateway = !!this.opts.anthropicAuthToken;
+    // Snapshot the auth env so we can restore it after the run (the runner loop
+    // is sequential, so mutating process.env per-run is safe).
+    const prevAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
+    const prevApiKey = process.env.ANTHROPIC_API_KEY;
+    const prevOAuth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+
+    if (gateway) {
+      // Authenticate to the gateway with a bearer token (a per-tool LiteLLM
+      // virtual key). The gateway injects the real subscription credential
+      // upstream, so the seat token / API key must NOT be present — both would
+      // take precedence over ANTHROPIC_AUTH_TOKEN and break gateway auth.
+      process.env.ANTHROPIC_AUTH_TOKEN = this.opts.anthropicAuthToken;
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    } else {
+      // Legacy path: direct API key and/or a per-run Max seat token.
+      if (this.opts.anthropicApiKey) process.env.ANTHROPIC_API_KEY = this.opts.anthropicApiKey;
+      if (ctx.authToken) process.env.CLAUDE_CODE_OAUTH_TOKEN = ctx.authToken;
+    }
 
     const usage: RunUsage = { tokensIn: 0, tokensOut: 0, headroomSaved: 0 };
 
@@ -156,11 +177,14 @@ export class ClaudeAgentEngine implements AgentEngine {
       ctx.emit({ type: "log", payload: { level: "error", error: String(err) } });
       throw err;
     } finally {
-      // Restore the ambient token so it never leaks into the next run.
-      if (ctx.authToken) {
-        if (prevToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
-        else process.env.CLAUDE_CODE_OAUTH_TOKEN = prevToken;
-      }
+      // Restore the ambient auth env so per-run mutations never leak forward.
+      const restore = (k: string, v: string | undefined) => {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      };
+      restore("ANTHROPIC_AUTH_TOKEN", prevAuthToken);
+      restore("ANTHROPIC_API_KEY", prevApiKey);
+      restore("CLAUDE_CODE_OAUTH_TOKEN", prevOAuth);
     }
 
     ctx.emit({ type: "status", payload: { phase: "agent_done", usage, healAttempts } });

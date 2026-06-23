@@ -23,9 +23,14 @@ export interface MimirConfig {
   apiKey: string;
   // ── claude provider (Max subscription) ──
   claudeBin: string;
-  /** CLAUDE_CODE_OAUTH_TOKEN — the Max seat token (same one the runner uses). */
+  /** CLAUDE_CODE_OAUTH_TOKEN — the Max seat token (same one the runner uses).
+   *  Empty when running in gateway mode (see authToken). */
   oauthToken: string;
-  /** ANTHROPIC_BASE_URL — the headroom proxy, so planning is compressed too. */
+  /** ANTHROPIC_AUTH_TOKEN — gateway bearer (LiteLLM vkey). When set, Mímir runs
+   *  `claude -p` in gateway mode: auth goes to the gateway and the seat token /
+   *  API key are unset so they can't take precedence. */
+  authToken: string;
+  /** ANTHROPIC_BASE_URL — headroom proxy, or the LLM gateway in gateway mode. */
   anthropicBaseUrl: string;
 }
 
@@ -33,8 +38,9 @@ export interface MimirConfig {
  *  (so enhance/triage/plan endpoints 503 cleanly instead of throwing at boot). */
 export function loadMimirConfig(env: NodeJS.ProcessEnv = process.env): MimirConfig | undefined {
   const explicit = env.MIMIR_PROVIDER as MimirProvider | undefined;
+  const hasClaudeAuth = !!(env.CLAUDE_CODE_OAUTH_TOKEN || env.ANTHROPIC_AUTH_TOKEN);
   const provider: MimirProvider =
-    explicit ?? (env.CLAUDE_CODE_OAUTH_TOKEN ? "claude" : env.MIMIR_API_KEY ? "openai" : "claude");
+    explicit ?? (hasClaudeAuth ? "claude" : env.MIMIR_API_KEY ? "openai" : "claude");
 
   if (provider === "openai") {
     if (!env.MIMIR_API_KEY) return undefined;
@@ -48,12 +54,14 @@ export function loadMimirConfig(env: NodeJS.ProcessEnv = process.env): MimirConf
       apiKey: env.MIMIR_API_KEY,
       claudeBin: "",
       oauthToken: "",
+      authToken: "",
       anthropicBaseUrl: "",
     };
   }
 
-  // claude (default): reuse the Max seat. No key needed beyond the OAuth token.
-  if (!env.CLAUDE_CODE_OAUTH_TOKEN) return undefined;
+  // claude (default): reuse the Max seat — either directly (OAuth seat token) or
+  // through the LLM gateway (ANTHROPIC_AUTH_TOKEN vkey). One of them is required.
+  if (!hasClaudeAuth) return undefined;
   return {
     provider,
     // Cosmetic rewrite → cheap; routing → mid; planning → strong.
@@ -63,7 +71,8 @@ export function loadMimirConfig(env: NodeJS.ProcessEnv = process.env): MimirConf
     baseUrl: "",
     apiKey: "",
     claudeBin: env.CLAUDE_BIN ?? "claude",
-    oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN,
+    oauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? "",
+    authToken: env.ANTHROPIC_AUTH_TOKEN ?? "",
     anthropicBaseUrl: env.ANTHROPIC_BASE_URL ?? "",
   };
 }

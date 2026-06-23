@@ -10,6 +10,11 @@ export interface RunnerConfig {
   /** Headroom / gateway base url exported to the Agent SDK. */
   anthropicBaseUrl: string;
   anthropicApiKey: string;
+  /** Gateway bearer token (ANTHROPIC_AUTH_TOKEN) — a per-tool LiteLLM virtual
+   *  key. When set, the runner uses gateway mode: the SDK authenticates to the
+   *  gateway with this token and the gateway (Ratatoskr) injects the real
+   *  subscription credential. Empty = legacy subscription/api-key path. */
+  anthropicAuthToken: string;
   githubToken: string;
   /** Shell command run in the worktree to verify the agent's work before the PR
    *  (e.g. "pnpm install --silent && pnpm -r typecheck"). Empty = skip. */
@@ -68,6 +73,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     // Empty = direct to Anthropic. Set to the headroom proxy to route through it.
     anthropicBaseUrl: env.ANTHROPIC_BASE_URL ?? "",
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
+    anthropicAuthToken: env.ANTHROPIC_AUTH_TOKEN ?? "",
     githubToken: env.GITHUB_TOKEN ?? "",
     verifyCmd: env.BROKK_VERIFY_CMD ?? "",
     healAttempts: Number(env.BROKK_HEAL_ATTEMPTS ?? 2),

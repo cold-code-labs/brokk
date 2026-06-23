@@ -48,9 +48,20 @@ export async function mimirComplete(config: MimirConfig, opts: CompleteOpts): Pr
 
 async function claudeComplete(config: MimirConfig, opts: CompleteOpts): Promise<CompleteResult> {
   const prompt = opts.system ? `${opts.system}\n\n${opts.user}` : opts.user;
-  const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: config.oauthToken };
+  const env: NodeJS.ProcessEnv = { ...process.env };
   if (config.anthropicBaseUrl) env.ANTHROPIC_BASE_URL = config.anthropicBaseUrl;
-  delete env.ANTHROPIC_API_KEY; // force the subscription auth path
+  if (config.authToken) {
+    // Gateway mode: authenticate to the LLM gateway (LiteLLM → Ratatoskr), which
+    // injects the real subscription credential. Seat token / API key must be
+    // absent — both outrank ANTHROPIC_AUTH_TOKEN and would break gateway auth.
+    env.ANTHROPIC_AUTH_TOKEN = config.authToken;
+    delete env.ANTHROPIC_API_KEY;
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  } else {
+    // Legacy: drive the Max seat directly via the OAuth token.
+    env.CLAUDE_CODE_OAUTH_TOKEN = config.oauthToken;
+    delete env.ANTHROPIC_API_KEY; // force the subscription auth path
+  }
 
   let stdout: string;
   try {
