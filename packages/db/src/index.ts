@@ -306,6 +306,43 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
   };
 }
 
+// ── Per-repo memory embeddings (#2 semantic recall) ──────────────────────────
+// pgvector lives in db_brokk; embeddings ride in a side table `repo_memory_embeddings`
+// (memory_id, embedding vector(1536), model) kept OUT of the drizzle schema so the
+// fleet's `drizzle-kit push` never trips on the vector type. Embeddings come from
+// the LiteLLM gateway. Everything here is best-effort: if the gateway or pgvector
+// is unavailable, writes skip the embedding and reads fall back to weight order —
+// the forge never breaks on a memory hiccup.
+
+const EMBED_URL = (process.env.BROKK_EMBED_BASE_URL ?? "").replace(/\/$/, "");
+const EMBED_KEY = process.env.BROKK_EMBED_API_KEY ?? "";
+const EMBED_MODEL = process.env.BROKK_EMBED_MODEL ?? "text-embedding-3-small";
+
+/** Embed text via the gateway; null on any failure (caller degrades gracefully). */
+async function embedText(text: string): Promise<number[] | null> {
+  if (!EMBED_URL || !EMBED_KEY) return null;
+  try {
+    const res = await fetch(`${EMBED_URL}/embeddings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${EMBED_KEY}` },
+      body: JSON.stringify({ model: EMBED_MODEL, input: text.slice(0, 8000) }),
+    });
+    if (!res.ok) return null;
+    const j = (await res.json()) as { data?: { embedding?: number[] }[] };
+    const e = j.data?.[0]?.embedding;
+    return Array.isArray(e) && e.length ? e : null;
+  } catch {
+    return null;
+  }
+}
+
+/** pgvector literal for a float array: `[1,2,3]`. */
+const toVec = (e: number[]): string => `[${e.join(",")}]`;
+
+/** Rows from a raw `db.execute` (postgres-js returns the array directly; guard both). */
+const execRows = (res: unknown): Record<string, unknown>[] =>
+  Array.isArray(res) ? (res as Record<string, unknown>[]) : (((res as { rows?: unknown[] })?.rows ?? []) as Record<string, unknown>[]);
+
 // ── Store ─────────────────────────────────────────────────────────────────────
 
 /** What a runner gets when it claims a card: the task + its run + the resolved
@@ -334,6 +371,10 @@ export interface Store {
   // repo memory (#2): facts learned about a repo, persisted across runs
   /** Top memories for a repo, highest-weight first (for planner + forge context). */
   listRepoMemories(repositoryId: string, limit?: number): Promise<RepoMemory[]>;
+  /** Memories for a repo most SEMANTICALLY relevant to `queryText` (pgvector cosine
+   *  over the embedding side table). Falls back to {@link listRepoMemories} (weight
+   *  order) when embeddings/pgvector are unavailable — never throws. */
+  searchRepoMemories(repositoryId: string, queryText: string, limit?: number): Promise<RepoMemory[]>;
   /** Record a learned fact; if the exact (kind, content) already exists for the
    *  repo, bump its weight + timestamp instead of duplicating. */
   recordRepoMemory(values: {
@@ -523,7 +564,48 @@ export function createStore(db: Db): Store {
           set: { weight: sql`${repoMemories.weight} + 1`, updatedAt: new Date() },
         })
         .returning();
-      return rowToRepoMemory(rows[0]!);
+      const mem = rowToRepoMemory(rows[0]!);
+      // Best-effort: embed the lesson for semantic recall (#2). Skipped silently
+      // if the gateway/pgvector is down — the row still lands, just weight-only.
+      const emb = await embedText(mem.content);
+      if (emb) {
+        await db
+          .execute(
+            sql`insert into repo_memory_embeddings (memory_id, embedding, model)
+                values (${mem.id}, ${toVec(emb)}::vector, ${EMBED_MODEL})
+                on conflict (memory_id) do update set embedding = excluded.embedding, model = excluded.model, updated_at = now()`,
+          )
+          .catch(() => {});
+      }
+      return mem;
+    },
+    async searchRepoMemories(repositoryId, queryText, limit = 14) {
+      const q = await embedText(queryText);
+      if (q) {
+        try {
+          // ANN ordering in raw SQL (returns ids); rows fetched via the ORM so we
+          // reuse rowToRepoMemory and never hand-map snake_case raw rows.
+          const idRes = await db.execute(
+            sql`select e.memory_id as id
+                from repo_memory_embeddings e
+                join repo_memories m on m.id = e.memory_id
+                where m.repository_id = ${repositoryId}
+                order by e.embedding <=> ${toVec(q)}::vector
+                limit ${limit}`,
+          );
+          const ids = execRows(idRes)
+            .map((r) => r.id as string)
+            .filter(Boolean);
+          if (ids.length) {
+            const rows = await db.select().from(repoMemories).where(inArray(repoMemories.id, ids));
+            const byId = new Map(rows.map((r) => [r.id, rowToRepoMemory(r)]));
+            return ids.map((id) => byId.get(id)).filter((m): m is RepoMemory => Boolean(m));
+          }
+        } catch {
+          // pgvector unavailable / type error → fall through to weight order.
+        }
+      }
+      return this.listRepoMemories(repositoryId, limit);
     },
 
     async listProjects() {

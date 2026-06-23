@@ -55,7 +55,14 @@ export function runnerRoutes(deps: AppDeps): Hono {
     const claimed = await deps.store.claimNext(runnerId);
     if (!claimed) return c.body(null, 204);
 
-    const { task, run, repository, project, plan, sealedToken, memory } = claimed;
+    const { task, run, repository, project, plan, sealedToken } = claimed;
+    // claimNext returns weight-ordered memory; re-rank it semantically by the
+    // card's intent (#2), best-effort — falls back to the weight order on any miss.
+    let memory = claimed.memory;
+    const sem = await deps.store
+      .searchRepoMemories(repository.id, `${task.title}\n${task.body}`)
+      .catch(() => [] as typeof memory);
+    if (sem.length) memory = sem;
     let auth: { source: "seat" | "env"; token: string | null; subscriptionId: string | null } = {
       source: "env",
       token: null,

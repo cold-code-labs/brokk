@@ -101,13 +101,17 @@ const asForca = (v: string): ForcaLevel =>
 async function buildRepoContext(
   store: AppDeps["store"],
   projectId?: string,
+  queryText?: string,
 ): Promise<string | undefined> {
   if (!projectId) return undefined;
   const project = await store.getProject(projectId).catch(() => null);
   if (!project) return undefined;
   const repo = await store.getRepository(project.repositoryId).catch(() => null);
   if (!repo) return undefined;
-  const memories = await store.listRepoMemories(repo.id).catch(() => []);
+  // Semantic recall when we have the intent text (#2); else weight order.
+  const memories = queryText
+    ? await store.searchRepoMemories(repo.id, queryText).catch(() => [])
+    : await store.listRepoMemories(repo.id).catch(() => []);
   const blocks: string[] = [];
   if (repo.repoMap) blocks.push(`## Mapa do repositório\n${repo.repoMap}`);
   if (memories.length) {
@@ -236,7 +240,7 @@ export function mimirRoutes(deps: AppDeps): Hono {
     const p = PlanBody.safeParse(await c.req.json().catch(() => ({})));
     if (!p.success) return c.json({ error: p.error.flatten() }, 400);
     try {
-      const repoContext = await buildRepoContext(deps.store, p.data.projectId);
+      const repoContext = await buildRepoContext(deps.store, p.data.projectId, p.data.input);
       return c.json(await planJob(p.data.input, mimir, repoContext));
     } catch (e) {
       if (e instanceof MimirError)
