@@ -22,6 +22,7 @@ import { ClaudeAgentEngine } from "./engine.js";
 import { HauldrClient } from "./hauldr.js";
 import { PreviewSupervisor } from "./preview.js";
 import { buildRepoMap } from "./repomap.js";
+import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
 
 type EventInput = Omit<RunEvent, "id" | "runId" | "seq" | "at">;
 type ClaimAuth = { source: "seat" | "env"; token: string | null; subscriptionId: string | null };
@@ -123,6 +124,7 @@ async function handleRun(
       ? task.branch!
       : (run.branch ?? runBranch(task.title, run.id));
   let worktreePath: string | undefined;
+  let trace: ForgeTrace | null = null;
 
   try {
     const phase = isPlan ? "worktree_plan" : isRevise ? "worktree_revise" : "worktree";
@@ -133,6 +135,25 @@ async function handleRun(
         ? await git.checkoutBranch({ repo, branch })
         : await git.worktree({ repo, baseBranch, branch });
     worktreePath = wt.path;
+
+    // Per-forge Langfuse trace (path-b): folds the engine's emit() stream into one
+    // trace (spans per phase, heal events, usage, verify/heal scores). Best-effort.
+    const model = run.model ?? process.env.BROKK_DEFAULT_MODEL ?? "sonnet";
+    trace = startForgeTrace({
+      title: task.title,
+      body: task.body,
+      model,
+      metadata: {
+        runId: run.id,
+        cardId: task.id,
+        repo: repo.fullName,
+        branch,
+        baseBranch,
+        kind: task.kind,
+        planId: plan?.id ?? null,
+        planKey: task.planKey ?? null,
+      },
+    });
 
     // Forge → verify → self-heal (#1). The engine owns the loop: it forges, runs
     // the verify command we hand it (in the worktree), and on a red verify
@@ -148,14 +169,17 @@ async function handleRun(
       },
       run: { id: run.id, branch, model: run.model, authMode: run.authMode },
       cwd: wt.path,
-      model: run.model ?? process.env.BROKK_DEFAULT_MODEL ?? "sonnet",
+      model,
       authMode: run.authMode ?? "subscription",
       authToken: auth?.token ?? undefined,
       allowedTools: [],
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
       verify: cfg.verifyCmd ? () => runVerify(cfg.verifyCmd, wt.path) : undefined,
       maxHealAttempts: cfg.healAttempts,
-      emit: (e) => buffer.emit(e),
+      emit: (e) => {
+        buffer.emit(e);
+        trace?.onEvent(e);
+      },
     });
     const usage = result.usage;
     const verify = result.verify;
@@ -217,6 +241,7 @@ async function handleRun(
     // Red verify → the run is a failure even though a PR exists (so the diff is
     // still inspectable). Green / no-verify → succeeded.
     const failed = verify ? !verify.ok : false;
+    trace?.complete({ verify, healAttempts: result.healAttempts, usage, prUrl: pr.url });
     await buffer.flush();
     await api(cfg, "POST", `/runs/${run.id}/complete`, {
       status: failed ? "failed" : "succeeded",
@@ -244,6 +269,8 @@ async function handleRun(
     }
   } catch (err) {
     buffer.emit({ type: "log", payload: { level: "error", error: String(err) } });
+    trace?.fail(err);
+    await flushTraces();
     await buffer.flush().catch(() => {});
     await api(cfg, "POST", `/runs/${run.id}/complete`, {
       status: "failed",
@@ -253,6 +280,7 @@ async function handleRun(
     return;
   }
 
+  await flushTraces();
   if (worktreePath) await git.cleanup({ path: worktreePath }).catch(() => {});
 }
 
