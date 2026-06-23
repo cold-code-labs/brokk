@@ -6,9 +6,20 @@
 // and compose into ONE PR. This is the UI for the trio's first step.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type React from "react";
 import { useEffect, useState } from "react";
+import {
+  Main,
+  PageHeader,
+  Section,
+  Banner,
+  Button,
+  Stepper,
+  Step,
+  type StepState,
+} from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
-import { STATUS_COLOR, t } from "../lib/theme";
+import { STATUS_COLOR } from "../lib/theme";
 import type { Plan, PlanDraft, PlannedCard, Project } from "@brokk/sdk";
 
 const FORCA_MODEL: Record<string, string> = {
@@ -117,23 +128,36 @@ export default function Planner() {
     }
   }
 
+  // ── Linear flow → Stepper state. Intent → review/clarify the plan → forged. ──
+  const stepState = (target: "intent" | "plan" | "forge"): StepState => {
+    if (applied) return target === "forge" ? "done" : "done";
+    if (draft) return target === "intent" ? "done" : target === "plan" ? "active" : "pending";
+    return target === "intent" ? "active" : "pending";
+  };
+
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 920, margin: "0 auto" }}>
-      <header style={{ marginBottom: 22 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.4, margin: 0 }}>
-          ✦ Planejador
-        </h1>
-        <p style={{ color: t.textMuted, fontSize: 13.5, margin: "6px 0 0" }}>
-          Descreva a intenção. Mímir decide se é um card só ou uma feature em vários cards —
-          e cada card forja no modelo certo, compondo <strong>um único PR</strong>.
-        </p>
-      </header>
+    <Main style={{ maxWidth: "57.5rem" }}>
+      <PageHeader
+        title="✦ Planejador"
+        description={
+          <>
+            Descreva a intenção. Mímir decide se é um card só ou uma feature em vários cards —
+            e cada card forja no modelo certo, compondo <strong>um único PR</strong>.
+          </>
+        }
+      />
+
+      <Stepper style={{ gridAutoFlow: "column", gridAutoColumns: "max-content", marginBottom: "1.75rem" }}>
+        <Step state={stepState("intent")} marker="1">Intenção</Step>
+        <Step state={stepState("plan")} marker="2">Plano de Mímir</Step>
+        <Step state={stepState("forge")} marker="3">Forjar → PR</Step>
+      </Stepper>
 
       {/* ── Intent ── */}
-      <div style={card}>
+      <div className="ygg-card" style={{ animation: "none", marginBottom: "0.75rem" }}>
         <div style={{ display: "flex", gap: 10, marginBottom: 10, alignItems: "center" }}>
-          <label style={{ fontSize: 12, color: t.textMuted }}>Projeto</label>
-          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={select}>
+          <label className="ygg-dim" style={{ fontSize: 12 }}>Projeto</label>
+          <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ ...field, fontSize: 12 }}>
             {projects.length === 0 ? <option value="">(nenhum projeto)</option> : null}
             {projects.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
@@ -145,91 +169,88 @@ export default function Planner() {
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ex.: Adicione autenticação por convite: schema de convites, endpoint de aceitar, e a tela de onboarding."
           rows={4}
-          style={textarea}
+          style={textareaField}
         />
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-          <button onClick={generate} disabled={planning || !input.trim()} style={btnPrimary(planning || !input.trim())}>
+          <Button onClick={generate} disabled={planning || !input.trim()}>
             {planning ? "Planejando…" : "Gerar plano"}
-          </button>
+          </Button>
         </div>
       </div>
 
-      {error ? (
-        <div style={{ ...card, borderColor: "#5c2626", color: "#f85149", fontSize: 13 }}>{error}</div>
-      ) : null}
+      {error ? <Banner tone="err">⚠ {error}</Banner> : null}
 
       {applied ? (
-        <div style={{ ...card, borderColor: "#1f4d2b" }}>
-          <div style={{ color: "#2ea043", fontWeight: 600, fontSize: 14 }}>
+        <Banner tone="info">
+          <div style={{ fontWeight: 600 }}>
             ✓ Plano forjando — {applied.count} card{applied.count > 1 ? "s" : ""} na fila
           </div>
-          <div style={{ color: t.textMuted, fontSize: 13, marginTop: 4 }}>
+          <div style={{ marginTop: 4 }}>
             {applied.plan.summary} · branch <code>{applied.plan.featureBranch}</code> → {applied.plan.baseBranch}
           </div>
-        </div>
+        </Banner>
       ) : null}
 
       {/* ── The plan ── */}
       {draft ? (
-        <div style={{ marginTop: 18 }}>
+        <Section title="Plano de Mímir">
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <span style={badge(draft.mode === "feature" ? t.purple : t.accent)}>
+            <span className="ygg-badge" data-tone={draft.mode === "feature" ? "info" : undefined}>
               {draft.mode === "feature" ? "FEATURE" : "ATOMIC"}
             </span>
             <strong style={{ fontSize: 15 }}>{draft.summary}</strong>
-            <span style={{ color: t.textFaint, fontSize: 12, marginLeft: "auto" }}>
+            <span className="ygg-dim" style={{ fontSize: 12, marginLeft: "auto" }}>
               planejado por {draft.model}
             </span>
           </div>
           {draft.rationale ? (
-            <p style={{ color: t.textMuted, fontSize: 13, margin: "0 0 14px" }}>{draft.rationale}</p>
+            <p className="ygg-muted" style={{ fontSize: 13, margin: "0 0 14px" }}>{draft.rationale}</p>
           ) : null}
 
           {draft.questions.length > 0 ? (
-            <div style={clarifyBox}>
+            <div className="ygg-card" style={{ animation: "none", marginBottom: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                <span style={{ fontSize: 14 }}>✦</span>
-                <strong style={{ fontSize: 13.5, color: "#e3b341" }}>
+                <span style={{ fontSize: 14, color: "var(--warn)" }}>✦</span>
+                <strong style={{ fontSize: 13.5, color: "var(--warn)" }}>
                   Mímir tem {draft.questions.length} dúvida{draft.questions.length > 1 ? "s" : ""} antes de firmar o plano
                 </strong>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 {draft.questions.map((q) => (
                   <div key={q.id}>
-                    <div style={{ fontSize: 13.5, color: t.text, marginBottom: 2 }}>{q.question}</div>
+                    <div style={{ fontSize: 13.5, color: "var(--fg)", marginBottom: 2 }}>{q.question}</div>
                     {q.why ? (
-                      <div style={{ fontSize: 12, color: t.textFaint, marginBottom: 7 }}>{q.why}</div>
+                      <div className="ygg-dim" style={{ fontSize: 12, marginBottom: 7 }}>{q.why}</div>
                     ) : null}
                     <input
                       value={answers[q.id] ?? ""}
                       onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
                       placeholder="Sua resposta…"
-                      style={{ ...textarea, padding: "8px 11px" }}
+                      style={{ ...field, width: "100%", boxSizing: "border-box" }}
                     />
                   </div>
                 ))}
               </div>
               <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
-                <button
+                <Button
                   onClick={answerAndReplan}
                   disabled={replanning || !draft.questions.some(hasAnswer)}
-                  style={btnPrimary(replanning || !draft.questions.some(hasAnswer))}
                 >
                   {replanning ? "Re-planejando…" : "Responder e re-planejar"}
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}
 
           {draft.questions.length > 0 ? (
-            <p style={{ fontSize: 12, color: t.textFaint, margin: "0 0 8px" }}>
+            <p className="ygg-dim" style={{ fontSize: 12, margin: "0 0 8px" }}>
               Plano provisório (melhor palpite). Responda as dúvidas acima para firmá-lo — ou forje assim mesmo.
             </p>
           ) : null}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {draft.cards.map((c, i) => (
-              <div key={i} style={cardRow}>
+              <div key={i} className="ygg-card" style={{ animation: "none", padding: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <code style={keyChip}>{c.key}</code>
                   <input
@@ -240,23 +261,23 @@ export default function Planner() {
                   <select
                     value={c.forca}
                     onChange={(e) => patchCard(i, { forca: e.target.value as PlannedCard["forca"], model: FORCA_MODEL[e.target.value] })}
-                    style={{ ...select, color: FORCA_COLOR[c.forca] }}
+                    style={{ ...field, fontSize: 12, color: FORCA_COLOR[c.forca] }}
                   >
                     {FORCAS.map((f) => (
-                      <option key={f} value={f} style={{ color: t.text }}>{f}</option>
+                      <option key={f} value={f} style={{ color: "var(--fg)" }}>{f}</option>
                     ))}
                   </select>
-                  <span style={{ fontSize: 11, color: t.textFaint, minWidth: 48 }}>{c.model}</span>
-                  <button onClick={() => removeCard(i)} style={btnGhost} title="remover card">✕</button>
+                  <span className="ygg-dim" style={{ fontSize: 11, minWidth: 48 }}>{c.model}</span>
+                  <Button variant="ghost" size="icon" onClick={() => removeCard(i)} title="remover card">✕</Button>
                 </div>
                 <textarea
                   value={c.body}
                   onChange={(e) => patchCard(i, { body: e.target.value })}
                   rows={3}
-                  style={{ ...textarea, fontSize: 12.5 }}
+                  style={{ ...textareaField, fontSize: 12.5 }}
                 />
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                  <span style={{ fontSize: 11, color: t.textFaint, minWidth: 70 }} title="Condição de sucesso — o Brokk forja um teste que prova isto">
+                  <span className="ygg-dim" style={{ fontSize: 11, minWidth: 70 }} title="Condição de sucesso — o Brokk forja um teste que prova isto">
                     ✓ aceite
                   </span>
                   <input
@@ -268,10 +289,10 @@ export default function Planner() {
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
                   {c.dependsOn.map((d) => (
-                    <span key={d} style={depChip}>↳ {d}</span>
+                    <span key={d} className="ygg-badge">↳ {d}</span>
                   ))}
                   {c.touches.map((tch) => (
-                    <span key={tch} style={touchChip}>{tch}</span>
+                    <span key={tch} className="ygg-badge" style={{ borderStyle: "dashed" }}>{tch}</span>
                   ))}
                 </div>
               </div>
@@ -279,75 +300,48 @@ export default function Planner() {
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
-            <button onClick={() => setDraft(null)} style={btnGhost2}>Descartar</button>
-            <button onClick={forge} disabled={applying || draft.cards.length === 0} style={btnPrimary(applying)}>
+            <Button variant="outline" onClick={() => setDraft(null)}>Descartar</Button>
+            <Button onClick={forge} disabled={applying || draft.cards.length === 0}>
               {applying ? "Forjando…" : `Forjar ${draft.cards.length} card${draft.cards.length > 1 ? "s" : ""} → 1 PR`}
-            </button>
+            </Button>
           </div>
-        </div>
+        </Section>
       ) : null}
 
       {/* ── Recent plans ── */}
       {recent.length > 0 && !draft ? (
-        <div style={{ marginTop: 28 }}>
-          <h2 style={{ fontSize: 13, color: t.textMuted, fontWeight: 600, marginBottom: 10 }}>Planos recentes</h2>
+        <Section title="Planos recentes">
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {recent.slice(0, 12).map((p) => (
-              <div key={p.id} style={recentRow}>
-                <span style={{ ...dot, background: STATUS_COLOR[p.status] ?? t.textFaint }} />
-                <span style={{ fontSize: 13, color: t.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.summary}</span>
-                <span style={badge(p.mode === "feature" ? t.purple : t.accent)}>{p.mode}</span>
-                <span style={{ fontSize: 11, color: t.textFaint }}>{p.status}</span>
+              <div key={p.id} className="ygg-card" style={{ ...recentRow, animation: "none" }}>
+                <span style={{ ...dot, background: STATUS_COLOR[p.status] ?? "var(--fg-dim)" }} />
+                <span style={{ fontSize: 13, color: "var(--fg)", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.summary}</span>
+                <span className="ygg-badge" data-tone={p.mode === "feature" ? "info" : undefined}>{p.mode}</span>
+                <span className="ygg-dim" style={{ fontSize: 11 }}>{p.status}</span>
                 {p.prUrl ? (
-                  <a href={p.prUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: t.accent, textDecoration: "none" }}>PR ↗</a>
+                  <a href={p.prUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "var(--accent)", textDecoration: "none" }}>PR ↗</a>
                 ) : null}
               </div>
             ))}
           </div>
-        </div>
+        </Section>
       ) : null}
-    </div>
+    </Main>
   );
 }
 
-const card: React.CSSProperties = {
-  background: t.surface,
-  border: `1px solid ${t.border}`,
-  borderRadius: 12,
-  padding: 16,
-  marginBottom: 12,
+const field: React.CSSProperties = {
+  background: "var(--bg-soft)",
+  border: "1px solid var(--line)",
+  borderRadius: "0.55rem",
+  padding: "0.55rem 0.7rem",
+  color: "var(--fg)",
+  font: "inherit",
 };
-const cardRow: React.CSSProperties = {
-  background: t.surface2,
-  border: `1px solid ${t.border}`,
-  borderRadius: 10,
-  padding: 12,
-};
-const clarifyBox: React.CSSProperties = {
-  background: "#1a1605",
-  border: "1px solid #4d3a00",
-  borderRadius: 10,
-  padding: 14,
-  marginBottom: 14,
-};
-const recentRow: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "8px 12px",
-  background: t.surface,
-  border: `1px solid ${t.border}`,
-  borderRadius: 9,
-};
-const textarea: React.CSSProperties = {
+const textareaField: React.CSSProperties = {
+  ...field,
   width: "100%",
-  background: t.inset,
-  border: `1px solid ${t.border2}`,
-  borderRadius: 8,
-  color: t.text,
-  padding: "10px 12px",
   fontSize: 13.5,
-  fontFamily: "inherit",
   resize: "vertical",
   boxSizing: "border-box",
 };
@@ -356,79 +350,23 @@ const titleInput: React.CSSProperties = {
   minWidth: 0,
   background: "transparent",
   border: "none",
-  color: t.text,
+  color: "var(--fg)",
   fontSize: 13.5,
   fontWeight: 600,
   outline: "none",
 };
-const select: React.CSSProperties = {
-  background: t.surface3,
-  border: `1px solid ${t.border2}`,
-  borderRadius: 7,
-  color: t.text,
-  padding: "5px 8px",
-  fontSize: 12,
-};
 const keyChip: React.CSSProperties = {
   fontSize: 11,
-  color: t.purple,
-  background: "#1c1830",
-  border: "1px solid #2a2342",
+  color: "var(--accent)",
+  background: "var(--bg-soft)",
+  border: "1px solid var(--line)",
   borderRadius: 6,
   padding: "2px 7px",
 };
-const depChip: React.CSSProperties = {
-  fontSize: 11,
-  color: t.textMuted,
-  background: t.surface3,
-  borderRadius: 6,
-  padding: "2px 7px",
-};
-const touchChip: React.CSSProperties = {
-  fontSize: 11,
-  color: t.textFaint,
-  border: `1px dashed ${t.border2}`,
-  borderRadius: 6,
-  padding: "2px 7px",
+const recentRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "8px 12px",
 };
 const dot: React.CSSProperties = { width: 8, height: 8, borderRadius: 4, flexShrink: 0 };
-
-function badge(color: string): React.CSSProperties {
-  return {
-    fontSize: 10,
-    fontWeight: 700,
-    letterSpacing: 0.5,
-    color,
-    border: `1px solid ${color}55`,
-    borderRadius: 5,
-    padding: "1px 6px",
-  };
-}
-function btnPrimary(disabled: boolean): React.CSSProperties {
-  return {
-    background: disabled ? t.surface3 : t.accent,
-    color: disabled ? t.textFaint : "#fff",
-    border: "none",
-    borderRadius: 8,
-    padding: "9px 16px",
-    fontSize: 13.5,
-    fontWeight: 600,
-    cursor: disabled ? "default" : "pointer",
-  };
-}
-const btnGhost: React.CSSProperties = {
-  background: "transparent",
-  border: "none",
-  color: t.textFaint,
-  cursor: "pointer",
-  fontSize: 13,
-};
-const btnGhost2: React.CSSProperties = {
-  background: "transparent",
-  border: `1px solid ${t.border2}`,
-  color: t.textMuted,
-  borderRadius: 8,
-  padding: "9px 16px",
-  fontSize: 13.5,
-  cursor: "pointer",
-};

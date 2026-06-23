@@ -1,9 +1,18 @@
 "use client";
 
 import type { Subscription, User } from "@brokk/sdk";
+import type React from "react";
 import { useEffect, useState } from "react";
+import {
+  Main,
+  PageHeader,
+  StatStrip,
+  Stat,
+  Banner,
+  EmptyState,
+  Button,
+} from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
-import { t } from "../lib/theme";
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([]);
@@ -40,62 +49,77 @@ export default function Users() {
     }
   }
 
-  return (
-    <div style={{ padding: "28px 32px", maxWidth: 860 }}>
-      <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>Users &amp; seats</h1>
-      <p style={{ margin: "4px 0 20px", color: t.textMuted, fontSize: 14 }}>
-        Each member lends a <strong>Max seat</strong>; the forge spreads runs across them.
-      </p>
+  const activeSeats = subs.filter((s) => s.status === "active").length;
 
-      <form onSubmit={addUser} style={{ display: "flex", gap: 8, marginBottom: 22, flexWrap: "wrap" }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" style={inp(160)} />
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@coldcodelabs.com" style={inp(220)} />
-        <input value={gh} onChange={(e) => setGh(e.target.value)} placeholder="github (optional)" style={inp(150)} />
-        <button type="submit" disabled={!name.trim() || !email.trim()} style={btn(true)}>Add member</button>
+  return (
+    <Main style={{ maxWidth: "54rem" }}>
+      <PageHeader
+        title="Users & seats"
+        description={
+          <>
+            Each member lends a <strong>Max seat</strong>; the forge spreads runs across them.
+          </>
+        }
+      />
+
+      {err && <Banner tone="err">⚠ {err}</Banner>}
+
+      <StatStrip>
+        <Stat value={users.length} label="Members" />
+        <Stat value={subs.length} label="Seats connected" />
+        <Stat value={activeSeats} label="Active seats" tone="ok" dot />
+      </StatStrip>
+
+      <form onSubmit={addUser} style={{ display: "flex", gap: 8, marginBottom: "1.4rem", flexWrap: "wrap" }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" style={{ ...field, flex: "0 1 160px" }} />
+        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@coldcodelabs.com" style={{ ...field, flex: "1 1 220px" }} />
+        <input value={gh} onChange={(e) => setGh(e.target.value)} placeholder="github (optional)" style={{ ...field, flex: "0 1 150px" }} />
+        <Button type="submit" disabled={!name.trim() || !email.trim()}>Add member</Button>
       </form>
 
-      {err && <p style={{ color: "#f85149", fontSize: 13 }}>⚠ {err}</p>}
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {users.length === 0 && <p style={{ color: t.textFaint, fontSize: 13 }}>No members yet.</p>}
-        {users.map((u) => {
-          const seats = subs.filter((s) => s.userId === u.id);
-          return (
-            <section key={u.id} style={cardBox}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 600 }}>{u.name}</div>
-                  <div style={{ fontSize: 12, color: t.textFaint }}>
-                    {u.email}{u.githubLogin ? ` · @${u.githubLogin}` : ""}
+      {users.length === 0 ? (
+        <EmptyState title="No members yet" description="Add a member above to lend their Max seat to the forge." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {users.map((u) => {
+            const seats = subs.filter((s) => s.userId === u.id);
+            return (
+              <section key={u.id} className="ygg-card" style={{ animation: "none" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 600 }}>{u.name}</div>
+                    <div className="ygg-dim" style={{ fontSize: 12 }}>
+                      {u.email}{u.githubLogin ? ` · @${u.githubLogin}` : ""}
+                    </div>
                   </div>
+                  <Button variant="outline" size="sm" onClick={() => setConnect({ userId: u.id, step: "idle" })}>
+                    + Connect Max seat
+                  </Button>
                 </div>
-                <button onClick={() => setConnect({ userId: u.id, step: "idle" })} style={btn(false)}>
-                  + Connect Max seat
-                </button>
-              </div>
 
-              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                {seats.length === 0 && <span style={{ fontSize: 12, color: t.textFaint }}>no seats connected</span>}
-                {seats.map((s) => (
-                  <span key={s.id} style={seat}>
-                    <span style={{ ...dot, background: s.status === "active" ? "#2ea043" : t.textFaint }} />
-                    {s.label} <span style={{ color: t.textFaint, fontFamily: "ui-monospace, monospace" }}>{s.tokenPreview}</span>
-                  </span>
-                ))}
-              </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                  {seats.length === 0 && <span className="ygg-dim" style={{ fontSize: 12 }}>no seats connected</span>}
+                  {seats.map((s) => (
+                    <span key={s.id} className="ygg-badge" data-tone={s.status === "active" ? "ok" : undefined}>
+                      {s.label}{" "}
+                      <span className="ygg-dim" style={{ fontFamily: "ui-monospace, monospace" }}>{s.tokenPreview}</span>
+                    </span>
+                  ))}
+                </div>
 
-              {connect?.userId === u.id && (
-                <ConnectFlow
-                  state={connect}
-                  setState={setConnect}
-                  onDone={async () => { setConnect(null); await refresh(); }}
-                />
-              )}
-            </section>
-          );
-        })}
-      </div>
-    </div>
+                {connect?.userId === u.id && (
+                  <ConnectFlow
+                    state={connect}
+                    setState={setConnect}
+                    onDone={async () => { setConnect(null); await refresh(); }}
+                  />
+                )}
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </Main>
   );
 }
 
@@ -149,41 +173,47 @@ function ConnectFlow({
             approve, then paste the code back here.
           </p>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={start} disabled={busy} style={btn(true)}>{busy ? "Starting…" : "Open authorize page →"}</button>
-            <button onClick={() => setState(null)} style={btn(false)}>Cancel</button>
+            <Button onClick={start} disabled={busy}>{busy ? "Starting…" : "Open authorize page →"}</Button>
+            <Button variant="outline" onClick={() => setState(null)}>Cancel</Button>
           </div>
         </>
       ) : (
         <>
           <p style={pTxt}>
             Authorize page opened.{" "}
-            <a href={state.url} target="_blank" rel="noreferrer" style={{ color: t.accent }}>reopen ↗</a>{" "}
+            <a href={state.url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>reopen ↗</a>{" "}
             — paste the code (looks like <code style={codeS}>abc…#xyz</code>):
           </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="paste code here" style={inp(280)} />
-            <button onClick={finish} disabled={busy || code.trim().length < 4} style={btn(true)}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="paste code here" style={{ ...field, flex: "1 1 280px" }} />
+            <Button onClick={finish} disabled={busy || code.trim().length < 4}>
               {busy ? "Sealing…" : "Connect seat"}
-            </button>
-            <button onClick={() => setState(null)} style={btn(false)}>Cancel</button>
+            </Button>
+            <Button variant="outline" onClick={() => setState(null)}>Cancel</Button>
           </div>
         </>
       )}
-      {err && <p style={{ color: "#f85149", fontSize: 12, margin: "8px 0 0" }}>⚠ {err}</p>}
+      {err && <Banner tone="err" style={{ marginBottom: 0, marginTop: 8 }}>⚠ {err}</Banner>}
     </div>
   );
 }
 
-const cardBox: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 16 };
-const seat: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, background: t.surface2, border: `1px solid ${t.border2}`, borderRadius: 20, padding: "4px 10px" };
-const dot: React.CSSProperties = { width: 7, height: 7, borderRadius: 7 };
-const panel: React.CSSProperties = { marginTop: 12, padding: 14, background: t.inset, border: `1px solid ${t.border2}`, borderRadius: 9 };
-const pTxt: React.CSSProperties = { margin: "0 0 10px", fontSize: 13, color: t.text, lineHeight: 1.5 };
-const codeS: React.CSSProperties = { background: t.surface3, padding: "1px 5px", borderRadius: 4 };
-
-function inp(w: number): React.CSSProperties {
-  return { flex: `0 1 ${w}px`, minWidth: 120, background: t.surface, border: `1px solid ${t.border2}`, borderRadius: 8, padding: "8px 11px", color: t.text, fontSize: 13 };
-}
-function btn(primary: boolean): React.CSSProperties {
-  return { background: primary ? t.accent : t.surface3, border: `1px solid ${t.border2}`, color: primary ? "#fff" : t.textMuted, borderRadius: 8, padding: "8px 13px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" };
-}
+const field: React.CSSProperties = {
+  background: "var(--bg-soft)",
+  border: "1px solid var(--line)",
+  borderRadius: "0.55rem",
+  padding: "0.55rem 0.7rem",
+  color: "var(--fg)",
+  font: "inherit",
+  fontSize: "0.9rem",
+  minWidth: 120,
+};
+const panel: React.CSSProperties = {
+  marginTop: 12,
+  padding: 14,
+  background: "var(--bg)",
+  border: "1px solid var(--line-soft)",
+  borderRadius: 9,
+};
+const pTxt: React.CSSProperties = { margin: "0 0 10px", fontSize: 13, color: "var(--fg)", lineHeight: 1.5 };
+const codeS: React.CSSProperties = { background: "var(--bg-soft)", padding: "1px 5px", borderRadius: 4 };

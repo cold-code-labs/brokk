@@ -2,13 +2,9 @@
 
 import type { Run, Task } from "@brokk/sdk";
 import { useEffect, useState } from "react";
+import { Main, PageHeader, EmptyState } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
-import { t } from "../lib/theme";
-
-const STATUS_COLOR: Record<string, string> = {
-  backlog: "#5c6575", queued: "#b08900", running: "#2f81f7", review: "#a371f7",
-  done: "#2ea043", failed: "#f85149", cancelled: "#5c6575", succeeded: "#2ea043",
-};
+import { STATUS_COLOR, STATUS_LABEL } from "../lib/theme";
 
 type Row = { task: Task; latest?: Run };
 
@@ -50,50 +46,63 @@ export default function History() {
   if (!mounted) return null;
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 1100 }}>
-      <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>History</h1>
-      <p style={{ margin: "4px 0 20px", color: t.textMuted, fontSize: 14 }}>
-        Every task the forge has touched — status, run outcome, and the PR.
-      </p>
+    <Main style={{ maxWidth: "69rem" }}>
+      <PageHeader
+        title="History"
+        description="Every task the forge has touched — status, run outcome, and the PR."
+      />
 
-      <div style={table}>
-        <div style={{ ...trow, color: t.textFaint, fontSize: 11, textTransform: "uppercase", borderBottom: `1px solid ${t.border}` }}>
-          <span>Task</span><span>Status</span><span>Run</span><span>Seat</span><span>Tokens</span><span>PR</span><span>Updated</span>
+      {rows.length === 0 ? (
+        <EmptyState title="No tasks yet" description="Once the forge starts working, every task lands here." />
+      ) : (
+        <div className="ygg-card" style={{ padding: 0, overflow: "hidden", animation: "none" }}>
+          <table className="ygg-table">
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Status</th>
+                <th>Run</th>
+                <th>Seat</th>
+                <th className="num">Tokens</th>
+                <th>PR</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ task, latest }) => (
+                <tr key={task.id}>
+                  <td style={{ minWidth: 0, maxWidth: "20rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {task.title}
+                  </td>
+                  <td>
+                    <span className="ygg-badge" style={{ color: STATUS_COLOR[task.status] }}>
+                      {STATUS_LABEL[task.status] ?? task.status}
+                    </span>
+                  </td>
+                  <td className="ygg-muted">
+                    {latest ? `${latest.status}${duration(latest)}` : "—"}
+                  </td>
+                  <td className="ygg-muted" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {latest?.subscriptionId ? (seatName[latest.subscriptionId] ?? "seat") : "ambient"}
+                  </td>
+                  <td className="num ygg-muted">
+                    {latest && (latest.tokensIn || latest.tokensOut) ? `${fmt(latest.tokensIn)}/${fmt(latest.tokensOut)}` : "—"}
+                  </td>
+                  <td>
+                    {task.prUrl ? (
+                      <a href={task.prUrl} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", textDecoration: "none" }}>
+                        PR ↗
+                      </a>
+                    ) : "—"}
+                  </td>
+                  <td className="ygg-dim">{rel(task.updatedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        {rows.length === 0 && <p style={{ padding: 16, color: t.textFaint, fontSize: 13 }}>No tasks yet.</p>}
-        {rows.map(({ task, latest }) => (
-          <div key={task.id} style={trow}>
-            <span style={{ fontSize: 13, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</span>
-            <span><Badge text={task.status} color={STATUS_COLOR[task.status]} /></span>
-            <span style={{ fontSize: 12, color: t.textMuted }}>
-              {latest ? `${latest.status}${duration(latest)}` : "—"}
-            </span>
-            <span style={{ fontSize: 12, color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {latest?.subscriptionId ? (seatName[latest.subscriptionId] ?? "seat") : "ambient"}
-            </span>
-            <span style={{ fontSize: 12, color: t.textMuted }}>
-              {latest && (latest.tokensIn || latest.tokensOut) ? `${fmt(latest.tokensIn)}/${fmt(latest.tokensOut)}` : "—"}
-            </span>
-            <span>
-              {task.prUrl ? (
-                <a href={task.prUrl} target="_blank" rel="noreferrer" style={{ color: t.purple, fontSize: 12, textDecoration: "none" }}>
-                  PR ↗
-                </a>
-              ) : "—"}
-            </span>
-            <span style={{ fontSize: 12, color: t.textFaint }}>{rel(task.updatedAt)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Badge({ text, color }: { text: string; color?: string }) {
-  return (
-    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: t.surface2, color: color ?? t.textMuted, border: `1px solid ${color ?? t.border2}33` }}>
-      {text}
-    </span>
+      )}
+    </Main>
   );
 }
 
@@ -112,13 +121,3 @@ function rel(iso: string): string {
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
 }
-
-const table: React.CSSProperties = { border: `1px solid ${t.border}`, borderRadius: 10, overflow: "hidden", background: t.surface };
-const trow: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0,2.2fr) 0.85fr 1.1fr 0.9fr 0.7fr 0.5fr 0.85fr",
-  gap: 10,
-  alignItems: "center",
-  padding: "11px 16px",
-  borderBottom: `1px solid ${t.border}`,
-};

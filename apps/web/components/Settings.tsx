@@ -2,8 +2,8 @@
 
 import type { Project } from "@brokk/sdk";
 import { useEffect, useState } from "react";
+import { Main, PageHeader, EmptyState } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
-import { t } from "../lib/theme";
 
 export default function Settings() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -17,34 +17,46 @@ export default function Settings() {
   if (!mounted) return null;
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 820 }}>
-      <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>Settings</h1>
-      <p style={{ margin: "4px 0 20px", color: t.textMuted, fontSize: 14 }}>
-        Projects the forge works on — repo, model, and auth mode.
-      </p>
+    <Main style={{ maxWidth: "52rem" }}>
+      <PageHeader
+        title="Settings"
+        description="Projects the forge works on — repo, model, and auth mode."
+      />
 
       {projects.map((p) => (
-        <section key={p.id} style={card}>
-          <h2 style={{ margin: "0 0 12px", fontSize: 16 }}>{p.name}</h2>
-          <Row k="Model" v={p.model} />
-          <Row k="Auth mode" v={p.authMode} />
-          <Row k="Base branch" v={p.baseBranch} />
-          <Row k="Allowed tools" v={p.allowedTools.length ? p.allowedTools.join(", ") : "engine default"} />
-          <Row k="Project id" v={p.id} mono />
-        </section>
+        <div key={p.id} className="ygg-card" style={{ marginBottom: "0.9rem" }}>
+          <div className="ygg-card-title">{p.name}</div>
+          <div className="ygg-card-meta">
+            <div>
+              <b>Model</b>
+              <span className="ygg-badge" data-tone="info">{p.model}</span>
+            </div>
+            <div>
+              <b>Auth mode</b>
+              <span className="ygg-badge" data-tone="info">{p.authMode}</span>
+            </div>
+            <div>
+              <b>Base branch</b>
+              <span>{p.baseBranch}</span>
+            </div>
+            <div>
+              <b>Allowed tools</b>
+              <span>{p.allowedTools.length ? p.allowedTools.join(", ") : "engine default"}</span>
+            </div>
+            <div>
+              <b>Project id</b>
+              <span style={{ fontFamily: "ui-monospace, monospace" }}>{p.id}</span>
+            </div>
+          </div>
+        </div>
       ))}
-      {projects.length === 0 && <p style={{ color: t.textFaint, fontSize: 13 }}>No projects.</p>}
-    </div>
+
+      {projects.length === 0 && (
+        <EmptyState
+          title="No projects"
+          description="Connect a repo to give the forge something to work on."
+        />
+      )}
+    </Main>
   );
 }
-
-function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: 12, padding: "7px 0", borderTop: `1px solid ${t.border}` }}>
-      <span style={{ fontSize: 13, color: t.textFaint }}>{k}</span>
-      <span style={{ fontSize: 13, fontFamily: mono ? "ui-monospace, monospace" : undefined }}>{v}</span>
-    </div>
-  );
-}
-
-const card: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 18, marginBottom: 14 };

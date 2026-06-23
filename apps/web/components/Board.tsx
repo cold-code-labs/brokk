@@ -3,11 +3,27 @@
 import type { Preview, Project, Run, RunEvent, Task } from "@brokk/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Main,
+  PageHeader,
+  Banner,
+  Button,
+} from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
 import { PreviewChip } from "./PreviewChip";
 
 const COLUMNS = ["backlog", "queued", "running", "review", "done", "failed"] as const;
+
+/** Status → Yggdrasil badge tone (the four supported tones). */
+const STATUS_TONE: Record<string, "ok" | "warn" | "err" | "info" | undefined> = {
+  queued: "warn",
+  running: "info",
+  review: "info",
+  done: "ok",
+  succeeded: "ok",
+  failed: "err",
+};
 
 /** Board for a single project. `projectId` selects the repo's board; when omitted
  *  it falls back to the first project (legacy single-project entry). */
@@ -145,46 +161,41 @@ export default function Board({ projectId }: { projectId?: string }) {
   if (!mounted) return null;
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 1500 }}>
-      <header style={{ marginBottom: 20 }}>
-        <Link href="/" style={{ fontSize: 12, color: t.textMuted, textDecoration: "none" }}>
+    <Main style={{ maxWidth: "94rem" }}>
+      <PageHeader
+        title={project ? project.name : "Board"}
+        description={
+          <>
+            The forge — card → agent → PR.{" "}
+            {project && <span className="ygg-dim">model {project.model}</span>}
+          </>
+        }
+        actions={
+          project &&
+          (preview && preview.status !== "stopped" ? (
+            <PreviewChip preview={preview} onStop={handleStopPreview} />
+          ) : (
+            <Button variant="outline" size="sm" type="button" onClick={handlePreview} disabled={previewBusy}>
+              {previewBusy ? "starting…" : "Preview dev"}
+            </Button>
+          ))
+        }
+      >
+        <Link href="/" className="ygg-dim" style={{ fontSize: 12, textDecoration: "none", display: "inline-block", marginBottom: 6 }}>
           ← Fleet
         </Link>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginTop: 6 }}>
-          <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>
-            {project ? project.name : "Board"}
-          </h1>
-          {project && (
-            preview && preview.status !== "stopped" ? (
-              <PreviewChip preview={preview} onStop={handleStopPreview} />
-            ) : (
-              <button
-                type="button"
-                onClick={handlePreview}
-                disabled={previewBusy}
-                style={previewBtnBoard}
-              >
-                {previewBusy ? "starting…" : "Preview dev"}
-              </button>
-            )
-          )}
-        </div>
-        <p style={{ margin: "4px 0 0", color: t.textMuted, fontSize: 14 }}>
-          The forge — card → agent → PR.{" "}
-          {project && <span style={{ color: t.textFaint }}>model {project.model}</span>}
-        </p>
-      </header>
+      </PageHeader>
 
       <form onSubmit={createTask} style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New task title…" style={inp(280)} />
-        <input value={body} onChange={(e) => setBody(e.target.value)} placeholder="What the agent should do…" style={inp(460)} />
-        <button type="submit" disabled={busy || !project || !title.trim()} style={btn(true)}>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New task title…" style={{ ...field, flex: "1 1 280px" }} />
+        <input value={body} onChange={(e) => setBody(e.target.value)} placeholder="What the agent should do…" style={{ ...field, flex: "1 1 460px" }} />
+        <Button type="submit" disabled={busy || !project || !title.trim()}>
           {busy ? "Forging…" : "Queue task →"}
-        </button>
+        </Button>
       </form>
 
-      {err && <p style={{ color: STATUS_COLOR.failed, fontSize: 13, margin: "0 0 12px" }}>⚠ {err}</p>}
-      {previewErr && <p style={{ color: STATUS_COLOR.failed, fontSize: 13, margin: "0 0 12px" }}>⚠ preview: {previewErr}</p>}
+      {err && <Banner tone="err">⚠ {err}</Banner>}
+      {previewErr && <Banner tone="err">⚠ preview: {previewErr}</Banner>}
 
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0,1fr))`, gap: 12 }}>
         {COLUMNS.map((key) => {
@@ -193,10 +204,10 @@ export default function Board({ projectId }: { projectId?: string }) {
             <section key={key} style={column}>
               <h2 style={colHead}>
                 {STATUS_LABEL[key]}
-                <span style={{ color: t.textFaint, marginLeft: 6 }}>{items.length}</span>
+                <span style={{ color: "var(--fg-dim)", marginLeft: 6 }}>{items.length}</span>
               </h2>
               <div style={cardList}>
-                {items.length === 0 && <p style={{ fontSize: 12, color: t.textFaint }}>—</p>}
+                {items.length === 0 && <p className="ygg-dim" style={{ fontSize: 12, margin: 0 }}>—</p>}
                 {items.map((task) => (
                   <button key={task.id} onClick={() => setSelected(task.id)} style={card(selected === task.id)}>
                     <span style={{ display: "flex", gap: 7, alignItems: "start" }}>
@@ -226,7 +237,7 @@ export default function Board({ projectId }: { projectId?: string }) {
       </div>
 
       {selectedTask && <Detail task={selectedTask} onClose={() => setSelected(null)} />}
-    </div>
+    </Main>
   );
 }
 
@@ -258,29 +269,29 @@ function Detail({ task, onClose }: { task: Task; onClose: () => void }) {
       <aside style={drawer} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12 }}>
           <h2 style={{ margin: 0, fontSize: 17 }}>{task.title}</h2>
-          <button onClick={onClose} style={btn(false)}>✕</button>
+          <Button variant="outline" size="icon" onClick={onClose} aria-label="Close">✕</Button>
         </div>
         <div style={{ display: "flex", gap: 8, margin: "8px 0 14px", alignItems: "center", flexWrap: "wrap" }}>
-          <Badge text={task.status} color={STATUS_COLOR[task.status]} />
-          {latest && <Badge text={`run ${latest.status}`} color={STATUS_COLOR[latest.status]} />}
+          <span className="ygg-badge" data-tone={STATUS_TONE[task.status]}>{task.status}</span>
+          {latest && <span className="ygg-badge" data-tone={STATUS_TONE[latest.status]}>run {latest.status}</span>}
           {task.prUrl && (
             <a href={task.prUrl} target="_blank" rel="noreferrer" style={{ ...prLink, position: "static" }}>
               Open PR ↗
             </a>
           )}
         </div>
-        {task.body && <p style={{ color: t.textMuted, fontSize: 13, whiteSpace: "pre-wrap" }}>{task.body}</p>}
+        {task.body && <p className="ygg-muted" style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{task.body}</p>}
         {latest?.error && <pre style={{ ...logBox, color: STATUS_COLOR.failed, maxHeight: 120 }}>{latest.error}</pre>}
 
-        <h3 style={{ fontSize: 12, textTransform: "uppercase", color: t.textMuted, margin: "16px 0 6px" }}>
+        <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "16px 0 6px" }}>
           Live run log{latest ? ` · ${latest.id.slice(0, 8)}` : ""}
         </h3>
         <div ref={logRef} style={logBox}>
-          {events.length === 0 && <span style={{ color: t.textFaint }}>no events yet…</span>}
+          {events.length === 0 && <span className="ygg-dim">no events yet…</span>}
           {events.map((e, i) => (
             <div key={i} style={{ marginBottom: 4 }}>
-              <span style={{ color: STATUS_COLOR[e.type] ?? t.textFaint, fontWeight: 600 }}>{e.type}</span>{" "}
-              <span style={{ color: t.textMuted }}>{summarize(e)}</span>
+              <span style={{ color: STATUS_COLOR[e.type] ?? "var(--fg-dim)", fontWeight: 600 }}>{e.type}</span>{" "}
+              <span className="ygg-muted">{summarize(e)}</span>
             </div>
           ))}
         </div>
@@ -305,13 +316,16 @@ function summarize(e: RunEvent): string {
   return s.length > 200 ? s.slice(0, 200) + "…" : s;
 }
 
-function Badge({ text, color }: { text: string; color?: string }) {
-  return (
-    <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 20, background: t.surface3, color: color ?? t.textMuted, border: `1px solid ${color ?? t.border2}33` }}>
-      {text}
-    </span>
-  );
-}
+const field: React.CSSProperties = {
+  background: "var(--bg-soft)",
+  border: "1px solid var(--line)",
+  borderRadius: "0.55rem",
+  padding: "0.55rem 0.7rem",
+  color: "var(--fg)",
+  font: "inherit",
+  fontSize: "0.9rem",
+  minWidth: 160,
+};
 
 const column: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", minHeight: 0 };
 const cardList: React.CSSProperties = { flex: "1 1 auto", minHeight: 0, maxHeight: 320, overflowY: "auto", overflowX: "hidden" };
@@ -324,14 +338,6 @@ const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: 
 const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%", background: t.bg, borderLeft: `1px solid ${t.border}`, padding: 22, overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" };
 const logBox: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };
 
-const previewBtnBoard: React.CSSProperties = { fontSize: 12, color: t.accent, background: t.surface3, border: `1px solid ${t.border2}`, borderRadius: 20, padding: "4px 12px", cursor: "pointer" };
-
 function card(active: boolean): React.CSSProperties {
   return { display: "flex", flexDirection: "column", width: "100%", textAlign: "left", background: active ? t.surface3 : t.surface2, border: `1px solid ${active ? t.borderActive : t.border2}`, borderRadius: 8, padding: "9px 10px", marginBottom: 8, color: t.text, cursor: "pointer" };
-}
-function inp(w: number): React.CSSProperties {
-  return { flex: `1 1 ${w}px`, minWidth: 160, background: t.surface, border: `1px solid ${t.border2}`, borderRadius: 8, padding: "9px 11px", color: t.text, fontSize: 13 };
-}
-function btn(primary: boolean): React.CSSProperties {
-  return { background: primary ? t.accent : t.surface3, border: `1px solid ${t.border2}`, color: primary ? "#fff" : t.textMuted, borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer" };
 }
