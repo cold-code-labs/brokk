@@ -74,8 +74,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0(react@19.2.7)
       '@cold-code-labs/yggdrasil-react':
-        specifier: ^0.2.1
-        version: 0.2.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(tailwindcss@3.4.19(tsx@4.22.4))
+        specifier: ^0.2.2
+        version: 0.2.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(tailwindcss@3.4.19(tsx@4.22.4))
       '@cold-code-labs/yggdrasil-tokens':
         specifier: ^0.2.0
         version: 0.2.0
@@ -299,8 +299,8 @@ packages:
     peerDependencies:
       react: '>=18'
 
-  '@cold-code-labs/yggdrasil-react@0.2.1':
-    resolution: {integrity: sha512-y+3bLzkmHPii6b3XIE/xBtQ16I+G2KcxQ8KMXCRIqyH44p4FraNkYceBXx8wUOgQXbJ/OCntfCy4KW3mglkzlA==, tarball: https://npm.pkg.github.com/download/@cold-code-labs/yggdrasil-react/0.2.1/d3103af1adfa95511d096c29aaf70295b59cef3d}
+  '@cold-code-labs/yggdrasil-react@0.2.2':
+    resolution: {integrity: sha512-6y/trEnc3Xmk2N7BTzFn8ruJ1sPEtf5ue3cB2ylrV5pm06+8S4YFpOjnE8Gx3mw0r6CRV7N6CWVVRL2fjIEO7g==, tarball: https://npm.pkg.github.com/download/@cold-code-labs/yggdrasil-react/0.2.2/54282f483023e4e2074f37e8ce3afc063bae9848}
     peerDependencies:
       react: '>=18'
       react-dom: '>=18'
@@ -2177,6 +2177,10 @@ packages:
     resolution: {integrity: sha512-uyZtpnYxM9CmQ7QsQknM4zN8EftNqhON1qYeIKM0Se67CCEe2c44xyGURwB0axX2fBDu1dqHrHAc1hmNT8ITkw==}
     engines: {node: '>=16.9.0'}
 
+  hono@4.12.27:
+    resolution: {integrity: sha512-1yrb/+w6HWQJrUCLkJ2IF5jNIPvvFkblV5RNOYl6bV+OA6p9GLcMpHFFGTosSvHvcAUibuUukRqhlYI4z32C7Q==}
+    engines: {node: '>=16.9.0'}
+
   http-errors@2.0.1:
     resolution: {integrity: sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==}
     engines: {node: '>= 0.8'}
@@ -2894,7 +2898,7 @@ snapshots:
     dependencies:
       react: 19.2.7
 
-  '@cold-code-labs/yggdrasil-react@0.2.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(tailwindcss@3.4.19(tsx@4.22.4))':
+  '@cold-code-labs/yggdrasil-react@0.2.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(tailwindcss@3.4.19(tsx@4.22.4))':
     dependencies:
       '@radix-ui/react-dialog': 1.1.17(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@radix-ui/react-dropdown-menu': 2.1.18(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -3250,6 +3254,10 @@ snapshots:
     dependencies:
       hono: 4.12.26
 
+  '@hono/node-server@1.19.14(hono@4.12.27)':
+    dependencies:
+      hono: 4.12.27
+
   '@img/colour@1.1.0':
     optional: true
 
@@ -3388,7 +3396,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.26)
+      '@hono/node-server': 1.19.14(hono@4.12.27)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -3398,7 +3406,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.12.26
+      hono: 4.12.27
       jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -4408,6 +4416,8 @@ snapshots:
       function-bind: 1.1.2
 
   hono@4.12.26: {}
+
+  hono@4.12.27: {}
 
   http-errors@2.0.1:
     dependencies:

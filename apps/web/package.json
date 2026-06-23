@@ -12,7 +12,7 @@
   "dependencies": {
     "@brokk/sdk": "workspace:*",
     "@cold-code-labs/yggdrasil-brand": "^0.1.0",
-    "@cold-code-labs/yggdrasil-react": "^0.2.1",
+    "@cold-code-labs/yggdrasil-react": "^0.2.2",
     "@cold-code-labs/yggdrasil-tokens": "^0.2.0",
     "@logto/next": "^4.2.10",
     "lucide-react": "^0.469.0",
