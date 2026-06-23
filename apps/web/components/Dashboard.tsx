@@ -4,18 +4,17 @@ import type { Project, Task } from "@brokk/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
 import Link from "next/link";
+import {
+  Main,
+  PageHeader,
+  Section,
+  StatStrip,
+  Stat,
+  Banner,
+  type Tone,
+} from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
-import { t } from "../lib/theme";
-
-const STATUS_COLOR: Record<string, string> = {
-  backlog: "#5c6575",
-  queued: "#b08900",
-  running: "#2f81f7",
-  review: "#a371f7",
-  done: "#2ea043",
-  failed: "#f85149",
-  cancelled: "#5c6575",
-};
+import { STATUS_COLOR } from "../lib/theme";
 
 const STATS = [
   { key: "all", label: "Total" },
@@ -25,6 +24,14 @@ const STATS = [
   { key: "done", label: "Done" },
   { key: "failed", label: "Failed" },
 ] as const;
+
+const TONE: Record<string, Tone | undefined> = {
+  running: "info",
+  review: "info",
+  queued: "warn",
+  done: "ok",
+  failed: "err",
+};
 
 export default function Dashboard() {
   const [project, setProject] = useState<Project | null>(null);
@@ -71,152 +78,84 @@ export default function Dashboard() {
   const activeCount = count("running") + count("queued");
 
   return (
-    <main style={{ padding: "28px 32px", maxWidth: 1100, margin: "0 auto" }}>
-      {/* Page header */}
-      <header style={{ marginBottom: 28 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: 600, letterSpacing: -0.3 }}>
-          Dashboard
-        </h1>
-        <p style={{ margin: "4px 0 0", color: t.textMuted, fontSize: 13 }}>
-          {project ? (
+    <Main style={{ maxWidth: "68rem" }}>
+      <PageHeader
+        title="Dashboard"
+        description={
+          project ? (
             <>
-              <span style={{ color: t.text }}>{project.name}</span>
+              <span style={{ color: "var(--fg)" }}>{project.name}</span>
               {" · "}
-              <span>{activeCount} active</span>
+              {activeCount} active
             </>
           ) : (
             <em>loading project…</em>
-          )}
-        </p>
-      </header>
+          )
+        }
+      />
 
-      {err && (
-        <p style={{ color: "#f85149", fontSize: 13, marginBottom: 16 }}>⚠ {err}</p>
-      )}
+      {err && <Banner tone="err">⚠ {err}</Banner>}
 
-      {/* Big number stat cards */}
-      <section style={{ marginBottom: 36 }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-            gap: 14,
-          }}
-        >
-          {STATS.map((s) => (
-            <StatCard
-              key={s.key}
-              label={s.label}
-              value={count(s.key)}
-              color={s.key === "all" ? t.text : STATUS_COLOR[s.key]}
-            />
-          ))}
-        </div>
-      </section>
+      <StatStrip>
+        {STATS.map((s) => (
+          <Stat
+            key={s.key}
+            value={count(s.key)}
+            label={s.label}
+            tone={TONE[s.key]}
+            dot={s.key !== "all"}
+          />
+        ))}
+      </StatStrip>
 
-      {/* Recent tasks list */}
-      <section>
-        <h2 style={sectionHead}>Recent tasks</h2>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {tasks.length === 0 && (
-            <p style={{ color: t.textFaint, fontSize: 13 }}>No tasks yet.</p>
-          )}
-          {tasks.slice(0, 12).map((task) => (
-            <div key={task.id} style={taskRowStyle}>
-              <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: STATUS_COLOR[task.status] ?? t.textFaint,
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ flex: 1, fontSize: 13, color: t.text, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {task.title}
-              </span>
-              <span style={{ fontSize: 11, color: t.textFaint, textTransform: "uppercase", letterSpacing: 0.3, flexShrink: 0 }}>
-                {task.status}
-              </span>
-              {task.prUrl && (
-                <a
-                  href={task.prUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ fontSize: 11, color: t.purple, textDecoration: "none", flexShrink: 0 }}
-                >
-                  PR ↗
-                </a>
-              )}
-            </div>
-          ))}
-          {tasks.length > 12 && (
-            <p style={{ fontSize: 12, color: t.textMuted, margin: "6px 0 0", textAlign: "center" }}>
-              +{tasks.length - 12} more —{" "}
-              <Link href="/history" style={{ color: t.purple, textDecoration: "none" }}>
-                view all in History
-              </Link>
-            </p>
-          )}
-        </div>
-      </section>
-    </main>
+      <Section title="Recent tasks">
+        {tasks.length === 0 ? (
+          <p className="ygg-dim" style={{ fontSize: "0.85rem" }}>No tasks yet.</p>
+        ) : (
+          <div className="ygg-card" style={{ padding: 0, overflow: "hidden", animation: "none" }}>
+            {tasks.slice(0, 12).map((task) => (
+              <div key={task.id} style={taskRow}>
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: STATUS_COLOR[task.status] ?? "var(--fg-dim)",
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ flex: 1, fontSize: "0.85rem", color: "var(--fg)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {task.title}
+                </span>
+                <span className="ygg-dim" style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: 0.3, flexShrink: 0 }}>
+                  {task.status}
+                </span>
+                {task.prUrl && (
+                  <a href={task.prUrl} target="_blank" rel="noreferrer" style={{ fontSize: "0.7rem", color: "var(--accent)", textDecoration: "none", flexShrink: 0 }}>
+                    PR ↗
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {tasks.length > 12 && (
+          <p className="ygg-muted" style={{ fontSize: "0.78rem", margin: "0.75rem 0 0", textAlign: "center" }}>
+            +{tasks.length - 12} more —{" "}
+            <Link href="/history" style={{ color: "var(--accent)", textDecoration: "none" }}>
+              view all in History
+            </Link>
+          </p>
+        )}
+      </Section>
+    </Main>
   );
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div style={statCardStyle}>
-      <div
-        style={{
-          fontSize: 52,
-          fontWeight: 700,
-          color,
-          lineHeight: 1,
-          fontVariantNumeric: "tabular-nums",
-          letterSpacing: -2,
-        }}
-      >
-        {value}
-      </div>
-      <div
-        style={{
-          fontSize: 11,
-          color: t.textFaint,
-          marginTop: 8,
-          textTransform: "uppercase",
-          letterSpacing: 0.6,
-        }}
-      >
-        {label}
-      </div>
-    </div>
-  );
-}
-
-// ── styles ────────────────────────────────────────────────────────────────────
-
-const statCardStyle: React.CSSProperties = {
-  background: t.surface,
-  border: `1px solid ${t.border}`,
-  borderRadius: 12,
-  padding: "22px 24px 20px",
-};
-
-const sectionHead: React.CSSProperties = {
-  fontSize: 12,
-  textTransform: "uppercase",
-  letterSpacing: 0.5,
-  color: t.textMuted,
-  margin: "0 0 10px",
-};
-
-const taskRowStyle: React.CSSProperties = {
+const taskRow: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 10,
-  padding: "9px 14px",
-  background: t.surface,
-  border: `1px solid ${t.border}`,
-  borderRadius: 8,
+  padding: "0.6rem 1rem",
+  borderBottom: "1px solid var(--line-soft)",
 };

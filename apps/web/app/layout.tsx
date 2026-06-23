@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "@cold-code-labs/yggdrasil-tokens/css";
+import "@cold-code-labs/yggdrasil-react/shell.css";
 import "./globals.css";
+import { AppShell } from "@cold-code-labs/yggdrasil-react";
 import { Providers } from "./providers";
 import Sidebar from "../components/Sidebar";
 import { authEnabled, getSession } from "../lib/logto";
@@ -41,22 +43,14 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       suppressHydrationWarning
       className={`${inter.variable} ${jetbrains.variable}`}
     >
-      <body
-        suppressHydrationWarning
-        style={{
-          margin: 0,
-          fontFamily: "var(--font-sans)",
-          background: "var(--bg)",
-          color: "var(--fg)",
-          display: "flex",
-          minHeight: "100vh",
-        }}
-      >
+      <body suppressHydrationWarning>
         <Providers>
-          <Sidebar
-            user={{ name: session.name, role: session.role, authDisabled: session.authDisabled }}
-          />
-          <div style={{ flex: 1, minWidth: 0 }}>{children}</div>
+          <AppShell>
+            <Sidebar
+              user={{ name: session.name, role: session.role, authDisabled: session.authDisabled }}
+            />
+            <div style={{ minWidth: 0 }}>{children}</div>
+          </AppShell>
         </Providers>
       </body>
     </html>

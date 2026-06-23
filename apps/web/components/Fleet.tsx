@@ -3,8 +3,17 @@
 import type { Preview, Project, Repository, Subscription, Task } from "@brokk/sdk";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import {
+  Main,
+  PageHeader,
+  Section,
+  StatStrip,
+  Stat,
+  Banner,
+  Button,
+} from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
-import { STATUS_COLOR, t } from "../lib/theme";
+import { STATUS_COLOR } from "../lib/theme";
 import { PreviewChip } from "./PreviewChip";
 
 export default function Fleet() {
@@ -127,136 +136,136 @@ export default function Fleet() {
   if (!mounted) return null;
 
   return (
-    <div style={{ padding: "28px 32px", maxWidth: 1200 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, letterSpacing: -0.4 }}>Fleet</h1>
-          <p style={{ margin: "4px 0 0", color: t.textMuted, fontSize: 14 }}>The forge, across every CCL repo.</p>
-        </div>
-        <Link href="/connect" style={{ ...btnPrimary, textDecoration: "none" }}>+ Connect repos</Link>
-      </header>
+    <Main style={{ maxWidth: "72rem" }}>
+      <PageHeader
+        title="Fleet"
+        description="The forge, across every CCL repo."
+        actions={
+          <Button asChild>
+            <Link href="/connect">+ Connect repos</Link>
+          </Button>
+        }
+      />
 
-      {err && <p style={{ color: STATUS_COLOR.failed, fontSize: 13, margin: "0 0 12px" }}>⚠ {err}</p>}
+      {err && <Banner tone="err">⚠ {err}</Banner>}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0,1fr))", gap: 12, marginBottom: 24 }}>
-        <Metric label="Running now" value={count("running")} color={STATUS_COLOR.running} />
-        <Metric label="Queued" value={count("queued")} />
-        <Metric label="In review · PR" value={count("review")} color={STATUS_COLOR.review} />
-        <Metric label="Max seats" value={activeSeats} suffix="active" />
-      </div>
+      <StatStrip>
+        <Stat value={count("running")} label="Running now" tone="info" dot />
+        <Stat value={count("queued")} label="Queued" />
+        <Stat value={count("review")} label="In review · PR" tone="info" dot />
+        <Stat value={activeSeats} label="Max seats" />
+      </StatStrip>
 
       {/* composer */}
-      <form onSubmit={createTask} style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
-        <select value={pid} onChange={(e) => setPid(e.target.value)} style={{ ...input, flex: "0 0 200px" }}>
+      <form onSubmit={createTask} style={{ display: "flex", gap: 8, marginBottom: "2rem", flexWrap: "wrap" }}>
+        <select value={pid} onChange={(e) => setPid(e.target.value)} style={{ ...field, flex: "0 0 200px" }}>
           {projects.length === 0 && <option value="">no project — connect a repo</option>}
           {projects.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New task title…" style={{ ...input, flex: "1 1 360px" }} />
-        <button type="submit" disabled={busy || !pid || !title.trim()} style={btnPrimary}>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New task title…" style={{ ...field, flex: "1 1 360px" }} />
+        <Button type="submit" disabled={busy || !pid || !title.trim()}>
           {busy ? "Forging…" : "Queue →"}
-        </button>
+        </Button>
       </form>
 
-      <p style={sectionLabel}>Projects</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 12, marginBottom: 24 }}>
-        {projects.map((p) => {
-          const ts = byProject.get(p.id) ?? [];
-          const repo = repoById.get(p.repositoryId);
-          const running = ts.filter((x) => x.status === "running").length;
-          const c = (s: string) => ts.filter((x) => x.status === s).length;
-          const activePreview = previewsByProject.get(p.id);
-          return (
-            <div key={p.id} style={projectCard}>
-              {/* Clickable header navigates to the project board */}
-              <Link href={`/projects/${p.id}`} style={projectCardLink}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{p.name}</span>
-                  {running > 0 ? (
-                    <span style={{ fontSize: 12, color: STATUS_COLOR.running }}>● {running} running</span>
+      <Section title="Projects">
+        <div className="ygg-card-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 22rem), 1fr))" }}>
+          {projects.map((p) => {
+            const ts = byProject.get(p.id) ?? [];
+            const repo = repoById.get(p.repositoryId);
+            const running = ts.filter((x) => x.status === "running").length;
+            const c = (s: string) => ts.filter((x) => x.status === s).length;
+            const activePreview = previewsByProject.get(p.id);
+            return (
+              <div key={p.id} className="ygg-card">
+                <Link href={`/projects/${p.id}`} style={{ display: "block", textDecoration: "none", color: "inherit" }}>
+                  <div className="ygg-card-title">
+                    {p.name}
+                    {running > 0 ? (
+                      <span style={{ fontSize: "0.8rem", color: STATUS_COLOR.running }}>● {running} running</span>
+                    ) : (
+                      <span className="ygg-dim" style={{ fontSize: "0.8rem" }}>idle</span>
+                    )}
+                  </div>
+                  <p className="ygg-dim" style={{ margin: "0.3rem 0 0.85rem", fontSize: "0.8rem" }}>
+                    {repo ? `${repo.fullName} · ${p.baseBranch}` : "—"}
+                  </p>
+                </Link>
+                <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                  <span className="ygg-badge">{c("backlog")} backlog</span>
+                  <span className="ygg-badge" data-tone={c("queued") ? "warn" : undefined}>{c("queued")} queued</span>
+                  <span className="ygg-badge" data-tone={c("review") ? "info" : undefined}>{c("review")} PR</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  {activePreview ? (
+                    <PreviewChip preview={activePreview} onStop={() => handleStopPreview(activePreview.id)} />
                   ) : (
-                    <span style={{ fontSize: 12, color: t.textFaint }}>idle</span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      type="button"
+                      onClick={() => handlePreview(p.id)}
+                      disabled={!!previewBusy[p.id]}
+                    >
+                      {previewBusy[p.id] ? "starting…" : "Preview dev"}
+                    </Button>
                   )}
                 </div>
-                <p style={{ margin: "4px 0 8px", fontSize: 12, color: t.textFaint }}>
-                  {repo ? `${repo.fullName} · ${p.baseBranch}` : "—"}
-                </p>
+              </div>
+            );
+          })}
+          <Link
+            href="/connect"
+            className="ygg-card"
+            style={{ display: "grid", placeItems: "center", borderStyle: "dashed", color: "var(--fg-soft)", textDecoration: "none", animation: "none" }}
+          >
+            + Connect a repo
+          </Link>
+        </div>
+      </Section>
+
+      <Section title="Global queue · next up across the fleet">
+        <div className="ygg-card" style={{ padding: 0, overflow: "hidden", animation: "none" }}>
+          {queue.length === 0 && (
+            <p className="ygg-dim" style={{ margin: 0, padding: "1rem 1.15rem", fontSize: "0.85rem" }}>
+              Nothing queued — the forge is quiet.
+            </p>
+          )}
+          {queue.map((task) => {
+            const proj = projectById.get(task.projectId);
+            const repo = proj ? repoById.get(proj.repositoryId) : undefined;
+            return (
+              <Link key={task.id} href={`/projects/${task.projectId}`} style={queueRow}>
+                <span style={{ width: 7, height: 7, borderRadius: 7, background: STATUS_COLOR[task.status], flexShrink: 0 }} />
+                <span style={{ fontSize: "0.85rem", flex: 1, color: "var(--fg)" }}>{task.title}</span>
+                <span className="ygg-dim" style={{ fontSize: "0.8rem" }}>{repo?.name ?? proj?.name ?? ""}</span>
+                <span style={{ fontSize: "0.8rem", color: STATUS_COLOR[task.status], minWidth: 64, textAlign: "right" }}>{task.status}</span>
               </Link>
-              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                <Pill text={`${c("backlog")} backlog`} />
-                <Pill text={`${c("queued")} queued`} color={c("queued") ? STATUS_COLOR.queued : undefined} />
-                <Pill text={`${c("review")} PR`} color={c("review") ? STATUS_COLOR.review : undefined} />
-              </div>
-              {/* Preview dev button / chip */}
-              <div style={{ display: "flex", alignItems: "center" }}>
-                {activePreview ? (
-                  <PreviewChip
-                    preview={activePreview}
-                    onStop={() => handleStopPreview(activePreview.id)}
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => handlePreview(p.id)}
-                    disabled={!!previewBusy[p.id]}
-                    style={previewBtn}
-                  >
-                    {previewBusy[p.id] ? "starting…" : "Preview dev"}
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-        <Link href="/connect" style={connectCard}>+ Connect a repo</Link>
-      </div>
-
-      <p style={sectionLabel}>Global queue · next up across the fleet</p>
-      <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, overflow: "hidden" }}>
-        {queue.length === 0 && <p style={{ margin: 0, padding: "16px 18px", fontSize: 13, color: t.textFaint }}>Nothing queued — the forge is quiet.</p>}
-        {queue.map((task) => {
-          const proj = projectById.get(task.projectId);
-          const repo = proj ? repoById.get(proj.repositoryId) : undefined;
-          return (
-            <Link key={task.id} href={`/projects/${task.projectId}`} style={queueRow}>
-              <span style={{ width: 7, height: 7, borderRadius: 7, background: STATUS_COLOR[task.status], flexShrink: 0 }} />
-              <span style={{ fontSize: 13, flex: 1, color: t.text }}>{task.title}</span>
-              <span style={{ fontSize: 12, color: t.textFaint }}>{repo?.name ?? proj?.name ?? ""}</span>
-              <span style={{ fontSize: 12, color: STATUS_COLOR[task.status], minWidth: 64, textAlign: "right" }}>{task.status}</span>
-            </Link>
-          );
-        })}
-      </div>
-    </div>
+            );
+          })}
+        </div>
+      </Section>
+    </Main>
   );
 }
 
-function Metric({ label, value, color, suffix }: { label: string; value: number; color?: string; suffix?: string }) {
-  return (
-    <div style={{ background: t.surface, borderRadius: 10, padding: "14px 16px" }}>
-      <p style={{ margin: 0, fontSize: 13, color: t.textMuted }}>{label}</p>
-      <p style={{ margin: "2px 0 0", fontSize: 24, fontWeight: 600, color: color ?? t.text }}>
-        {value}
-        {suffix && <span style={{ fontSize: 13, color: t.textFaint, fontWeight: 400 }}> {suffix}</span>}
-      </p>
-    </div>
-  );
-}
-
-function Pill({ text, color }: { text: string; color?: string }) {
-  return (
-    <span style={{ flex: 1, textAlign: "center", fontSize: 12, padding: "5px 0", borderRadius: 7, background: t.surface3, color: color ?? t.textMuted }}>
-      {text}
-    </span>
-  );
-}
-
-const sectionLabel: React.CSSProperties = { margin: "0 0 8px", fontSize: 13, color: t.textMuted };
-const input: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border2}`, borderRadius: 8, padding: "9px 11px", color: t.text, fontSize: 13, minWidth: 140 };
-const btnPrimary: React.CSSProperties = { background: t.accent, border: `1px solid ${t.border2}`, color: "#fff", borderRadius: 8, padding: "9px 14px", fontSize: 13, cursor: "pointer" };
-const projectCard: React.CSSProperties = { background: t.surface2, border: `1px solid ${t.border2}`, borderRadius: 12, padding: "14px 16px", color: t.text };
-const projectCardLink: React.CSSProperties = { display: "block", textDecoration: "none", color: t.text };
-const previewBtn: React.CSSProperties = { fontSize: 12, color: t.accent, background: "none", border: `1px solid ${t.border2}`, borderRadius: 20, padding: "4px 12px", cursor: "pointer" };
-const connectCard: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "center", border: `1px dashed ${t.border2}`, borderRadius: 12, padding: "14px 16px", textDecoration: "none", color: t.textMuted, fontSize: 13 };
-const queueRow: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderBottom: `1px solid ${t.border}`, textDecoration: "none" };
+const field: React.CSSProperties = {
+  background: "var(--bg-soft)",
+  border: "1px solid var(--line)",
+  borderRadius: "0.55rem",
+  padding: "0.55rem 0.7rem",
+  color: "var(--fg)",
+  font: "inherit",
+  fontSize: "0.9rem",
+  minWidth: 140,
+};
+const queueRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "0.7rem 1rem",
+  borderBottom: "1px solid var(--line-soft)",
+  textDecoration: "none",
+};

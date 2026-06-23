@@ -2,99 +2,112 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { t } from "../lib/theme";
+import {
+  NavSidebar,
+  SidebarBrand,
+  Nav,
+  NavGroup,
+  NavLink,
+  SidebarUser,
+  SidebarFoot,
+} from "@cold-code-labs/yggdrasil-react";
+import {
+  LayoutGrid,
+  Gauge,
+  Sparkles,
+  BookText,
+  Plus,
+  List,
+  Users,
+  Settings,
+} from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 
-const NAV = [
-  { href: "/", label: "Fleet", icon: "▦", desc: "All repos & queues" },
-  { href: "/dashboard", label: "Dashboard", icon: "◴", desc: "Numbers at a glance" },
-  { href: "/connect", label: "Connect", icon: "＋", desc: "Add CCL repos" },
-  { href: "/plan", label: "Planejador", icon: "✦", desc: "Intent → cards → PR" },
-  { href: "/mimir", label: "Mímir", icon: "✧", desc: "Prompts & refine" },
-  { href: "/history", label: "History", icon: "≡", desc: "All tasks & PRs" },
-  { href: "/users", label: "Users", icon: "◐", desc: "Seats & subscriptions" },
-  { href: "/settings", label: "Settings", icon: "⚙", desc: "Project & runner" },
+const FORGE = [
+  { href: "/", label: "Fleet", icon: <LayoutGrid /> },
+  { href: "/dashboard", label: "Dashboard", icon: <Gauge /> },
+  { href: "/plan", label: "Planejador", icon: <Sparkles /> },
+  { href: "/mimir", label: "Mímir", icon: <BookText /> },
 ] as const;
 
-type SidebarUser = { name: string; role?: string; authDisabled: boolean };
+const MANAGE = [
+  { href: "/connect", label: "Connect", icon: <Plus /> },
+  { href: "/history", label: "History", icon: <List /> },
+  { href: "/users", label: "Users", icon: <Users /> },
+  { href: "/settings", label: "Settings", icon: <Settings /> },
+] as const;
 
-export default function Sidebar({ user }: { user?: SidebarUser }) {
+type SidebarUserProps = { name: string; role?: string; authDisabled: boolean };
+
+export default function Sidebar({ user }: { user?: SidebarUserProps }) {
   const path = usePathname();
-  return (
-    <nav style={rail}>
-      <div style={{ padding: "22px 18px 18px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/brokk.svg" alt="Brokk" width={22} height={31} style={{ display: "block" }} />
-          <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: -0.4 }}>Brokk</span>
-          <span style={{ marginLeft: "auto" }}>
-            <ThemeToggle />
-          </span>
-        </div>
-        <p style={{ margin: "4px 0 0 31px", fontSize: 11, color: t.textFaint }}>the mega forge</p>
-      </div>
+  const isActive = (href: string) =>
+    href === "/" ? path === "/" : path.startsWith(href);
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 10px" }}>
-        {NAV.map((n) => {
-          const active = n.href === "/" ? path === "/" : path.startsWith(n.href);
-          return (
-            <Link key={n.href} href={n.href} style={item(active)}>
-              <span style={{ fontSize: 15, width: 18, textAlign: "center", opacity: active ? 1 : 0.7 }}>{n.icon}</span>
-              <span style={{ display: "flex", flexDirection: "column" }}>
-                <span style={{ fontSize: 13.5, fontWeight: active ? 600 : 500 }}>{n.label}</span>
-                <span style={{ fontSize: 10.5, color: t.textFaint }}>{n.desc}</span>
-              </span>
-            </Link>
-          );
-        })}
-      </div>
+  return (
+    <NavSidebar>
+      <SidebarBrand
+        mark={
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src="/brokk.svg" alt="" width={16} height={22} />
+        }
+        name="Brokk"
+      >
+        <span style={{ marginLeft: "auto" }}>
+          <ThemeToggle />
+        </span>
+      </SidebarBrand>
+
+      <Nav>
+        <NavGroup label="Forge">
+          {FORGE.map((n) => (
+            <NavLink
+              key={n.href}
+              as={Link}
+              href={n.href}
+              icon={n.icon}
+              active={isActive(n.href)}
+            >
+              {n.label}
+            </NavLink>
+          ))}
+        </NavGroup>
+        <NavGroup label="Manage">
+          {MANAGE.map((n) => (
+            <NavLink
+              key={n.href}
+              as={Link}
+              href={n.href}
+              icon={n.icon}
+              active={isActive(n.href)}
+            >
+              {n.label}
+            </NavLink>
+          ))}
+        </NavGroup>
+      </Nav>
 
       {user ? (
-        <div style={{ marginTop: "auto", padding: "12px 16px", borderTop: `1px solid ${t.border}` }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: t.text }}>{user.name}</div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 3 }}>
-            <span style={{ fontSize: 10.5, color: t.textFaint }}>
-              {user.role ?? ""}
-              {user.authDisabled ? "auth off" : ""}
-            </span>
-            <a href="/sign-out" style={{ fontSize: 11, color: t.textMuted, textDecoration: "none" }}>
+        <SidebarUser
+          name={user.name}
+          role={user.authDisabled ? "auth off" : user.role}
+          action={
+            <a href="/sign-out" className="ygg-sidebar-signout">
               sign out
             </a>
-          </div>
-        </div>
+          }
+        />
       ) : null}
 
-      <div style={{ marginTop: user ? 0 : "auto", padding: 16, borderTop: `1px solid ${t.border}` }}>
-        <a href="https://github.com/cold-code-labs/brokk" target="_blank" rel="noreferrer" style={{ fontSize: 11, color: t.textFaint, textDecoration: "none" }}>
+      <SidebarFoot>
+        <a
+          href="https://github.com/cold-code-labs/brokk"
+          target="_blank"
+          rel="noreferrer"
+        >
           cold-code-labs/brokk ↗
         </a>
-      </div>
-    </nav>
+      </SidebarFoot>
+    </NavSidebar>
   );
-}
-
-const rail: React.CSSProperties = {
-  width: 220,
-  flexShrink: 0,
-  height: "100vh",
-  position: "sticky",
-  top: 0,
-  display: "flex",
-  flexDirection: "column",
-  background: t.surface,
-  borderRight: `1px solid ${t.border}`,
-};
-
-function item(active: boolean): React.CSSProperties {
-  return {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "9px 11px",
-    borderRadius: 9,
-    textDecoration: "none",
-    color: active ? t.text : t.textMuted,
-    background: active ? t.surface3 : "transparent",
-    border: `1px solid ${active ? t.border2 : "transparent"}`,
-  };
 }
