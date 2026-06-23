@@ -1,0 +1,16 @@
+Brokk
+Copyright 2026 Cold Code Labs
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It builds on, and is designed to be deployed alongside, the following independent
+open-source projects, each under its own license and copyright:
+
+  - Claude Agent SDK    https://github.com/anthropics/claude-agent-sdk-typescript
+  - Hono                https://hono.dev/
+  - Next.js             https://nextjs.org/
+  - Drizzle ORM         https://orm.drizzle.team/
+  - PostgreSQL          https://www.postgresql.org/
+  - Traefik             https://traefik.io/
+  - Semgrep             https://semgrep.dev/
+  - Trivy               https://trivy.dev/

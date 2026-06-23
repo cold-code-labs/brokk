@@ -29,13 +29,19 @@ routing the agent through a proxy (`ANTHROPIC_BASE_URL`).
 pnpm monorepo · **Hono** API · **Next 15** web · **Drizzle + Postgres**. (Same mold as Heimdall OSS.)
 
 ```
-apps/api      @brokk/api      Hono control plane (tasks, queue, runs, webhooks)
-apps/web      @brokk/web      Next 15 kanban board
-packages/core @brokk/core     domain types + ports (AgentEngine, GitProvider)
-packages/db   @brokk/db       Drizzle schema + Postgres store
-packages/runner @brokk/runner Claude Agent SDK runner (worktrees, gh) — runs on a worker host
-packages/sdk  @brokk/sdk      typed API client
+apps/api        @brokk/api      Hono control plane (tasks, queue, runs, webhooks)
+apps/web        @brokk/web      Next 15 kanban board
+apps/gateway    @brokk/gateway  wildcard *.preview reverse proxy (on-demand dev previews)
+packages/core   @brokk/core     domain types + ports (AgentEngine, GitProvider) — no deps
+packages/db     @brokk/db       Drizzle schema + Postgres store
+packages/mimir  @brokk/mimir    the counselor — prompt triage + enhancer + planner (card → DAG)
+packages/runner @brokk/runner   Claude Agent SDK runner (worktrees, gh) — the forge
+packages/eitri  @brokk/eitri    the reviewer — semgrep + trivy + LLM review on every PR
+packages/sdk    @brokk/sdk      typed API client
 ```
+
+The forge is a trio: **Mímir advises** (qualifies the prompt, fans it into a DAG of cards) →
+**Brokkr forges** (one worktree per card) → **Eitri reviews** (security scan + LLM, on every PR).
 
 ## Quickstart (dev)
 ```bash
@@ -78,11 +84,12 @@ It builds the new image, brings a second replica up beside the live one, waits f
 healthcheck, then drains and removes the old one (and rolls back automatically if the
 new replica never goes healthy).
 
-**The forge worker** (`runner`) ships with `git`, `gh`, and the Claude Code CLI. To let
-the agent *build and run* a target repo, mount the host Docker socket (it launches builds
-as sibling containers — "Docker-out-of-Docker"); see the commented block in
-`docker-compose.yml`. That's root-equivalent on the host, so it's single-tenant self-host
-only — multi-tenant wants rootless/microVM isolation.
+**The forge worker** (`runner`) ships with `git`, `gh`, and the Claude Code CLI, and forges
+each change in an isolated git **worktree** — that's all it needs, and it's how CCL runs it.
+Mounting the host Docker socket is **opt-in**, only for letting the agent *build and run* a
+target repo (it launches builds as sibling containers — "Docker-out-of-Docker"); see the
+commented block in `docker-compose.yml`. That's root-equivalent on the host, so it's
+single-tenant self-host only — multi-tenant wants rootless/microVM isolation.
 
 > CCL runs this on Coolify (a Docker Compose resource → `web` routed at
 > `brokk.coldcodelabs.com`); any orchestrator with healthcheck-aware rolling works the same.
