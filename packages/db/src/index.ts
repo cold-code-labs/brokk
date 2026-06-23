@@ -1238,4 +1238,25 @@ export async function ensureSchema(db: Db): Promise<void> {
   // NOTE: enums + tables are authored in schema.ts; for production use
   // `pnpm --filter @brokk/db db:push`. This bootstrap is intentionally a no-op
   // placeholder so the API can boot against a freshly-pushed database.
+
+  // Per-repo memory embeddings (#2 semantic recall) live in a side table kept OUT
+  // of the drizzle schema (so `drizzle-kit push` never trips on the pgvector type).
+  // Ensure it on every boot so it SELF-HEALS: a hand-applied table doesn't survive
+  // a shared-cluster image rebuild, but the app re-creates it here. Best-effort —
+  // if pgvector is unavailable the table is skipped and memory recall falls back to
+  // weight order (see searchRepoMemories), so the forge never breaks.
+  try {
+    await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector;`).catch(() => {});
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS repo_memory_embeddings (
+      memory_id uuid PRIMARY KEY REFERENCES repo_memories(id) ON DELETE CASCADE,
+      embedding vector(1536) NOT NULL,
+      model text NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS repo_memory_embeddings_hnsw
+      ON repo_memory_embeddings USING hnsw (embedding vector_cosine_ops);`);
+  } catch {
+    // pgvector not available (extension/type missing) — semantic recall stays
+    // dormant; weight-ordered memory still works.
+  }
 }
