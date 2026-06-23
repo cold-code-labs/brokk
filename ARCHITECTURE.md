@@ -3,7 +3,7 @@
 > CCL's open-source AI **coding-agent** platform. The **code** pillar of the triad:
 > **Hauldr** (data) · **Heimdall** (deploy) · **Brokk** (code).
 > Named after the dwarf smith who forged the gods' tools (Mjölnir, Gungnir, Draupnir).
-> **Private first** (`cold-code-labs/brokk`), Apache-2.0 once hardened.
+> **Open-source, Apache-2.0** (`cold-code-labs/brokk`) — public alongside Hauldr and Heimdall.
 
 ## 1. What it is
 Card/issue → an AI agent **forges** the code in an isolated git worktree → opens a Pull Request.

@@ -14,7 +14,7 @@ Brokk is the **code** pillar of the CCL triad:
 | **Heimdall** | deploy | control plane over Coolify |
 | **Brokk** | **code** | **card → agent forges code → Pull Request** |
 
-> Private first; **Apache-2.0** once hardened.
+> **Open-source — Apache-2.0.** Public alongside Hauldr and Heimdall.
 
 ## How it works
 A card (issue) goes on the board → a **runner** picks it up → spins an isolated git
@@ -99,5 +99,5 @@ single-tenant self-host only — multi-tenant wants rootless/microVM isolation.
 into a DAG of cards → a runner forges each in an isolated worktree → opens a PR; **Eitri**
 reviews every PR (semgrep + trivy + LLM) and a webhook closes the plan on merge. Brokk runs
 in production on **surtr** — container-first, blue/green `web` behind Traefik — and powers
-an on-demand **dev preview lane** (`*.preview.coldcodelabs.com`). Still private; Apache-2.0
-once hardened. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design and roadmap.
+an on-demand **dev preview lane** (`*.preview.coldcodelabs.com`). **Apache-2.0**, public
+alongside Heimdall and Hauldr. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design and roadmap.
