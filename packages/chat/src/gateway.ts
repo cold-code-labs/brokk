@@ -25,6 +25,8 @@ export interface MessagesRequest {
   maxTokens: number;
   /** Extended thinking budget (tokens). Omit/0 = thinking off. */
   thinkingBudget?: number;
+  /** Force a specific tool (e.g. to make the model conclude). Omit = auto. */
+  toolChoice?: { type: "auto" } | { type: "tool"; name: string };
 }
 
 export interface AssistantResult {
@@ -80,6 +82,7 @@ export async function streamAssistant(
       messages: req.messages,
     };
     if (req.tools.length) body.tools = req.tools;
+    if (req.toolChoice) body.tool_choice = req.toolChoice;
     if (req.thinkingBudget && req.thinkingBudget > 0) {
       body.thinking = { type: "enabled", budget_tokens: req.thinkingBudget };
     }

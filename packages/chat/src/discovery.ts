@@ -95,11 +95,12 @@ const SYSTEM = `You are Huginn, Brokk's discovery scout — a raven that surveys
 
 You are given a read-only git checkout of a repository. Explore it with the bash tool to understand the product, then submit ONE structured brief.
 
-How to explore (be efficient, ~6-15 commands):
+How to explore (be EFFICIENT — aim to conclude within ~10 commands; you do NOT need to read everything, a representative sample is enough even for a large repo):
 - Read the README and any docs/ first — they state the mission.
-- List the top-level structure (ls, find -maxdepth 2) and read package manifests (package.json, etc.) for the stack and scripts.
+- List the top-level structure (ls, find -maxdepth 2) and read the root + a couple of package manifests for the stack and scripts.
 - Skim the main entrypoints, routes, and feature folders to see what's actually built.
 - Use git log --oneline -20 to sense momentum and recent direction.
+- Don't exhaustively read every package — once you grasp the shape, submit. A large monorepo does not need a file-by-file tour.
 
 Then call submit_brief with:
 - mission: the product's purpose in 1-2 sentences (infer it from README + code, don't invent).
@@ -205,5 +206,39 @@ export async function runDiscovery(input: RunDiscoveryInput): Promise<DiscoveryB
     messages.push({ role: "user", content: resultBlocks as ContentBlock[] });
   }
 
+  // Exploration budget spent without a voluntary brief (common on large repos,
+  // where the scout keeps reading). Force a conclusion: one final call that MUST
+  // call submit_brief, so we always get a grounded brief from what it has seen.
+  if (signal?.aborted) throw new Error("discovery aborted");
+  onProgress?.("forcing conclusion");
+  messages.push({
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: "You've explored enough. Submit the brief NOW with submit_brief, based on what you've already seen. Do not run any more commands.",
+      },
+    ],
+  });
+  const finalResult = await streamAssistant(
+    cfg,
+    {
+      model,
+      system: SYSTEM,
+      messages,
+      tools,
+      maxTokens: 2048,
+      toolChoice: { type: "tool", name: "submit_brief" },
+    },
+    () => {},
+    signal,
+  );
+  const forced = finalResult.blocks.find(
+    (b): b is ToolUseBlock => b.type === "tool_use" && b.name === "submit_brief",
+  );
+  if (forced) {
+    onProgress?.("brief submitted (forced)");
+    return coerceBrief(forced.input);
+  }
   throw new Error(`discovery did not converge within ${maxRounds} rounds`);
 }
