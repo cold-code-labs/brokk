@@ -52,12 +52,15 @@ import {
 } from "../lib/chat";
 import type { Project } from "@brokk/sdk";
 
+// Haiku-only while we mature Sindri on the shared Max seat: Sonnet/Opus reserve
+// a large output-token window and 429 when the seat is busy, so we keep the
+// selectable set to Haiku (most generous quota). The backend still resolves
+// "sonnet"/"opus" — re-enable here when the seat economics change.
 const MODELS = [
-  { id: "sonnet", label: "Sonnet" },
-  { id: "opus", label: "Opus" },
   { id: "haiku", label: "Haiku" },
 ];
 
+// All known aliases, for rendering historical sessions that ran Sonnet/Opus.
 const MODEL_LABEL: Record<string, string> = { sonnet: "Sonnet", opus: "Opus", haiku: "Haiku" };
 
 // ── small formatters ─────────────────────────────────────────────────────────
@@ -102,7 +105,7 @@ function sessionTime(s: ChatSessionWithStats): string {
 export default function Chat() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectId, setProjectId] = useState("");
-  const [model, setModel] = useState("sonnet");
+  const [model, setModel] = useState("haiku");
   const [sessions, setSessions] = useState<ChatSessionWithStats[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -207,7 +210,11 @@ export default function Chat() {
     setRenaming(false);
     liveSeqRef.current = -1;
     const { session, messages: msgs, running: live } = await chat.getSession(id);
-    setModel(session.model);
+    // Coerce any session left on a now-disabled model (Sonnet/Opus) to Haiku, so
+    // reopening an older chat can't fire a turn on a model we've taken out of play.
+    const selectable = MODELS.some((m) => m.id === session.model);
+    setModel(selectable ? session.model : "haiku");
+    if (!selectable) chat.patchSession(id, { model: "haiku" }).catch(() => {});
     setMessages(msgs);
     liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
     if (live) {

@@ -83,7 +83,7 @@ export function buildSindri(deps: SindriDeps): Hono {
     const created = await deps.store.insertChatSession({
       projectId: project.id,
       title: parsed.data.title ?? "New chat",
-      model: parsed.data.model ?? "sonnet",
+      model: parsed.data.model ?? "haiku",
       effort: parsed.data.effort ?? null,
       createdBy: parsed.data.createdBy ?? null,
     });

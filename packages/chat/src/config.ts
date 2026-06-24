@@ -45,7 +45,7 @@ export function loadChatConfig(env: NodeJS.ProcessEnv = process.env): ChatConfig
 /** Resolve a session's model alias to the concrete id the gateway expects. An
  *  already-concrete id (contains "-") passes through untouched. */
 export function resolveModel(cfg: ChatConfig, alias: string): string {
-  const a = (alias || "sonnet").toLowerCase();
+  const a = (alias || "haiku").toLowerCase();
   if (a === "haiku" || a === "sonnet" || a === "opus") return cfg.models[a];
   return alias; // already a concrete model id
 }
