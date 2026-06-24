@@ -103,6 +103,9 @@ export interface BrokkClient {
   createTask(input: CreateTaskInput): Promise<Task>;
   patchTask(id: string, patch: Partial<Task>): Promise<Task>;
   enqueueTask(id: string): Promise<Task>;
+  /** Huginn Phase 2: create proposed backlog cards from a project's discovery
+   *  brief (one per "missing" item). Idempotent — re-running skips carded items. */
+  backlogFromBrief(projectId: string): Promise<{ created: Task[]; skipped: number }>;
   listTaskRuns(id: string): Promise<Run[]>;
   getRun(id: string): Promise<Run>;
   /** Subscribe to a run's live event stream (SSE). Returns an unsubscribe fn. */
@@ -209,6 +212,12 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     },
     enqueueTask(id) {
       return req<Task>("POST", `/tasks/${encodeURIComponent(id)}/enqueue`);
+    },
+    backlogFromBrief(projectId) {
+      return req<{ created: Task[]; skipped: number }>(
+        "POST",
+        `/projects/${encodeURIComponent(projectId)}/backlog-from-brief`,
+      );
     },
     getRun(id) {
       return req<Run>("GET", `/runs/${encodeURIComponent(id)}`);

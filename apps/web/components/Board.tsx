@@ -252,6 +252,8 @@ function BriefPanel({ projectId }: { projectId: string }) {
   const [running, setRunning] = useState(false);
   const [open, setOpen] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  const [genBusy, setGenBusy] = useState(false);
+  const [genMsg, setGenMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -284,6 +286,27 @@ function BriefPanel({ projectId }: { projectId: string }) {
       setBrief((b) => (b ? { ...b, status: "pending" } : b));
     } catch {
       /* ignore */
+    }
+  }
+
+  // Phase 2: materialize the brief's "missing" items as proposed backlog cards.
+  // They land in the Backlog column; approve each with the existing "queue →".
+  async function generateBacklog() {
+    setGenBusy(true);
+    setGenMsg(null);
+    try {
+      const { created, skipped } = await brokk.backlogFromBrief(projectId);
+      setGenMsg(
+        created.length
+          ? `${created.length} card${created.length > 1 ? "s" : ""} no backlog${skipped ? ` · ${skipped} já existiam` : ""} — aprove com “queue →”.`
+          : skipped
+            ? `Todos os ${skipped} itens já viraram cards.`
+            : "Nada para gerar.",
+      );
+    } catch (e) {
+      setGenMsg(`Erro: ${String(e)}`);
+    } finally {
+      setGenBusy(false);
     }
   }
 
@@ -336,9 +359,17 @@ function BriefPanel({ projectId }: { projectId: string }) {
                   ))}
                 </div>
               )}
-              <p className="ygg-dim" style={{ fontSize: 11, margin: 0 }}>
-                Em breve: transformar os itens de “Faltando” em plan-cards para aprovação.
-              </p>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={generateBacklog}
+                  disabled={genBusy || brief.missing.length === 0}
+                >
+                  {genBusy ? "Gerando…" : `Gerar cards do backlog (${brief.missing.length})`}
+                </Button>
+                {genMsg && <span className="ygg-dim" style={{ fontSize: 12 }}>{genMsg}</span>}
+              </div>
             </div>
           )}
         </>
