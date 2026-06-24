@@ -9,25 +9,34 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Brand: big logo stacked over the name */
+/* Brand: the mascot stands on its own — no box, no border. A clean lockup of the
+   illustration beside the wordmark. */
 .brokk-brand {
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.7rem;
+  padding: 0.1rem 0.4rem 1.4rem;
 }
 .brokk-brand .ygg-brand-mark {
-  width: 4.5rem;
-  height: 4.5rem;
-  border-radius: 1rem;
-  padding: 0.7rem;
+  width: auto;
+  height: 3rem;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  display: block;
+  place-items: initial;
 }
 .brokk-brand .ygg-brand-mark img {
-  width: 100%;
-  height: auto;
+  width: auto;
+  height: 100%;
   display: block;
 }
 .brokk-brand .ygg-brand-name {
-  font-size: 1.25rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 /* ── Sindri (chat) ─────────────────────────────────────────────────────────── */
@@ -35,67 +44,185 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  padding: 1.5rem 1.5rem 1rem;
+  padding: 1.25rem 1.25rem 1rem;
   max-width: none;
   min-width: 0;
 }
-.sindri-controls {
-  display: flex;
-  gap: 0.5rem;
-}
-.sindri-select {
-  background: var(--panel, var(--card));
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 6px);
-  padding: 0.4rem 0.6rem;
-  font-size: 0.85rem;
-}
 .sindri-grid {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   gap: 1rem;
   flex: 1;
   min-height: 0;
-  margin-top: 0.5rem;
 }
 
-/* rail */
+/* ── rail ── */
 .sindri-rail {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.7rem;
   min-height: 0;
 }
+
+/* project switcher */
+.sindri-proj {
+  position: relative;
+}
+.sindri-proj-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+  padding: 0.6rem 0.7rem;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.sindri-proj-btn:hover {
+  border-color: var(--primary);
+}
+.sindri-proj-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+.sindri-proj-name {
+  font-weight: 650;
+  font-size: 0.92rem;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sindri-proj-sub {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+.sindri-proj-caret {
+  color: var(--fg-dim);
+  flex-shrink: 0;
+}
+.sindri-proj-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+}
+.sindri-proj-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 21;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+  box-shadow: var(--shadow-2, 0 8px 28px rgba(0, 0, 0, 0.25));
+  padding: 0.3rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+.sindri-proj-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.45rem 0.55rem;
+  cursor: pointer;
+  color: var(--fg-soft, var(--fg));
+  font-size: 0.86rem;
+}
+.sindri-proj-item:hover {
+  background: var(--panel, var(--bg));
+}
+.sindri-proj-item.is-active {
+  color: var(--fg);
+  font-weight: 600;
+}
+.sindri-proj-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sindri-proj-item svg {
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
 .sindri-new {
   width: 100%;
   justify-content: center;
 }
+
+/* search */
+.sindri-search {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.4rem 0.6rem;
+  color: var(--fg-dim);
+}
+.sindri-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--fg);
+  font-size: 0.84rem;
+}
+
+/* session list */
 .sindri-sessions {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.9rem;
   overflow-y: auto;
   min-height: 0;
+  padding-right: 2px;
 }
 .sindri-empty {
   color: var(--fg-dim);
   font-size: 0.82rem;
   padding: 0.5rem 0.3rem;
 }
+.sindri-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.sindri-group-label {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--fg-dim);
+  padding: 0 0.4rem 0.15rem;
+}
 .sindri-session {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
+  flex-direction: column;
+  gap: 0.35rem;
   text-align: left;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm, 6px);
-  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-sm, 8px);
+  padding: 0.55rem 0.6rem;
   color: var(--fg-soft, var(--fg));
   cursor: pointer;
-  font-size: 0.86rem;
   transition: background 0.12s, border-color 0.12s;
 }
 .sindri-session:hover {
@@ -103,8 +230,13 @@ body {
 }
 .sindri-session.is-active {
   background: var(--panel, var(--card));
-  border-color: var(--border);
-  color: var(--fg);
+  border-color: var(--primary);
+}
+.sindri-session-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
 }
 .sindri-session-title {
   display: flex;
@@ -113,18 +245,47 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.88rem;
+  color: var(--fg);
 }
 .sindri-session-del {
   opacity: 0;
   color: var(--fg-dim);
   flex-shrink: 0;
+  transition: opacity 0.12s, color 0.12s;
 }
 .sindri-session:hover .sindri-session-del {
-  opacity: 0.7;
+  opacity: 0.65;
 }
 .sindri-session-del:hover {
   opacity: 1 !important;
-  color: var(--accent, #f85149);
+  color: #f85149;
+}
+.sindri-session-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+.sindri-chip {
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg-soft, var(--fg));
+}
+.sindri-meta-bit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+}
+.sindri-meta-time {
+  margin-left: auto;
 }
 .sindri-dot {
   width: 7px;
@@ -141,13 +302,13 @@ body {
   100% { box-shadow: 0 0 0 0 rgba(46, 160, 67, 0); }
 }
 
-/* main pane */
+/* ── main pane ── */
 .sindri-main {
   display: flex;
   flex-direction: column;
   min-height: 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius, 10px);
+  border-radius: var(--radius, 12px);
   background: var(--bg-soft, var(--card));
   overflow: hidden;
 }
@@ -158,38 +319,146 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.7rem;
   padding: 2rem;
+}
+.sindri-blank-mark {
+  display: grid;
+  place-items: center;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 1rem;
+  background: var(--panel, var(--bg));
+  border: 1px solid var(--border);
+  color: var(--primary);
+  margin-bottom: 0.3rem;
 }
 .sindri-blank h3 {
   color: var(--fg);
   margin: 0;
+  font-size: 1.1rem;
 }
 .sindri-blank p {
   margin: 0 0 0.6rem;
-  max-width: 28rem;
+  max-width: 30rem;
+  line-height: 1.55;
 }
-.sindri-branchbar {
+
+/* session header */
+.sindri-head {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.9rem;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.76rem;
-  color: var(--fg-dim);
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem 0.7rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel, transparent);
 }
+.sindri-head-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.sindri-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 650;
+  color: var(--fg);
+  line-height: 1.2;
+}
+.sindri-title-edit {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--fg-dim);
+  opacity: 0;
+  display: inline-flex;
+  transition: opacity 0.12s, color 0.12s;
+}
+.sindri-title:hover .sindri-title-edit {
+  opacity: 0.7;
+}
+.sindri-title-edit:hover {
+  opacity: 1;
+  color: var(--primary);
+}
+.sindri-title-input {
+  font-size: 1.02rem;
+  font-weight: 650;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.2rem 0.5rem;
+  outline: none;
+  min-width: 16rem;
+}
+.sindri-head-ctx {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.sindri-ctx-bit {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+}
+.sindri-ctx-branch {
+  font-family: var(--font-mono, monospace);
+}
+.sindri-head-right {
+  flex-shrink: 0;
+}
+.sindri-select {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+/* stats strip */
+.sindri-stats {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.sindri-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  color: var(--fg-dim);
+}
+.sindri-stat svg {
+  color: var(--primary);
+  opacity: 0.85;
+}
+.sindri-stat-time {
+  margin-left: auto;
+}
+
+/* thread */
 .sindri-thread {
   flex: 1;
   overflow-y: auto;
-  padding: 1.2rem;
+  padding: 1.3rem;
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
+  gap: 1rem;
 }
-
-/* messages */
 .sindri-msg {
   display: flex;
 }
@@ -198,26 +467,103 @@ body {
 }
 .sindri-bubble {
   max-width: 80%;
-  border-radius: var(--radius, 10px);
-  padding: 0.7rem 0.9rem;
+  border-radius: var(--radius, 12px);
+  padding: 0.75rem 0.95rem;
   font-size: 0.9rem;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 .sindri-msg.is-user .sindri-bubble {
   background: var(--primary);
   color: var(--primary-foreground);
+  border-bottom-right-radius: 4px;
 }
 .sindri-msg.is-assistant .sindri-bubble {
   background: var(--card);
   border: 1px solid var(--border);
   color: var(--fg);
   max-width: 92%;
+  border-bottom-left-radius: 4px;
 }
 .sindri-text {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
+}
+
+/* markdown */
+.sindri-md {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.sindri-md > *:first-child {
+  margin-top: 0;
+}
+.sindri-md p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sindri-md ul,
+.sindri-md ol {
+  margin: 0;
+  padding-left: 1.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.sindri-mdh {
+  margin: 0.2rem 0 0;
+  font-weight: 650;
+  line-height: 1.3;
+}
+h4.sindri-mdh { font-size: 1rem; }
+h5.sindri-mdh { font-size: 0.92rem; }
+h6.sindri-mdh { font-size: 0.86rem; color: var(--fg-soft, var(--fg)); }
+.sindri-icode {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.84em;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.05rem 0.32rem;
+}
+.sindri-msg.is-user .sindri-icode {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.sindri-codeblock {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  overflow: hidden;
+  background: var(--bg);
+}
+.sindri-codeblock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel, var(--card));
+  font-family: var(--font-mono, monospace);
+  font-size: 0.68rem;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  color: var(--fg-dim);
+}
+.sindri-codeblock-head button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--fg-dim);
+  font-size: 0.68rem;
+}
+.sindri-codeblock-head button:hover {
+  color: var(--fg);
 }
 
 /* tool calls */
@@ -277,8 +623,12 @@ body {
   font-family: var(--font-mono, monospace);
   font-size: 0.76rem;
   color: var(--fg-soft, var(--fg));
-  max-height: 18rem;
+  max-height: 22rem;
   overflow: auto;
+  padding: 0.6rem;
+}
+.sindri-tool-body .sindri-pre {
+  padding: 0;
 }
 
 /* status + composer */
@@ -316,7 +666,7 @@ body {
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 6px);
+  border-radius: var(--radius-sm, 8px);
   padding: 0.6rem 0.7rem;
   font-family: inherit;
   font-size: 0.9rem;

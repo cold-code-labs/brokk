@@ -2,6 +2,7 @@ import type {
   Agent,
   ChatMessage,
   ChatSession,
+  ChatSessionStats,
   ChatSessionStatus,
   ChatTurnState,
   ForcaLevel,
@@ -544,6 +545,9 @@ export interface Store {
 
   // sindri (interactive chat): per-project sessions + transcript
   listChatSessions(opts?: { projectId?: string; status?: ChatSessionStatus }): Promise<ChatSession[]>;
+  /** Aggregate stats (message count, token totals, last activity) keyed by
+   *  session id, for the given sessions. One grouped query, no transcript load. */
+  chatSessionStats(sessionIds: string[]): Promise<Map<string, ChatSessionStats>>;
   getChatSession(id: string): Promise<ChatSession | null>;
   insertChatSession(values: typeof chatSessions.$inferInsert): Promise<ChatSession>;
   updateChatSession(id: string, patch: Partial<typeof chatSessions.$inferInsert>): Promise<ChatSession>;
@@ -1286,6 +1290,32 @@ export function createStore(db: Db): Store {
         ? await db.select().from(chatSessions).where(and(...conds)).orderBy(desc(chatSessions.updatedAt))
         : await db.select().from(chatSessions).orderBy(desc(chatSessions.updatedAt));
       return rows.map(rowToChatSession);
+    },
+    async chatSessionStats(sessionIds) {
+      const out = new Map<string, ChatSessionStats>();
+      if (sessionIds.length === 0) return out;
+      // Token usage lives in assistant rows under meta.usage; sum input+cacheRead
+      // for "in" so cache hits still count as context fed to the model.
+      const rows = await db
+        .select({
+          sessionId: chatMessages.sessionId,
+          messages: sql<number>`count(*)::int`,
+          tokensIn: sql<number>`coalesce(sum(((${chatMessages.meta}->'usage'->>'inputTokens')::bigint) + ((${chatMessages.meta}->'usage'->>'cacheReadTokens')::bigint)), 0)::bigint`,
+          tokensOut: sql<number>`coalesce(sum((${chatMessages.meta}->'usage'->>'outputTokens')::bigint), 0)::bigint`,
+          lastMessageAt: sql<string | null>`max(${chatMessages.createdAt})`,
+        })
+        .from(chatMessages)
+        .where(inArray(chatMessages.sessionId, sessionIds))
+        .groupBy(chatMessages.sessionId);
+      for (const r of rows) {
+        out.set(r.sessionId, {
+          messages: Number(r.messages) || 0,
+          tokensIn: Number(r.tokensIn) || 0,
+          tokensOut: Number(r.tokensOut) || 0,
+          lastMessageAt: r.lastMessageAt ? new Date(r.lastMessageAt).toISOString() : null,
+        });
+      }
+      return out;
     },
     async getChatSession(id) {
       const rows = await db.select().from(chatSessions).where(eq(chatSessions.id, id)).limit(1);

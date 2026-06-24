@@ -28,6 +28,16 @@ export interface ChatSession {
   updatedAt: string;
 }
 
+/** Aggregate counters for a session (from the ?stats=1 list view). */
+export interface ChatSessionStats {
+  messages: number;
+  tokensIn: number;
+  tokensOut: number;
+  lastMessageAt: string | null;
+}
+
+export type ChatSessionWithStats = ChatSession & { stats: ChatSessionStats };
+
 export interface ChatMessage {
   id: string;
   sessionId: string;
@@ -63,7 +73,10 @@ async function j<T>(method: string, path: string, body?: unknown): Promise<T> {
 
 export const chat = {
   listSessions: (projectId: string) =>
-    j<{ sessions: ChatSession[] }>("GET", `/sessions?projectId=${encodeURIComponent(projectId)}`).then((r) => r.sessions),
+    j<{ sessions: ChatSessionWithStats[] }>(
+      "GET",
+      `/sessions?stats=1&projectId=${encodeURIComponent(projectId)}`,
+    ).then((r) => r.sessions),
   createSession: (input: { projectId: string; model?: string; effort?: string }) =>
     j<{ session: ChatSession }>("POST", "/sessions", input).then((r) => r.session),
   getSession: (id: string) =>

@@ -641,6 +641,19 @@ export interface ChatSession {
   updatedAt: string;
 }
 
+/** Aggregate counters for one chat session, derived from its messages. Lets the
+ *  session rail show real stats (volume + token spend) without loading every
+ *  transcript. `lastMessageAt` is the freshest activity, used for recency sorting. */
+export interface ChatSessionStats {
+  messages: number;
+  tokensIn: number;
+  tokensOut: number;
+  lastMessageAt: string | null;
+}
+
+/** A session decorated with its aggregate stats (the rail/list view). */
+export type ChatSessionWithStats = ChatSession & { stats: ChatSessionStats };
+
 /** One step of the transcript: a user prompt, an assistant round (text +
  *  tool_use), or a tool_result batch. `blocks` are Anthropic content blocks. */
 export interface ChatMessage {

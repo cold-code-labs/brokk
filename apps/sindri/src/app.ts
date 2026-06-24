@@ -61,6 +61,16 @@ export function buildSindri(deps: SindriDeps): Hono {
     const projectId = c.req.query("projectId") || undefined;
     const status = (c.req.query("status") as "active" | "archived") || undefined;
     const sessions = await deps.store.listChatSessions({ projectId, status });
+    // ?stats=1 decorates each session with its aggregate counters (one grouped
+    // query), so the rail can show volume + token spend at a glance.
+    if (c.req.query("stats")) {
+      const stats = await deps.store.chatSessionStats(sessions.map((s) => s.id));
+      const decorated = sessions.map((s) => ({
+        ...s,
+        stats: stats.get(s.id) ?? { messages: 0, tokensIn: 0, tokensOut: 0, lastMessageAt: null },
+      }));
+      return c.json({ sessions: decorated });
+    }
     return c.json({ sessions });
   });
 
