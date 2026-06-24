@@ -80,6 +80,9 @@ importers:
       '@brokk/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@brokk/mimir':
+        specifier: workspace:*
+        version: link:../../packages/mimir
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.14(hono@4.12.27)

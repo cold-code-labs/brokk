@@ -8,6 +8,7 @@ import {
 } from "@brokk/chat";
 import type { Store } from "@brokk/db";
 import type { Repository } from "@brokk/core";
+import { planJob, type MimirConfig } from "@brokk/mimir";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
@@ -259,6 +260,9 @@ async function runSessionTurn(
     store: deps.store,
     baseBranch: project.baseBranch,
     onDomainEvent: (e) => emit({ type: "status", phase: e.kind, detail: e.detail }),
+    // The plan_work tool bridges to Mímir — Haiku decides to plan, the strong
+    // planner decomposes, the cards land in the backlog (proposed) for approval.
+    planWork: (intent) => runPlan(deps, project, intent),
   };
   const system = await buildSystemPrompt({
     cwd: path,
@@ -274,6 +278,74 @@ async function runSessionTurn(
   } finally {
     await deps.store.updateChatSession(session.id, { turnState: "idle" }).catch(() => {});
   }
+}
+
+/** Mímir config for Sindri's plan_work — openai-mode against the CCL gateway
+ *  (LiteLLM → Ratatoskr), the same proven path the /plan page uses in prod. We
+ *  force this transport because Sindri's image has no `claude` CLI (the planner's
+ *  default). Planning runs on the STRONG model; SINDRI_PLAN_MODEL can override
+ *  (e.g. to haiku) when the shared seat is tight. */
+function plannerConfig(): MimirConfig | null {
+  const apiKey = process.env.MIMIR_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || "";
+  if (!apiKey) return null;
+  const gw = (process.env.ANTHROPIC_BASE_URL || "http://127.0.0.1:4000").replace(/\/$/, "");
+  const baseUrl = process.env.MIMIR_BASE_URL || `${gw}/v1`;
+  const model = process.env.SINDRI_PLAN_MODEL || process.env.MIMIR_PLANNER_MODEL || "claude-sonnet-4-6";
+  return {
+    provider: "openai",
+    enhanceModel: model,
+    triageModel: model,
+    plannerModel: model,
+    baseUrl,
+    apiKey,
+    claudeBin: "",
+    oauthToken: "",
+    authToken: "",
+    anthropicBaseUrl: "",
+  };
+}
+
+/** The plan_work bridge: decompose an intent via the Mímir planner into PROPOSED
+ *  backlog cards (carrying the planner's acceptance + forca). Backlog is the
+ *  approval gate — nothing runs until a human queues it from the Quadro. */
+async function runPlan(
+  deps: SindriDeps,
+  project: { id: string; baseBranch: string },
+  intent: string,
+): Promise<{ ok: boolean; content: string }> {
+  const cfg = plannerConfig();
+  if (!cfg) return { ok: false, content: "planner unavailable (no gateway credentials)" };
+  let draft;
+  try {
+    draft = await planJob(intent, cfg);
+  } catch (e) {
+    return { ok: false, content: `planner failed: ${(e as Error).message}` };
+  }
+  for (const card of draft.cards) {
+    await deps.store.insertTask({
+      projectId: project.id,
+      title: card.title || intent.slice(0, 60),
+      body: `${card.body}\n\n— planejado pelo Sindri (Mímir)`,
+      status: "backlog",
+      baseBranch: project.baseBranch,
+      createdBy: "sindri-plan",
+      labels: ["plan"],
+      acceptance: card.acceptance || null,
+      forca: card.forca,
+      touches: card.touches,
+    });
+  }
+  const forcas = draft.cards.map((c) => c.forca).join(", ");
+  const questions =
+    draft.questions.length > 0
+      ? ` Dúvidas do planejador (relaie ao usuário antes que ele aprove): ${draft.questions
+          .map((q) => q.question)
+          .join(" | ")}`
+      : "";
+  return {
+    ok: true,
+    content: `Plano "${draft.summary}" (${draft.mode}): ${draft.cards.length} card(s) criados no backlog [forças: ${forcas}]. Aguardam aprovação no Quadro — não rodam até serem enfileirados.${questions}`,
+  };
 }
 
 /** Stream a session's live events over SSE. Unsubscribes (but never aborts the

@@ -33,6 +33,10 @@ export interface ToolContext {
   baseBranch: string;
   /** Called whenever a domain tool mutates Brokk state, so the host can surface it. */
   onDomainEvent?: (e: { kind: string; detail: unknown }) => void;
+  /** Host-provided planner bridge (the `plan_work` tool): decompose an intent via
+   *  Mímir into proposed backlog cards. Injected by the Sindri app (which owns the
+   *  planner config + gateway); absent in contexts without a planner. */
+  planWork?: (intent: string) => Promise<{ ok: boolean; content: string }>;
 }
 
 const MAX_OUT = 60_000; // cap tool output handed back to the model
@@ -144,6 +148,21 @@ export const TOOL_DEFS: ToolDef[] = [
       },
     },
   },
+  {
+    name: "plan_work",
+    description:
+      "Decompose a LARGER, multi-part request into an ordered set of well-scoped work cards using Mímir (the strong planner), and drop them into this project's backlog as PROPOSED cards for human approval. Use this when the user asks for something substantial — spanning multiple files, layers, or features — instead of a single small change (for a small change, use create_card). The cards do NOT execute until a human approves them. If the request is ambiguous, the planner may return clarifying questions for you to relay to the user.",
+    input_schema: {
+      type: "object",
+      properties: {
+        intent: {
+          type: "string",
+          description: "The full request to plan, in the user's own words and language.",
+        },
+      },
+      required: ["intent"],
+    },
+  },
 ];
 
 /** Build the executor bound to one session's checkout + project. */
@@ -234,6 +253,12 @@ export function makeExecutor(ctx: ToolContext): ToolExecutor {
             .map((c) => `- [${c.status}] ${c.title} (${c.id.slice(0, 8)})${c.prUrl ? ` → ${c.prUrl}` : ""}`)
             .join("\n");
           return { ok: true, content: out };
+        }
+        case "plan_work": {
+          if (!ctx.planWork) return { ok: false, content: "planning is not available in this context" };
+          const intent = String(input.intent ?? "").trim();
+          if (!intent) return { ok: false, content: "plan_work needs an intent" };
+          return await ctx.planWork(intent);
         }
         default:
           return { ok: false, content: `unknown tool: ${name}` };
