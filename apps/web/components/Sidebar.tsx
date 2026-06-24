@@ -25,12 +25,18 @@ import {
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 
-const FORGE = [
+// Global / project-agnostic — always see everything.
+const GLOBAL = [
   { href: "/", label: "Fleet", icon: <LayoutGrid /> },
   { href: "/dashboard", label: "Dashboard", icon: <Gauge /> },
+  { href: "/mimir", label: "Mímir", icon: <BookText /> },
+] as const;
+
+// Project-scoped — these operate on the selected Ambiente. (Quadro's href is
+// dynamic, so it's rendered separately.)
+const ENV = [
   { href: "/chat", label: "Sindri", icon: <MessageSquare /> },
   { href: "/plan", label: "Planejador", icon: <Sparkles /> },
-  { href: "/mimir", label: "Mímir", icon: <BookText /> },
 ] as const;
 
 /** Environment switcher — the current project drives every project-scoped page.
@@ -46,10 +52,7 @@ function ProjectSwitcher() {
   }
 
   return (
-    <div style={{ padding: "0 12px 10px" }}>
-      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 0.6, color: "var(--fg-dim)", margin: "0 0 5px 2px" }}>
-        Ambiente
-      </div>
+    <div style={{ padding: "0 12px 8px" }}>
       <select
         value={currentId}
         onChange={(e) => pick(e.target.value)}
@@ -103,15 +106,25 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
         name="Brokk"
       />
 
-      <ProjectSwitcher />
-
       <Nav>
+        {/* Global — agnostic to the selected project; always sees everything. */}
         <NavGroup label="Forge">
-          {/* Fleet (all projects), then Quadro = the current project's board
-              (Huginn discovery + kanban), then the rest. */}
-          <NavLink as={Link} href="/" icon={<LayoutGrid />} active={isActive("/")}>
-            Fleet
-          </NavLink>
+          {GLOBAL.map((n) => (
+            <NavLink
+              key={n.href}
+              as={Link}
+              href={n.href}
+              icon={n.icon}
+              active={isActive(n.href)}
+            >
+              {n.label}
+            </NavLink>
+          ))}
+        </NavGroup>
+
+        {/* Project-scoped — the switcher + the pages that operate on it. */}
+        <NavGroup label="Ambiente">
+          <ProjectSwitcher />
           <NavLink
             as={Link}
             href={currentId ? `/projects/${currentId}` : "/"}
@@ -120,7 +133,7 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
           >
             Quadro
           </NavLink>
-          {FORGE.filter((n) => n.href !== "/").map((n) => (
+          {ENV.map((n) => (
             <NavLink
               key={n.href}
               as={Link}
