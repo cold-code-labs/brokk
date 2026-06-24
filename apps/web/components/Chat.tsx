@@ -413,7 +413,9 @@ export default function Chat() {
                         <Trash2 size={13} className="sindri-session-del" onClick={(e) => removeSession(s.id, e)} />
                       </span>
                       <span className="sindri-session-meta">
-                        <span className="sindri-chip">{MODEL_LABEL[s.model] ?? s.model}</span>
+                        {MODELS.length > 1 ? (
+                          <span className="sindri-chip">{MODEL_LABEL[s.model] ?? s.model}</span>
+                        ) : null}
                         {s.stats.messages > 0 ? (
                           <span className="sindri-meta-bit">
                             <MessageSquare size={11} /> {s.stats.messages}
@@ -501,20 +503,23 @@ export default function Chat() {
                 </div>
 
                 <div className="sindri-head-right">
-                  <select
-                    className="sindri-select"
-                    value={model}
-                    onChange={(e) => {
-                      setModel(e.target.value);
-                      if (sessionId) chat.patchSession(sessionId, { model: e.target.value }).catch(() => {});
-                    }}
-                  >
-                    {MODELS.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
+                  {/* Picker only appears when there's a real choice — Haiku-only today. */}
+                  {MODELS.length > 1 ? (
+                    <select
+                      className="sindri-select"
+                      value={model}
+                      onChange={(e) => {
+                        setModel(e.target.value);
+                        if (sessionId) chat.patchSession(sessionId, { model: e.target.value }).catch(() => {});
+                      }}
+                    >
+                      {MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
                 </div>
               </header>
 
@@ -523,9 +528,11 @@ export default function Chat() {
                 <span className="sindri-stat">
                   <MessageSquare size={13} /> {liveStats.turns} {liveStats.turns === 1 ? "pergunta" : "perguntas"}
                 </span>
-                <span className="sindri-stat">
-                  <Cpu size={13} /> {MODEL_LABEL[currentSession?.model ?? model] ?? model}
-                </span>
+                {MODELS.length > 1 ? (
+                  <span className="sindri-stat">
+                    <Cpu size={13} /> {MODEL_LABEL[currentSession?.model ?? model] ?? model}
+                  </span>
+                ) : null}
                 <span className="sindri-stat">
                   <Zap size={13} /> {fmtTokens(liveStats.tokensIn)} in · {fmtTokens(liveStats.tokensOut)} out
                 </span>
