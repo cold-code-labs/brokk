@@ -4,6 +4,7 @@ import type { Project } from "@brokk/sdk";
 import { useEffect, useState } from "react";
 import { Main, PageHeader, EmptyState } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
+import { ThemeToggle } from "./ThemeToggle";
 
 export default function Settings() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -22,6 +23,22 @@ export default function Settings() {
         title="Settings"
         description="Projects the forge works on — repo, model, and auth mode."
       />
+
+      <div className="ygg-card" style={{ marginBottom: "1.4rem" }}>
+        <div className="ygg-card-title">Appearance</div>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "1rem",
+            marginTop: "0.6rem",
+          }}
+        >
+          <span style={{ color: "var(--fg-soft)" }}>Theme (light / dark)</span>
+          <ThemeToggle />
+        </div>
+      </div>
 
       {projects.map((p) => (
         <div key={p.id} className="ygg-card" style={{ marginBottom: "0.9rem" }}>

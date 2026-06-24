@@ -21,7 +21,6 @@ import {
   Users,
   Settings,
 } from "lucide-react";
-import { ThemeToggle } from "./ThemeToggle";
 
 const FORGE = [
   { href: "/", label: "Fleet", icon: <LayoutGrid /> },
@@ -47,16 +46,13 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
   return (
     <NavSidebar>
       <SidebarBrand
+        className="brokk-brand"
         mark={
           // eslint-disable-next-line @next/next/no-img-element
-          <img src="/brokk.svg" alt="" width={16} height={22} />
+          <img src="/brokk.svg" alt="" width={44} height={60} />
         }
         name="Brokk"
-      >
-        <span style={{ marginLeft: "auto" }}>
-          <ThemeToggle />
-        </span>
-      </SidebarBrand>
+      />
 
       <Nav>
         <NavGroup label="Forge">
