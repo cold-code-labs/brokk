@@ -262,7 +262,11 @@ async function runSessionTurn(
     onDomainEvent: (e) => emit({ type: "status", phase: e.kind, detail: e.detail }),
     // The plan_work tool bridges to Mímir — Haiku decides to plan, the strong
     // planner decomposes, the cards land in the backlog (proposed) for approval.
-    planWork: (intent) => runPlan(deps, project, intent),
+    // Surface a status: the strong planner call takes a while (chat shows it).
+    planWork: (intent) => {
+      emit({ type: "status", phase: "planejando" });
+      return runPlan(deps, project, intent);
+    },
   };
   const system = await buildSystemPrompt({
     cwd: path,

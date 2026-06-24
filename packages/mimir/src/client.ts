@@ -98,22 +98,51 @@ async function openaiComplete(config: MimirConfig, opts: CompleteOpts): Promise<
   const messages: { role: string; content: string }[] = [];
   if (opts.system) messages.push({ role: "system", content: opts.system });
   messages.push({ role: "user", content: opts.user });
-
-  const res = await fetch(`${config.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiKey}` },
-    body: JSON.stringify({
-      model: opts.model,
-      messages,
-      ...(opts.json ? { response_format: { type: "json_object" } } : {}),
-      max_completion_tokens: opts.maxTokens ?? 1500,
-    }),
+  const body = JSON.stringify({
+    model: opts.model,
+    messages,
+    ...(opts.json ? { response_format: { type: "json_object" } } : {}),
+    max_completion_tokens: opts.maxTokens ?? 1500,
   });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("[mimir] openai", res.status, body.slice(0, 300));
-    throw new MimirError(`OpenAI ${res.status}`, res.status);
+
+  // When pointed at the CCL gateway, this routes to the SHARED Max seat, which
+  // 429s when busy. Retry with backoff (honouring Retry-After) so a single
+  // planner/triage/enhance call rides out a busy window instead of hard-failing.
+  // Mímir calls aren't streamed, so retrying before any output is safe.
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  const maxAttempts = 6;
+  let res: Response | undefined;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let r: Response;
+    try {
+      r = await fetch(`${config.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${config.apiKey}` },
+        body,
+      });
+    } catch (e) {
+      if (attempt === maxAttempts - 1) throw new MimirError(`gateway inalcançável: ${String(e).slice(0, 150)}`, 502);
+      await sleep(1000 * 2 ** attempt);
+      continue;
+    }
+    if (r.ok) {
+      res = r;
+      break;
+    }
+    const retryable = r.status === 429 || r.status === 529 || (r.status >= 500 && r.status < 600);
+    const text = await r.text().catch(() => "");
+    if (!retryable || attempt === maxAttempts - 1) {
+      console.error("[mimir] openai", r.status, text.slice(0, 300));
+      throw new MimirError(`OpenAI ${r.status}`, r.status);
+    }
+    const retryAfter = Number(r.headers.get("retry-after"));
+    const backoff = Math.min(
+      16_000,
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1500 * 2 ** attempt,
+    );
+    await sleep(backoff);
   }
+  if (!res) throw new MimirError("OpenAI: sem resposta após retries", 502);
   const json = (await res.json().catch(() => null)) as ChatCompletion | null;
   return { text: json?.choices?.[0]?.message?.content ?? "" };
 }
