@@ -75,10 +75,26 @@ export function projectsRoutes(deps: AppDeps): Hono {
     return c.json({ created, skipped }, 201);
   });
 
+  // Huginn Phase 3: "Aprovar todos" — enqueue every PROPOSED backlog card at once
+  // (those Huginn discovery or the Sindri planner staged). backlog→queued is the
+  // gate, so this flips the whole proposed set into the forge in one click.
+  r.post("/:id/approve-proposed", async (c) => {
+    const id = c.req.param("id");
+    const project = await deps.store.getProject(id);
+    if (!project) return c.json({ error: "not found" }, 404);
+    const backlog = await deps.store.listTasks({ projectId: id, status: "backlog" });
+    const proposed = backlog.filter((t) =>
+      (t.labels ?? []).some((l) => l === DISCOVERY_LABEL || l === PLAN_LABEL),
+    );
+    for (const t of proposed) await deps.store.updateTask(t.id, { status: "queued" });
+    return c.json({ enqueued: proposed.length }, 200);
+  });
+
   return r;
 }
 
 const DISCOVERY_LABEL = "discovery";
+const PLAN_LABEL = "plan";
 const normItem = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 200);
 /** A concise card title from a (possibly long) missing-item sentence. */
 function toCardTitle(item: string): string {

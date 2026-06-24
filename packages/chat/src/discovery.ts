@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import type { ChatConfig } from "./config.js";
 import { resolveModel } from "./config.js";
 import { streamAssistant } from "./gateway.js";
+import { shellEnv } from "./tools.js";
 import type { ChatTurnMessage, ContentBlock, ToolDef, ToolResultBlock, ToolUseBlock } from "./types.js";
 
 const execAsync = promisify(exec);
@@ -121,7 +122,8 @@ async function runBash(cwd: string, command: string, signal?: AbortSignal): Prom
       cwd,
       timeout: 60_000,
       maxBuffer: 1024 * 1024 * 16,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      // Read-only scout: allowlisted env, NO gh/git creds and no infra secrets.
+      env: shellEnv({ gh: false }),
       signal,
     });
     return clip(`${stdout}${stderr ? `\n${stderr}` : ""}`.trim() || "(no output)");

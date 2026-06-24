@@ -41,6 +41,33 @@ export interface ToolContext {
 
 const MAX_OUT = 60_000; // cap tool output handed back to the model
 
+// ── bash env hygiene (isolation Nível 1) ──────────────────────────────────────
+// The bash subprocess must NOT inherit Brokk's infra secrets (gateway vkey, DB
+// URL, runner/api secrets, model/Langfuse keys…). A prompt-injected `env | grep
+// TOKEN` should find nothing useful. We ALLOWLIST (robust) rather than denylist
+// (fragile — a new secret env var would leak by default). Only what a shell +
+// git + gh legitimately need passes through; gh/git creds are the ONE deliberate
+// exception (Sindri commits + opens PRs through them) and are opt-in per caller.
+const ENV_ALLOW = new Set([
+  "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "TZ", "LANG", "LANGUAGE", "PWD",
+]);
+const ENV_ALLOW_PREFIX = ["LC_", "GIT_AUTHOR_", "GIT_COMMITTER_"];
+const GH_KEYS = ["GH_TOKEN", "GITHUB_TOKEN"];
+
+/** Curated env for a bash subprocess: allowlisted vars only. `gh: true` adds the
+ *  GitHub creds so `gh`/`git push` work (Sindri); read-only callers omit it. */
+export function shellEnv(opts?: { gh?: boolean; extra?: Record<string, string> }): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v === undefined) continue;
+    if (ENV_ALLOW.has(k) || ENV_ALLOW_PREFIX.some((p) => k.startsWith(p))) out[k] = v;
+  }
+  if (opts?.gh) for (const k of GH_KEYS) if (process.env[k]) out[k] = process.env[k];
+  out.NODE_ENV = "development";
+  out.GIT_TERMINAL_PROMPT = "0";
+  return { ...out, ...opts?.extra };
+}
+
 /** Resolve a model-supplied path within the checkout; reject escapes (`..`). */
 function safePath(root: string, p: string): string {
   const abs = isAbsolute(p) ? p : resolve(root, p);
@@ -218,7 +245,9 @@ export function makeExecutor(ctx: ToolContext): ToolExecutor {
               cwd: root,
               timeout,
               maxBuffer: 1024 * 1024 * 32,
-              env: { ...process.env, NODE_ENV: "development", GIT_TERMINAL_PROMPT: "0" },
+              // Allowlisted env only — no infra secrets reach the shell. gh creds
+              // kept so the chat can commit + open PRs.
+              env: shellEnv({ gh: true }),
             });
             return { ok: true, content: clip(`${stdout}${stderr ? `\n${stderr}` : ""}`.trim() || "(no output)") };
           } catch (e: any) {

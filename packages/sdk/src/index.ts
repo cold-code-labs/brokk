@@ -106,6 +106,8 @@ export interface BrokkClient {
   /** Huginn Phase 2: create proposed backlog cards from a project's discovery
    *  brief (one per "missing" item). Idempotent — re-running skips carded items. */
   backlogFromBrief(projectId: string): Promise<{ created: Task[]; skipped: number }>;
+  /** Huginn Phase 3: enqueue every proposed (discovery/plan) backlog card at once. */
+  approveProposed(projectId: string): Promise<{ enqueued: number }>;
   listTaskRuns(id: string): Promise<Run[]>;
   getRun(id: string): Promise<Run>;
   /** Subscribe to a run's live event stream (SSE). Returns an unsubscribe fn. */
@@ -217,6 +219,12 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
       return req<{ created: Task[]; skipped: number }>(
         "POST",
         `/projects/${encodeURIComponent(projectId)}/backlog-from-brief`,
+      );
+    },
+    approveProposed(projectId) {
+      return req<{ enqueued: number }>(
+        "POST",
+        `/projects/${encodeURIComponent(projectId)}/approve-proposed`,
       );
     },
     getRun(id) {

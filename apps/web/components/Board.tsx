@@ -206,7 +206,17 @@ export default function Board({ projectId }: { projectId?: string }) {
       {err && <Banner tone="err">⚠ {err}</Banner>}
       {previewErr && <Banner tone="err">⚠ preview: {previewErr}</Banner>}
 
-      {project && <BriefPanel projectId={project.id} />}
+      {project && (
+        <BriefPanel
+          projectId={project.id}
+          proposedCount={
+            tasks.filter(
+              (t) => t.status === "backlog" && (t.labels ?? []).some((l) => l === "discovery" || l === "plan"),
+            ).length
+          }
+          onApproved={() => refresh(project.id)}
+        />
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0,1fr))`, gap: 12 }}>
         {COLUMNS.map((key) => {
@@ -255,13 +265,22 @@ export default function Board({ projectId }: { projectId?: string }) {
 /** Huginn's discovery brief for the project: what it IS, what's BUILT, what's
  *  MISSING. Phase 1 = read-only display + re-scout; the "missing" items become
  *  proposed plan-cards in Phase 2. Polls while a scout is in flight. */
-function BriefPanel({ projectId }: { projectId: string }) {
+function BriefPanel({
+  projectId,
+  proposedCount,
+  onApproved,
+}: {
+  projectId: string;
+  proposedCount: number;
+  onApproved: () => void;
+}) {
   const [brief, setBrief] = useState<ProjectBrief | null>(null);
   const [running, setRunning] = useState(false);
   const [open, setOpen] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [genBusy, setGenBusy] = useState(false);
   const [genMsg, setGenMsg] = useState<string | null>(null);
+  const [appBusy, setAppBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -294,6 +313,23 @@ function BriefPanel({ projectId }: { projectId: string }) {
       setBrief((b) => (b ? { ...b, status: "pending" } : b));
     } catch {
       /* ignore */
+    }
+  }
+
+  // Phase 3: approve ALL proposed cards at once (backlog → queued).
+  async function approveAll() {
+    setAppBusy(true);
+    setGenMsg(null);
+    try {
+      const { enqueued } = await brokk.approveProposed(projectId);
+      onApproved();
+      setGenMsg(
+        enqueued ? `${enqueued} card(s) enfileirado(s) — a forja vai começar.` : "Nada proposto para aprovar.",
+      );
+    } catch (e) {
+      setGenMsg(`Erro: ${String(e)}`);
+    } finally {
+      setAppBusy(false);
     }
   }
 
@@ -332,6 +368,11 @@ function BriefPanel({ projectId }: { projectId: string }) {
         {status === "pending" && <span className="ygg-dim" style={{ fontSize: 12 }}>explorando o repositório…</span>}
         {status === "failed" && <span style={{ fontSize: 12, color: "var(--err, #f85149)" }}>falhou</span>}
         <span style={{ marginLeft: "auto" }} />
+        {proposedCount > 0 && (
+          <Button type="button" size="sm" onClick={approveAll} disabled={appBusy}>
+            {appBusy ? "Enfileirando…" : `Aprovar todos (${proposedCount})`}
+          </Button>
+        )}
         <Button variant="outline" size="sm" type="button" onClick={rescout} disabled={status === "pending"}>
           {status === "pending" ? "escaneando…" : brief ? "Re-escanear" : "Escanear"}
         </Button>
