@@ -19,6 +19,7 @@
  */
 import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -231,9 +232,23 @@ export class PreviewSupervisor {
           HAULDR_GOTRUE_URL: hp.gotrueUrl,
           HAULDR_JWT_SECRET: hp.jwtSecret,
           DATA_API_URL: hp.postgrestUrl,
+          // Dev previews are throwaway demo environments — turn on the template's
+          // one-click "Entrar como demo" login (the app gates it DEV/DEMO-only via
+          // DEMO_LOGIN). We seed the matching user below so the click logs in.
+          DEMO_LOGIN: "true",
+          DEMO_LOGIN_EMAIL: DEMO_EMAIL,
+          DEMO_LOGIN_PASSWORD: DEMO_PASSWORD,
         };
         console.log(
           `[preview-supervisor] Hauldr project "${preview.hauldrProject}" ready`,
+        );
+        // Seed the one-click demo user into this preview's GoTrue (idempotent),
+        // so the injected DEMO_LOGIN button actually authenticates.
+        await seedDemoUser(hp.gotrueUrl, hp.jwtSecret).catch((err) =>
+          console.warn(
+            `[preview-supervisor] demo-user seed failed for "${preview.hauldrProject}":`,
+            err instanceof Error ? err.message : err,
+          ),
         );
       } catch (err) {
         // Log and continue — some apps don't need a DB (static builds, etc.)
@@ -446,3 +461,47 @@ export class PreviewSupervisor {
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+// ── one-click demo login (dev previews only) ─────────────────────────────────
+// Default credentials the CCL template's DEMO_LOGIN button signs in with. Kept
+// in sync with the template defaults (config/env.ts DEMO_LOGIN_EMAIL/PASSWORD).
+const DEMO_EMAIL = "demo@coldcodelabs.com";
+const DEMO_PASSWORD = "snowdemo123";
+
+/** Mint a short-lived service_role JWT (HS256) from the project's GoTrue secret,
+ *  so we can call GoTrue's admin API. Server-side only — never reaches a browser. */
+function mintServiceToken(jwtSecret: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  const enc = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const data = `${enc({ alg: "HS256", typ: "JWT" })}.${enc({
+    role: "service_role",
+    iss: "brokk-preview",
+    iat: now,
+    exp: now + 300,
+  })}`;
+  const sig = createHmac("sha256", jwtSecret).update(data).digest("base64url");
+  return `${data}.${sig}`;
+}
+
+/** Create the demo user in a preview's GoTrue via the admin API. Idempotent:
+ *  an already-registered email (422/409) is treated as success. No-op without
+ *  a gotrue url + secret. */
+async function seedDemoUser(gotrueUrl: string, jwtSecret: string): Promise<void> {
+  if (!gotrueUrl || !jwtSecret) return;
+  const res = await fetch(`${gotrueUrl.replace(/\/+$/, "")}/admin/users`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${mintServiceToken(jwtSecret)}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      email: DEMO_EMAIL,
+      password: DEMO_PASSWORD,
+      email_confirm: true,
+    }),
+  });
+  if (res.ok || res.status === 422 || res.status === 409) return; // created or already exists
+  const body = await res.text().catch(() => "");
+  if (/already|registered|exists|duplicate/i.test(body)) return;
+  throw new Error(`GoTrue admin/users → ${res.status} ${body.slice(0, 160)}`.trim());
+}
