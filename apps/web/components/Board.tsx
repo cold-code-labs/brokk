@@ -11,6 +11,7 @@ import {
 } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
 import { discovery, type ProjectBrief } from "../lib/chat";
+import { useProject } from "../lib/project-context";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
 import { PreviewChip } from "./PreviewChip";
 
@@ -40,6 +41,13 @@ export default function Board({ projectId }: { projectId?: string }) {
   // before React hydrates, which trips hydration warnings. Client-only sidesteps it.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Viewing a board IS selecting that environment — keep the global switcher
+  // (and every other project-scoped page) in sync with the board you opened.
+  const { setCurrentId } = useProject();
+  useEffect(() => {
+    if (projectId) setCurrentId(projectId);
+  }, [projectId, setCurrentId]);
 
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);

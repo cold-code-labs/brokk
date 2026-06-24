@@ -40,7 +40,7 @@ import {
   ListTodo,
   GitPullRequest,
 } from "lucide-react";
-import { brokk } from "../lib/api";
+import { useProject } from "../lib/project-context";
 import {
   attach,
   chat,
@@ -50,7 +50,6 @@ import {
   type ChatSessionWithStats,
   type SindriEvent,
 } from "../lib/chat";
-import type { Project } from "@brokk/sdk";
 
 // Haiku-only while we mature Sindri on the shared Max seat: Sonnet/Opus reserve
 // a large output-token window and 429 when the seat is busy, so we keep the
@@ -103,8 +102,9 @@ function sessionTime(s: ChatSessionWithStats): string {
 }
 
 export default function Chat() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [projectId, setProjectId] = useState("");
+  // Project selection is GLOBAL now (the sidebar environment switcher) — Sindri
+  // reads/writes the same context, so picking a project anywhere syncs here.
+  const { projects, currentId: projectId, setCurrentId: setProjectId } = useProject();
   const [model, setModel] = useState("haiku");
   const [sessions, setSessions] = useState<ChatSessionWithStats[]>([]);
   const [sessionId, setSessionId] = useState("");
@@ -124,16 +124,6 @@ export default function Chat() {
   const liveSeqRef = useRef(-1); // highest seq we've persisted into messages
 
   // ── loaders ─────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    brokk
-      .listProjects()
-      .then((p) => {
-        setProjects(p);
-        setProjectId((cur) => cur || p[0]?.id || "");
-      })
-      .catch((e) => setError(String(e)));
-  }, []);
-
   useEffect(() => {
     if (!projectId) return;
     chat.listSessions(projectId).then(setSessions).catch(() => setSessions([]));

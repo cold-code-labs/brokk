@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { ThemeProvider } from "next-themes";
+import { ProjectProvider } from "../lib/project-context";
 
 /**
  * Brokk is dark-native, so it defaults to dark — but the Yggdrasil tokens are
@@ -17,7 +18,7 @@ export function Providers({ children }: { children: ReactNode }) {
       enableSystem={false}
       disableTransitionOnChange
     >
-      {children}
+      <ProjectProvider>{children}</ProjectProvider>
     </ThemeProvider>
   );
 }
