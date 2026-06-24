@@ -609,6 +609,50 @@ export interface PlanDraft {
   model: string;
 }
 
+// ── Sindri (the interactive chat agent) ────────────────────────────────────────
+// The conversational half of the forge: a per-project chat that works the repo
+// with you (read/write/run/commit/PR/open-card) over the native Messages API.
+// Sibling to Brokkr (autonomous card→PR), Mímir (prompt intake), Eitri (review).
+
+/** Whether a chat session is in use or filed away. */
+export type ChatSessionStatus = "active" | "archived";
+
+/** Whether a turn is currently being forged (so the UI knows to attach a stream). */
+export type ChatTurnState = "idle" | "running";
+
+/** A persistent, per-project conversation with Sindri. One session owns one
+ *  working checkout on its own branch; the transcript (chatMessages) replays into
+ *  the Messages API to resume context. */
+export interface ChatSession {
+  id: string;
+  projectId: string;
+  title: string;
+  status: ChatSessionStatus;
+  /** Git branch the session's working checkout sits on. */
+  branch: string | null;
+  /** Model alias the turn runs with: "haiku" | "sonnet" | "opus". */
+  model: string;
+  /** Reasoning effort: "low" | "medium" | "high" (null = provider default). */
+  effort: string | null;
+  createdBy: string | null;
+  turnState: ChatTurnState;
+  lastTurnAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One step of the transcript: a user prompt, an assistant round (text +
+ *  tool_use), or a tool_result batch. `blocks` are Anthropic content blocks. */
+export interface ChatMessage {
+  id: string;
+  sessionId: string;
+  seq: number;
+  role: "user" | "assistant";
+  blocks: unknown[];
+  meta: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 /** A persisted plan: groups the cards that compose into one feature PR. */
 export interface Plan {
   id: string;

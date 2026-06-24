@@ -87,3 +87,29 @@ services:
     env_file:
       - /home/brokk/brokk.env
     user: "1001:1001"
+
+  sindri:
+    network_mode: host
+    depends_on: !reset null
+    expose: !reset null
+    # Host-net: reaches the gateway (127.0.0.1:4000) and db_brokk (127.0.0.1:5434)
+    # exactly like the runner. Session checkouts live under the shared work volume,
+    # in their own sindri/ subtree; caches redirected to the writable volume (HOME
+    # is read-only at uid 1001). The agent's bash runs pnpm/git/gh in checkouts.
+    environment: !override
+      SINDRI_PORT: "8795"
+      SINDRI_WORKDIR: /home/brokk/work/sindri
+      COREPACK_HOME: /home/brokk/work/sindri/.cache/corepack
+      XDG_CACHE_HOME: /home/brokk/work/sindri/.cache
+      XDG_DATA_HOME: /home/brokk/work/sindri/.local/share
+      PNPM_HOME: /home/brokk/work/sindri/.local/share/pnpm
+      npm_config_cache: /home/brokk/work/sindri/.cache/npm
+      npm_config_store_dir: /home/brokk/work/sindri/.pnpm-store
+    env_file:
+      - /home/brokk/brokk.env
+      - /home/brokk/brokk.worker.env
+    user: "1001:1001"
+    volumes: !override
+      - /home/brokk/work:/home/brokk/work
+      - /home/brokk/.config/gh:/home/brokk/.config/gh:ro
+      - /home/brokk/.gitconfig:/home/brokk/.gitconfig:ro

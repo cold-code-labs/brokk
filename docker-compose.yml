@@ -59,6 +59,8 @@ services:
       MIMIR_MODEL: ${MIMIR_MODEL:-gpt-4.1-mini}
       MIMIR_BASE_URL: ${MIMIR_BASE_URL:-}
       MIMIR_API_KEY: ${MIMIR_API_KEY:-}
+      # Sindri chat runtime (worker host). Empty = /chat → 503.
+      BROKK_SINDRI_URL: ${BROKK_SINDRI_URL:-}
     depends_on:
       db:
         condition: service_healthy
@@ -182,6 +184,33 @@ services:
       BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
     expose:
       - "3020"
+    <<: *restart
+
+  # Sindri — the interactive chat agent. Shares the runner's tools (git/gh) + work
+  # volume (session checkouts), drives the model over the native Messages API via
+  # the gateway. The control-plane API proxies /chat → here (BROKK_SINDRI_URL).
+  sindri:
+    build:
+      context: .
+      dockerfile: apps/sindri/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
+    image: brokk-sindri:local
+    profiles: ["forge"]
+    environment:
+      SINDRI_PORT: "8795"
+      BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:-postgres://brokk:brokk@db:5432/brokk}
+      BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
+      BROKK_RUNNER_WORKDIR: /work
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      BROKK_GIT_NAME: ${BROKK_GIT_NAME:-Brokk}
+      BROKK_GIT_EMAIL: ${BROKK_GIT_EMAIL:-brokk@localhost}
+    volumes:
+      - brokk_work:/work
+    expose:
+      - "8795"
     <<: *restart
 
 volumes:

@@ -26,6 +26,7 @@ async function main() {
     apiSecret: cfg.BROKK_API_SECRET,
     githubWebhookSecret: cfg.BROKK_GITHUB_WEBHOOK_SECRET,
     mimir,
+    sindriUrl: cfg.BROKK_SINDRI_URL,
   });
 
   serve({ fetch: app.fetch, port: cfg.BROKK_API_PORT }, ({ port }) => {

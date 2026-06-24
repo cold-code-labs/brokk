@@ -17,6 +17,9 @@ const Env = z.object({
   // proxy injects it server-side; external callers can't enqueue forge runs.
   // Empty = open (local/dev). Reads stay open; /runner & /webhooks self-auth.
   BROKK_API_SECRET: z.string().default(""),
+
+  // Base URL of the Sindri chat runtime (worker host). Empty = /chat → 503.
+  BROKK_SINDRI_URL: z.string().default(""),
 });
 
 export type Config = z.infer<typeof Env>;

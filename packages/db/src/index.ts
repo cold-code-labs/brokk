@@ -1,5 +1,9 @@
 import type {
   Agent,
+  ChatMessage,
+  ChatSession,
+  ChatSessionStatus,
+  ChatTurnState,
   ForcaLevel,
   MimirMode,
   MimirPrompt,
@@ -32,6 +36,8 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
   agents,
+  chatMessages,
+  chatSessions,
   mimirPrompts,
   mimirRevisions,
   mimirTriage,
@@ -54,7 +60,7 @@ export * from "./schema.js";
 export function createDb(connectionString: string) {
   const client = postgres(connectionString);
   const db = drizzle(client, {
-    schema: { repositories, repoMemories, projects, plans, tasks, agents, runs, runEvents, pullRequests, previews, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage },
+    schema: { repositories, repoMemories, projects, plans, tasks, agents, runs, runEvents, pullRequests, previews, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage, chatSessions, chatMessages },
   });
   return { db, client };
 }
@@ -306,6 +312,35 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
   };
 }
 
+function rowToChatSession(row: typeof chatSessions.$inferSelect): ChatSession {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    title: row.title,
+    status: row.status as ChatSessionStatus,
+    branch: row.branch,
+    model: row.model,
+    effort: row.effort,
+    createdBy: row.createdBy,
+    turnState: row.turnState as ChatTurnState,
+    lastTurnAt: iso(row.lastTurnAt),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function rowToChatMessage(row: typeof chatMessages.$inferSelect): ChatMessage {
+  return {
+    id: row.id,
+    sessionId: row.sessionId,
+    seq: row.seq,
+    role: row.role as ChatMessage["role"],
+    blocks: row.blocks,
+    meta: row.meta ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 // ── Per-repo memory embeddings (#2 semantic recall) ──────────────────────────
 // pgvector lives in db_brokk; embeddings ride in a side table `repo_memory_embeddings`
 // (memory_id, embedding vector(1536), model) kept OUT of the drizzle schema so the
@@ -506,6 +541,20 @@ export interface Store {
   touchPreview(id: string): Promise<void>;
   /** Mark a preview stopped and clear its pid. */
   stopPreview(id: string): Promise<Preview>;
+
+  // sindri (interactive chat): per-project sessions + transcript
+  listChatSessions(opts?: { projectId?: string; status?: ChatSessionStatus }): Promise<ChatSession[]>;
+  getChatSession(id: string): Promise<ChatSession | null>;
+  insertChatSession(values: typeof chatSessions.$inferInsert): Promise<ChatSession>;
+  updateChatSession(id: string, patch: Partial<typeof chatSessions.$inferInsert>): Promise<ChatSession>;
+  deleteChatSession(id: string): Promise<void>;
+  /** Full transcript for a session, ordered by seq (afterSeq for incremental). */
+  listChatMessages(sessionId: string, afterSeq?: number): Promise<ChatMessage[]>;
+  /** Append one transcript step at the next seq (atomic max+1). Returns the row. */
+  appendChatMessage(
+    sessionId: string,
+    msg: { role: ChatMessage["role"]; blocks: unknown[]; meta?: Record<string, unknown> | null },
+  ): Promise<ChatMessage>;
 }
 
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
@@ -1228,6 +1277,64 @@ export function createStore(db: Db): Store {
       if (!rows[0]) throw new Error(`preview ${id} not found`);
       return rowToPreview(rows[0]);
     },
+
+    async listChatSessions(opts) {
+      const conds = [];
+      if (opts?.projectId) conds.push(eq(chatSessions.projectId, opts.projectId));
+      if (opts?.status) conds.push(eq(chatSessions.status, opts.status));
+      const rows = conds.length
+        ? await db.select().from(chatSessions).where(and(...conds)).orderBy(desc(chatSessions.updatedAt))
+        : await db.select().from(chatSessions).orderBy(desc(chatSessions.updatedAt));
+      return rows.map(rowToChatSession);
+    },
+    async getChatSession(id) {
+      const rows = await db.select().from(chatSessions).where(eq(chatSessions.id, id)).limit(1);
+      return rows[0] ? rowToChatSession(rows[0]) : null;
+    },
+    async insertChatSession(values) {
+      const rows = await db.insert(chatSessions).values(values).returning();
+      return rowToChatSession(rows[0]!);
+    },
+    async updateChatSession(id, patch) {
+      const rows = await db
+        .update(chatSessions)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(chatSessions.id, id))
+        .returning();
+      if (!rows[0]) throw new Error(`chat session ${id} not found`);
+      return rowToChatSession(rows[0]);
+    },
+    async deleteChatSession(id) {
+      await db.delete(chatSessions).where(eq(chatSessions.id, id));
+    },
+    async listChatMessages(sessionId, afterSeq = -1) {
+      const rows = await db
+        .select()
+        .from(chatMessages)
+        .where(and(eq(chatMessages.sessionId, sessionId), sql`${chatMessages.seq} > ${afterSeq}`))
+        .orderBy(asc(chatMessages.seq));
+      return rows.map(rowToChatMessage);
+    },
+    async appendChatMessage(sessionId, msg) {
+      return db.transaction(async (tx) => {
+        const maxRow = await tx
+          .select({ max: sql<number>`coalesce(max(${chatMessages.seq}), -1)` })
+          .from(chatMessages)
+          .where(eq(chatMessages.sessionId, sessionId));
+        const seq = (maxRow[0]?.max ?? -1) + 1;
+        const rows = await tx
+          .insert(chatMessages)
+          .values({
+            sessionId,
+            seq,
+            role: msg.role,
+            blocks: msg.blocks as never,
+            meta: (msg.meta ?? null) as never,
+          })
+          .returning();
+        return rowToChatMessage(rows[0]!);
+      });
+    },
   };
 }
 
@@ -1259,4 +1366,41 @@ export async function ensureSchema(db: Db): Promise<void> {
     // pgvector not available (extension/type missing) — semantic recall stays
     // dormant; weight-ordered memory still works.
   }
+
+  await ensureChatSchema(db);
+}
+
+/** Self-heal the Sindri chat tables (sessions + transcript). Idempotent
+ *  CREATE IF NOT EXISTS — the same boot-time pattern repo_memory_embeddings uses,
+ *  so we never depend on `drizzle-kit push` (which hangs on new tables against the
+ *  shared, Hauldr-backed db_brokk). role/status/turn_state are plain text, so no
+ *  enum DDL is needed. Called from ensureSchema() and standalone by Sindri's boot. */
+export async function ensureChatSchema(db: Db): Promise<void> {
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS chat_sessions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title text NOT NULL DEFAULT 'New chat',
+    status text NOT NULL DEFAULT 'active',
+    branch text,
+    model text NOT NULL DEFAULT 'sonnet',
+    effort text,
+    created_by text,
+    turn_state text NOT NULL DEFAULT 'idle',
+    last_turn_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS chat_sessions_project_idx ON chat_sessions (project_id);`,
+  );
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS chat_messages (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id uuid NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    seq integer NOT NULL,
+    role text NOT NULL,
+    blocks jsonb NOT NULL DEFAULT '[]'::jsonb,
+    meta jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT chat_messages_session_seq_uniq UNIQUE (session_id, seq)
+  );`);
 }

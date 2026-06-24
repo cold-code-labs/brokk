@@ -3,6 +3,7 @@ import type { MimirConfig } from "@brokk/mimir";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { version } from "../package.json";
+import { chatRoutes } from "./routes/chat.js";
 import { mimirRoutes } from "./routes/mimir.js";
 import { previewsRoutes } from "./routes/previews.js";
 import { projectsRoutes } from "./routes/projects.js";
@@ -25,6 +26,9 @@ export interface AppDeps {
   githubWebhookSecret: string;
   /** Mímir model config (triador + enhancer). Undefined = enhance/triage → 503. */
   mimir?: MimirConfig;
+  /** Base URL of the Sindri chat runtime (e.g. http://127.0.0.1:8795). Empty =
+   *  /chat returns 503. */
+  sindriUrl?: string;
 }
 
 /** Assemble the control-plane HTTP app from its dependencies. Pure wiring — no
@@ -62,6 +66,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/projects", projectsRoutes(deps));
   app.route("/previews", previewsRoutes(deps));
   app.route("/mimir", mimirRoutes(deps));
+  app.route("/chat", chatRoutes(deps));
   app.route("/users", usersRoutes(deps));
   app.route("/subscriptions", subscriptionsRoutes(deps));
   app.route("/tasks", tasksRoutes(deps));

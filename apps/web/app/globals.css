@@ -29,3 +29,304 @@ body {
 .brokk-brand .ygg-brand-name {
   font-size: 1.25rem;
 }
+
+/* ── Sindri (chat) ─────────────────────────────────────────────────────────── */
+.sindri {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 1.5rem 1.5rem 1rem;
+  max-width: none;
+  min-width: 0;
+}
+.sindri-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+.sindri-select {
+  background: var(--panel, var(--card));
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+}
+.sindri-grid {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 1rem;
+  flex: 1;
+  min-height: 0;
+  margin-top: 0.5rem;
+}
+
+/* rail */
+.sindri-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+}
+.sindri-new {
+  width: 100%;
+  justify-content: center;
+}
+.sindri-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  overflow-y: auto;
+  min-height: 0;
+}
+.sindri-empty {
+  color: var(--fg-dim);
+  font-size: 0.82rem;
+  padding: 0.5rem 0.3rem;
+}
+.sindri-session {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.5rem 0.6rem;
+  color: var(--fg-soft, var(--fg));
+  cursor: pointer;
+  font-size: 0.86rem;
+  transition: background 0.12s, border-color 0.12s;
+}
+.sindri-session:hover {
+  background: var(--panel, var(--card));
+}
+.sindri-session.is-active {
+  background: var(--panel, var(--card));
+  border-color: var(--border);
+  color: var(--fg);
+}
+.sindri-session-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sindri-session-del {
+  opacity: 0;
+  color: var(--fg-dim);
+  flex-shrink: 0;
+}
+.sindri-session:hover .sindri-session-del {
+  opacity: 0.7;
+}
+.sindri-session-del:hover {
+  opacity: 1 !important;
+  color: var(--accent, #f85149);
+}
+.sindri-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2ea043;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 0 rgba(46, 160, 67, 0.6);
+  animation: sindri-pulse 1.6s infinite;
+}
+@keyframes sindri-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(46, 160, 67, 0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(46, 160, 67, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(46, 160, 67, 0); }
+}
+
+/* main pane */
+.sindri-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+  background: var(--bg-soft, var(--card));
+  overflow: hidden;
+}
+.sindri-blank {
+  margin: auto;
+  text-align: center;
+  color: var(--fg-dim);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 2rem;
+}
+.sindri-blank h3 {
+  color: var(--fg);
+  margin: 0;
+}
+.sindri-blank p {
+  margin: 0 0 0.6rem;
+  max-width: 28rem;
+}
+.sindri-branchbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.9rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.76rem;
+  color: var(--fg-dim);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel, transparent);
+}
+.sindri-thread {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+/* messages */
+.sindri-msg {
+  display: flex;
+}
+.sindri-msg.is-user {
+  justify-content: flex-end;
+}
+.sindri-bubble {
+  max-width: 80%;
+  border-radius: var(--radius, 10px);
+  padding: 0.7rem 0.9rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+.sindri-msg.is-user .sindri-bubble {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.sindri-msg.is-assistant .sindri-bubble {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  max-width: 92%;
+}
+.sindri-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
+/* tool calls */
+.sindri-tool {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg);
+  overflow: hidden;
+}
+.sindri-tool.is-error {
+  border-color: #f85149;
+}
+.sindri-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0.4rem 0.6rem;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  color: var(--fg-soft, var(--fg));
+}
+.sindri-tool-name {
+  color: var(--accent, var(--primary));
+  font-weight: 600;
+}
+.sindri-tool-arg {
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.sindri-tool-flag {
+  flex-shrink: 0;
+}
+.sindri-tool-body {
+  border-top: 1px solid var(--border);
+  padding: 0.5rem 0.6rem;
+}
+.sindri-tool-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-dim);
+  margin: 0.3rem 0 0.2rem;
+}
+.sindri-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.76rem;
+  color: var(--fg-soft, var(--fg));
+  max-height: 18rem;
+  overflow: auto;
+}
+
+/* status + composer */
+.sindri-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--fg-dim);
+  font-size: 0.82rem;
+  padding: 0.2rem 0.2rem;
+}
+.sindri-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  display: inline-block;
+  animation: sindri-spin 0.7s linear infinite;
+}
+@keyframes sindri-spin {
+  to { transform: rotate(360deg); }
+}
+.sindri-composer {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.8rem;
+  border-top: 1px solid var(--border);
+  background: var(--panel, var(--card));
+  align-items: flex-end;
+}
+.sindri-input {
+  flex: 1;
+  resize: none;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.6rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.sindri-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.sindri-send {
+  flex-shrink: 0;
+  height: 2.4rem;
+}

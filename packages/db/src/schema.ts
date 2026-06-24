@@ -346,6 +346,63 @@ export const previews = pgTable(
   }),
 );
 
+// ── Sindri (the interactive chat agent) ─────────────────────────────────────────
+// Brokkr's brother smith: where Brokkr forges a card to a PR autonomously, Sindri
+// works the forge *with you* — a per-project, persistent chat that reads and writes
+// the repo, runs commands, opens cards/PRs. One session = one working checkout on
+// its own branch; messages are the Anthropic content blocks, replayed to resume
+// the conversation. role/status/turn_state are plain text (not pgEnum) so the
+// boot-time self-heal DDL — ensureChatSchema() — stays a trivial CREATE IF NOT
+// EXISTS, the same pattern repo_memory_embeddings uses against the shared db_brokk.
+
+export const chatSessions = pgTable(
+  "chat_sessions",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default("New chat"),
+    /** active | archived */
+    status: text("status").notNull().default("active"),
+    /** The git branch this session's working checkout sits on. */
+    branch: text("branch"),
+    /** Model alias the turn runs with: haiku | sonnet | opus. */
+    model: text("model").notNull().default("sonnet"),
+    /** Reasoning effort: low | medium | high (null = provider default). */
+    effort: text("effort"),
+    createdBy: text("created_by"),
+    /** idle | running — whether a turn is live (so the UI knows to attach). */
+    turnState: text("turn_state").notNull().default("idle"),
+    lastTurnAt: timestamp("last_turn_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ proj: index("chat_sessions_project_idx").on(t.projectId) }),
+);
+
+/** One turn-step of a conversation, ordered by (session_id, seq). An assistant
+ *  round (text + tool_use) and the following tool_result batch are separate rows,
+ *  so the whole transcript replays straight back into the Messages API. */
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => chatSessions.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    /** user | assistant (Anthropic message role). */
+    role: text("role").notNull(),
+    /** Anthropic content blocks: text / tool_use / tool_result / thinking. */
+    blocks: jsonb("blocks").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Side metadata: { model, usage, stopReason }. */
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ sessionSeq: unique("chat_messages_session_seq_uniq").on(t.sessionId, t.seq) }),
+);
+
 // ── Mímir (the counselor) ──────────────────────────────────────────────────────
 // Prompt intake of the forge. Migrated from Heimdall's PocketBase
 // (mimir_prompts / mimir_revisoes). The history + triage are append-only — the

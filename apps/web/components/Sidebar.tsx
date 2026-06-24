@@ -16,6 +16,7 @@ import {
   Gauge,
   Sparkles,
   BookText,
+  MessageSquare,
   Plus,
   List,
   Users,
@@ -25,6 +26,7 @@ import {
 const FORGE = [
   { href: "/", label: "Fleet", icon: <LayoutGrid /> },
   { href: "/dashboard", label: "Dashboard", icon: <Gauge /> },
+  { href: "/chat", label: "Sindri", icon: <MessageSquare /> },
   { href: "/plan", label: "Planejador", icon: <Sparkles /> },
   { href: "/mimir", label: "Mímir", icon: <BookText /> },
 ] as const;
