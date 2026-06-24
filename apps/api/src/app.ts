@@ -57,7 +57,17 @@ export function buildApp(deps: AppDeps): Hono {
     const method = c.req.method;
     if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
     const path = c.req.path;
-    if (path.startsWith("/runner") || path.startsWith("/webhooks")) return next();
+    // /runner, /webhooks and /previews self-authenticate (runner secret / GitHub
+    // HMAC), so they're exempt from the api-secret guard. /previews carries the
+    // preview lifecycle that the gateway (wake POST) and runner (status PATCH)
+    // drive with the runner secret — guarding it here 401s those internal writes
+    // and freezes the whole preview lane.
+    if (
+      path.startsWith("/runner") ||
+      path.startsWith("/webhooks") ||
+      path.startsWith("/previews")
+    )
+      return next();
     if (c.req.header("authorization") === `Bearer ${deps.apiSecret}`) return next();
     return c.json({ error: "unauthorized" }, 401);
   });
