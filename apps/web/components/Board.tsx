@@ -10,6 +10,7 @@ import {
   Button,
 } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
+import { discovery, type ProjectBrief } from "../lib/chat";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
 import { PreviewChip } from "./PreviewChip";
 
@@ -197,6 +198,8 @@ export default function Board({ projectId }: { projectId?: string }) {
       {err && <Banner tone="err">⚠ {err}</Banner>}
       {previewErr && <Banner tone="err">⚠ preview: {previewErr}</Banner>}
 
+      {project && <BriefPanel projectId={project.id} />}
+
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0,1fr))`, gap: 12 }}>
         {COLUMNS.map((key) => {
           const items = tasks.filter((x) => x.status === key);
@@ -238,6 +241,141 @@ export default function Board({ projectId }: { projectId?: string }) {
 
       {selectedTask && <Detail task={selectedTask} onClose={() => setSelected(null)} />}
     </Main>
+  );
+}
+
+/** Huginn's discovery brief for the project: what it IS, what's BUILT, what's
+ *  MISSING. Phase 1 = read-only display + re-scout; the "missing" items become
+ *  proposed plan-cards in Phase 2. Polls while a scout is in flight. */
+function BriefPanel({ projectId }: { projectId: string }) {
+  const [brief, setBrief] = useState<ProjectBrief | null>(null);
+  const [running, setRunning] = useState(false);
+  const [open, setOpen] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await discovery.get(projectId);
+      setBrief(r.brief);
+      setRunning(r.running || r.brief?.status === "pending");
+    } catch {
+      /* brief stays as-is */
+    } finally {
+      setLoaded(true);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    setLoaded(false);
+    load();
+  }, [load]);
+
+  // Poll while a scout is running (or the brief is pending).
+  useEffect(() => {
+    if (!running) return;
+    const i = setInterval(load, 4000);
+    return () => clearInterval(i);
+  }, [running, load]);
+
+  async function rescout() {
+    try {
+      await discovery.scout(projectId);
+      setRunning(true);
+      setBrief((b) => (b ? { ...b, status: "pending" } : b));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!loaded) return null;
+
+  const status = running ? "pending" : brief?.status;
+
+  return (
+    <section style={brief_panel}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: open ? 12 : 0 }}>
+        <button onClick={() => setOpen((o) => !o)} style={briefToggle} title={open ? "recolher" : "expandir"}>
+          {open ? "▾" : "▸"}
+        </button>
+        <span style={{ fontWeight: 600, fontSize: 14 }}>🪶 Huginn — descoberta do projeto</span>
+        {status === "pending" && <span className="ygg-dim" style={{ fontSize: 12 }}>explorando o repositório…</span>}
+        {status === "failed" && <span style={{ fontSize: 12, color: "var(--err, #f85149)" }}>falhou</span>}
+        <span style={{ marginLeft: "auto" }} />
+        <Button variant="outline" size="sm" type="button" onClick={rescout} disabled={status === "pending"}>
+          {status === "pending" ? "escaneando…" : brief ? "Re-escanear" : "Escanear"}
+        </Button>
+      </div>
+
+      {open && (
+        <>
+          {!brief && status !== "pending" && (
+            <p className="ygg-dim" style={{ fontSize: 13, margin: 0 }}>
+              Ainda não escaneado. Clique em “Escanear” para o Huginn ler o projeto e propor um backlog.
+            </p>
+          )}
+          {status === "failed" && brief?.error && (
+            <p style={{ fontSize: 12, color: "var(--err, #f85149)", margin: "4px 0 0" }}>{brief.error}</p>
+          )}
+          {brief?.status === "ready" && (
+            <div style={{ display: "grid", gap: 14 }}>
+              {brief.mission && (
+                <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5 }}>{brief.mission}</p>
+              )}
+              {brief.summary && (
+                <p className="ygg-dim" style={{ margin: 0, fontSize: 13, lineHeight: 1.55 }}>{brief.summary}</p>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <BriefList title="✅ Construído" items={brief.built} />
+                <BriefList title="🧭 Faltando / próximos passos" items={brief.missing} accent />
+              </div>
+              {brief.stack.length > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  <span className="ygg-dim" style={{ fontSize: 12 }}>stack:</span>
+                  {brief.stack.map((s) => (
+                    <span key={s} style={stackChip}>{s}</span>
+                  ))}
+                </div>
+              )}
+              <p className="ygg-dim" style={{ fontSize: 11, margin: 0 }}>
+                Em breve: transformar os itens de “Faltando” em plan-cards para aprovação.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function BriefList({ title, items, accent }: { title: string; items: string[]; accent?: boolean }) {
+  return (
+    <div>
+      <h3 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--fg-dim)", margin: "0 0 8px" }}>
+        {title}
+      </h3>
+      {items.length === 0 ? (
+        <p className="ygg-dim" style={{ fontSize: 12, margin: 0 }}>—</p>
+      ) : (
+        <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none", display: "grid", gap: 6 }}>
+          {items.map((it, i) => (
+            <li
+              key={i}
+              style={{
+                fontSize: 13,
+                lineHeight: 1.4,
+                padding: "6px 9px",
+                borderRadius: 7,
+                border: "1px solid var(--border)",
+                borderLeft: `3px solid ${accent ? "var(--info, #2f81f7)" : "var(--ok, #2ea043)"}`,
+                background: "var(--bg-subtle, rgba(127,127,127,0.04))",
+              }}
+            >
+              {it}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -327,6 +465,9 @@ const field: React.CSSProperties = {
   minWidth: 160,
 };
 
+const brief_panel: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: 16, marginBottom: 18 };
+const briefToggle: React.CSSProperties = { background: "transparent", border: "none", color: t.textMuted, cursor: "pointer", fontSize: 13, padding: 0, lineHeight: 1 };
+const stackChip: React.CSSProperties = { fontSize: 11, padding: "2px 8px", borderRadius: 999, border: `1px solid ${t.border}`, color: t.textMuted };
 const column: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", minHeight: 0 };
 const cardList: React.CSSProperties = { flex: "1 1 auto", minHeight: 0, maxHeight: 320, overflowY: "auto", overflowX: "hidden" };
 const colHead: React.CSSProperties = { fontSize: 12, textTransform: "uppercase", color: t.textMuted, margin: "0 0 10px", letterSpacing: 0.4 };

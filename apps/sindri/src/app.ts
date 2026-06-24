@@ -1,6 +1,7 @@
 import {
   buildSystemPrompt,
   type ChatConfig,
+  runDiscovery,
   type SindriEvent,
   type ToolContext,
   runTurn,
@@ -153,6 +154,73 @@ export function buildSindri(deps: SindriDeps): Hono {
   app.post("/sessions/:id/stop", (c) => {
     const stopped = deps.turns.stop(c.req.param("id"));
     return c.json({ stopped });
+  });
+
+  // ── Huginn: project discovery ─────────────────────────────────────────────────
+
+  // In-flight scouts, so a re-trigger (or the connect fire + a manual re-scout)
+  // doesn't run two at once for the same project.
+  const scouting = new Set<string>();
+
+  // Kick a (detached) discovery scout for a project. Returns immediately; the
+  // brief row tracks pending → ready/failed. Idempotent while in flight.
+  app.post("/discover/:projectId", async (c) => {
+    const projectId = c.req.param("projectId");
+    const project = await deps.store.getProject(projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    if (scouting.has(projectId)) return c.json({ status: "pending", running: true }, 202);
+    const repo = await deps.store.getRepository(project.repositoryId);
+    if (!repo) return c.json({ error: "repository not found" }, 404);
+
+    scouting.add(projectId);
+    await deps.store.upsertProjectBrief(projectId, { status: "pending" });
+
+    // Detached: survives the HTTP response (like a turn). Scout reads a fresh
+    // read-only checkout off the project's base branch, then stores the brief.
+    void (async () => {
+      const branch = `huginn/${projectId.slice(0, 8)}`;
+      try {
+        const { path } = await deps.checkouts.ensure({
+          sessionId: `huginn-${projectId}`,
+          branch,
+          repo: repo as Parameters<typeof deps.checkouts.ensure>[0]["repo"],
+          baseBranch: project.baseBranch,
+        });
+        const brief = await runDiscovery({
+          cfg: deps.cfg,
+          cwd: path,
+          repoFullName: repo.fullName,
+          model: "haiku",
+          onProgress: (n) => console.log(`[huginn] ${repo.fullName}: ${n}`),
+        });
+        await deps.store.upsertProjectBrief(projectId, {
+          status: "ready",
+          mission: brief.mission,
+          summary: brief.summary,
+          built: brief.built,
+          missing: brief.missing,
+          stack: brief.stack,
+          model: "haiku",
+          error: null,
+        });
+        console.log(`[huginn] ${repo.fullName}: brief ready (${brief.missing.length} gaps)`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[huginn] ${repo.fullName}: scout failed — ${msg}`);
+        await deps.store.upsertProjectBrief(projectId, { status: "failed", error: msg }).catch(() => {});
+      } finally {
+        scouting.delete(projectId);
+      }
+    })();
+
+    return c.json({ status: "pending", running: true }, 202);
+  });
+
+  // Fetch a project's brief (+ whether a scout is currently running).
+  app.get("/discover/:projectId", async (c) => {
+    const projectId = c.req.param("projectId");
+    const brief = await deps.store.getProjectBrief(projectId);
+    return c.json({ brief, running: scouting.has(projectId) });
   });
 
   return app;

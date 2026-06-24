@@ -145,14 +145,28 @@ async function connectOne(
     const projects = await deps.store.listProjects();
     const has = projects.some((p) => p.repositoryId === repo.id);
     if (!has) {
-      await deps.store.insertProject({
+      const project = await deps.store.insertProject({
         name: repo.name,
         repositoryId: repo.id,
         model: DEFAULT_MODEL,
         authMode: "subscription",
         baseBranch: repo.defaultBranch,
       });
+      // Huginn scouts the freshly-connected project (async, best-effort) so a
+      // brief is waiting by the time the user opens it. Never blocks the import.
+      fireDiscovery(deps, project.id);
     }
   }
   return repo;
+}
+
+/** Fire-and-forget: ask Sindri to scout a project. Failures are swallowed (the
+ *  brief just stays absent; the user can re-scout from the UI). */
+function fireDiscovery(deps: AppDeps, projectId: string): void {
+  const base = (deps.sindriUrl ?? "").replace(/\/$/, "");
+  if (!base) return;
+  void fetch(`${base}/discover/${projectId}`, {
+    method: "POST",
+    headers: deps.runnerSecret ? { authorization: `Bearer ${deps.runnerSecret}` } : {},
+  }).catch(() => {});
 }
