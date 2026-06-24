@@ -1,11 +1,13 @@
 import type {
   Agent,
+  BriefStatus,
   ChatMessage,
   ChatSession,
   ChatSessionStats,
   ChatSessionStatus,
   ChatTurnState,
   ForcaLevel,
+  ProjectBrief,
   MimirMode,
   MimirPrompt,
   MimirRevision,
@@ -559,6 +561,25 @@ export interface Store {
     sessionId: string,
     msg: { role: ChatMessage["role"]; blocks: unknown[]; meta?: Record<string, unknown> | null },
   ): Promise<ChatMessage>;
+
+  // huginn (project discovery): one brief per project
+  /** The latest discovery brief for a project, or null if never scouted. */
+  getProjectBrief(projectId: string): Promise<ProjectBrief | null>;
+  /** Upsert a project's brief (keyed by project_id). Pass status + any fields the
+   *  scout has so far; omitted fields keep their column default on insert. */
+  upsertProjectBrief(
+    projectId: string,
+    fields: {
+      status: BriefStatus;
+      mission?: string | null;
+      summary?: string | null;
+      built?: string[];
+      missing?: string[];
+      stack?: string[];
+      model?: string | null;
+      error?: string | null;
+    },
+  ): Promise<ProjectBrief>;
 }
 
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
@@ -1365,6 +1386,60 @@ export function createStore(db: Db): Store {
         return rowToChatMessage(rows[0]!);
       });
     },
+
+    async getProjectBrief(projectId) {
+      const rows = await db.execute(
+        sql`SELECT project_id, status, mission, summary, built, missing, stack, model, error, created_at, updated_at
+            FROM project_briefs WHERE project_id = ${projectId} LIMIT 1`,
+      );
+      const row = execRows(rows)[0];
+      return row ? rowToBrief(row) : null;
+    },
+    async upsertProjectBrief(projectId, fields) {
+      const built = JSON.stringify(fields.built ?? []);
+      const missing = JSON.stringify(fields.missing ?? []);
+      const stack = JSON.stringify(fields.stack ?? []);
+      const rows = await db.execute(
+        sql`INSERT INTO project_briefs
+              (project_id, status, mission, summary, built, missing, stack, model, error, updated_at)
+            VALUES (${projectId}, ${fields.status}, ${fields.mission ?? null}, ${fields.summary ?? null},
+              ${built}::jsonb, ${missing}::jsonb, ${stack}::jsonb, ${fields.model ?? null}, ${fields.error ?? null}, now())
+            ON CONFLICT (project_id) DO UPDATE SET
+              status = EXCLUDED.status,
+              mission = EXCLUDED.mission,
+              summary = EXCLUDED.summary,
+              built = EXCLUDED.built,
+              missing = EXCLUDED.missing,
+              stack = EXCLUDED.stack,
+              model = EXCLUDED.model,
+              error = EXCLUDED.error,
+              updated_at = now()
+            RETURNING project_id, status, mission, summary, built, missing, stack, model, error, created_at, updated_at`,
+      );
+      const row = execRows(rows)[0];
+      return rowToBrief(row!);
+    },
+  };
+}
+
+/** Map a raw project_briefs row (self-healed table, not in drizzle) to the type.
+ *  jsonb arrays come back already-parsed from node-postgres. */
+function rowToBrief(row: Record<string, unknown>): ProjectBrief {
+  const arr = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : []);
+  const iso = (v: unknown): string =>
+    v instanceof Date ? v.toISOString() : typeof v === "string" ? v : new Date().toISOString();
+  return {
+    projectId: String(row.project_id),
+    status: String(row.status) as BriefStatus,
+    mission: (row.mission as string | null) ?? null,
+    summary: (row.summary as string | null) ?? null,
+    built: arr(row.built),
+    missing: arr(row.missing),
+    stack: arr(row.stack),
+    model: (row.model as string | null) ?? null,
+    error: (row.error as string | null) ?? null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
   };
 }
 
@@ -1432,5 +1507,21 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     meta jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT chat_messages_session_seq_uniq UNIQUE (session_id, seq)
+  );`);
+  // Huginn discovery brief — one row per project (PK = project_id), upserted by
+  // each scout. Self-healed (never in drizzle) to avoid the push-hang on new
+  // db_brokk tables; JSON arrays for built/missing/stack keep it schema-light.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS project_briefs (
+    project_id uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    status text NOT NULL DEFAULT 'pending',
+    mission text,
+    summary text,
+    built jsonb NOT NULL DEFAULT '[]'::jsonb,
+    missing jsonb NOT NULL DEFAULT '[]'::jsonb,
+    stack jsonb NOT NULL DEFAULT '[]'::jsonb,
+    model text,
+    error text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
   );`);
 }

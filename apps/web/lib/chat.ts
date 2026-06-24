@@ -87,6 +87,33 @@ export const chat = {
   stop: (id: string) => j<{ stopped: boolean }>("POST", `/sessions/${id}/stop`),
 };
 
+// ── Huginn: project discovery brief ──────────────────────────────────────────
+
+export type BriefStatus = "pending" | "ready" | "failed";
+
+export interface ProjectBrief {
+  projectId: string;
+  status: BriefStatus;
+  mission: string | null;
+  summary: string | null;
+  built: string[];
+  missing: string[];
+  stack: string[];
+  model: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const discovery = {
+  /** The project's brief (+ whether a scout is running). brief is null if never scouted. */
+  get: (projectId: string) =>
+    j<{ brief: ProjectBrief | null; running: boolean }>("GET", `/discover/${projectId}`),
+  /** (Re)scout the project — kicks a detached Huginn run; returns immediately. */
+  scout: (projectId: string) =>
+    j<{ status: string; running: boolean }>("POST", `/discover/${projectId}`),
+};
+
 /** Parse an SSE response body, invoking onEvent per frame. Used by both the
  *  message POST and the reattach GET. Returns when the stream ends. */
 async function consumeSSE(res: Response, onEvent: (e: SindriEvent) => void, signal?: AbortSignal): Promise<void> {

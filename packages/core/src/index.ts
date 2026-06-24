@@ -666,6 +666,36 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+// ── Huginn: project discovery ────────────────────────────────────────────────
+
+/** Lifecycle of a project's discovery brief. `pending` = Huginn is scouting (or
+ *  queued to); `ready` = a brief is available; `failed` = the scout errored. */
+export type BriefStatus = "pending" | "ready" | "failed";
+
+/** The product brief Huginn (the discovery scout) produces by reading a repo:
+ *  what the project IS, what's BUILT, and what's MISSING — the raw material for an
+ *  auto-proposed backlog. One brief per project (latest scout wins). */
+export interface ProjectBrief {
+  projectId: string;
+  status: BriefStatus;
+  /** One–two sentences: the product's core purpose/mission. */
+  mission: string | null;
+  /** A short paragraph: what the project is and its current state. */
+  summary: string | null;
+  /** Implemented capabilities (each a concrete, cited bullet). */
+  built: string[];
+  /** Gaps / unfinished / likely-next work — each phrasable as a task. */
+  missing: string[];
+  /** Key technologies detected. */
+  stack: string[];
+  /** Model that produced the brief. */
+  model: string | null;
+  /** Failure reason when status = "failed". */
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** A persisted plan: groups the cards that compose into one feature PR. */
 export interface Plan {
   id: string;
