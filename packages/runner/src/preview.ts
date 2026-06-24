@@ -483,25 +483,46 @@ function mintServiceToken(jwtSecret: string): string {
   return `${data}.${sig}`;
 }
 
-/** Create the demo user in a preview's GoTrue via the admin API. Idempotent:
- *  an already-registered email (422/409) is treated as success. No-op without
- *  a gotrue url + secret. */
+/** Ensure the demo user exists in a preview's GoTrue with the known demo
+ *  password, via the admin API. Corrective + idempotent: creates the user, or —
+ *  if it already exists (possibly with a different/older password) — resets its
+ *  password and confirms its email so the one-click button always authenticates.
+ *  No-op without a gotrue url + secret. */
 async function seedDemoUser(gotrueUrl: string, jwtSecret: string): Promise<void> {
   if (!gotrueUrl || !jwtSecret) return;
-  const res = await fetch(`${gotrueUrl.replace(/\/+$/, "")}/admin/users`, {
+  const base = gotrueUrl.replace(/\/+$/, "");
+  const headers = {
+    authorization: `Bearer ${mintServiceToken(jwtSecret)}`,
+    "content-type": "application/json",
+  };
+
+  const create = await fetch(`${base}/admin/users`, {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${mintServiceToken(jwtSecret)}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      email: DEMO_EMAIL,
-      password: DEMO_PASSWORD,
-      email_confirm: true,
-    }),
+    headers,
+    body: JSON.stringify({ email: DEMO_EMAIL, password: DEMO_PASSWORD, email_confirm: true }),
   });
-  if (res.ok || res.status === 422 || res.status === 409) return; // created or already exists
-  const body = await res.text().catch(() => "");
-  if (/already|registered|exists|duplicate/i.test(body)) return;
-  throw new Error(`GoTrue admin/users → ${res.status} ${body.slice(0, 160)}`.trim());
+  if (create.ok) return; // fresh user created with the demo password
+  const body = await create.text().catch(() => "");
+  const exists =
+    create.status === 422 ||
+    create.status === 409 ||
+    /already|registered|exists|duplicate/i.test(body);
+  if (!exists) throw new Error(`GoTrue create → ${create.status} ${body.slice(0, 160)}`.trim());
+
+  // Already there — reset its password + confirm so the demo creds work even if
+  // a prior run (or a real signup) left it with a different password.
+  const list = await fetch(`${base}/admin/users?per_page=200`, { headers });
+  if (!list.ok) throw new Error(`GoTrue list → ${list.status}`);
+  const data = (await list.json().catch(() => ({}))) as { users?: Array<{ id?: string; email?: string }> };
+  const users = Array.isArray(data.users) ? data.users : [];
+  const user = users.find((u) => (u.email ?? "").toLowerCase() === DEMO_EMAIL);
+  if (!user?.id) throw new Error("demo user exists but was not found in the admin list");
+  const upd = await fetch(`${base}/admin/users/${user.id}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ password: DEMO_PASSWORD, email_confirm: true }),
+  });
+  if (!upd.ok) {
+    throw new Error(`GoTrue update → ${upd.status} ${(await upd.text().catch(() => "")).slice(0, 160)}`.trim());
+  }
 }
