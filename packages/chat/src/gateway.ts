@@ -120,7 +120,7 @@ export async function streamAssistant(
       16_000,
       Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1500 * 2 ** attempt,
     );
-    if (r.status === 429 && maxTokens > 1024) maxTokens = Math.max(1024, Math.floor(maxTokens / 2));
+    if (r.status === 429 && maxTokens > 768) maxTokens = Math.max(768, Math.floor(maxTokens / 2));
     await sleep(backoff);
   }
   if (!res || !res.body) throw new GatewayError("gateway: no response after retries", 502);

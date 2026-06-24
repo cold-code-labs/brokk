@@ -46,7 +46,7 @@ async function repoGuide(cwd: string): Promise<string> {
   for (const name of ["CLAUDE.md", "AGENTS.md", ".github/CLAUDE.md"]) {
     try {
       const text = await fs.readFile(join(cwd, name), "utf8");
-      if (text.trim()) return `\n\n## ${name} (repo conventions)\n${text.slice(0, 6000)}`;
+      if (text.trim()) return `\n\n## ${name} (repo conventions)\n${text.slice(0, 4000)}`;
     } catch {
       // not present — try the next
     }
