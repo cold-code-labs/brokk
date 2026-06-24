@@ -451,9 +451,14 @@ body {
 }
 
 /* thread */
+/* StickToBottom owns the scroll container; the inner Content holds the column. */
 .sindri-thread {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  position: relative;
+}
+.sindri-thread-content {
   padding: 1.3rem;
   display: flex;
   flex-direction: column;
@@ -491,78 +496,130 @@ body {
   font-family: inherit;
 }
 
-/* markdown */
+/* markdown — rendered by streamdown (GFM tables, shiki highlighting, KaTeX,
+   partial-token safe). Streamdown ships its own Tailwind-class styling (now
+   generated from its dist); we only set wrapper rhythm + a few token-aligned
+   accents so it reads as part of the forge instead of fighting it. */
 .sindri-md {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-.sindri-md > *:first-child {
-  margin-top: 0;
-}
-.sindri-md p {
-  margin: 0;
-  white-space: pre-wrap;
+  font-size: 0.9rem;
+  line-height: 1.6;
   word-break: break-word;
 }
-.sindri-md ul,
-.sindri-md ol {
-  margin: 0;
-  padding-left: 1.3rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+.sindri-md > :first-child { margin-top: 0; }
+.sindri-md > :last-child { margin-bottom: 0; }
+.sindri-md a {
+  color: var(--accent, var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
-.sindri-mdh {
-  margin: 0.2rem 0 0;
-  font-weight: 650;
-  line-height: 1.3;
+.sindri-md pre {
+  max-height: 26rem;
 }
-h4.sindri-mdh { font-size: 1rem; }
-h5.sindri-mdh { font-size: 0.92rem; }
-h6.sindri-mdh { font-size: 0.86rem; color: var(--fg-soft, var(--fg)); }
-.sindri-icode {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.84em;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.05rem 0.32rem;
+.sindri-msg.is-user .sindri-md a {
+  color: var(--primary-foreground);
 }
-.sindri-msg.is-user .sindri-icode {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.25);
-}
-.sindri-codeblock {
-  border: 1px solid var(--border);
+
+/* reasoning (extended thinking) — quiet, collapsible, set apart from the answer */
+.sindri-reasoning {
+  border: 1px dashed var(--border);
   border-radius: var(--radius-sm, 8px);
+  background: color-mix(in srgb, var(--card) 60%, transparent);
   overflow: hidden;
-  background: var(--bg);
+  margin-bottom: 0.6rem;
 }
-.sindri-codeblock-head {
+.sindri-reasoning.is-live {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent, var(--primary)) 40%, var(--border));
+}
+.sindri-reasoning-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0.3rem 0.6rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel, var(--card));
-  font-family: var(--font-mono, monospace);
-  font-size: 0.68rem;
-  text-transform: lowercase;
-  letter-spacing: 0.02em;
+  gap: 0.45rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0.45rem 0.65rem;
   color: var(--fg-dim);
+  font-size: 0.78rem;
+  font-weight: 600;
 }
-.sindri-codeblock-head button {
+.sindri-reasoning-head:hover {
+  color: var(--fg-soft, var(--fg));
+}
+.sindri-reasoning-caret {
+  margin-left: auto;
+  transition: transform 0.15s;
+}
+.sindri-reasoning-caret.is-open {
+  transform: rotate(180deg);
+}
+.sindri-reasoning-pulse {
+  animation: sindri-pulse 1.3s ease-in-out infinite;
+}
+@keyframes sindri-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+.sindri-reasoning-body {
+  padding: 0.1rem 0.7rem 0.6rem;
+  color: var(--fg-dim);
+  font-size: 0.84rem;
+}
+.sindri-reasoning-body .sindri-md {
+  font-size: 0.84rem;
+  opacity: 0.92;
+}
+
+/* per-message actions — quiet, fade in on hover of the bubble */
+.sindri-msg-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.sindri-msg.is-assistant .sindri-bubble:hover .sindri-msg-actions {
+  opacity: 1;
+}
+.sindri-msg-actions button {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
   background: transparent;
-  border: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
   color: var(--fg-dim);
-  font-size: 0.68rem;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.4rem;
 }
-.sindri-codeblock-head button:hover {
+.sindri-msg-actions button:hover {
+  color: var(--fg);
+  border-color: var(--accent, var(--primary));
+}
+
+/* scroll-to-bottom — appears only when the operator has scrolled up */
+.sindri-scroll-btn {
+  position: sticky;
+  bottom: 0.4rem;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--fg-soft, var(--fg));
+  cursor: pointer;
+  box-shadow: var(--shadow-1, 0 2px 8px rgba(0, 0, 0, 0.25));
+  z-index: 5;
+}
+.sindri-scroll-btn:hover {
+  border-color: var(--accent, var(--primary));
   color: var(--fg);
 }
 
@@ -604,6 +661,43 @@ h6.sindri-mdh { font-size: 0.86rem; color: var(--fg-soft, var(--fg)); }
 }
 .sindri-tool-flag {
   flex-shrink: 0;
+}
+.sindri-tool-icon {
+  color: var(--fg-dim);
+  flex-shrink: 0;
+}
+.sindri-tool-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+}
+.sindri-tool-pill.is-ok {
+  color: var(--ok, #2ea043);
+  border-color: color-mix(in srgb, var(--ok, #2ea043) 45%, transparent);
+}
+.sindri-tool-pill.is-error {
+  color: var(--err, #f85149);
+  border-color: color-mix(in srgb, var(--err, #f85149) 50%, transparent);
+}
+.sindri-tool-pill.is-running {
+  border: 0;
+  padding: 0;
+}
+.sindri-tool-caret {
+  flex-shrink: 0;
+  color: var(--fg-dim);
+  transition: transform 0.15s;
+}
+.sindri-tool-caret.is-open {
+  transform: rotate(180deg);
 }
 .sindri-tool-body {
   border-top: 1px solid var(--border);

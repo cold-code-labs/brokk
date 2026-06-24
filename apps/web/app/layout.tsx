@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "@cold-code-labs/yggdrasil-tokens/css";
 import "@cold-code-labs/yggdrasil-react/shell.css";
+import "streamdown/styles.css";
 import "./globals.css";
 import { AppShell } from "@cold-code-labs/yggdrasil-react";
 import { Providers } from "./providers";

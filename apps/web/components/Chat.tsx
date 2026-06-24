@@ -12,6 +12,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { Streamdown } from "streamdown";
+import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import {
   Plus,
@@ -28,6 +30,15 @@ import {
   Zap,
   Cpu,
   Copy,
+  Brain,
+  ArrowDown,
+  ChevronDown,
+  Wrench,
+  FileEdit,
+  FileText,
+  TerminalSquare,
+  ListTodo,
+  GitPullRequest,
 } from "lucide-react";
 import { brokk } from "../lib/api";
 import {
@@ -96,6 +107,7 @@ export default function Chat() {
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [liveText, setLiveText] = useState("");
+  const [liveThinking, setLiveThinking] = useState("");
   const [phase, setPhase] = useState("");
   const [running, setRunning] = useState(false);
   const [input, setInput] = useState("");
@@ -106,7 +118,6 @@ export default function Chat() {
   const [titleDraft, setTitleDraft] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
-  const threadRef = useRef<HTMLDivElement | null>(null);
   const liveSeqRef = useRef(-1); // highest seq we've persisted into messages
 
   // ── loaders ─────────────────────────────────────────────────────────────────
@@ -145,9 +156,17 @@ export default function Chat() {
         case "text_delta":
           setLiveText((t) => t + e.text);
           break;
+        case "thinking_delta":
+          setLiveThinking((t) => t + e.text);
+          break;
         case "message":
           upsert(e);
-          if (e.role === "assistant") setLiveText("");
+          // An assistant message has landed in the transcript — the live
+          // scratchpad (streaming text + reasoning) is now redundant.
+          if (e.role === "assistant") {
+            setLiveText("");
+            setLiveThinking("");
+          }
           break;
         case "status":
           setPhase(e.phase === "round" ? "thinking" : e.phase);
@@ -167,6 +186,7 @@ export default function Chat() {
           setRunning(false);
           setPhase("");
           setLiveText("");
+          setLiveThinking("");
           // refresh stats for the session that just finished a turn
           if (projectId) chat.listSessions(projectId).then(setSessions).catch(() => {});
           break;
@@ -177,17 +197,12 @@ export default function Chat() {
     [upsert, sessionId, projectId],
   );
 
-  // Auto-scroll on new content.
-  useEffect(() => {
-    const el = threadRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, liveText, phase]);
-
   async function openSession(id: string) {
     abortRef.current?.abort();
     setSessionId(id);
     setMessages([]);
     setLiveText("");
+    setLiveThinking("");
     setError("");
     setRenaming(false);
     liveSeqRef.current = -1;
@@ -220,6 +235,8 @@ export default function Chat() {
     if (!text || !sessionId || running) return;
     setInput("");
     setError("");
+    setLiveText("");
+    setLiveThinking("");
     setRunning(true);
     setPhase("starting");
     // optimistic user bubble at the next seq
@@ -510,23 +527,27 @@ export default function Chat() {
                 </span>
               </div>
 
-              <div className="sindri-thread" ref={threadRef}>
-                {messages.map((m) => (
-                  <MessageView key={m.seq} message={m} results={results} />
-                ))}
-                {liveText ? (
-                  <div className="sindri-msg is-assistant">
-                    <div className="sindri-bubble">
-                      <Markdown text={liveText} />
+              <StickToBottom className="sindri-thread" resize="smooth" initial="smooth">
+                <StickToBottom.Content className="sindri-thread-content">
+                  {messages.map((m) => (
+                    <MessageView key={m.seq} message={m} results={results} />
+                  ))}
+                  {liveThinking ? <Reasoning text={liveThinking} live /> : null}
+                  {liveText ? (
+                    <div className="sindri-msg is-assistant">
+                      <div className="sindri-bubble">
+                        <Response text={liveText} />
+                      </div>
                     </div>
-                  </div>
-                ) : null}
-                {running ? (
-                  <div className="sindri-status">
-                    <span className="sindri-spinner" /> {phase || "working"}…
-                  </div>
-                ) : null}
-              </div>
+                  ) : null}
+                  {running ? (
+                    <div className="sindri-status">
+                      <span className="sindri-spinner" /> {phase || "working"}…
+                    </div>
+                  ) : null}
+                  <ScrollToBottom />
+                </StickToBottom.Content>
+              </StickToBottom>
 
               <div className="sindri-composer">
                 <textarea
@@ -569,25 +590,45 @@ function MessageView({
   const onlyResults = message.role === "user" && message.blocks.every((b) => b.type === "tool_result");
   if (onlyResults) return null;
 
+  const isUser = message.role === "user";
   const text = message.blocks
     .filter((b): b is Block & { type: "text" } => b.type === "text")
     .map((b) => b.text)
     .join("\n")
     .trim();
+  const thinking = message.blocks
+    .filter((b): b is Block & { type: "thinking" } => b.type === "thinking")
+    .map((b) => b.thinking)
+    .join("\n")
+    .trim();
   const tools = message.blocks.filter((b): b is Block & { type: "tool_use" } => b.type === "tool_use");
 
   return (
-    <div className={`sindri-msg ${message.role === "user" ? "is-user" : "is-assistant"}`}>
+    <div className={`sindri-msg ${isUser ? "is-user" : "is-assistant"}`}>
       <div className="sindri-bubble">
-        {text ? (
-          message.role === "user" ? <pre className="sindri-text">{text}</pre> : <Markdown text={text} />
-        ) : null}
+        {thinking && !isUser ? <Reasoning text={thinking} /> : null}
+        {text ? isUser ? <pre className="sindri-text">{text}</pre> : <Response text={text} /> : null}
         {tools.map((t) => (
           <ToolCall key={t.id} tool={t} result={results.get(t.id)} />
         ))}
+        {!isUser && text ? <MessageActions text={text} /> : null}
       </div>
     </div>
   );
+}
+
+// Map raw tool names to a friendly verb + icon, so a turn reads like a story of
+// what Sindri did rather than a list of API calls.
+const TOOL_META: { match: RegExp; label: string; Icon: typeof Wrench }[] = [
+  { match: /read|cat|view|get_file/i, label: "Lendo", Icon: FileText },
+  { match: /write|edit|str_replace|create|apply|patch/i, label: "Editando", Icon: FileEdit },
+  { match: /bash|shell|run|exec|command|terminal/i, label: "Executando", Icon: TerminalSquare },
+  { match: /card|task|plan|todo/i, label: "Planejando", Icon: ListTodo },
+  { match: /pr|pull|merge|commit|push|branch/i, label: "Git", Icon: GitPullRequest },
+];
+
+function toolMeta(name: string) {
+  return TOOL_META.find((t) => t.match.test(name)) ?? { label: "Ferramenta", Icon: Wrench };
 }
 
 function ToolCall({
@@ -598,25 +639,34 @@ function ToolCall({
   result?: Block & { type: "tool_result" };
 }) {
   const [open, setOpen] = useState(false);
+  const { label, Icon } = toolMeta(tool.name);
   const arg =
     (tool.input.command as string) ||
     (tool.input.path as string) ||
     (tool.input.title as string) ||
+    (tool.input.file_path as string) ||
     JSON.stringify(tool.input);
+  const status = !result ? "running" : result.is_error ? "error" : "ok";
   return (
     <div className={`sindri-tool ${result?.is_error ? "is-error" : ""}`}>
       <button className="sindri-tool-head" onClick={() => setOpen((o) => !o)}>
-        <span className="sindri-tool-name">{tool.name}</span>
+        <Icon size={13} className="sindri-tool-icon" />
+        <span className="sindri-tool-name">{label}</span>
         <span className="sindri-tool-arg">{String(arg).slice(0, 90)}</span>
-        {result ? <span className="sindri-tool-flag">{result.is_error ? "✗" : "✓"}</span> : <span className="sindri-spinner" />}
+        <span className={`sindri-tool-pill is-${status}`}>
+          {status === "running" ? <span className="sindri-spinner" /> : status === "error" ? "erro" : "ok"}
+        </span>
+        <ChevronDown size={13} className={`sindri-tool-caret ${open ? "is-open" : ""}`} />
       </button>
       {open ? (
         <div className="sindri-tool-body">
-          <div className="sindri-tool-label">input</div>
+          <div className="sindri-tool-label">
+            {tool.name} · entrada
+          </div>
           <pre className="sindri-pre">{JSON.stringify(tool.input, null, 2)}</pre>
           {result ? (
             <>
-              <div className="sindri-tool-label">result</div>
+              <div className="sindri-tool-label">resultado</div>
               <pre className="sindri-pre">{result.content.slice(0, 4000)}</pre>
             </>
           ) : null}
@@ -626,134 +676,79 @@ function ToolCall({
   );
 }
 
-// ── lightweight markdown ──────────────────────────────────────────────────────
-// Dependency-free: fenced code blocks, inline code, bold, headings, and lists.
-// Enough to make assistant turns read well without pulling a markdown engine in.
-function inline(s: string, keyBase: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  const re = /(`[^`]+`|\*\*[^*]+\*\*)/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  let k = 0;
-  while ((m = re.exec(s))) {
-    if (m.index > last) nodes.push(s.slice(last, m.index));
-    const tok = m[0];
-    if (tok.startsWith("`")) nodes.push(<code key={`${keyBase}-${k++}`} className="sindri-icode">{tok.slice(1, -1)}</code>);
-    else nodes.push(<strong key={`${keyBase}-${k++}`}>{tok.slice(2, -2)}</strong>);
-    last = m.index + tok.length;
-  }
-  if (last < s.length) nodes.push(s.slice(last));
-  return nodes;
+// ── streaming markdown ────────────────────────────────────────────────────────
+// Streamdown renders partial/unterminated markdown safely mid-stream (unclosed
+// code fences, half-typed links) and ships GFM tables, Shiki syntax highlighting,
+// HTML sanitization and a built-in copy button on code blocks. We only restyle it
+// with our design tokens — light/dark shiki themes track the forge theme.
+const SHIKI_THEME: [string, string] = ["github-light", "github-dark"];
+
+function Response({ text }: { text: string }) {
+  return (
+    <Streamdown className="sindri-md" parseIncompleteMarkdown shikiTheme={SHIKI_THEME}>
+      {text}
+    </Streamdown>
+  );
 }
 
-function CodeBlock({ code, lang }: { code: string; lang?: string }) {
+// ── reasoning (extended thinking) ─────────────────────────────────────────────
+// The backend streams `thinking_delta` and persists `thinking` blocks; before,
+// the UI dropped both. Surface them in a quiet, collapsible panel — open while
+// live so you can watch Sindri reason, collapsible once the answer lands.
+function Reasoning({ text, live }: { text: string; live?: boolean }) {
+  const [open, setOpen] = useState(!!live);
+  if (!text.trim()) return null;
+  return (
+    <div className={`sindri-reasoning ${live ? "is-live" : ""}`}>
+      <button className="sindri-reasoning-head" onClick={() => setOpen((o) => !o)}>
+        <Brain size={13} className={live ? "sindri-reasoning-pulse" : ""} />
+        <span>{live ? "Pensando…" : "Raciocínio"}</span>
+        <ChevronDown size={13} className={`sindri-reasoning-caret ${open ? "is-open" : ""}`} />
+      </button>
+      {open ? (
+        <div className="sindri-reasoning-body">
+          <Streamdown className="sindri-md" parseIncompleteMarkdown>
+            {text}
+          </Streamdown>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ── per-message actions ───────────────────────────────────────────────────────
+function MessageActions({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="sindri-codeblock">
-      <div className="sindri-codeblock-head">
-        <span>{lang || "code"}</span>
-        <button
-          onClick={() => {
-            navigator.clipboard?.writeText(code).then(
-              () => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1200);
-              },
-              () => {},
-            );
-          }}
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? "copiado" : "copiar"}
-        </button>
-      </div>
-      <pre className="sindri-pre">{code}</pre>
+    <div className="sindri-msg-actions">
+      <button
+        title="Copiar resposta"
+        onClick={() => {
+          navigator.clipboard?.writeText(text).then(
+            () => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1200);
+            },
+            () => {},
+          );
+        }}
+      >
+        {copied ? <Check size={12} /> : <Copy size={12} />}
+        {copied ? "copiado" : "copiar"}
+      </button>
     </div>
   );
 }
 
-function Markdown({ text }: { text: string }) {
-  // Split into fenced code blocks vs prose first.
-  const segs: { type: "code" | "prose"; body: string; lang?: string }[] = [];
-  const fence = /```(\w*)\n?([\s\S]*?)```/g;
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = fence.exec(text))) {
-    if (m.index > last) segs.push({ type: "prose", body: text.slice(last, m.index) });
-    segs.push({ type: "code", lang: m[1] || undefined, body: m[2] ?? "" });
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) segs.push({ type: "prose", body: text.slice(last) });
-
+// ── scroll-to-bottom affordance ───────────────────────────────────────────────
+// use-stick-to-bottom keeps the thread pinned during streaming but releases the
+// moment the operator scrolls up to read back; this button re-pins on demand.
+function ScrollToBottom() {
+  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
+  if (isAtBottom) return null;
   return (
-    <div className="sindri-md">
-      {segs.map((seg, i) =>
-        seg.type === "code" ? (
-          <CodeBlock key={i} code={seg.body.replace(/\n$/, "")} lang={seg.lang} />
-        ) : (
-          <Prose key={i} text={seg.body} />
-        ),
-      )}
-    </div>
+    <button className="sindri-scroll-btn" onClick={() => scrollToBottom()} title="Ir para o final">
+      <ArrowDown size={15} />
+    </button>
   );
-}
-
-function Prose({ text }: { text: string }) {
-  const lines = text.split("\n");
-  const out: React.ReactNode[] = [];
-  let list: { ordered: boolean; items: string[] } | null = null;
-  let para: string[] = [];
-  let key = 0;
-
-  const flushPara = () => {
-    if (para.length) {
-      const body = para.join("\n");
-      out.push(<p key={`p-${key++}`}>{inline(body, `p${key}`)}</p>);
-      para = [];
-    }
-  };
-  const flushList = () => {
-    if (list) {
-      const items = list.items.map((it, j) => <li key={j}>{inline(it, `li${key}-${j}`)}</li>);
-      out.push(list.ordered ? <ol key={`l-${key++}`}>{items}</ol> : <ul key={`l-${key++}`}>{items}</ul>);
-      list = null;
-    }
-  };
-
-  for (const raw of lines) {
-    const line = raw.replace(/\s+$/, "");
-    const h = /^(#{1,4})\s+(.*)$/.exec(line);
-    const ul = /^\s*[-*]\s+(.*)$/.exec(line);
-    const ol = /^\s*\d+\.\s+(.*)$/.exec(line);
-    if (h) {
-      flushPara();
-      flushList();
-      const level = Math.min(h[1].length + 2, 6);
-      const Tag = `h${level}` as keyof React.JSX.IntrinsicElements;
-      out.push(<Tag key={`h-${key++}`} className="sindri-mdh">{inline(h[2], `h${key}`)}</Tag>);
-    } else if (ul) {
-      flushPara();
-      if (!list || list.ordered) {
-        flushList();
-        list = { ordered: false, items: [] };
-      }
-      list.items.push(ul[1]);
-    } else if (ol) {
-      flushPara();
-      if (!list || !list.ordered) {
-        flushList();
-        list = { ordered: true, items: [] };
-      }
-      list.items.push(ol[1]);
-    } else if (line.trim() === "") {
-      flushPara();
-      flushList();
-    } else {
-      flushList();
-      para.push(line);
-    }
-  }
-  flushPara();
-  flushList();
-  return <>{out}</>;
 }
