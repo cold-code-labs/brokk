@@ -1,4 +1,4 @@
-# Build context is the repo root:  docker build -f packages/eitri/Dockerfile .
+# Build context is the repo root:  docker build -f apps/reviewer/Dockerfile .
 #
 # Eitri — the PR reviewer. Watches open Brokk PRs and reviews (and optionally
 # revises) them with the native @brokk/afl agent loop. Debian-based (not alpine):
@@ -45,6 +45,6 @@ RUN pipx install semgrep
 # scanners' caches (~/.cache/trivy, ~/.semgrep) don't EACCES at scan time.
 RUN mkdir -p /home/brokk && chown -R 1001:1001 /home/brokk
 COPY --from=build /out/node_modules ./node_modules
-COPY --from=build /repo/packages/eitri/dist ./dist
-COPY --from=build /repo/packages/eitri/package.json ./package.json
+COPY --from=build /repo/apps/reviewer/dist ./dist
+COPY --from=build /repo/apps/reviewer/package.json ./package.json
 CMD ["node", "dist/index.js"]

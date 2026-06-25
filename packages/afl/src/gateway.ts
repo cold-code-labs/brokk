@@ -6,7 +6,7 @@
 // assistant message (blocks + stop_reason + usage) ready to persist and replay.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { ChatConfig } from "./config.js";
+import type { AflConfig } from "./config.js";
 import type {
   ChatTurnMessage,
   ContentBlock,
@@ -58,7 +58,7 @@ type Building =
   | { kind: "tool_use"; id: string; name: string; json: string };
 
 export async function streamAssistant(
-  cfg: ChatConfig,
+  cfg: AflConfig,
   req: MessagesRequest,
   onDelta: DeltaSink,
   signal?: AbortSignal,

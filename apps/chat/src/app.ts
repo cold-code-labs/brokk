@@ -1,7 +1,7 @@
 import {
   buildSystemPrompt,
-  type ChatConfig,
-  type SindriEvent,
+  type AflConfig,
+  type AgentEvent,
   type ToolContext,
   runTurn,
 } from "@brokk/chat";
@@ -18,7 +18,7 @@ import { TurnManager } from "./turns.js";
 
 export interface SindriDeps {
   store: Store;
-  cfg: ChatConfig;
+  cfg: AflConfig;
   checkouts: CheckoutManager;
   turns: TurnManager;
   /** Shared secret the API proxy presents. Empty = open (dev). */
@@ -233,7 +233,7 @@ async function runSessionTurn(
   deps: SindriDeps,
   sessionId: string,
   text: string,
-  emit: (e: SindriEvent) => void,
+  emit: (e: AgentEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
   const session = await deps.store.getChatSession(sessionId);
@@ -356,7 +356,7 @@ async function runPlan(
  *  turn) when the client disconnects. */
 function streamSession(deps: SindriDeps, sessionId: string, c: Context) {
   return streamSSE(c, async (stream) => {
-    const queue: SindriEvent[] = [];
+    const queue: AgentEvent[] = [];
     let wake: (() => void) | null = null;
     const unsub = deps.turns.subscribe(sessionId, (e) => {
       queue.push(e);

@@ -4,13 +4,13 @@
  * the CCL gateway (LiteLLM → Ratatoskr). Dependency-light by law — no @brokk/db,
  * no gh, no cards. The hands, not the persona. See docs/NORTH-STAR.md §5, §10.
  *
- * Phase 1 of the @brokk/chat → @brokk/afl extraction: gateway + types + config.
- * Phase 2 (the forge build): the generic agent-loop primitive (`runAgentLoop`) +
- * the generic tool layer (fs + bash + shellEnv) now live here. Naming cleanup
- * pending too (ChatConfig → AflConfig, SindriEvent → AgentEvent).
+ * Extraction history: the gateway + types + config came over from @brokk/chat,
+ * then the generic agent-loop primitive (`runAgentLoop`) + the generic tool layer
+ * (fs + bash + shellEnv) landed during the forge build. The config + event types
+ * carry persona-neutral names (AflConfig, AgentEvent) — the kernel knows no Sindri.
  */
 
-export { type ChatConfig, loadChatConfig, resolveModel } from "./config.js";
+export { type AflConfig, loadAflConfig, resolveModel } from "./config.js";
 export {
   type AssistantResult,
   type DeltaSink,
@@ -39,7 +39,7 @@ export type {
   ChatTurnMessage,
   ContentBlock,
   PartialExecutor,
-  SindriEvent,
+  AgentEvent,
   TextBlock,
   ThinkingBlock,
   ToolDef,

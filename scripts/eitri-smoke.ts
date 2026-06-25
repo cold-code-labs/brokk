@@ -19,13 +19,13 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { loadChatConfig } from "../packages/afl/src/config.js";
-import { reviewPr } from "../packages/eitri/src/review.js";
+import { loadAflConfig } from "../packages/afl/src/config.js";
+import { reviewPr } from "../packages/agents/reviewer/src/index.js";
 
 const exec = promisify(execCb);
 const model = process.argv[2] || "sonnet";
 
-const cfg = loadChatConfig();
+const cfg = loadAflConfig();
 if (!cfg.authToken) {
   console.error("✗ ANTHROPIC_AUTH_TOKEN unset — source the gateway env first (e.g. /home/brokk/brokk.env)");
   process.exit(2);

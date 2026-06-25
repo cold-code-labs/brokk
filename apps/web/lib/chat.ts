@@ -48,7 +48,7 @@ export interface ChatMessage {
   createdAt: string;
 }
 
-export type SindriEvent =
+export type AgentEvent =
   | { type: "status"; phase: string; detail?: unknown }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }
@@ -116,7 +116,7 @@ export const discovery = {
 
 /** Parse an SSE response body, invoking onEvent per frame. Used by both the
  *  message POST and the reattach GET. Returns when the stream ends. */
-async function consumeSSE(res: Response, onEvent: (e: SindriEvent) => void, signal?: AbortSignal): Promise<void> {
+async function consumeSSE(res: Response, onEvent: (e: AgentEvent) => void, signal?: AbortSignal): Promise<void> {
   if (!res.body) throw new Error("no stream body");
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -138,7 +138,7 @@ async function consumeSSE(res: Response, onEvent: (e: SindriEvent) => void, sign
       const data = dataLines.join("\n");
       if (!data) continue;
       try {
-        onEvent(JSON.parse(data) as SindriEvent);
+        onEvent(JSON.parse(data) as AgentEvent);
       } catch {
         /* ignore malformed frame */
       }
@@ -151,7 +151,7 @@ async function consumeSSE(res: Response, onEvent: (e: SindriEvent) => void, sign
 export async function sendMessage(
   sessionId: string,
   text: string,
-  onEvent: (e: SindriEvent) => void,
+  onEvent: (e: AgentEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch(`${BASE}/sessions/${sessionId}/messages`, {
@@ -165,7 +165,7 @@ export async function sendMessage(
 }
 
 /** Reattach to an in-flight turn's live stream (replays the recent tail). */
-export async function attach(sessionId: string, onEvent: (e: SindriEvent) => void, signal?: AbortSignal): Promise<void> {
+export async function attach(sessionId: string, onEvent: (e: AgentEvent) => void, signal?: AbortSignal): Promise<void> {
   const res = await fetch(`${BASE}/sessions/${sessionId}/stream`, { signal });
   if (!res.ok) throw new Error(`attach → ${res.status}`);
   await consumeSSE(res, onEvent, signal);

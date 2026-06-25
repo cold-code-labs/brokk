@@ -18,12 +18,12 @@ import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRunContext, RunEvent } from "../packages/core/src/index.js";
-import { loadChatConfig } from "../packages/afl/src/config.js";
-import { ForgeEngine } from "../packages/forge/src/index.js";
+import { loadAflConfig } from "../packages/afl/src/config.js";
+import { ForgeEngine } from "../packages/agents/forge/src/index.js";
 
 const model = process.argv[2] || "haiku";
 
-const cfg = loadChatConfig();
+const cfg = loadAflConfig();
 if (!cfg.authToken) {
   console.error("✗ ANTHROPIC_AUTH_TOKEN unset — source the gateway env first (e.g. /home/brokk/brokk.env)");
   process.exit(2);

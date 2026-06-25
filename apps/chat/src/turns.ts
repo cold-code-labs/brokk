@@ -8,12 +8,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { EventEmitter } from "node:events";
-import type { SindriEvent } from "@brokk/chat";
+import type { AgentEvent } from "@brokk/chat";
 
 interface ActiveTurn {
   emitter: EventEmitter;
   /** Recent events for replay to late subscribers (capped). */
-  buffer: SindriEvent[];
+  buffer: AgentEvent[];
   abort: AbortController;
   startedAt: number;
 }
@@ -21,7 +21,7 @@ interface ActiveTurn {
 export class TurnManager {
   private active = new Map<string, ActiveTurn>();
   /** Sessions that just finished — keep the tail briefly for a racing reconnect. */
-  private recent = new Map<string, { buffer: SindriEvent[]; at: number }>();
+  private recent = new Map<string, { buffer: AgentEvent[]; at: number }>();
 
   isRunning(sessionId: string): boolean {
     return this.active.has(sessionId);
@@ -31,16 +31,16 @@ export class TurnManager {
    * Start a detached turn. `run` receives an `emit` sink and an AbortSignal; it
    * runs to completion independently of any subscriber. Returns immediately.
    */
-  start(sessionId: string, run: (emit: (e: SindriEvent) => void, signal: AbortSignal) => Promise<void>): void {
+  start(sessionId: string, run: (emit: (e: AgentEvent) => void, signal: AbortSignal) => Promise<void>): void {
     if (this.active.has(sessionId)) throw new Error("a turn is already running for this session");
     const emitter = new EventEmitter();
     emitter.setMaxListeners(0);
-    const buffer: SindriEvent[] = [];
+    const buffer: AgentEvent[] = [];
     const abort = new AbortController();
     const turn: ActiveTurn = { emitter, buffer, abort, startedAt: Date.now() };
     this.active.set(sessionId, turn);
 
-    const emit = (e: SindriEvent) => {
+    const emit = (e: AgentEvent) => {
       buffer.push(e);
       if (buffer.length > 2000) buffer.splice(0, buffer.length - 2000);
       emitter.emit("event", e);
@@ -67,7 +67,7 @@ export class TurnManager {
    * returns false or the turn ends. Returns an unsubscribe fn. If no turn is
    * active, replays the recent tail (if any) and signals completion.
    */
-  subscribe(sessionId: string, onEvent: (e: SindriEvent) => void): () => void {
+  subscribe(sessionId: string, onEvent: (e: AgentEvent) => void): () => void {
     const turn = this.active.get(sessionId);
     if (!turn) {
       const r = this.recent.get(sessionId);
@@ -76,7 +76,7 @@ export class TurnManager {
       return () => {};
     }
     for (const e of turn.buffer) onEvent(e);
-    const handler = (e: SindriEvent) => onEvent(e);
+    const handler = (e: AgentEvent) => onEvent(e);
     turn.emitter.on("event", handler);
     return () => turn.emitter.off("event", handler);
   }

@@ -50,6 +50,71 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  apps/chat:
+    dependencies:
+      '@brokk/chat':
+        specifier: workspace:*
+        version: link:../../packages/agents/chat
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@brokk/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@brokk/mimir':
+        specifier: workspace:*
+        version: link:../../packages/mimir
+      '@brokk/scout':
+        specifier: workspace:*
+        version: link:../../packages/agents/scout
+      '@hono/node-server':
+        specifier: ^1.13.7
+        version: 1.19.14(hono@4.12.27)
+      hono:
+        specifier: ^4.6.14
+        version: 4.12.27
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  apps/forge:
+    dependencies:
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@brokk/forge':
+        specifier: workspace:*
+        version: link:../../packages/agents/forge
+      langfuse:
+        specifier: ^3.38.20
+        version: 3.38.20
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   apps/gateway:
     dependencies:
       zod:
@@ -69,32 +134,17 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
-  apps/sindri:
+  apps/reviewer:
     dependencies:
-      '@brokk/chat':
-        specifier: workspace:*
-        version: link:../../packages/chat
       '@brokk/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@brokk/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@brokk/mimir':
+      '@brokk/reviewer':
         specifier: workspace:*
-        version: link:../../packages/mimir
-      '@brokk/scout':
-        specifier: workspace:*
-        version: link:../../packages/scout
-      '@hono/node-server':
-        specifier: ^1.13.7
-        version: 1.19.14(hono@4.12.27)
-      hono:
-        specifier: ^4.6.14
-        version: 4.12.27
-      zod:
-        specifier: ^3.24.1
-        version: 3.25.76
+        version: link:../../packages/agents/reviewer
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -179,17 +229,59 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
-  packages/chat:
+  packages/agents/chat:
     dependencies:
       '@brokk/afl':
         specifier: workspace:*
-        version: link:../afl
+        version: link:../../afl
       '@brokk/core':
         specifier: workspace:*
-        version: link:../core
+        version: link:../../core
       '@brokk/db':
         specifier: workspace:*
-        version: link:../db
+        version: link:../../db
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/agents/forge:
+    dependencies:
+      '@brokk/afl':
+        specifier: workspace:*
+        version: link:../../afl
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/agents/reviewer:
+    dependencies:
+      '@brokk/afl':
+        specifier: workspace:*
+        version: link:../../afl
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/agents/scout:
+    dependencies:
+      '@brokk/afl':
+        specifier: workspace:*
+        version: link:../../afl
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -229,90 +321,11 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
-  packages/eitri:
-    dependencies:
-      '@brokk/afl':
-        specifier: workspace:*
-        version: link:../afl
-      '@brokk/core':
-        specifier: workspace:*
-        version: link:../core
-      '@brokk/db':
-        specifier: workspace:*
-        version: link:../db
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.2
-        version: 22.20.0
-      tsup:
-        specifier: ^8.3.5
-        version: 8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
-      tsx:
-        specifier: ^4.19.2
-        version: 4.22.4
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-
-  packages/forge:
-    dependencies:
-      '@brokk/afl':
-        specifier: workspace:*
-        version: link:../afl
-      '@brokk/core':
-        specifier: workspace:*
-        version: link:../core
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.2
-        version: 22.20.0
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-
   packages/mimir:
     dependencies:
       '@brokk/core':
         specifier: workspace:*
         version: link:../core
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.2
-        version: 22.20.0
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-
-  packages/runner:
-    dependencies:
-      '@brokk/core':
-        specifier: workspace:*
-        version: link:../core
-      '@brokk/forge':
-        specifier: workspace:*
-        version: link:../forge
-      langfuse:
-        specifier: ^3.38.20
-        version: 3.38.20
-    devDependencies:
-      '@types/node':
-        specifier: ^22.10.2
-        version: 22.20.0
-      tsup:
-        specifier: ^8.3.5
-        version: 8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
-      tsx:
-        specifier: ^4.19.2
-        version: 4.22.4
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-
-  packages/scout:
-    dependencies:
-      '@brokk/afl':
-        specifier: workspace:*
-        version: link:../afl
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

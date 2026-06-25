@@ -17,7 +17,7 @@
 // transcript (to persist, to continue, or to inspect). See NORTH-STAR §5, §9.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { ChatConfig } from "./config.js";
+import type { AflConfig } from "./config.js";
 import { type DeltaSink, streamAssistant } from "./gateway.js";
 import type {
   ChatTurnMessage,
@@ -51,7 +51,7 @@ export interface AgentLoopHooks {
 }
 
 export interface AgentLoopOptions {
-  cfg: ChatConfig;
+  cfg: AflConfig;
   /** Concrete model id (resolve aliases with resolveModel before calling). */
   model: string;
   system: string;

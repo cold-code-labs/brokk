@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { loadChatConfig } from "@brokk/chat";
+import { loadAflConfig } from "@brokk/chat";
 import { createDb, createStore, ensureChatSchema } from "@brokk/db";
 import { buildSindri } from "./app.js";
 import { CheckoutManager } from "./checkout.js";
@@ -17,7 +17,7 @@ async function main() {
   await ensureChatSchema(db);
   const store = createStore(db);
 
-  const chatCfg = loadChatConfig();
+  const chatCfg = loadAflConfig();
   if (!chatCfg.authToken) {
     console.warn("[sindri] ANTHROPIC_AUTH_TOKEN unset — model calls to the gateway will fail");
   }

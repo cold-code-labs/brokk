@@ -14,7 +14,7 @@ import { createDb, createStore } from "@brokk/db";
 import { loadEitriConfig } from "./config.js";
 import { EitriGit } from "./git.js";
 import { type AppAuth, getInstallationToken, loadAppAuth } from "./github-app.js";
-import { reviewPr } from "./review.js";
+import { reviewPr } from "@brokk/reviewer";
 import { formatScanMarkdown, runScan, scanPromptBlock } from "./scan.js";
 
 const exec = promisify(execFile);

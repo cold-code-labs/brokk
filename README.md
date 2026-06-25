@@ -29,16 +29,29 @@ routing the agent through a proxy (`ANTHROPIC_BASE_URL`).
 pnpm monorepo · **Hono** API · **Next 15** web · **Drizzle + Postgres**. (Same mold as Heimdall OSS.)
 
 ```
+# apps = processes (trigger-adapters)
 apps/api        @brokk/api      Hono control plane (tasks, queue, runs, webhooks)
 apps/web        @brokk/web      Next 15 kanban board
 apps/gateway    @brokk/gateway  wildcard *.preview reverse proxy (on-demand dev previews)
+apps/forge      @brokk/runner   the forge daemon — claim loop, worktrees, gh (hosts @brokk/forge)
+apps/reviewer   @brokk/eitri    the reviewer daemon — semgrep + trivy (hosts @brokk/reviewer)
+apps/chat       @brokk/sindri   the chat daemon — sessions + SSE (hosts @brokk/chat + @brokk/scout)
+
+# packages = capabilities (libraries)
+packages/afl              @brokk/afl       the kernel — native gateway loop + shared hands (no SDK)
+packages/mimir            @brokk/mimir     the counselor — triage + enhancer + planner (card → DAG)
+packages/agents/forge     @brokk/forge     Brokkr — worktree → build → verify → PR
+packages/agents/chat      @brokk/chat      Sindri — conversational build persona
+packages/agents/scout     @brokk/scout     Huginn — read-only repo → structured brief
+packages/agents/reviewer  @brokk/reviewer  Eitri — diff → verdict + markdown review
 packages/core   @brokk/core     domain types + ports (AgentEngine, GitProvider) — no deps
 packages/db     @brokk/db       Drizzle schema + Postgres store
-packages/mimir  @brokk/mimir    the counselor — prompt triage + enhancer + planner (card → DAG)
-packages/runner @brokk/runner   Claude Agent SDK runner (worktrees, gh) — the forge
-packages/eitri  @brokk/eitri    the reviewer — semgrep + trivy + LLM review on every PR
 packages/sdk    @brokk/sdk      typed API client
 ```
+
+> Agents are native on the `@brokk/afl` kernel — the Claude Agent SDK is retired.
+> (App package names `@brokk/runner|eitri|sindri` are legacy and don't yet match
+> their `apps/` dir; a cosmetic rename is the only structural debt left.)
 
 The forge is a trio: **Mímir advises** (qualifies the prompt, fans it into a DAG of cards) →
 **Brokkr forges** (one worktree per card) → **Eitri reviews** (security scan + LLM, on every PR).

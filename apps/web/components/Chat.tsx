@@ -48,7 +48,7 @@ import {
   type Block,
   type ChatMessage,
   type ChatSessionWithStats,
-  type SindriEvent,
+  type AgentEvent,
 } from "../lib/chat";
 
 // Full model choice. The subscription-seat gate that used to 429 Sonnet/Opus is
@@ -154,7 +154,7 @@ export default function Chat() {
   }, [sessionId]);
 
   const handleEvent = useCallback(
-    (e: SindriEvent) => {
+    (e: AgentEvent) => {
       switch (e.type) {
         case "text_delta":
           setLiveText((t) => t + e.text);

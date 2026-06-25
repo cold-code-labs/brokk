@@ -7,7 +7,7 @@
 // construction. We never hold the seat token; only a LiteLLM virtual key.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface ChatConfig {
+export interface AflConfig {
   /** Gateway base URL (ANTHROPIC_BASE_URL) — e.g. http://127.0.0.1:4000. We POST
    *  `${gatewayUrl}/v1/messages`. */
   gatewayUrl: string;
@@ -23,7 +23,7 @@ export interface ChatConfig {
   maxRounds: number;
 }
 
-export function loadChatConfig(env: NodeJS.ProcessEnv = process.env): ChatConfig {
+export function loadAflConfig(env: NodeJS.ProcessEnv = process.env): AflConfig {
   return {
     gatewayUrl: (env.ANTHROPIC_BASE_URL ?? "http://127.0.0.1:4000").replace(/\/$/, ""),
     authToken: env.ANTHROPIC_AUTH_TOKEN ?? "",
@@ -44,7 +44,7 @@ export function loadChatConfig(env: NodeJS.ProcessEnv = process.env): ChatConfig
 
 /** Resolve a session's model alias to the concrete id the gateway expects. An
  *  already-concrete id (contains "-") passes through untouched. */
-export function resolveModel(cfg: ChatConfig, alias: string): string {
+export function resolveModel(cfg: AflConfig, alias: string): string {
   const a = (alias || "haiku").toLowerCase();
   if (a === "haiku" || a === "sonnet" || a === "opus") return cfg.models[a];
   return alias; // already a concrete model id

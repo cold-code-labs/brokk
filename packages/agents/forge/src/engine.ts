@@ -24,7 +24,7 @@
 
 import {
   type AgentLoopHooks,
-  type ChatConfig,
+  type AflConfig,
   type ChatTurnMessage,
   composeExecutors,
   FS_TOOL_DEFS,
@@ -63,7 +63,7 @@ const DEFAULT_MODELS = {
 };
 
 export class ForgeEngine implements AgentEngine {
-  private readonly cfg: ChatConfig;
+  private readonly cfg: AflConfig;
   constructor(private readonly opts: ForgeEngineOptions) {
     this.cfg = {
       gatewayUrl: opts.gatewayUrl.replace(/\/$/, ""),

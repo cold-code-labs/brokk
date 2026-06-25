@@ -13,21 +13,21 @@
 
 import type { ChatSession } from "@brokk/core";
 import type { Store } from "@brokk/db";
-import type { ChatConfig } from "@brokk/afl";
+import type { AflConfig } from "@brokk/afl";
 import { resolveModel } from "@brokk/afl";
 import { streamAssistant } from "@brokk/afl";
 import { makeExecutor, TOOL_DEFS, type ToolContext } from "./tools.js";
-import type { ChatTurnMessage, ContentBlock, SindriEvent, ToolResultBlock, ToolUseBlock } from "@brokk/afl";
+import type { ChatTurnMessage, ContentBlock, AgentEvent, ToolResultBlock, ToolUseBlock } from "@brokk/afl";
 
 export interface RunTurnInput {
   session: ChatSession;
   /** The user's new message text. */
   userText: string;
-  cfg: ChatConfig;
+  cfg: AflConfig;
   toolCtx: ToolContext;
   /** System prompt (built by buildSystemPrompt). */
   system: string;
-  emit: (e: SindriEvent) => void;
+  emit: (e: AgentEvent) => void;
   signal?: AbortSignal;
 }
 

@@ -54,7 +54,7 @@ export interface TurnUsage {
 
 /** Live events Sindri emits during a turn — fed to the SSE stream and (for the
  *  completed-message ones) mirrored from the persisted transcript on reconnect. */
-export type SindriEvent =
+export type AgentEvent =
   | { type: "status"; phase: string; detail?: unknown }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }

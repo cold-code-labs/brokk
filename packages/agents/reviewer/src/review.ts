@@ -4,17 +4,17 @@
  * hands (read_file + list_dir + bash, no write/edit, no gh creds), feeds it the
  * diff, and captures its verdict + markdown review (the final assistant message).
  *
- * Auth is gateway-only (LiteLLM → Ratatoskr) via afl's loadChatConfig — the same
+ * Auth is gateway-only (LiteLLM → Ratatoskr) via afl's loadAflConfig — the same
  * ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN the eitri container already carries.
  * Read-only by construction (§9 #6): the model is never shown a mutating tool, so
  * "do NOT modify anything" is enforced by the tool surface, not just the prompt.
  */
 import {
-  type ChatConfig,
+  type AflConfig,
   type ChatTurnMessage,
   composeExecutors,
   FS_READONLY_TOOL_DEFS,
-  loadChatConfig,
+  loadAflConfig,
   makeFsExecutor,
   resolveModel,
   runAgentLoop,
@@ -82,11 +82,11 @@ export async function reviewPr(opts: {
   diff: string;
   /** Pre-computed security-scan context, injected so the LLM weighs it. */
   scanBlock?: string;
-  /** Gateway config; defaults to loadChatConfig() (the eitri container's env). */
-  cfg?: ChatConfig;
+  /** Gateway config; defaults to loadAflConfig() (the eitri container's env). */
+  cfg?: AflConfig;
   signal?: AbortSignal;
 }): Promise<ReviewResult> {
-  const cfg = opts.cfg ?? loadChatConfig();
+  const cfg = opts.cfg ?? loadAflConfig();
   const model = resolveModel(cfg, opts.model);
   // Read-only hands, no gh creds — the reviewer inspects, never pushes.
   const exec = composeExecutors(makeFsExecutor({ cwd: opts.cwd, gh: false }));

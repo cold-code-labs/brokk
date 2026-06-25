@@ -1,4 +1,4 @@
-# Build context is the repo root:  docker build -f packages/runner/Dockerfile .
+# Build context is the repo root:  docker build -f apps/forge/Dockerfile .
 #
 # The forge worker. Pulls cards off the control plane, spins an isolated git
 # worktree, and drives the native @brokk/afl agent loop to write the change + open
@@ -37,6 +37,6 @@ RUN apk add --no-cache git github-cli openssh-client \
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 COPY --from=build /out/node_modules ./node_modules
-COPY --from=build /repo/packages/runner/dist ./dist
-COPY --from=build /repo/packages/runner/package.json ./package.json
+COPY --from=build /repo/apps/forge/dist ./dist
+COPY --from=build /repo/apps/forge/package.json ./package.json
 CMD ["node", "dist/index.js"]

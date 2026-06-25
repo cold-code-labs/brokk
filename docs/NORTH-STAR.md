@@ -318,18 +318,22 @@ Design even the small bits so these never need a retrofit:
   - **NOTE:** `loop.ts` (Sindri `runTurn`) + `context.ts` stayed in `@brokk/chat` on
     purpose (Sindri-specific, legally db-coupled). The **generic agent-loop primitive is
     deferred to the `@brokk/forge` build** — that's its first second-consumer.
-- **Other live pillars:** Brokkr (forge, STILL on Agent SDK ← next to migrate), Eitri
-  (reviewer, Agent SDK daemon ← migrate after), Mímir (enhance/triage/plan lib),
-  Ratatoskr (single shared seat + shape-gate fixed), preview lane, multi-repo Fleet.
+- **The Agent SDK is RETIRED (codebase-wide).** Both Brokkr (`@brokk/forge`) and Eitri
+  (`@brokk/reviewer`) run native on the afl loop; `runAgentLoop` is the shared primitive.
+  Other live pillars: Mímir (enhance/triage/plan lib), Ratatoskr (single shared seat +
+  shape-gate fixed), preview lane, multi-repo Fleet.
+- **Structure landed (#3 + #5):** agent libs grouped under `packages/agents/{forge,chat,
+  scout,reviewer}`; the daemons live in `apps/{forge,reviewer,chat}` (the eitri brain split
+  into `@brokk/reviewer` + the `apps/reviewer` daemon). Persona-neutral kernel names
+  (`AflConfig`, `AgentEvent`). Remaining debt = cosmetic: app package names
+  (`@brokk/runner|eitri|sindri`) + compose service keys still carry legacy labels.
 
-### Next session starts here → `@brokk/forge`
+### Next session starts here → #4 or #6
 
-1. **`@brokk/forge`** — move Brokkr off the Agent SDK (`packages/runner/engine.ts`'s
-   `query()`) onto afl + build the generic agent-loop primitive in afl (forge = its
-   validating consumer). *The lean win; retires the SDK from the heaviest agent.*
-2. `@brokk/reviewer` (Eitri off the SDK) · 3. `packages/agents/` regroup ·
-   4. retire Planejador (fold `/plan` into chat) · 5. naming (`ChatConfig`→`AflConfig`,
-   `SindriEvent`→`AgentEvent`) · 6. **Ratatoskr multi-seat (BYOS keystone)**.
+- **#4 — retire the Planejador:** fold the standalone `/plan` page into the chat (Sindri's
+  `plan_work` already calls the same Mímir planner). A "one door" product simplification.
+- **#6 — Ratatoskr multi-seat (BYOS keystone):** turn Ratatoskr into a per-user seat
+  registry/pool routing each user's own OAuth token. *No BYOS without it — the keystone.*
 
 **Loose ends (non-blocking):** `deploy-dev.sh` must export `NODE_AUTH_TOKEN` before
 `pnpm install` (else the dev lane hangs fetching private yggdrasil pkgs); Huginn smoke is

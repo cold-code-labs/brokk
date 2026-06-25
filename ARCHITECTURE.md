@@ -28,9 +28,9 @@ but CCL-native, self-hosted, and composable with our context-compression proxy (
 └───────────────▲───────────────────────────────────────────────▲────────────────────┘
                 │ claim / events / complete (HTTP)                │ webhooks (GitHub)
 ┌───────────────┴──────────── Runner(s)  (surtr) ────────────────┴────────────────────┐
-│  packages/runner ── claim loop → git worktree → Claude Agent SDK (headless) →        │
-│                     stream events → commit/push → `gh pr create` → report            │
-│  deps on host: git, gh, claude, headroom proxy (ANTHROPIC_BASE_URL=:8787)            │
+│  apps/forge ── claim loop → git worktree → @brokk/forge (native afl loop) →          │
+│               stream events → commit/push → `gh pr create` → report                  │
+│  deps on host: git, gh; model via the CCL gateway (ANTHROPIC_BASE_URL → LiteLLM)     │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 Control plane runs anywhere (Coolify). Runner runs on **surtr** (RAM, git, gh, claude, headroom).

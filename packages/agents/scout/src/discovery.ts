@@ -12,7 +12,7 @@
 
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { ChatConfig } from "@brokk/afl";
+import type { AflConfig } from "@brokk/afl";
 import { resolveModel } from "@brokk/afl";
 import { streamAssistant } from "@brokk/afl";
 import { shellEnv } from "@brokk/afl";
@@ -31,7 +31,7 @@ export interface DiscoveryBrief {
 }
 
 export interface RunDiscoveryInput {
-  cfg: ChatConfig;
+  cfg: AflConfig;
   /** Read-only checkout the scout explores. */
   cwd: string;
   /** owner/name, for context in the prompt. */

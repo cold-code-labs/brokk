@@ -10,9 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@brokk/afl": "workspace:*",
     "@brokk/core": "workspace:*",
-    "@brokk/db": "workspace:*"
+    "@brokk/db": "workspace:*",
+    "@brokk/reviewer": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -17,13 +17,13 @@
 
 // Direct source imports (standalone, no build / no root workspace link needed).
 // discovery.ts resolves its own `@brokk/afl` via packages/scout/node_modules.
-import { loadChatConfig } from "../packages/afl/src/config.js";
-import { runDiscovery } from "../packages/scout/src/discovery.js";
+import { loadAflConfig } from "../packages/afl/src/config.js";
+import { runDiscovery } from "../packages/agents/scout/src/discovery.js";
 
 const cwd = process.argv[2] || process.cwd();
 const repoFullName = process.argv[3] || "cold-code-labs/brokk";
 
-const cfg = loadChatConfig();
+const cfg = loadAflConfig();
 if (!cfg.authToken) {
   console.error("✗ ANTHROPIC_AUTH_TOKEN unset — source the gateway env first (e.g. /home/brokk/brokk.env)");
   process.exit(2);
