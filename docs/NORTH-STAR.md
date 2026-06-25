@@ -8,12 +8,13 @@
 ## TL;DR
 
 We are open-sourcing the **first global vibe-code-factory**: a self-hostable platform
-where anyone plugs in **their own AI subscription seat** and gets not just code, but
-**real, deployed software** — built conversationally against a live preview. The only
-cost is your own resources. No API-key burn. No reliance on multiple subscriptions.
+that turns a conversation into **real, deployed software** — built against a live preview.
+Each instance runs on **one upstream credential** the operator plugs in — a Claude
+subscription seat today (`mode=seat`), an API key later (`mode=apikey`) — and that single
+credential commands the whole fleet.
 
 > **Afl is the hands. Mímir is the cortex. The Session is the atom. The chat is the only
-> door. Asgard is the factory. The user's own seat is the fuel.**
+> door. Asgard is the factory. The seat is the fuel.**
 
 ---
 
@@ -22,14 +23,15 @@ cost is your own resources. No API-key burn. No reliance on multiple subscriptio
 A **vibe-code-factory** in the lineage of v0 / Lovable / Bolt — but:
 
 - **Open source** and **self-hostable** end to end.
-- **Bring Your Own Seat (BYOS):** each user authenticates their own Claude subscription;
-  the platform runs on *their* seat, not ours.
+- **One credential per instance:** the operator plugs in a single upstream credential — a
+  Claude subscription seat today (`mode=seat`), an API key later (`mode=apikey`) — and it
+  commands the whole fleet. No per-user seat multiplexing.
 - **It deploys.** Not a toy that emits a zip — it ships running apps with real data and
   real domains.
-- **Cost = your resources only.** No per-seat reselling, no API-key middleman.
+- **Cost = one credential's resources.** A single seat (or, later, key) fuels the instance.
 
-The competitive edge is **economic**: BYOS + lean agents means we waste none of the
-user's own seat. The cheapest factory to run wins, and leanness is how we win it (see §9).
+The competitive edge is **economic**: lean agents waste none of that one credential's
+headroom. The cheapest factory to run wins, and leanness is how we win it (see §9).
 
 ---
 
@@ -190,22 +192,30 @@ uniformity is the payoff of one kernel.
 
 ## 8. Ratatoskr — the fuel line (the keystone)
 
-Ratatoskr holds the seat credential and injects it (plus the "You are Claude Code" marker
-that unlocks Sonnet/Opus) into every request, so agents reach a subscription seat through
-LiteLLM.
+Ratatoskr holds the upstream credential and injects it into every request (today: the
+OAuth seat token + the "You are Claude Code" marker that unlocks Sonnet/Opus), so agents
+reach the model through LiteLLM.
 
-**Today:** one shared CCL seat.
-**The product requires multi-seat.** "Bring your own seat" means Ratatoskr must become a
-**per-user seat registry / pool**, routing each user's requests through *their* OAuth
-token. This is not a "future P7" — it is the **keystone of the entire product.** Without
-it there is no BYOS; with it, the cost truly is "your resources only."
+**Today, and through the entire factory-validation phase:** one shared CCL seat
+(`mode=seat`) commands the whole fleet. This is deliberate and stays.
+
+**The keystone is a credential-mode seam — not a per-user seat pool.** Ratatoskr must
+isolate credential injection behind a single switch:
+- `mode=seat` (today, default) — `Authorization: Bearer <oauth>` + the Claude Code system
+  marker + the `oauth` beta flag.
+- `mode=apikey` (future, once the factory is validated) — `x-api-key: <key>`, no marker,
+  no oauth beta. Usage-based billing, already measured by LiteLLM + Lago.
+
+One credential commands the instance; there is **no** hosted multiplexing of many users'
+individual OAuth seats.
 
 ---
 
 ## 9. The Lean Agent doctrine
 
-Leanness is not hygiene — under BYOS it is the **moat** (§1). Every token saved is the
-user's own seat preserved. Seven principles:
+Leanness is not hygiene — it is the **moat** (§1). The whole fleet rides one shared
+credential, so every token saved is concurrency headroom preserved on that one seat. Seven
+principles:
 
 1. **Native kernel, never the SDK.** Own the tool loop (Afl). The Agent SDK's gift
    (auto-sends the Claude Code system) is its tax (you can't trim what you can't see).
@@ -295,11 +305,13 @@ deliberate.
 
 ---
 
-## 12. Invariants that flow from BYOS + OSS
+## 12. Invariants that flow from single-seat + OSS
 
 Design even the small bits so these never need a retrofit:
 
-1. **Multi-seat from the start.** Anything touching the seat assumes *per-user*, not shared.
+1. **One credential per instance, swappable source.** Anything touching the upstream
+   credential assumes a single instance-wide seat, with the source flippable to an API key
+   later (`mode=seat|apikey`) — never a per-user seat pool.
 2. **Session-centric.** worktree + preview + seat + chat are one tenant-scoped object.
 3. **Clean pillar APIs.** Brokk/Heimdall/Hauldr each independently runnable, composable by
    Asgard, self-hostable.
@@ -332,8 +344,10 @@ Design even the small bits so these never need a retrofit:
 
 - **#4 — retire the Planejador:** fold the standalone `/plan` page into the chat (Sindri's
   `plan_work` already calls the same Mímir planner). A "one door" product simplification.
-- **#6 — Ratatoskr multi-seat (BYOS keystone):** turn Ratatoskr into a per-user seat
-  registry/pool routing each user's own OAuth token. *No BYOS without it — the keystone.*
+- **#6 — Ratatoskr credential-mode seam:** isolate credential injection behind
+  `mode=seat|apikey`. A single CCL seat commands the fleet today (`mode=seat`); leave the
+  `apikey` path written but dormant for after the factory is validated. *Not a per-user
+  seat pool.*
 
 **Loose ends (non-blocking):** `deploy-dev.sh` must export `NODE_AUTH_TOKEN` before
 `pnpm install` (else the dev lane hangs fetching private yggdrasil pkgs); Huginn smoke is
