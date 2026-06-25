@@ -51,12 +51,21 @@ import {
   type SindriEvent,
 } from "../lib/chat";
 
-// Haiku-only while we mature Sindri on the shared Max seat: Sonnet/Opus reserve
-// a large output-token window and 429 when the seat is busy, so we keep the
-// selectable set to Haiku (most generous quota). The backend still resolves
-// "sonnet"/"opus" — re-enable here when the seat economics change.
+// Full model choice. The subscription-seat gate that used to 429 Sonnet/Opus is
+// fixed at the gateway (Ratatoskr shapes the Claude Code system marker so the
+// premium tiers serve reliably), so all three are selectable. Default is Sonnet;
+// Opus for hard work, Haiku for cheap/fast turns.
 const MODELS = [
+  { id: "sonnet", label: "Sonnet" },
+  { id: "opus", label: "Opus" },
   { id: "haiku", label: "Haiku" },
+];
+
+// Reasoning effort → extended-thinking budget (backend: low=off, medium, high).
+const EFFORTS = [
+  { id: "low", label: "Leve" },
+  { id: "medium", label: "Médio" },
+  { id: "high", label: "Profundo" },
 ];
 
 // All known aliases, for rendering historical sessions that ran Sonnet/Opus.
@@ -105,7 +114,8 @@ export default function Chat() {
   // Project selection is GLOBAL now (the sidebar environment switcher) — Sindri
   // reads/writes the same context, so picking a project anywhere syncs here.
   const { projects, currentId: projectId, setCurrentId: setProjectId } = useProject();
-  const [model, setModel] = useState("haiku");
+  const [model, setModel] = useState("sonnet");
+  const [effort, setEffort] = useState("medium");
   const [sessions, setSessions] = useState<ChatSessionWithStats[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -200,11 +210,9 @@ export default function Chat() {
     setRenaming(false);
     liveSeqRef.current = -1;
     const { session, messages: msgs, running: live } = await chat.getSession(id);
-    // Coerce any session left on a now-disabled model (Sonnet/Opus) to Haiku, so
-    // reopening an older chat can't fire a turn on a model we've taken out of play.
-    const selectable = MODELS.some((m) => m.id === session.model);
-    setModel(selectable ? session.model : "haiku");
-    if (!selectable) chat.patchSession(id, { model: "haiku" }).catch(() => {});
+    // Reflect the session's saved model + effort (all tiers are selectable now).
+    setModel(MODELS.some((m) => m.id === session.model) ? session.model : "sonnet");
+    setEffort(session.effort && EFFORTS.some((e) => e.id === session.effort) ? session.effort : "medium");
     setMessages(msgs);
     liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
     if (live) {
@@ -218,7 +226,7 @@ export default function Chat() {
   async function newChat() {
     if (!projectId) return;
     setError("");
-    const s = await chat.createSession({ projectId, model });
+    const s = await chat.createSession({ projectId, model, effort });
     const withStats: ChatSessionWithStats = {
       ...s,
       stats: { messages: 0, tokensIn: 0, tokensOut: 0, lastMessageAt: null },
@@ -493,23 +501,36 @@ export default function Chat() {
                 </div>
 
                 <div className="sindri-head-right">
-                  {/* Picker only appears when there's a real choice — Haiku-only today. */}
-                  {MODELS.length > 1 ? (
-                    <select
-                      className="sindri-select"
-                      value={model}
-                      onChange={(e) => {
-                        setModel(e.target.value);
-                        if (sessionId) chat.patchSession(sessionId, { model: e.target.value }).catch(() => {});
-                      }}
-                    >
-                      {MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
+                  <select
+                    className="sindri-select"
+                    value={model}
+                    title="Modelo"
+                    onChange={(e) => {
+                      setModel(e.target.value);
+                      if (sessionId) chat.patchSession(sessionId, { model: e.target.value }).catch(() => {});
+                    }}
+                  >
+                    {MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="sindri-select"
+                    value={effort}
+                    title="Esforço de raciocínio"
+                    onChange={(e) => {
+                      setEffort(e.target.value);
+                      if (sessionId) chat.patchSession(sessionId, { effort: e.target.value }).catch(() => {});
+                    }}
+                  >
+                    {EFFORTS.map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </header>
 
