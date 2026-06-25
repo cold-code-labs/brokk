@@ -31,12 +31,19 @@ export interface ToolDef {
   input_schema: Record<string, unknown>;
 }
 
-/** The executor that runs one tool call and returns the text result. `ok=false`
- *  marks the result as an error to the model (is_error) without throwing. */
-export type ToolExecutor = (
+/** The result of running one tool call. `ok=false` marks the result as an error
+ *  to the model (is_error) without throwing. */
+export type ToolResult = { ok: boolean; content: string };
+
+/** The executor that runs one tool call and returns the text result. */
+export type ToolExecutor = (name: string, input: Record<string, unknown>) => Promise<ToolResult>;
+
+/** A partial executor that handles only the tools it owns, returning `null` for
+ *  any tool name it does not recognize — so executors compose by fall-through. */
+export type PartialExecutor = (
   name: string,
   input: Record<string, unknown>,
-) => Promise<{ ok: boolean; content: string }>;
+) => Promise<ToolResult | null>;
 
 /** Token usage as the Messages API reports it. */
 export interface TurnUsage {

@@ -15,7 +15,7 @@ import { promisify } from "node:util";
 import type { ChatConfig } from "@brokk/afl";
 import { resolveModel } from "@brokk/afl";
 import { streamAssistant } from "@brokk/afl";
-import { shellEnv } from "./tools.js";
+import { shellEnv } from "@brokk/afl";
 import type { ChatTurnMessage, ContentBlock, ToolDef, ToolResultBlock, ToolUseBlock } from "@brokk/afl";
 
 const execAsync = promisify(exec);

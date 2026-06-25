@@ -10,7 +10,6 @@
 
 export { type ChatConfig, loadChatConfig, resolveModel } from "@brokk/afl";
 export { buildSystemPrompt, type ContextInput } from "./context.js";
-export { type DiscoveryBrief, runDiscovery, type RunDiscoveryInput } from "./discovery.js";
 export { GatewayError, streamAssistant } from "@brokk/afl";
 export { runTurn, type RunTurnInput } from "./loop.js";
 export { makeExecutor, TOOL_DEFS, type ToolContext } from "./tools.js";

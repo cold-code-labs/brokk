@@ -12,14 +12,25 @@
 
 export { type ChatConfig, loadChatConfig, resolveModel } from "./config.js";
 export { GatewayError, streamAssistant } from "./gateway.js";
+export {
+  clip,
+  composeExecutors,
+  FS_TOOL_DEFS,
+  type FsToolContext,
+  makeFsExecutor,
+  safePath,
+  shellEnv,
+} from "./tools.js";
 export type {
   ChatTurnMessage,
   ContentBlock,
+  PartialExecutor,
   SindriEvent,
   TextBlock,
   ThinkingBlock,
   ToolDef,
   ToolExecutor,
+  ToolResult,
   ToolResultBlock,
   ToolUseBlock,
   TurnUsage,

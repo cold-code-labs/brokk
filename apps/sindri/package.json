@@ -16,7 +16,8 @@
     "@brokk/mimir": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.6.14",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "@brokk/scout": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

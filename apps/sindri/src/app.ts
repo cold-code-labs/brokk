@@ -1,11 +1,11 @@
 import {
   buildSystemPrompt,
   type ChatConfig,
-  runDiscovery,
   type SindriEvent,
   type ToolContext,
   runTurn,
 } from "@brokk/chat";
+import { runDiscovery } from "@brokk/scout";
 import type { Store } from "@brokk/db";
 import type { Repository } from "@brokk/core";
 import { planJob, type MimirConfig } from "@brokk/mimir";
