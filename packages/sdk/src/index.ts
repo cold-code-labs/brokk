@@ -138,18 +138,6 @@ export interface BrokkClient {
   /** The calibration view: triage decisions against their real outcomes. */
   getCalibration(): Promise<MimirCalibrationRow[]>;
 
-  // mímir — the planner (one intent → cards → one PR)
-  /** Advisory: decompose a prompt into an atomic card or a feature DAG. */
-  planJob(input: string, projectId?: string): Promise<import("@brokk/core").PlanDraft>;
-  /** Persist a (reviewed/edited) plan + queue its cards. Returns plan + tasks. */
-  applyPlan(input: {
-    input: string;
-    projectId: string;
-    plan: import("@brokk/core").PlanDraft;
-  } & MimirAuthor): Promise<{ plan: import("@brokk/core").Plan; tasks: Task[] }>;
-  listPlans(projectId?: string): Promise<import("@brokk/core").Plan[]>;
-  getPlan(id: string): Promise<{ plan: import("@brokk/core").Plan; tasks: Task[] }>;
-
   // previews — ephemeral dev-preview environments per branch
   /** Ensure+start: returns an existing starting/live preview or creates a fresh one. */
   createPreview(input: { projectId: string; branch?: string }): Promise<Preview>;
@@ -281,26 +269,6 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     },
     getCalibration() {
       return req<MimirCalibrationRow[]>("GET", "/mimir/calibration");
-    },
-    planJob(input, projectId) {
-      return req<import("@brokk/core").PlanDraft>("POST", "/mimir/plan", { input, projectId });
-    },
-    applyPlan(input) {
-      return req<{ plan: import("@brokk/core").Plan; tasks: Task[] }>(
-        "POST",
-        "/mimir/plan/apply",
-        input,
-      );
-    },
-    listPlans(projectId) {
-      const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
-      return req<import("@brokk/core").Plan[]>("GET", `/mimir/plans${q}`);
-    },
-    getPlan(id) {
-      return req<{ plan: import("@brokk/core").Plan; tasks: Task[] }>(
-        "GET",
-        `/mimir/plans/${encodeURIComponent(id)}`,
-      );
     },
     streamRunEvents(id, onEvent) {
       // Browser EventSource; in Node, pass a polyfilled global or poll /runs/:id.

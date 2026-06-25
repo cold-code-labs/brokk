@@ -1,12 +1,6 @@
-import {
-  featureBranch,
-  FORCA_LEVELS,
-  type ForcaLevel,
-  REFINO_LEVELS,
-  type RefinoLevel,
-} from "@brokk/core";
+import { FORCA_LEVELS, type ForcaLevel, REFINO_LEVELS, type RefinoLevel } from "@brokk/core";
 import type { MimirConfig } from "@brokk/mimir";
-import { enhancePrompt, isMimirMode, MimirError, planJob, triagePrompt } from "@brokk/mimir";
+import { enhancePrompt, isMimirMode, MimirError, triagePrompt } from "@brokk/mimir";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
@@ -57,71 +51,10 @@ const EnhanceBody = z
   })
   .merge(Author);
 
-const PlanBody = z.object({
-  input: z.string().min(1),
-  projectId: z.string().optional(),
-});
-
-const PlannedCardSchema = z.object({
-  key: z.string().min(1),
-  title: z.string().min(1),
-  body: z.string().min(1),
-  forca: z.enum(["low", "medium", "high", "extra"]),
-  model: z.string(),
-  effort: z.enum(["low", "medium", "high"]),
-  dependsOn: z.array(z.string()).default([]),
-  touches: z.array(z.string()).default([]),
-  acceptance: z.string().default(""),
-});
-
-const PlanApplyBody = z
-  .object({
-    input: z.string().min(1),
-    projectId: z.string().min(1),
-    plan: z.object({
-      mode: z.enum(["atomic", "feature"]),
-      summary: z.string().min(1),
-      rationale: z.string().default(""),
-      targetBranch: z.string().default("dev"),
-      model: z.string().optional(),
-      cards: z.array(PlannedCardSchema).min(1),
-    }),
-  })
-  .merge(Author);
-
 const asRefino = (v: string): RefinoLevel =>
   (REFINO_LEVELS as readonly string[]).includes(v) ? (v as RefinoLevel) : "structure";
 const asForca = (v: string): ForcaLevel =>
   (FORCA_LEVELS as readonly string[]).includes(v) ? (v as ForcaLevel) : "medium";
-
-/** Assemble the planner's repo context (#2 + #4): the warm repo map (tree +
- *  packages, refreshed by the runner after each forge) and the per-repo memory
- *  (conventions, pitfalls, past review failures). Empty string when the project
- *  is unknown or nothing's been learned/mapped yet — the planner runs without it. */
-async function buildRepoContext(
-  store: AppDeps["store"],
-  projectId?: string,
-  queryText?: string,
-): Promise<string | undefined> {
-  if (!projectId) return undefined;
-  const project = await store.getProject(projectId).catch(() => null);
-  if (!project) return undefined;
-  const repo = await store.getRepository(project.repositoryId).catch(() => null);
-  if (!repo) return undefined;
-  // Semantic recall when we have the intent text (#2); else weight order.
-  const memories = queryText
-    ? await store.searchRepoMemories(repo.id, queryText).catch(() => [])
-    : await store.listRepoMemories(repo.id).catch(() => []);
-  const blocks: string[] = [];
-  if (repo.repoMap) blocks.push(`## Mapa do repositório\n${repo.repoMap}`);
-  if (memories.length) {
-    const lines = memories.map((m) => `- (${m.kind}, peso ${m.weight}) ${m.content}`);
-    blocks.push(
-      `## Memória do repositório (lições aprendidas — RESPEITE)\n${lines.join("\n")}`,
-    );
-  }
-  return blocks.length ? blocks.join("\n\n") : undefined;
-}
 
 export function mimirRoutes(deps: AppDeps): Hono {
   const r = new Hono();
@@ -234,82 +167,10 @@ export function mimirRoutes(deps: AppDeps): Hono {
     }
   });
 
-  // ── The planner (advisory — one intent → cards) ─────────────────────────────
-  r.post("/plan", async (c) => {
-    if (!mimir) return c.json({ error: "Mímir não configurado" }, 503);
-    const p = PlanBody.safeParse(await c.req.json().catch(() => ({})));
-    if (!p.success) return c.json({ error: p.error.flatten() }, 400);
-    try {
-      const repoContext = await buildRepoContext(deps.store, p.data.projectId, p.data.input);
-      return c.json(await planJob(p.data.input, mimir, repoContext));
-    } catch (e) {
-      if (e instanceof MimirError)
-        return c.json({ error: e.userMessage() }, (e.status || 500) as ContentfulStatusCode);
-      throw e;
-    }
-  });
-
-  // ── Apply a (reviewed/edited) plan → persist it + queue the cards ────────────
-  r.post("/plan/apply", async (c) => {
-    const p = PlanApplyBody.safeParse(await c.req.json().catch(() => ({})));
-    if (!p.success) return c.json({ error: p.error.flatten() }, 400);
-    const { input, projectId, plan } = p.data;
-
-    const project = await deps.store.getProject(projectId);
-    if (!project) return c.json({ error: "projeto não encontrado" }, 400);
-
-    const createdBy = p.data.authorName ?? p.data.authorId ?? null;
-    // Insert the plan, then derive its feature branch from the new id.
-    const draft = await deps.store.insertPlan({
-      projectId,
-      prompt: input,
-      summary: plan.summary,
-      rationale: plan.rationale || null,
-      mode: plan.mode,
-      status: "forging",
-      featureBranch: "pending",
-      baseBranch: plan.targetBranch,
-      model: plan.model ?? null,
-      createdBy,
-    });
-    const planRow = await deps.store.updatePlan(draft.id, {
-      featureBranch: featureBranch(plan.summary, draft.id),
-    });
-
-    const tasks = [];
-    for (const card of plan.cards) {
-      tasks.push(
-        await deps.store.insertTask({
-          projectId,
-          title: card.title,
-          body: card.body,
-          status: "queued",
-          kind: "implement",
-          planId: planRow.id,
-          planKey: card.key,
-          dependsOn: card.dependsOn,
-          forca: card.forca,
-          touches: card.touches,
-          acceptance: card.acceptance || null,
-          baseBranch: plan.targetBranch,
-          createdBy,
-        }),
-      );
-    }
-    return c.json({ plan: planRow, tasks }, 201);
-  });
-
-  r.get("/plans", async (c) => {
-    const projectId = c.req.query("projectId") || undefined;
-    return c.json(await deps.store.listPlans({ projectId }));
-  });
-
-  r.get("/plans/:id", async (c) => {
-    const plan = await deps.store.getPlan(c.req.param("id"));
-    if (!plan) return c.json({ error: "not found" }, 404);
-    const tasks = await deps.store.getPlanTasks(plan.id);
-    return c.json({ plan, tasks });
-  });
+  // The planner is no longer an HTTP surface: the Planejador page is retired and
+  // planning is a chat behaviour now (Sindri's plan_work calls the Mímir planner
+  // library directly, in apps/chat, and builds a proper Plan/DAG itself). The
+  // prompt-bank / triage / enhance routes above stay (internal operator tools).
 
   return r;
 }

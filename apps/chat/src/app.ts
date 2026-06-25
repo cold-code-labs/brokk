@@ -7,7 +7,7 @@ import {
 } from "@brokk/chat";
 import { runDiscovery } from "@brokk/scout";
 import type { Store } from "@brokk/db";
-import type { Repository } from "@brokk/core";
+import { featureBranch, type Repository } from "@brokk/core";
 import { planJob, type MimirConfig } from "@brokk/mimir";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
@@ -309,9 +309,15 @@ function plannerConfig(): MimirConfig | null {
   };
 }
 
-/** The plan_work bridge: decompose an intent via the Mímir planner into PROPOSED
- *  backlog cards (carrying the planner's acceptance + forca). Backlog is the
- *  approval gate — nothing runs until a human queues it from the Quadro. */
+/** The plan_work bridge: decompose an intent via the Mímir planner and drop the
+ *  result into the project as PROPOSED work. Backlog is the approval gate —
+ *  nothing runs until a human queues it from the Quadro (then the forge builds it).
+ *
+ *  A FEATURE (a 2+ card DAG) becomes a proper Plan: one row + cards linked by
+ *  planId/planKey/dependsOn, so the forge composes them into ONE shared-branch PR
+ *  (this ports the retired Planejador's apply path into the chat). The plan rests
+ *  at status "planning" until its first card pushes a PR (which flips it to
+ *  "forging"). An ATOMIC result stays a single loose backlog card. */
 async function runPlan(
   deps: SindriDeps,
   project: { id: string; baseBranch: string },
@@ -325,20 +331,6 @@ async function runPlan(
   } catch (e) {
     return { ok: false, content: `planner failed: ${(e as Error).message}` };
   }
-  for (const card of draft.cards) {
-    await deps.store.insertTask({
-      projectId: project.id,
-      title: card.title || intent.slice(0, 60),
-      body: `${card.body}\n\n— planejado pelo Sindri (Mímir)`,
-      status: "backlog",
-      baseBranch: project.baseBranch,
-      createdBy: "sindri-plan",
-      labels: ["plan"],
-      acceptance: card.acceptance || null,
-      forca: card.forca,
-      touches: card.touches,
-    });
-  }
   const forcas = draft.cards.map((c) => c.forca).join(", ");
   const questions =
     draft.questions.length > 0
@@ -346,9 +338,67 @@ async function runPlan(
           .map((q) => q.question)
           .join(" | ")}`
       : "";
+  const base = draft.targetBranch || project.baseBranch;
+
+  // FEATURE → a real Plan/DAG: one shared feature branch, cards linked by planKey.
+  if (draft.mode === "feature" && draft.cards.length > 1) {
+    const created = await deps.store.insertPlan({
+      projectId: project.id,
+      prompt: intent,
+      summary: draft.summary,
+      rationale: draft.rationale || null,
+      mode: "feature",
+      status: "planning",
+      featureBranch: "pending",
+      baseBranch: base,
+      model: draft.model ?? null,
+      createdBy: "sindri-plan",
+    });
+    const plan = await deps.store.updatePlan(created.id, {
+      featureBranch: featureBranch(draft.summary, created.id),
+    });
+    for (const card of draft.cards) {
+      await deps.store.insertTask({
+        projectId: project.id,
+        title: card.title || intent.slice(0, 60),
+        body: `${card.body}\n\n— planejado pelo Sindri (Mímir)`,
+        status: "backlog",
+        kind: "implement",
+        planId: plan.id,
+        planKey: card.key,
+        dependsOn: card.dependsOn,
+        baseBranch: base,
+        createdBy: "sindri-plan",
+        labels: ["plan"],
+        acceptance: card.acceptance || null,
+        forca: card.forca,
+        touches: card.touches,
+      });
+    }
+    return {
+      ok: true,
+      content: `Propus a feature "${draft.summary}" — ${draft.cards.length} cards encadeados (DAG) no backlog [forças: ${forcas}]. Revise no Quadro e aprove: a forja compõe todos em UM PR na branch \`${plan.featureBranch}\`.${questions}`,
+    };
+  }
+
+  // ATOMIC → a single loose proposed card.
+  for (const card of draft.cards) {
+    await deps.store.insertTask({
+      projectId: project.id,
+      title: card.title || intent.slice(0, 60),
+      body: `${card.body}\n\n— planejado pelo Sindri (Mímir)`,
+      status: "backlog",
+      baseBranch: base,
+      createdBy: "sindri-plan",
+      labels: ["plan"],
+      acceptance: card.acceptance || null,
+      forca: card.forca,
+      touches: card.touches,
+    });
+  }
   return {
     ok: true,
-    content: `Plano "${draft.summary}" (${draft.mode}): ${draft.cards.length} card(s) criados no backlog [forças: ${forcas}]. Aguardam aprovação no Quadro — não rodam até serem enfileirados.${questions}`,
+    content: `Plano "${draft.summary}" (${draft.mode}): ${draft.cards.length} card(s) no backlog [forças: ${forcas}]. Aguardam aprovação no Quadro — não rodam até serem enfileirados.${questions}`,
   };
 }
 

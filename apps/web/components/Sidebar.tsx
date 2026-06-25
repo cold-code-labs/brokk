@@ -14,7 +14,6 @@ import {
 import {
   LayoutGrid,
   Gauge,
-  Sparkles,
   BookText,
   MessageSquare,
   Plus,
@@ -36,7 +35,6 @@ const GLOBAL = [
 // dynamic, so it's rendered separately.)
 const ENV = [
   { href: "/chat", label: "Sindri", icon: <MessageSquare /> },
-  { href: "/plan", label: "Planejador", icon: <Sparkles /> },
 ] as const;
 
 /** Environment switcher — the current project drives every project-scoped page.
