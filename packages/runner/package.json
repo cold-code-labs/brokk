@@ -10,8 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "latest",
     "@brokk/core": "workspace:*",
+    "@brokk/forge": "workspace:*",
     "langfuse": "^3.38.20"
   },
   "devDependencies": {

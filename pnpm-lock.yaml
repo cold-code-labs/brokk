@@ -254,6 +254,22 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/forge:
+    dependencies:
+      '@brokk/afl':
+        specifier: workspace:*
+        version: link:../afl
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/mimir:
     dependencies:
       '@brokk/core':
@@ -269,12 +285,12 @@ importers:
 
   packages/runner:
     dependencies:
-      '@anthropic-ai/claude-agent-sdk':
-        specifier: latest
-        version: 0.3.187(@anthropic-ai/sdk@0.105.0(zod@3.25.76))(@modelcontextprotocol/sdk@1.29.0(zod@3.25.76))(zod@3.25.76)
       '@brokk/core':
         specifier: workspace:*
         version: link:../core
+      '@brokk/forge':
+        specifier: workspace:*
+        version: link:../forge
       langfuse:
         specifier: ^3.38.20
         version: 3.38.20

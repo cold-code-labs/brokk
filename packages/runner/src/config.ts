@@ -1,5 +1,6 @@
 /** Runner configuration from the environment. The runner is a small daemon: it
- *  polls the control plane, runs the Claude Agent SDK in a worktree, opens a PR. */
+ *  polls the control plane, forges the card with @brokk/forge (native, over afl)
+ *  in a worktree, opens a PR. */
 export interface RunnerConfig {
   controlUrl: string;
   runnerSecret: string;
@@ -7,13 +8,15 @@ export interface RunnerConfig {
   host: string;
   /** Where bare clones + worktrees live. */
   workDir: string;
-  /** Headroom / gateway base url exported to the Agent SDK. */
+  /** Gateway base url (ANTHROPIC_BASE_URL) the forge engine POSTs to — LiteLLM →
+   *  Ratatoskr. */
   anthropicBaseUrl: string;
+  /** Legacy direct API key. Unused by the native forge (gateway-only) — kept for
+   *  the preview supervisor / env compatibility. */
   anthropicApiKey: string;
   /** Gateway bearer token (ANTHROPIC_AUTH_TOKEN) — a per-tool LiteLLM virtual
-   *  key. When set, the runner uses gateway mode: the SDK authenticates to the
-   *  gateway with this token and the gateway (Ratatoskr) injects the real
-   *  subscription credential. Empty = legacy subscription/api-key path. */
+   *  key. The forge engine sends it to the gateway, which (Ratatoskr) injects the
+   *  real subscription credential upstream. */
   anthropicAuthToken: string;
   githubToken: string;
   /** Shell command run in the worktree to verify the agent's work before the PR

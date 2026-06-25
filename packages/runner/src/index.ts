@@ -1,14 +1,11 @@
 /**
  * @brokk/runner — the daemon that turns queued cards into Pull Requests.
  *
- * Loop:  register → claim → worktree → Claude Agent SDK → push → `gh pr create`
- *        → POST /runs/:id/complete.  Many runners can pull from one queue.
+ * Loop:  register → claim → worktree → @brokk/forge (native, over afl) → push →
+ *        `gh pr create` → POST /runs/:id/complete.  Many runners pull one queue.
  *
- * Runs on surtr (git, gh, claude, headroom on PATH). Talks to the control plane
- * over HTTP with the shared runner secret. See ARCHITECTURE.md §3/§7/§8.
- *
- * ⚠️ This is the P0 skeleton: structurally complete, UNVERIFIED at runtime.
- *    The P1 spike (1 card → real PR) is where this gets exercised.
+ * Runs on surtr (git, gh, headroom on PATH). Talks to the control plane over HTTP
+ * with the shared runner secret. See ARCHITECTURE.md §3/§7/§8.
  */
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
@@ -18,7 +15,7 @@ import { loadRunnerConfig, type RunnerConfig } from "./config.js";
 
 const execAsync = promisify(exec);
 import { GhProvider } from "./git.js";
-import { ClaudeAgentEngine } from "./engine.js";
+import { ForgeEngine } from "@brokk/forge";
 import { HauldrClient } from "./hauldr.js";
 import { PreviewSupervisor } from "./preview.js";
 import { buildRepoMap } from "./repomap.js";
@@ -42,10 +39,12 @@ type Claimed = {
 async function main() {
   const cfg = loadRunnerConfig();
   const git = new GhProvider({ workDir: cfg.workDir, githubToken: cfg.githubToken });
-  const engine = new ClaudeAgentEngine({
-    anthropicBaseUrl: cfg.anthropicBaseUrl,
-    anthropicApiKey: cfg.anthropicApiKey,
-    anthropicAuthToken: cfg.anthropicAuthToken,
+  // Native forge over @brokk/afl (no Agent SDK). Gateway-only auth: base url →
+  // LiteLLM/Ratatoskr, bearer = the LiteLLM virtual key (Ratatoskr injects the
+  // real seat upstream). The legacy api-key / per-run OAuth seat path is retired.
+  const engine = new ForgeEngine({
+    gatewayUrl: cfg.anthropicBaseUrl,
+    authToken: cfg.anthropicAuthToken,
     browser: cfg.browser,
   });
 
@@ -102,7 +101,7 @@ async function main() {
 async function handleRun(
   cfg: RunnerConfig,
   git: GhProvider,
-  engine: ClaudeAgentEngine,
+  engine: ForgeEngine,
   { task, run, repository, project, plan, auth, memory }: Claimed,
 ): Promise<void> {
   console.log(
