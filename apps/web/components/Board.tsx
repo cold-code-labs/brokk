@@ -13,6 +13,7 @@ import { brokk } from "../lib/api";
 import { discovery, type ProjectBrief } from "../lib/chat";
 import { useProject } from "../lib/project-context";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
+import { AgentAvatar } from "./AgentAvatar";
 import { PreviewChip } from "./PreviewChip";
 
 const COLUMNS = ["backlog", "queued", "running", "review", "done", "failed"] as const;
@@ -231,9 +232,13 @@ export default function Board({ projectId }: { projectId?: string }) {
                 {items.length === 0 && <p className="ygg-dim" style={{ fontSize: 12, margin: 0 }}>—</p>}
                 {items.map((task) => (
                   <button key={task.id} onClick={() => setSelected(task.id)} style={card(selected === task.id)}>
-                    <span style={{ display: "flex", gap: 7, alignItems: "start" }}>
-                      <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
-                      <span style={{ fontSize: 13, lineHeight: 1.3 }}>{task.title}</span>
+                    <span style={{ display: "flex", gap: 7, alignItems: "start", justifyContent: "space-between" }}>
+                      <span style={{ display: "flex", gap: 7, alignItems: "start", minWidth: 0 }}>
+                        <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
+                        <span style={{ fontSize: 13, lineHeight: 1.3 }}>{task.title}</span>
+                      </span>
+                      {/* who created this card — agent or you */}
+                      <AgentAvatar createdBy={task.createdBy} size={17} />
                     </span>
                     {(task.status === "backlog" || task.prUrl) && (
                       <span style={cardFooter}>
@@ -492,6 +497,9 @@ function Detail({ task, onClose }: { task: Task; onClose: () => void }) {
         <div style={{ display: "flex", gap: 8, margin: "8px 0 14px", alignItems: "center", flexWrap: "wrap" }}>
           <span className="ygg-badge" data-tone={STATUS_TONE[task.status]}>{task.status}</span>
           {latest && <span className="ygg-badge" data-tone={STATUS_TONE[latest.status]}>run {latest.status}</span>}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--fg-dim)" }}>
+            por <AgentAvatar createdBy={task.createdBy} size={18} showLabel />
+          </span>
           {task.prUrl && (
             <a href={task.prUrl} target="_blank" rel="noreferrer" style={{ ...prLink, position: "static" }}>
               Open PR ↗
