@@ -337,21 +337,29 @@ Design even the small bits so these never need a retrofit:
 - **Structure landed (#3 + #5):** agent libs grouped under `packages/agents/{forge,chat,
   scout,reviewer}`; the daemons live in `apps/{forge,reviewer,chat}` (the eitri brain split
   into `@brokk/reviewer` + the `apps/reviewer` daemon). Persona-neutral kernel names
-  (`AflConfig`, `AgentEvent`). Remaining debt = cosmetic: app package names
-  (`@brokk/runner|eitri|sindri`) + compose service keys still carry legacy labels.
+  (`AflConfig`, `AgentEvent`). **Cosmetic rename done (`5cb4a4c`):** app packages are
+  `@brokk/{forge,reviewer,chat}-app`, compose service keys `forge/reviewer/chat`, images
+  `brokk-{forge,reviewer,chat}:local` — labels now match the `apps/` dirs.
+- **#4 done (`674c62a`):** Planejador retired — the `/plan` page + `Planner.tsx` + the
+  `/mimir/plan*` routes + SDK plan methods deleted; Sindri's `plan_work` builds a real Plan
+  (cards linked by `planId/planKey`) in the chat, the forge composes one shared-branch PR.
 
-### Next session starts here → #4 or #6
+### The numbered roadmap — #1–#5 landed, #6 is the last (and deferred)
 
-- **#4 — retire the Planejador:** fold the standalone `/plan` page into the chat (Sindri's
-  `plan_work` already calls the same Mímir planner). A "one door" product simplification.
+#1 (`@brokk/forge`, kill the SDK in the forge), #2 (Eitri off-SDK), #3 + #5 (regroup +
+persona-neutral names), and #4 (retire the Planejador) are all **landed and proven in
+prod.** One item remains, and it is intentionally on hold:
+
 - **#6 — Ratatoskr credential-mode seam:** isolate credential injection behind
-  `mode=seat|apikey`. A single CCL seat commands the fleet today (`mode=seat`); leave the
-  `apikey` path written but dormant for after the factory is validated. *Not a per-user
-  seat pool.*
+  `mode=seat|apikey`. A single CCL seat commands the fleet today (`mode=seat`); the
+  `apikey` path stays written but **dormant until the factory is validated** (Vitor's call,
+  2026-06-25). ~30 lines, no change to today's hot path. *Not a per-user seat pool.*
 
-**Loose ends (non-blocking):** `deploy-dev.sh` must export `NODE_AUTH_TOKEN` before
-`pnpm install` (else the dev lane hangs fetching private yggdrasil pkgs); Huginn smoke is
-flaky on big repos (haiku submits sparse — variance, not a bug). Working rhythm: isolated
+**Loose ends (non-blocking):** ~~`deploy-dev.sh` must export `NODE_AUTH_TOKEN` before
+`pnpm install`~~ **FIXED 2026-06-25** (surtr `/home/brokk/deploy-dev.sh` now sources
+`brokk-dev.env` — which carries the token — before install; token verified against the
+yggdrasil registry). Huginn smoke is flaky on big repos (haiku submits sparse — variance,
+not a bug; consider retry-on-sparse). Working rhythm: isolated
 git worktree → push to `dev` (preview) → smoke → cutover to `main` (pre-push hook
 auto-deploys prod via `/home/brokk/deploy.sh` on surtr).
 
