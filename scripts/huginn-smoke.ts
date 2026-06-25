@@ -3,9 +3,9 @@
 // Huginn smoke test — exercises the discovery scout in ISOLATION.
 //
 // No Sindri service, no api, no DB, no runner-secret dance: just the gateway +
-// a checkout → a structured brief. Imports the discovery module DIRECTLY (it
-// only depends on config/gateway/types — nothing from @brokk/db), so this runs
-// as a standalone tsx script against the live CCL gateway.
+// a checkout → a structured brief. The scout (@brokk/scout) runs on @brokk/afl
+// (gateway + the shared bash hand) — nothing from @brokk/db — so this runs as a
+// standalone tsx script against the live CCL gateway.
 //
 // For fun, it defaults to scouting Brokk's OWN repo — the raven surveys its nest.
 //
@@ -15,8 +15,10 @@
 // Exit code 0 = pass, 1 = brief failed checks, 2 = misconfigured (no token).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { loadChatConfig } from "../packages/chat/src/config.js";
-import { runDiscovery } from "../packages/chat/src/discovery.js";
+// Direct source imports (standalone, no build / no root workspace link needed).
+// discovery.ts resolves its own `@brokk/afl` via packages/scout/node_modules.
+import { loadChatConfig } from "../packages/afl/src/config.js";
+import { runDiscovery } from "../packages/scout/src/discovery.js";
 
 const cwd = process.argv[2] || process.cwd();
 const repoFullName = process.argv[3] || "cold-code-labs/brokk";
