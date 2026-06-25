@@ -1,0 +1,137 @@
+{
+  "name": "litr-design-language",
+  "version": "1.0.0",
+  "summary": "Machine-readable design language for Brokk surfaces. An agent loads this to reason from product mission to a concrete, on-brand, verifiable UI. The worked reference is the Fleet surface (apps/web/app/fleet.css + components/FleetView.tsx).",
+  "audience": "design/coding agents (Sonnet/Opus) and humans extending Brokk's UI",
+
+  "method": {
+    "description": "The derivation pipeline. Each step CONSTRAINS the next; never skip ahead. The output of a step is an explicit, written decision you can cite later.",
+    "steps": [
+      {
+        "id": "1_mission_to_metaphor",
+        "name": "Mission -> Metaphor",
+        "do": "State the surface's job in one sentence (who looks at it, what they need first). Then name the physical metaphor already latent in the brand. The metaphor is the constraint generator: every later choice must be justifiable by it.",
+        "rule": "Pick exactly ONE metaphor and commit. A surface with two metaphors reads as noise.",
+        "example": "Mission: 'one board where an operator sees every repo, its queue, and live work.' Brand: CCL = a mountain under a cold sky (navy + sky-blue); Brokk = the dwarven forge. Metaphor: 'The Forge at Night' — an aurora over the cold peak, a faint engineering dot-grid, and a single warm ember for live work."
+      },
+      {
+        "id": "2_metaphor_to_palette",
+        "name": "Metaphor -> Palette discipline",
+        "do": "Map the metaphor onto the token palette by MEANING, not placement. Assign one cold/structural family and at most one warm signal, each with a reservation rule stating exactly when it may appear.",
+        "rule": "All color comes from Yggdrasil tokens. At most one literal may be added (here: --ember), and only with a strict reservation rule. Overusing the warm signal breaks the metaphor.",
+        "output": "a semantic palette map (see tokens.palette)"
+      },
+      {
+        "id": "3_metaphor_to_motion",
+        "name": "Metaphor -> Motion budget",
+        "do": "List only the motions the metaphor literally justifies, each tied to a meaning. Cap the count. Motion is garnish, never the message.",
+        "rule": "Every motion MUST degrade to a calm static state under prefers-reduced-motion. If a motion has no metaphor meaning, cut it.",
+        "output": "a motion budget (see motionBudget)"
+      },
+      {
+        "id": "4_mission_to_layout",
+        "name": "Mission -> Layout",
+        "do": "Order regions top-to-bottom by what the operator needs first. Lock ONE column system, ONE max-width, ONE radius family, ONE border color for the whole surface.",
+        "rule": "Cohesion comes from scarcity: do not introduce a second border color, radius family, or shadow scale. Reuse surface tiers instead.",
+        "output": "an ordered region list (see workedExample.layout)"
+      },
+      {
+        "id": "5_layout_to_recipes",
+        "name": "Layout -> UI/UX recipes",
+        "do": "Give each region a recipe built only from tokens + the metaphor vocabulary. Treat every STATE (rest, hover, active, live, empty, error) as first-class and design it explicitly.",
+        "rule": "Empty states are 'the system at rest', never 'broken': same surface material as the populated state, one calm mark, one clear next action. Chrome (nav) and canvas must share the same hover/blend vocabulary so they read as one material.",
+        "output": "component recipes (see recipes)"
+      },
+      {
+        "id": "6_verify",
+        "name": "Verify loop",
+        "do": "Render the REAL CSS + markup with sample data and screenshot both themes with headless Chrome, then read the crops and fix. Repeat until it reads in light AND dark.",
+        "rule": "--virtual-time-budget is mandatory (entrance animations use `animation: ... both` with stagger; a bare shot captures opacity:0 mid-fade and reads as 'missing'). Never ship a surface verified in only one theme.",
+        "tool": "tools/litr-verify/render.mjs"
+      }
+    ]
+  },
+
+  "principles": [
+    "Cohesion through scarcity — one radius family (--radius/-lg/-sm), one border (--line), one shadow scale. New primitives are the enemy.",
+    "Tokens are the only palette — color and spacing flow from Yggdrasil vars so every surface flips light/dark for free.",
+    "One warm signal, strictly reserved — the single literal (--ember) means 'work in the fire' and nothing else.",
+    "Motion is a garnish — few, meaningful, and fully degradable under reduced-motion.",
+    "Preflight is OFF — there is no global reset; interactive <a> rendered as buttons must set text-decoration:none, and emphasis is accent color + weight, NEVER an underline.",
+    "States are first-class — hover, active, live, and empty are designed, not defaulted. Empty = ready, not broken.",
+    "Chrome == canvas — the sidebar/nav shares the canvas's hover/blend/accent vocabulary so the whole app reads as one surface.",
+    "Pure render, verifiable — the design surface is a props-driven component with no data fetching, so it renders identically under live data or the screenshot harness."
+  ],
+
+  "tokens": {
+    "source": "@cold-code-labs/yggdrasil-tokens/css",
+    "themeSelector": { "light": ":root (default)", "dark": ".dark on <html>" },
+    "palette": {
+      "--accent": { "role": "cold structural signal", "means": "structure, links, live/info metrics, focus", "use": "the default emphasis color everywhere" },
+      "--ember": { "role": "the one warm literal (#ff7a45 dark / #e0571f light)", "means": "work in the fire — running tasks ONLY", "use": "forge pulse, running card rail, running queue row. Reserved; never decorative." },
+      "--fg / --fg-soft / --fg-dim": { "role": "text tiers", "means": "primary / secondary / tertiary" },
+      "--line / --line-soft": { "role": "the only borders", "use": "every divider and card edge" }
+    },
+    "surfaces": {
+      "base": "--bg",
+      "card": "--panel",
+      "card-hover": "--panel-2",
+      "glass": "color-mix(in srgb, var(--panel) 72%, transparent) + backdrop-filter:blur — floating controls (stats, composer)",
+      "tint": "color-mix(in srgb, var(--accent) N%, surface) — hover/active washes that keep the surface readable"
+    },
+    "radius": ["--radius-sm", "--radius", "--radius-lg"],
+    "shadow": ["--shadow-1", "--shadow-2"]
+  },
+
+  "motionBudget": {
+    "cap": "~6 named animations per surface; each tied to a meaning",
+    "animations": [
+      { "name": "fleet-aurora-drift", "meaning": "the sky over the peak is alive", "where": "hero aurora", "duration": "22s" },
+      { "name": "fleet-sheen", "meaning": "the wordmark catches cold light", "where": "title gradient", "duration": "6s" },
+      { "name": "fleet-ember-pulse", "meaning": "live forge heartbeat", "where": "pulse dot, running card dot", "duration": "1.7s" },
+      { "name": "fleet-rise", "meaning": "content settles into place on load", "where": "stats + cards entrance", "duration": "0.5s", "note": "uses `both` + stagger -> screenshot needs --virtual-time-budget" },
+      { "name": "fleet-beam", "meaning": "live work sweeps across the rail", "where": "running card/queue rail", "duration": "2.2s" },
+      { "name": "fleet-spark / fleet-blink", "meaning": "a live metric is updating", "where": "live stat spark/dot" }
+    ],
+    "reducedMotion": "all of the above set to `animation: none` and gradients pinned to a static position under @media (prefers-reduced-motion: reduce)"
+  },
+
+  "recipes": {
+    "hero": "self-contained masthead: aurora + dot-grid behind, masked to a soft falloff so nothing competes with type; gradient-clipped title with slow sheen; one ember 'pulse' chip that flips to .is-quiet when nothing runs.",
+    "statTile": "glass tile, tabular-nums count-up number, thin spark underline; .is-live glows accent (border + soft shadow + animated spark).",
+    "composer": "ONE seamless command-bar: a single bordered glass surface containing a borderless project picker (custom caret, hairline divider), a flush prompt, and a flush solid-accent submit that reads inert-grey until armed. No box-in-box. Whole bar lights on :focus-within.",
+    "card": "panel with a faint top sheen; on hover: lift, accent-tinted border, cursor-follow spotlight (JS sets --mx/--my), top accent rail fades in. .is-running swaps the rail to a sweeping ember beam and warms the border.",
+    "queueRow": "clean ledger row; hover warms toward accent; .is-running carries a left ember bar + tinted background so the eye finds live work instantly.",
+    "navLink": "shares the card vocabulary: faint accent wash on hover with the icon warming to accent; active = accent-tinted fill + inset 2px accent rail + accent icon. Makes the sidebar read as the same material as the board.",
+    "emptyState": "'the cold hearth': a ringed unlit mark, a calm title in --fg-soft, a one-line --fg-dim explainer, and (for the primary surface) a single clear action. .is-panel wraps it in the card material with a faint top accent sheen so zero reads as 'ready'."
+  },
+
+  "verify": {
+    "tool": "tools/litr-verify/render.mjs",
+    "run": "node tools/litr-verify/render.mjs",
+    "outputs": "tools/litr-verify/out/<state>-<theme>.png for state in {populated, empty} x theme in {dark, light}",
+    "reads": "current CSS from disk every run (tokens + fleet.css + the forge-nav block of globals.css), so it always verifies live source",
+    "chromeFlags": ["--headless", "--no-sandbox", "--hide-scrollbars", "--window-size=1280,1700", "--virtual-time-budget=4000 (MANDATORY)"],
+    "loop": "render -> open both crops -> if a state reads wrong in either theme, fix the source and re-render -> stop when populated + empty both read in light and dark",
+    "keepHonest": "the harness markup mirrors FleetView's canonical states by hand; when FleetView's structure changes, update SAMPLES in render.mjs in the same commit"
+  },
+
+  "workedExample": {
+    "surface": "Fleet — Brokk's home board",
+    "mission": "one board where an operator sees every CCL repo, its queue, and live forge work, and can queue a new task in one line",
+    "metaphor": "The Forge at Night",
+    "layout": [
+      { "region": "hero", "why": "identity + the single most important fact: is anything running right now" },
+      { "region": "stats", "why": "the fleet's vital signs (running / queued / in-review / seats)" },
+      { "region": "composer", "why": "the primary action — queue a task — placed before inventory so it's always one reach away" },
+      { "region": "projects", "why": "the inventory of repos; each card is a door into a project, live work flagged in ember" },
+      { "region": "queue", "why": "the global ledger of next-up work across the fleet" }
+    ],
+    "files": {
+      "language": "apps/web/app/fleet.css (all classes prefixed fleet-)",
+      "render": "apps/web/components/FleetView.tsx (pure, props-driven)",
+      "data": "apps/web/components/Fleet.tsx (fetch/poll, passes props)",
+      "navPolish": "apps/web/app/globals.css (.ygg-nav-link forge overrides)"
+    }
+  }
+}

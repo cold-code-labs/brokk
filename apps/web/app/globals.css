@@ -39,6 +39,35 @@ body {
   letter-spacing: -0.01em;
 }
 
+/* ── Forge sidebar — nav blends with the material, accent on touch ───────────
+   Extends the Yggdrasil nav with the Fleet ("The Forge at Night") language: a
+   faint cold-accent wash on hover, the icon warming to accent, and an active
+   state that reads as *lit* (accent-tinted fill + the existing inset rail)
+   rather than just a flat panel swap. Same vocabulary as the Fleet cards so the
+   chrome and the canvas feel like one surface. See docs/litr/. */
+.ygg-nav-link {
+  position: relative;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.ygg-nav-link svg {
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+.ygg-nav-link:hover {
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  color: var(--fg);
+}
+.ygg-nav-link:hover svg {
+  opacity: 1;
+  color: var(--accent);
+}
+.ygg-nav-link[data-active="true"] {
+  background: color-mix(in srgb, var(--accent) 11%, var(--panel-2));
+}
+.ygg-nav-link[data-active="true"] svg {
+  opacity: 1;
+  color: var(--accent);
+}
+
 /* ── Sindri (chat) ─────────────────────────────────────────────────────────── */
 .sindri {
   display: flex;

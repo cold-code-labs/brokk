@@ -4,7 +4,10 @@ The Brokk home / Fleet board is the reference surface for the platform's visual
 quality. It's composed **entirely on Yggdrasil tokens** so it stays on-brand and
 flips light/dark for free — no shadcn, no extra component library. This doc is
 the design language so future surfaces (and the `Litr` design skill) can extend
-it coherently.
+it coherently. The reusable, machine-readable version of this — the
+`mission -> metaphor -> layout -> ui/ux -> verify` method an agent follows — lives
+in [`docs/litr/`](./litr/SKILL.md) (`SKILL.md` + `design-language.json`). This
+file is its worked example.
 
 ## Constraints
 

@@ -446,7 +446,6 @@
   background: var(--panel);
   overflow: hidden;
 }
-.fleet-queue-empty { margin: 0; padding: 1.5rem; font-size: 0.86rem; color: var(--fg-dim); text-align: center; }
 .fleet-row {
   position: relative;
   display: flex;
@@ -458,7 +457,7 @@
   transition: background 0.15s ease;
 }
 .fleet-row:last-child { border-bottom: 0; }
-.fleet-row:hover { background: var(--bg-soft); }
+.fleet-row:hover { background: color-mix(in srgb, var(--accent) 5%, var(--bg-soft)); }
 .fleet-row::before {
   content: "";
   position: absolute;
@@ -472,6 +471,41 @@
 .fleet-row-title { font-size: 0.88rem; flex: 1; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet-row-repo { font-size: 0.78rem; color: var(--fg-dim); }
 .fleet-row-status { font-size: 0.76rem; font-weight: 600; min-width: 70px; text-align: right; text-transform: capitalize; }
+
+/* ── Deliberate empty states — "the cold hearth" ─────────────────────────────
+   A zero state is not a blank slate; it's the forge at rest. Same surface
+   material as the cards/queue so emptiness reads as *ready*, never *broken*: a
+   ringed mark (unlit ember), a calm line, and a single clear next action. Used
+   both inline (inside the queue ledger) and as a full panel (no repos yet). */
+.fleet-empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  gap: 0.5rem;
+  padding: 2.8rem 1.5rem;
+}
+.fleet-empty.is-panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(120% 140% at 50% -20%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%),
+    var(--panel);
+}
+.fleet-empty-mark {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  color: var(--fg-dim);
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  border: 1px solid var(--line);
+  margin-bottom: 0.25rem;
+}
+.fleet-empty-mark svg { width: 1.35rem; height: 1.35rem; }
+.fleet-empty-title { font-size: 0.96rem; font-weight: 650; color: var(--fg-soft); }
+.fleet-empty-sub { margin: 0; font-size: 0.82rem; line-height: 1.5; color: var(--fg-dim); max-width: 34ch; }
+.fleet-empty-action { margin-top: 0.7rem; }
 
 @keyframes fleet-rise {
   from { opacity: 0; transform: translateY(10px); }

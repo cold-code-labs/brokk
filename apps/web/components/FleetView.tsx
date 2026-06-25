@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { Flame, FolderGit2 } from "lucide-react";
 import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
 import { STATUS_COLOR } from "../lib/theme";
 import { PreviewChip } from "./PreviewChip";
@@ -202,26 +203,39 @@ export default function FleetView(p: FleetViewProps) {
           <span className="fleet-h-meta">{p.projects.length}</span>
           <span className="fleet-h-rule" />
         </div>
-        <div className="fleet-cards">
-          {p.projects.map((proj) => {
-            const ts = p.tasksByProject.get(proj.id) ?? [];
-            const c = (s: string) => ts.filter((x) => x.status === s).length;
-            return (
-              <ProjectCard
-                key={proj.id}
-                project={proj}
-                repo={p.repoById.get(proj.repositoryId)}
-                running={c("running")}
-                counts={c}
-                preview={p.previewsByProject.get(proj.id)}
-                previewBusy={p.previewBusy[proj.id]}
-                onPreview={p.onPreview}
-                onStopPreview={p.onStopPreview}
-              />
-            );
-          })}
-          <Link href="/connect" className="fleet-card is-add">+ Connect a repo</Link>
-        </div>
+        {p.projects.length === 0 ? (
+          <div className="fleet-empty is-panel">
+            <span className="fleet-empty-mark"><FolderGit2 /></span>
+            <span className="fleet-empty-title">No repos at the forge yet</span>
+            <p className="fleet-empty-sub">Connect a repository and Brokk can pick up tasks, open PRs, and forge previews for it.</p>
+            <span className="fleet-empty-action">
+              <Button asChild>
+                <Link href="/connect">+ Connect a repo</Link>
+              </Button>
+            </span>
+          </div>
+        ) : (
+          <div className="fleet-cards">
+            {p.projects.map((proj) => {
+              const ts = p.tasksByProject.get(proj.id) ?? [];
+              const c = (s: string) => ts.filter((x) => x.status === s).length;
+              return (
+                <ProjectCard
+                  key={proj.id}
+                  project={proj}
+                  repo={p.repoById.get(proj.repositoryId)}
+                  running={c("running")}
+                  counts={c}
+                  preview={p.previewsByProject.get(proj.id)}
+                  previewBusy={p.previewBusy[proj.id]}
+                  onPreview={p.onPreview}
+                  onStopPreview={p.onStopPreview}
+                />
+              );
+            })}
+            <Link href="/connect" className="fleet-card is-add">+ Connect a repo</Link>
+          </div>
+        )}
       </section>
 
       {/* queue */}
@@ -232,7 +246,13 @@ export default function FleetView(p: FleetViewProps) {
           <span className="fleet-h-rule" />
         </div>
         <div className="fleet-queue">
-          {p.queue.length === 0 && <p className="fleet-queue-empty">Nothing queued — the forge is quiet.</p>}
+          {p.queue.length === 0 && (
+            <div className="fleet-empty">
+              <span className="fleet-empty-mark"><Flame /></span>
+              <span className="fleet-empty-title">The forge is quiet</span>
+              <p className="fleet-empty-sub">Queued and running tasks line up here, next-up first. Describe a task above to light it.</p>
+            </div>
+          )}
           {p.queue.map((task) => {
             const proj = p.projectById.get(task.projectId);
             const repo = proj ? p.repoById.get(proj.repositoryId) : undefined;
