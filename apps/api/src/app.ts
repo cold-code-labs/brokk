@@ -62,10 +62,19 @@ export function buildApp(deps: AppDeps): Hono {
     // preview lifecycle that the gateway (wake POST) and runner (status PATCH)
     // drive with the runner secret — guarding it here 401s those internal writes
     // and freezes the whole preview lane.
+    // The runner ALSO reports run progress + completion via POST /runs/:id/events
+    // and /runs/:id/complete, authenticating with the runner secret (each route has
+    // its own requireRunnerSecret guard). Guarding them here 401s every forge's
+    // event stream + completion, so the run never leaves "running" and the PR is
+    // never recorded. Exempt exactly those two runner-driven /runs writes — NOT
+    // /runs/from-brief, which the web proxy drives with the api secret.
+    const isRunnerRunWrite =
+      path.startsWith("/runs/") && (path.endsWith("/events") || path.endsWith("/complete"));
     if (
       path.startsWith("/runner") ||
       path.startsWith("/webhooks") ||
-      path.startsWith("/previews")
+      path.startsWith("/previews") ||
+      isRunnerRunWrite
     )
       return next();
     if (c.req.header("authorization") === `Bearer ${deps.apiSecret}`) return next();
