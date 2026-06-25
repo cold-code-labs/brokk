@@ -13,11 +13,11 @@
 
 import type { ChatSession } from "@brokk/core";
 import type { Store } from "@brokk/db";
-import type { ChatConfig } from "./config.js";
-import { resolveModel } from "./config.js";
-import { streamAssistant } from "./gateway.js";
+import type { ChatConfig } from "@brokk/afl";
+import { resolveModel } from "@brokk/afl";
+import { streamAssistant } from "@brokk/afl";
 import { makeExecutor, TOOL_DEFS, type ToolContext } from "./tools.js";
-import type { ChatTurnMessage, ContentBlock, SindriEvent, ToolResultBlock, ToolUseBlock } from "./types.js";
+import type { ChatTurnMessage, ContentBlock, SindriEvent, ToolResultBlock, ToolUseBlock } from "@brokk/afl";
 
 export interface RunTurnInput {
   session: ChatSession;

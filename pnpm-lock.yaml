@@ -167,8 +167,20 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/afl:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/chat:
     dependencies:
+      '@brokk/afl':
+        specifier: workspace:*
+        version: link:../afl
       '@brokk/core':
         specifier: workspace:*
         version: link:../core

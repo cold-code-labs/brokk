@@ -12,11 +12,11 @@
 
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { ChatConfig } from "./config.js";
-import { resolveModel } from "./config.js";
-import { streamAssistant } from "./gateway.js";
+import type { ChatConfig } from "@brokk/afl";
+import { resolveModel } from "@brokk/afl";
+import { streamAssistant } from "@brokk/afl";
 import { shellEnv } from "./tools.js";
-import type { ChatTurnMessage, ContentBlock, ToolDef, ToolResultBlock, ToolUseBlock } from "./types.js";
+import type { ChatTurnMessage, ContentBlock, ToolDef, ToolResultBlock, ToolUseBlock } from "@brokk/afl";
 
 const execAsync = promisify(exec);
 const MAX_OUT = 40_000;

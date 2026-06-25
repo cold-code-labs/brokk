@@ -19,7 +19,7 @@ import { promises as fs } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { Store } from "@brokk/db";
-import type { ToolDef, ToolExecutor } from "./types.js";
+import type { ToolDef, ToolExecutor } from "@brokk/afl";
 
 const execAsync = promisify(exec);
 
