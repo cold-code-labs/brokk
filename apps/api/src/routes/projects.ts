@@ -1,4 +1,4 @@
-import { AUTH_MODES } from "@brokk/core";
+import { AUTH_MODES, featureBranch, taskSlug } from "@brokk/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
@@ -48,11 +48,47 @@ export function projectsRoutes(deps: AppDeps): Hono {
     // Dedup against cards a prior generation already made (the item is the first
     // line of the card body).
     const existing = await deps.store.listTasks({ projectId: id });
-    const seen = new Set(
-      existing
-        .filter((t) => (t.labels ?? []).includes(DISCOVERY_LABEL))
-        .map((t) => normItem((t.body ?? "").split("\n")[0] ?? "")),
+    const discoveryCards = existing.filter((t) => (t.labels ?? []).includes(DISCOVERY_LABEL));
+    const seen = new Set(discoveryCards.map((t) => normItem((t.body ?? "").split("\n")[0] ?? "")));
+
+    // The discovery brief IS one story → its cards compose into ONE PR. We group
+    // them under a single feature plan (shared feature branch, one PR opened by
+    // the first card to forge). Re-runs join the same plan so new items land in
+    // the same PR rather than spawning fresh ones.
+    let plan = null;
+    const priorPlanId = discoveryCards.find((t) => t.planId)?.planId;
+    if (priorPlanId) plan = await deps.store.getPlan(priorPlanId);
+    if (!plan) {
+      const draft = await deps.store.insertPlan({
+        projectId: id,
+        prompt: `Descoberta (Huginn) — ${project.name}`,
+        summary: `Itens da descoberta — ${project.name}`,
+        rationale: null,
+        mode: "feature",
+        status: "forging",
+        featureBranch: "pending",
+        baseBranch: project.baseBranch,
+        model: null,
+        createdBy: "huginn",
+      });
+      plan = await deps.store.updatePlan(draft.id, {
+        featureBranch: featureBranch(draft.summary, draft.id),
+      });
+    }
+
+    // planKeys are stable, unique-within-plan ids the DAG references. Discovery
+    // items are independent (no dependsOn), so they forge in any order onto the
+    // shared branch.
+    const usedKeys = new Set(
+      discoveryCards.filter((t) => t.planId === plan.id).map((t) => t.planKey).filter(Boolean),
     );
+    const uniqueKey = (item: string) => {
+      const base = taskSlug(item).slice(0, 32) || "card";
+      let key = base;
+      for (let n = 2; usedKeys.has(key); n++) key = `${base}-${n}`;
+      usedKeys.add(key);
+      return key;
+    };
 
     const created = [];
     let skipped = 0;
@@ -69,10 +105,13 @@ export function projectsRoutes(deps: AppDeps): Hono {
         baseBranch: project.baseBranch,
         createdBy: "huginn",
         labels: [DISCOVERY_LABEL],
+        planId: plan.id,
+        planKey: uniqueKey(item),
+        dependsOn: [],
       });
       created.push(task);
     }
-    return c.json({ created, skipped }, 201);
+    return c.json({ created, skipped, planId: plan.id }, 201);
   });
 
   // Huginn Phase 3: "Aprovar todos" — enqueue every PROPOSED backlog card at once

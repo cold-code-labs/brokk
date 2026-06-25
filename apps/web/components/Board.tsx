@@ -233,9 +233,9 @@ export default function Board({ projectId }: { projectId?: string }) {
                 {items.map((task) => (
                   <button key={task.id} onClick={() => setSelected(task.id)} style={card(selected === task.id)}>
                     <span style={{ display: "flex", gap: 7, alignItems: "start", justifyContent: "space-between" }}>
-                      <span style={{ display: "flex", gap: 7, alignItems: "start", minWidth: 0 }}>
+                      <span style={{ display: "flex", gap: 7, alignItems: "start", minWidth: 0, flex: 1 }}>
                         <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
-                        <span style={{ fontSize: 13, lineHeight: 1.3 }}>{task.title}</span>
+                        <span style={{ fontSize: 13, lineHeight: 1.3, minWidth: 0, overflowWrap: "anywhere" }}>{task.title}</span>
                       </span>
                       {/* who created this card — agent or you */}
                       <AgentAvatar createdBy={task.createdBy} size={17} />
