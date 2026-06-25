@@ -24,6 +24,10 @@ const execAsync = promisify(exec);
 export interface FsToolContext {
   /** The working checkout the tools operate in. */
   cwd: string;
+  /** Whether the bash hand carries GitHub creds (so the agent can commit + open
+   *  PRs). Default true (the forge needs it). Read-only consumers (e.g. the
+   *  reviewer) pass false to keep gh tokens out of a no-push agent's shell. */
+  gh?: boolean;
 }
 
 const MAX_OUT = 60_000; // cap tool output handed back to the model
@@ -136,11 +140,20 @@ export const FS_TOOL_DEFS: ToolDef[] = [
   },
 ];
 
+/** The read-only subset of the hands: inspect a checkout without mutating it
+ *  (read_file + list_dir + bash for grep/git-log/etc.). The lean tool surface for
+ *  reviewers/scouts (§9 #6) — the model can't call write_file/edit_file it isn't
+ *  shown. Pair with makeFsExecutor({ gh: false }) to also keep gh creds out. */
+export const FS_READONLY_TOOL_DEFS: ToolDef[] = FS_TOOL_DEFS.filter((t) =>
+  t.name === "read_file" || t.name === "list_dir" || t.name === "bash",
+);
+
 /** A partial executor for the generic file + bash tools, bound to one checkout.
  *  Returns `null` for any tool it does not own, so domain executors compose on
  *  top via `composeExecutors`. */
 export function makeFsExecutor(ctx: FsToolContext): PartialExecutor {
   const root = ctx.cwd;
+  const gh = ctx.gh ?? true;
   return async (name, input) => {
     try {
       switch (name) {
@@ -192,8 +205,9 @@ export function makeFsExecutor(ctx: FsToolContext): PartialExecutor {
               timeout,
               maxBuffer: 1024 * 1024 * 32,
               // Allowlisted env only — no infra secrets reach the shell. gh creds
-              // kept so the agent can commit + open PRs.
-              env: shellEnv({ gh: true }),
+              // included only when the consumer opts in (forge pushes; reviewer
+              // doesn't).
+              env: shellEnv({ gh }),
             });
             return { ok: true, content: clip(`${stdout}${stderr ? `\n${stderr}` : ""}`.trim() || "(no output)") };
           } catch (e: any) {

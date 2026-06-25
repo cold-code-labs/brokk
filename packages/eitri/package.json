@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "latest",
+    "@brokk/afl": "workspace:*",
     "@brokk/core": "workspace:*",
     "@brokk/db": "workspace:*"
   },

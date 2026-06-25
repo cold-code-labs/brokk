@@ -28,6 +28,7 @@ export {
 export {
   clip,
   composeExecutors,
+  FS_READONLY_TOOL_DEFS,
   FS_TOOL_DEFS,
   type FsToolContext,
   makeFsExecutor,

@@ -1,8 +1,26 @@
 /**
- * The reviewer brain. Runs the Claude Agent SDK in the PR's worktree with a
- * skeptical reviewer persona, feeds it the diff, and captures its verdict +
- * markdown review (the agent's final message).
+ * The reviewer brain — native over @brokk/afl (NO Agent SDK). Runs the Afl agent
+ * loop in the PR's worktree with a skeptical reviewer persona and the READ-ONLY
+ * hands (read_file + list_dir + bash, no write/edit, no gh creds), feeds it the
+ * diff, and captures its verdict + markdown review (the final assistant message).
+ *
+ * Auth is gateway-only (LiteLLM → Ratatoskr) via afl's loadChatConfig — the same
+ * ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN the eitri container already carries.
+ * Read-only by construction (§9 #6): the model is never shown a mutating tool, so
+ * "do NOT modify anything" is enforced by the tool surface, not just the prompt.
  */
+import {
+  type ChatConfig,
+  type ChatTurnMessage,
+  composeExecutors,
+  FS_READONLY_TOOL_DEFS,
+  loadChatConfig,
+  makeFsExecutor,
+  resolveModel,
+  runAgentLoop,
+  type TextBlock,
+} from "@brokk/afl";
+
 const SYSTEM_PROMPT =
   "You are Eitri, the forge's second smith — an exacting code reviewer. You read the " +
   "changed files in context (the repo is your working directory) and look for real " +
@@ -24,23 +42,13 @@ export interface ReviewResult {
   body: string;
 }
 
-export async function reviewPr(opts: {
-  cwd: string;
-  model: string;
-  prTitle: string;
-  diff: string;
-  /** Pre-computed security-scan context, injected so the LLM weighs it. */
-  scanBlock?: string;
-}): Promise<ReviewResult> {
-  const { query } = (await import("@anthropic-ai/claude-agent-sdk")) as any;
-
+/** Build the user turn: the review request + the diff. The persona is delivered
+ *  separately as the API `system` (cacheable, not re-sent in the prompt). */
+function buildReviewPrompt(opts: { prTitle: string; diff: string; scanBlock?: string }): string {
   const scanSection = opts.scanBlock
     ? ["", "--- SECURITY SCAN ---", opts.scanBlock, "--- END SECURITY SCAN ---", ""]
     : [];
-
-  const prompt = [
-    SYSTEM_PROMPT,
-    "",
+  return [
     `Review this pull request: "${opts.prTitle}".`,
     "",
     "The repository is your working directory — open the changed files to understand",
@@ -57,23 +65,64 @@ export async function reviewPr(opts: {
     opts.diff.slice(0, 60_000),
     "```",
   ].join("\n");
+}
 
-  let text = "";
-  const stream = query({
-    prompt,
-    options: { cwd: opts.cwd, model: opts.model, permissionMode: "bypassPermissions" },
-  });
-  for await (const m of stream as AsyncIterable<any>) {
-    if (m?.type === "result" && typeof m.result === "string") text = m.result;
-  }
-
-  const verdict: Verdict = /VERDICT:\s*REQUEST_CHANGES/i.test(text)
+function parseVerdict(text: string): Verdict {
+  return /VERDICT:\s*REQUEST_CHANGES/i.test(text)
     ? "REQUEST_CHANGES"
     : /VERDICT:\s*APPROVE/i.test(text)
       ? "APPROVE"
       : "COMMENT";
+}
 
-  return { verdict, body: text.trim() || "_(Eitri produced no output)_" };
+export async function reviewPr(opts: {
+  cwd: string;
+  model: string;
+  prTitle: string;
+  diff: string;
+  /** Pre-computed security-scan context, injected so the LLM weighs it. */
+  scanBlock?: string;
+  /** Gateway config; defaults to loadChatConfig() (the eitri container's env). */
+  cfg?: ChatConfig;
+  signal?: AbortSignal;
+}): Promise<ReviewResult> {
+  const cfg = opts.cfg ?? loadChatConfig();
+  const model = resolveModel(cfg, opts.model);
+  // Read-only hands, no gh creds — the reviewer inspects, never pushes.
+  const exec = composeExecutors(makeFsExecutor({ cwd: opts.cwd, gh: false }));
+  const messages: ChatTurnMessage[] = [
+    { role: "user", content: [{ type: "text", text: buildReviewPrompt(opts) }] },
+  ];
+
+  // The review is the LAST non-empty assistant text — after the agent has read the
+  // files it wanted (intermediate turns carry the read_file/bash calls), the final
+  // end_turn message is the verdict.
+  let lastText = "";
+  await runAgentLoop({
+    cfg,
+    model,
+    system: SYSTEM_PROMPT,
+    messages,
+    tools: FS_READONLY_TOOL_DEFS,
+    exec,
+    // A review body (summary + findings) is small; give it headroom over chat's
+    // default. The gateway shrinks it on a busy-seat 429.
+    maxTokens: Math.max(cfg.maxTokens, 4096),
+    maxRounds: Number(process.env.EITRI_MAX_ROUNDS ?? 24),
+    signal: opts.signal,
+    hooks: {
+      onAssistant: (blocks) => {
+        const t = blocks
+          .filter((b): b is TextBlock => b.type === "text")
+          .map((b) => b.text)
+          .join("");
+        if (t.trim()) lastText = t;
+      },
+    },
+  });
+
+  const text = lastText.trim();
+  return { verdict: parseVerdict(text), body: text || "_(Eitri produced no output)_" };
 }
 
 export { SYSTEM_PROMPT };

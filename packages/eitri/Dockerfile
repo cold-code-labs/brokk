@@ -1,8 +1,8 @@
 # Build context is the repo root:  docker build -f packages/eitri/Dockerfile .
 #
-# Eitri — the PR reviewer. Watches open Brokk PRs and drives the Claude Agent SDK
-# to review (and optionally revise) them. Debian-based (not alpine): the security
-# ward's semgrep ships glibc-only wheels, so musl/alpine can't run it.
+# Eitri — the PR reviewer. Watches open Brokk PRs and reviews (and optionally
+# revises) them with the native @brokk/afl agent loop. Debian-based (not alpine):
+# the security ward's semgrep ships glibc-only wheels, so musl/alpine can't run it.
 FROM node:22-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
@@ -22,7 +22,8 @@ FROM base AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 # Tooling Eitri shells out to: git/gh (PR ops), trivy + semgrep (the security
-# ward), claude-code (the reviewer brain). gh via its official apt repo.
+# ward). The reviewer brain is the native @brokk/afl loop (bundled in dist), so no
+# claude CLI is needed. gh via its official apt repo.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       git openssh-client ca-certificates curl gnupg python3 python3-venv pipx \
@@ -40,7 +41,6 @@ RUN curl -fsSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib
 # semgrep — isolated venv, its entrypoint symlinked onto PATH.
 ENV PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin
 RUN pipx install semgrep
-RUN npm install -g @anthropic-ai/claude-code
 # Eitri runs as uid 1001 with HOME=/home/brokk; make it real + writable so the
 # scanners' caches (~/.cache/trivy, ~/.semgrep) don't EACCES at scan time.
 RUN mkdir -p /home/brokk && chown -R 1001:1001 /home/brokk
