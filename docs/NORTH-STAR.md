@@ -308,13 +308,33 @@ Design even the small bits so these never need a retrofit:
 
 ---
 
-## 13. Status
+## 13. Status (updated 2026-06-25)
 
-- **Built today:** Brokkr (forge, on Agent SDK), Sindri (chat, native), Huginn (scout,
-  native, inside Sindri), Eitri (reviewer, Agent SDK daemon), Mímir (enhance/triage/plan
-  lib), Ratatoskr (single shared seat + shape-gate fixed), preview lane, multi-repo Fleet.
-- **Decided, not yet built:** the `@brokk/afl` extraction, `@brokk/forge` (de-SDK), the
-  agents/ regrouping, Planejador retirement.
-- **Keystone ahead:** Ratatoskr multi-seat (BYOS).
+- **Shipped:** `@brokk/afl` kernel extraction — **LIVE in prod** (`main`). The heart =
+  gateway + types + config + the shared hands (`FS_TOOL_DEFS`/`makeFsExecutor`/`shellEnv`/
+  `composeExecutors`), dependency-pure. `@brokk/scout` (Huginn) extracted; `@brokk/chat`
+  (Sindri) slimmed, domain tools compose on afl. Verified in prod: scout briefs + a real
+  Sindri `runTurn` driving `list_dir` through the new composition; zero-downtime deploy.
+  - **NOTE:** `loop.ts` (Sindri `runTurn`) + `context.ts` stayed in `@brokk/chat` on
+    purpose (Sindri-specific, legally db-coupled). The **generic agent-loop primitive is
+    deferred to the `@brokk/forge` build** — that's its first second-consumer.
+- **Other live pillars:** Brokkr (forge, STILL on Agent SDK ← next to migrate), Eitri
+  (reviewer, Agent SDK daemon ← migrate after), Mímir (enhance/triage/plan lib),
+  Ratatoskr (single shared seat + shape-gate fixed), preview lane, multi-repo Fleet.
+
+### Next session starts here → `@brokk/forge`
+
+1. **`@brokk/forge`** — move Brokkr off the Agent SDK (`packages/runner/engine.ts`'s
+   `query()`) onto afl + build the generic agent-loop primitive in afl (forge = its
+   validating consumer). *The lean win; retires the SDK from the heaviest agent.*
+2. `@brokk/reviewer` (Eitri off the SDK) · 3. `packages/agents/` regroup ·
+   4. retire Planejador (fold `/plan` into chat) · 5. naming (`ChatConfig`→`AflConfig`,
+   `SindriEvent`→`AgentEvent`) · 6. **Ratatoskr multi-seat (BYOS keystone)**.
+
+**Loose ends (non-blocking):** `deploy-dev.sh` must export `NODE_AUTH_TOKEN` before
+`pnpm install` (else the dev lane hangs fetching private yggdrasil pkgs); Huginn smoke is
+flaky on big repos (haiku submits sparse — variance, not a bug). Working rhythm: isolated
+git worktree → push to `dev` (preview) → smoke → cutover to `main` (pre-push hook
+auto-deploys prod via `/home/brokk/deploy.sh` on surtr).
 
 > This is the destination. We build small bits — but every bit points here.
