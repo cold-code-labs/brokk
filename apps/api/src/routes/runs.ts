@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
+import { connectOne } from "./repositories.js";
 import { requireRunnerSecret } from "./runner.js";
 
 const AppendEventsBody = z.object({
@@ -30,8 +31,108 @@ const CompleteBody = z.object({
     .optional(),
 });
 
+// The orchestrator facade. Collapses the connect-repo → ensure-project →
+// create-task → enqueue dance into one call, so a caller like Asgard can drive
+// Brokk from a single natural-language brief. One of repoFullName / projectId.
+const FromBriefBody = z
+  .object({
+    repoFullName: z.string().min(3).optional(),
+    projectId: z.string().uuid().optional(),
+    brief: z.string().min(1),
+    title: z.string().min(1).max(200).optional(),
+    defaultBranch: z.string().default("main"),
+    baseBranch: z.string().optional(),
+    createdBy: z.string().default("asgard"),
+  })
+  .refine((d) => Boolean(d.repoFullName) || Boolean(d.projectId), {
+    message: "repoFullName or projectId is required",
+  });
+
 export function runsRoutes(deps: AppDeps): Hono {
   const r = new Hono();
+
+  // Facade: brief → a `queued` task (a runner claims it on its next poll). Returns
+  // a handle whose `events` URL streams the run once it materializes — so the
+  // caller drives the whole thing with one POST + one SSE, no polling for ids.
+  r.post("/from-brief", async (c) => {
+    const parsed = FromBriefBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const { repoFullName, projectId, brief, title, defaultBranch, baseBranch, createdBy } =
+      parsed.data;
+
+    let project: Awaited<ReturnType<typeof deps.store.getProject>> = null;
+    if (projectId) {
+      project = await deps.store.getProject(projectId);
+      if (!project) return c.json({ error: "project not found" }, 404);
+    } else {
+      // Ensure the repo is connected and has a project (creates both + scouts it).
+      const repo = await connectOne(deps, { fullName: repoFullName!, defaultBranch }, true);
+      const projects = await deps.store.listProjects();
+      project = projects.find((p) => p.repositoryId === repo.id) ?? null;
+    }
+    if (!project) return c.json({ error: "could not resolve a project for the repo" }, 502);
+
+    const task = await deps.store.insertTask({
+      projectId: project.id,
+      title: (title ?? firstLine(brief)).slice(0, 200),
+      body: brief,
+      status: "queued",
+      createdBy,
+      ...(baseBranch ? { baseBranch } : {}),
+    });
+
+    return c.json(
+      {
+        taskId: task.id,
+        projectId: project.id,
+        repositoryId: project.repositoryId,
+        status: task.status,
+        events: `/runs/by-task/${task.id}/events`,
+        task: `/tasks/${task.id}`,
+        runs: `/tasks/${task.id}/runs`,
+      },
+      201,
+    );
+  });
+
+  // Task-keyed live stream: wait for the runner to materialize a run for this
+  // task, announce it via a `run` event, then proxy the run's log to completion.
+  // Mirrors `/runs/:id/events` once the (lazy) run exists.
+  r.get("/by-task/:taskId/events", (c) => {
+    const taskId = c.req.param("taskId");
+    return streamSSE(c, async (stream) => {
+      let runId: string | null = null;
+      while (!stream.closed && !runId) {
+        const runs = await deps.store.listRunsByTask(taskId);
+        if (runs.length) {
+          runId = runs[0]!.id; // newest first
+          await stream.writeSSE({ event: "run", data: JSON.stringify({ taskId, runId }) });
+          break;
+        }
+        await stream.writeSSE({ event: "waiting", data: JSON.stringify({ taskId }) });
+        await stream.sleep(1000);
+      }
+      if (!runId) return;
+
+      let lastSeq = -1;
+      while (!stream.closed) {
+        const events = await deps.store.listEvents(runId, lastSeq);
+        for (const e of events) {
+          lastSeq = e.seq;
+          await stream.writeSSE({ id: String(e.seq), event: e.type, data: JSON.stringify(e) });
+        }
+        const run = await deps.store.getRun(runId);
+        if (run && run.status !== "running" && run.status !== "queued") {
+          await stream.writeSSE({
+            event: "done",
+            data: JSON.stringify({ status: run.status, prUrl: run.prUrl ?? null }),
+          });
+          break;
+        }
+        await stream.sleep(1000);
+      }
+    });
+  });
 
   r.get("/:id", async (c) => {
     const run = await deps.store.getRun(c.req.param("id"));
@@ -121,6 +222,15 @@ export function runsRoutes(deps: AppDeps): Hono {
   });
 
   return r;
+}
+
+function firstLine(s: string): string {
+  return (
+    s
+      .split("\n")
+      .map((x) => x.trim())
+      .find(Boolean) ?? s.trim()
+  );
 }
 
 function prNumberFromUrl(url: string): number | null {

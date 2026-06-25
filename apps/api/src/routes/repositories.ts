@@ -125,7 +125,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
   return r;
 }
 
-async function connectOne(
+export async function connectOne(
   deps: AppDeps,
   input: { fullName: string; defaultBranch: string },
   createProject: boolean,
