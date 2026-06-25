@@ -358,8 +358,12 @@ prod.** One item remains, and it is intentionally on hold:
 **Loose ends (non-blocking):** ~~`deploy-dev.sh` must export `NODE_AUTH_TOKEN` before
 `pnpm install`~~ **FIXED 2026-06-25** (surtr `/home/brokk/deploy-dev.sh` now sources
 `brokk-dev.env` — which carries the token — before install; token verified against the
-yggdrasil registry). Huginn smoke is flaky on big repos (haiku submits sparse — variance,
-not a bug; consider retry-on-sparse). Working rhythm: isolated
+yggdrasil registry). ~~Huginn smoke is flaky on big repos (haiku submits sparse)~~ **FIXED 2026-06-25**:
+root cause was haiku **leaking the tool-call XML into `summary`** under a forced
+`toolChoice` (so `built/missing/stack` never landed as JSON → empty). Fix in
+`packages/agents/scout/src/discovery.ts` = auto-tool-choice enrich retry (×2) when a
+brief comes back empty + 4k maxTokens headroom; smoke 3/3 green on the brokk monorepo.
+Working rhythm: isolated
 git worktree → push to `dev` (preview) → smoke → cutover to `main` (pre-push hook
 auto-deploys prod via `/home/brokk/deploy.sh` on surtr).
 

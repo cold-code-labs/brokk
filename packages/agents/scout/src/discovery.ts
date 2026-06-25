@@ -147,6 +147,81 @@ function coerceBrief(input: Record<string, unknown>): DiscoveryBrief {
   };
 }
 
+function briefItemCount(b: DiscoveryBrief): number {
+  return b.built.length + b.missing.length + b.stack.length;
+}
+
+/** A useful brief grounds all three lists. An empty one means the (often forced)
+ *  conclusion gave up before enumerating — mission/summary alone isn't enough. */
+function isSparse(b: DiscoveryBrief): boolean {
+  return b.built.length === 0 || b.missing.length === 0 || b.stack.length === 0;
+}
+
+/** Answer every still-open tool_use in the last assistant turn so the message
+ *  chain stays valid (the submit one carries `nudge`, siblings get a stub). */
+function answerPendingToolUses(messages: ChatTurnMessage[], submitId: string, nudge: string): void {
+  const last = messages[messages.length - 1];
+  const pending = Array.isArray(last?.content)
+    ? (last.content as ContentBlock[]).filter((b): b is ToolUseBlock => b.type === "tool_use")
+    : [];
+  if (pending.length === 0) {
+    messages.push({ role: "user", content: [{ type: "text", text: nudge }] });
+    return;
+  }
+  const blocks: ToolResultBlock[] = pending.map((tu) => ({
+    type: "tool_result",
+    tool_use_id: tu.id,
+    content: tu.id === submitId ? nudge : "Conclude now — do not run more commands.",
+    is_error: false,
+  }));
+  messages.push({ role: "user", content: blocks as ContentBlock[] });
+}
+
+/** If the submitted brief came back sparse — empty built/missing/stack, the
+ *  signature of haiku leaking the tool-call XML into `summary` under a forced
+ *  toolChoice — recover it with up to `maxAttempts` grounded retries that use
+ *  AUTO tool-choice (forcing is what causes the leak; letting the model answer
+ *  freely makes it generate real list content). Reuses the explored context,
+ *  stays on the same model (haiku-first), and keeps whichever brief is richest —
+ *  so it can only improve an empty brief, never regress it. */
+async function enrichIfSparse(
+  input: RunDiscoveryInput,
+  model: string,
+  messages: ChatTurnMessage[],
+  submitBlock: ToolUseBlock,
+  maxAttempts = 2,
+): Promise<DiscoveryBrief> {
+  let best = coerceBrief(submitBlock.input);
+  if (!isSparse(best) || input.signal?.aborted) return best;
+
+  const nudge =
+    "That brief was too sparse — built, missing, and stack came back empty. Based ONLY on what you already explored, fill in at least 3 concrete `built` items (each citing a real file/area), at least 2 actionable `missing` items, and the key `stack` technologies. Reply with submit_brief, all lists populated. Do not run any more commands.";
+  answerPendingToolUses(messages, submitBlock.id, nudge);
+
+  for (let attempt = 0; attempt < maxAttempts && isSparse(best); attempt++) {
+    if (input.signal?.aborted) break;
+    input.onProgress?.(`brief sparse — enrich retry ${attempt + 1}/${maxAttempts}`);
+    const retry = await streamAssistant(
+      input.cfg,
+      { model, system: SYSTEM, messages, tools: [BASH_TOOL, BRIEF_TOOL], maxTokens: 4096 },
+      () => {},
+      input.signal,
+    );
+    messages.push({ role: "assistant", content: retry.blocks });
+    const sub = retry.blocks.find((b): b is ToolUseBlock => b.type === "tool_use" && b.name === "submit_brief");
+    if (sub) {
+      const cand = coerceBrief(sub.input);
+      if (briefItemCount(cand) > briefItemCount(best)) best = cand;
+      // Keep the chain valid in case we loop once more.
+      answerPendingToolUses(messages, sub.id, nudge);
+    } else {
+      // It ran bash or replied in prose — answer so we can ask again.
+      answerPendingToolUses(messages, "", nudge);
+    }
+  }
+  return best;
+}
+
 /** Scout a checkout and return a structured product brief. Throws if the model
  *  never submits one within maxRounds (caller marks the brief failed). */
 export async function runDiscovery(input: RunDiscoveryInput): Promise<DiscoveryBrief> {
@@ -173,7 +248,7 @@ export async function runDiscovery(input: RunDiscoveryInput): Promise<DiscoveryB
 
     const result = await streamAssistant(
       cfg,
-      { model, system: SYSTEM, messages, tools, maxTokens: 2048 },
+      { model, system: SYSTEM, messages, tools, maxTokens: 4096 },
       () => {},
       signal,
     );
@@ -183,7 +258,8 @@ export async function runDiscovery(input: RunDiscoveryInput): Promise<DiscoveryB
     const brief = toolUses.find((t) => t.name === "submit_brief");
     if (brief) {
       onProgress?.("brief submitted");
-      return coerceBrief(brief.input);
+      // assistant turn (with this submit_brief) was just pushed above.
+      return await enrichIfSparse(input, model, messages, brief);
     }
 
     if (result.stopReason !== "tool_use" || toolUses.length === 0) {
@@ -229,7 +305,7 @@ export async function runDiscovery(input: RunDiscoveryInput): Promise<DiscoveryB
       system: SYSTEM,
       messages,
       tools,
-      maxTokens: 2048,
+      maxTokens: 4096,
       toolChoice: { type: "tool", name: "submit_brief" },
     },
     () => {},
@@ -240,7 +316,9 @@ export async function runDiscovery(input: RunDiscoveryInput): Promise<DiscoveryB
   );
   if (forced) {
     onProgress?.("brief submitted (forced)");
-    return coerceBrief(forced.input);
+    // Push the forced assistant turn so enrichIfSparse can answer its tool_use.
+    messages.push({ role: "assistant", content: finalResult.blocks });
+    return await enrichIfSparse(input, model, messages, forced);
   }
   throw new Error(`discovery did not converge within ${maxRounds} rounds`);
 }
