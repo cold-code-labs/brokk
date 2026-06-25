@@ -174,24 +174,25 @@ export default function FleetView(p: FleetViewProps) {
         <Stat value={p.counts.seats} label="Max seats" />
       </div>
 
-      {/* composer */}
+      {/* composer — one seamless command-bar */}
       <form onSubmit={p.onSubmit} className="fleet-composer">
-        <select value={p.pid} onChange={(e) => p.onPid(e.target.value)} className="fleet-field" style={{ flex: "0 0 200px" }}>
-          {p.projects.length === 0 && <option value="">no project — connect a repo</option>}
-          {p.projects.map((proj) => (
-            <option key={proj.id} value={proj.id}>{proj.name}</option>
-          ))}
-        </select>
+        <div className="fleet-pick">
+          <select value={p.pid} onChange={(e) => p.onPid(e.target.value)} aria-label="Project">
+            {p.projects.length === 0 && <option value="">no project — connect a repo</option>}
+            {p.projects.map((proj) => (
+              <option key={proj.id} value={proj.id}>{proj.name}</option>
+            ))}
+          </select>
+        </div>
         <input
+          className="fleet-ask"
           value={p.title}
           onChange={(e) => p.onTitle(e.target.value)}
           placeholder="Describe a task and queue it to the forge…"
-          className="fleet-field"
-          style={{ flex: "1 1 360px" }}
         />
-        <Button type="submit" disabled={p.busy || !p.pid || !p.title.trim()}>
+        <button type="submit" className="fleet-send" disabled={p.busy || !p.pid || !p.title.trim()}>
           {p.busy ? "Forging…" : "Queue →"}
-        </Button>
+        </button>
       </form>
 
       {/* projects */}
