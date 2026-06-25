@@ -13,8 +13,8 @@ FROM base AS build
 ARG NODE_AUTH_TOKEN
 COPY . .
 RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
-RUN pnpm --filter @brokk/sindri build
-RUN pnpm --filter @brokk/sindri deploy --prod /out
+RUN pnpm --filter @brokk/chat-app build
+RUN pnpm --filter @brokk/chat-app deploy --prod /out
 
 FROM base AS runtime
 WORKDIR /app

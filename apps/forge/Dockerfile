@@ -15,9 +15,9 @@ FROM base AS build
 ARG NODE_AUTH_TOKEN
 COPY . .
 RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
-RUN pnpm --filter @brokk/runner build
-# Self-contained prod tree (only @brokk/runner's external deps).
-RUN pnpm --filter @brokk/runner deploy --prod /out
+RUN pnpm --filter @brokk/forge-app build
+# Self-contained prod tree (only @brokk/forge-app's external deps).
+RUN pnpm --filter @brokk/forge-app deploy --prod /out
 
 FROM base AS runtime
 WORKDIR /app

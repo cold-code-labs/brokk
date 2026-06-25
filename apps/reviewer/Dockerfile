@@ -15,8 +15,8 @@ FROM base AS build
 ARG NODE_AUTH_TOKEN
 COPY . .
 RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
-RUN pnpm --filter @brokk/eitri build
-RUN pnpm --filter @brokk/eitri deploy --prod /out
+RUN pnpm --filter @brokk/reviewer-app build
+RUN pnpm --filter @brokk/reviewer-app deploy --prod /out
 
 FROM base AS runtime
 WORKDIR /app

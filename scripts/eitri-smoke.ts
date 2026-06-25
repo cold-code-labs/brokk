@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 // ─────────────────────────────────────────────────────────────────────────────
-// Eitri smoke test — exercises the reviewer brain (@brokk/eitri reviewPr) in
+// Eitri smoke test — exercises the reviewer brain (@brokk/reviewer reviewPr) in
 // ISOLATION over the native @brokk/afl loop (NO Agent SDK). No daemon, no DB, no
 // gh, no GitHub App: just the gateway + a real git worktree with a diff → a
 // verdict + markdown review.

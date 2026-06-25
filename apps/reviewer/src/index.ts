@@ -1,5 +1,5 @@
 /**
- * @brokk/eitri — the forge's second smith.
+ * @brokk/reviewer-app — the forge's second smith.
  *
  * Loop: for every repo in the watch set (each fleet project that forges into
  * `dev`, plus the seed BROKK_DEFAULT_REPO), poll its open PRs → for each head sha

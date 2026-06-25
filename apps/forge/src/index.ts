@@ -1,5 +1,5 @@
 /**
- * @brokk/runner — the daemon that turns queued cards into Pull Requests.
+ * @brokk/forge-app — the daemon that turns queued cards into Pull Requests.
  *
  * Loop:  register → claim → worktree → @brokk/forge (native, over afl) → push →
  *        `gh pr create` → POST /runs/:id/complete.  Many runners pull one queue.
@@ -49,7 +49,7 @@ async function main() {
   });
 
   const runnerId = await register(cfg);
-  console.log(`[brokk-runner] registered as ${runnerId} → ${cfg.controlUrl}`);
+  console.log(`[forge] registered as ${runnerId} → ${cfg.controlUrl}`);
 
   let stopping = false;
   const stop = () => {
@@ -65,7 +65,7 @@ async function main() {
     : null;
   if (!hauldr) {
     console.log(
-      "[brokk-runner] HAULDR_CONTROL_URL not set — preview Hauldr provisioning disabled",
+      "[forge] HAULDR_CONTROL_URL not set — preview Hauldr provisioning disabled",
     );
   }
   const supervisor = new PreviewSupervisor(cfg, git, hauldr);
@@ -82,20 +82,20 @@ async function main() {
     try {
       claimed = await api<Claimed | null>(cfg, "POST", "/runner/claim", { runnerId }, 204);
     } catch (err) {
-      console.error("[brokk-runner] claim failed:", err);
+      console.error("[forge] claim failed:", err);
     }
     if (!claimed) {
       await sleep(cfg.pollIntervalMs);
       continue;
     }
     await handleRun(cfg, git, engine, claimed).catch((err) =>
-      console.error(`[brokk-runner] run ${claimed?.run.id} crashed:`, err),
+      console.error(`[forge] run ${claimed?.run.id} crashed:`, err),
     );
   }
 
   clearInterval(heartbeat);
   await supervisorDone; // wait for preview supervisor graceful shutdown
-  console.log("[brokk-runner] stopped");
+  console.log("[forge] stopped");
 }
 
 async function handleRun(
@@ -105,7 +105,7 @@ async function handleRun(
   { task, run, repository, project, plan, auth, memory }: Claimed,
 ): Promise<void> {
   console.log(
-    `[brokk-runner] claimed task "${task.title}" (run ${run.id})` +
+    `[forge] claimed task "${task.title}" (run ${run.id})` +
       (plan ? ` · plan ${plan.id.slice(0, 8)} [${task.planKey}]` : "") +
       (auth?.source === "seat" ? ` · seat ${auth.subscriptionId?.slice(0, 8)}` : " · ambient token"),
   );
@@ -251,7 +251,7 @@ async function handleRun(
       usage,
     });
     console.log(
-      `[brokk-runner] run ${run.id} → PR ${pr.url}` +
+      `[forge] run ${run.id} → PR ${pr.url}` +
         (verify ? ` · verify ${verify.ok ? "✓" : "✗"}` : "") +
         (result.healAttempts ? ` · healed ×${result.healAttempts}` : ""),
     );
@@ -264,7 +264,7 @@ async function handleRun(
         const map = await buildRepoMap(wt.path);
         if (map) await api(cfg, "POST", `/runner/repos/${repository.id}/map`, { map });
       } catch (e) {
-        console.error(`[brokk-runner] repo map refresh failed for ${repository.fullName}:`, e);
+        console.error(`[forge] repo map refresh failed for ${repository.fullName}:`, e);
       }
     }
   } catch (err) {
@@ -307,7 +307,7 @@ class EventBuffer {
     if (!this.queue.length) return;
     const events = this.queue.splice(0, this.queue.length);
     await api(this.cfg, "POST", `/runs/${this.runId}/events`, { events }).catch((err) =>
-      console.error("[brokk-runner] event flush failed:", err),
+      console.error("[forge] event flush failed:", err),
     );
   }
 }
@@ -436,6 +436,6 @@ async function api<T = unknown>(
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 main().catch((err) => {
-  console.error("[brokk-runner] fatal:", err);
+  console.error("[forge] fatal:", err);
   process.exit(1);
 });

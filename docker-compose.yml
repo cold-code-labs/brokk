@@ -121,13 +121,13 @@ services:
     <<: *restart
 
   # ── forge workers (opt-in: --profile forge) ───────────────────────────────────
-  runner:
+  forge:
     build:
       context: .
       dockerfile: apps/forge/Dockerfile
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
-    image: brokk-runner:local
+    image: brokk-forge:local
     profiles: ["forge"]
     environment:
       BROKK_CONTROL_URL: http://api:8789
@@ -150,13 +150,13 @@ services:
         condition: service_healthy
     <<: *restart
 
-  eitri:
+  reviewer:
     build:
       context: .
       dockerfile: apps/reviewer/Dockerfile
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
-    image: brokk-eitri:local
+    image: brokk-reviewer:local
     profiles: ["forge"]
     environment:
       BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:-postgres://brokk:brokk@db:5432/brokk}
@@ -189,13 +189,13 @@ services:
   # Sindri — the interactive chat agent. Shares the runner's tools (git/gh) + work
   # volume (session checkouts), drives the model over the native Messages API via
   # the gateway. The control-plane API proxies /chat → here (BROKK_SINDRI_URL).
-  sindri:
+  chat:
     build:
       context: .
       dockerfile: apps/chat/Dockerfile
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
-    image: brokk-sindri:local
+    image: brokk-chat:local
     profiles: ["forge"]
     environment:
       SINDRI_PORT: "8795"

@@ -361,7 +361,7 @@ export interface AgentRunContext {
 }
 
 /** The brain: a headless agent that forges code for a task and emits events.
- *  Concrete impl lives in @brokk/runner over the Claude Agent SDK. */
+ *  Concrete impl: ForgeEngine in @brokk/forge (native afl loop, no SDK). */
 export interface AgentEngine {
   /** Forge the task to completion (verifying + self-healing if configured),
    *  returning the usage it consumed and the final verify outcome. */
@@ -369,7 +369,7 @@ export interface AgentEngine {
 }
 
 /** Git/GitHub operations the runner performs around a run. Concrete impl in
- *  @brokk/runner over `git` + `gh` via child_process. */
+ *  apps/forge over `git` + `gh` via child_process. */
 export interface GitProvider {
   /** Create an isolated worktree off `baseBranch` on `branch`; returns its path. */
   worktree(opts: {
@@ -412,7 +412,7 @@ export interface HauldrProject {
 }
 
 /** Port for the Hauldr control-plane. Concrete implementation lives in
- *  @brokk/runner. No implementation here — types + interface only. */
+ *  apps/forge. No implementation here — types + interface only. */
 export interface Hauldr {
   /** Create the Hauldr project if it does not exist, bringing up any missing
    *  compute sidecars (auth + rest), then return its details. */

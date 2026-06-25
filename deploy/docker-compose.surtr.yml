@@ -45,7 +45,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  runner:
+  forge:
     network_mode: host
     depends_on: !reset null
     # Container runs as uid 1001 with HOME=/home/brokk read-only, so pnpm/corepack's
@@ -69,7 +69,7 @@ services:
       - /home/brokk/.config/gh:/home/brokk/.config/gh:ro
       - /home/brokk/.gitconfig:/home/brokk/.gitconfig:ro
 
-  eitri:
+  reviewer:
     network_mode: host
     depends_on: !reset null
     environment: !reset null
@@ -88,7 +88,7 @@ services:
       - /home/brokk/brokk.env
     user: "1001:1001"
 
-  sindri:
+  chat:
     network_mode: host
     depends_on: !reset null
     expose: !reset null
