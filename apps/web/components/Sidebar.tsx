@@ -21,6 +21,7 @@ import {
   Users,
   Settings,
   Columns3,
+  Feather,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 
@@ -127,9 +128,17 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
             as={Link}
             href={currentId ? `/projects/${currentId}` : "/"}
             icon={<Columns3 />}
-            active={path.startsWith("/projects")}
+            active={path.startsWith("/projects") && !path.endsWith("/descoberta")}
           >
             Quadro
+          </NavLink>
+          <NavLink
+            as={Link}
+            href={currentId ? `/projects/${currentId}/descoberta` : "/"}
+            icon={<Feather />}
+            active={path.endsWith("/descoberta")}
+          >
+            Descoberta
           </NavLink>
           {ENV.map((n) => (
             <NavLink
