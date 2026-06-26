@@ -70,10 +70,13 @@ body {
 
 /* ── Sindri (chat) ─────────────────────────────────────────────────────────── */
 /* Sidebar lock (all pages): brand pinned top, user/foot pinned bottom, only the
-   nav list scrolls — the shell chrome never moves. */
+   nav list scrolls — the shell chrome never moves. box-sizing so the 100vh
+   height includes the padding (this app has no global border-box reset, so
+   without it the aside is 100vh + 3rem padding and clips its own foot). */
 .ygg-sidebar {
   height: 100vh;
   overflow: hidden;
+  box-sizing: border-box;
 }
 .ygg-nav {
   flex: 1;
@@ -84,7 +87,11 @@ body {
 
 /* Sindri = app-frame page: lock the whole page to the viewport so it never
    scrolls; only the inner panes (thread, preview, sidebar list) scroll. Scoped
-   via :has so the scrolling pages (Fleet, Dashboard…) are untouched. */
+   via :has so the scrolling pages (Fleet, Dashboard…) are untouched. The body
+   margin reset kills the default 8px gutter that otherwise makes html > 100vh. */
+body {
+  margin: 0;
+}
 body:has(.sindri) {
   overflow: hidden;
 }
@@ -101,6 +108,8 @@ body:has(.sindri) {
   display: flex;
   flex-direction: column;
   height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
   padding: 1rem 1.25rem;
   gap: 0.8rem;
   max-width: none;
@@ -191,6 +200,9 @@ body:has(.sindri) {
 .sindri-body {
   display: grid;
   grid-template-columns: minmax(0, 42fr) minmax(0, 58fr);
+  /* bound the row to the container height so the panes (not the page) own the
+     overflow — without this the auto row grows to content and clips the composer */
+  grid-template-rows: minmax(0, 1fr);
   gap: 0.55rem;
   flex: 1;
   min-height: 0;
