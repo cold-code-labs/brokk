@@ -6,10 +6,9 @@
 # Public entrypoint is Traefik on ${BROKK_HTTP_PORT:-80}; only `web` is routed.
 # The browser reaches the API through same-origin Next rewrites (/api → api:8789).
 #
-# Zero-downtime deploys: `web` runs as two always-on replicas (web-blue/web-green).
-# Traefik (file provider — no Docker socket, so it works on any Docker version)
-# load-balances across them with a healthcheck + retry. A release recreates one
-# replica at a time; the other keeps serving. See scripts/rolling-deploy.sh.
+# `web` is a single replica behind Traefik (file provider — no Docker socket, so it
+# works on any Docker version), gated by an active healthcheck + retry middleware.
+# A release recreates it in place (brief blink). No blue/green.
 name: brokk
 
 x-restart: &restart
@@ -73,35 +72,16 @@ services:
       - "8789"
     <<: *restart
 
-  # web — two always-on replicas behind Traefik (blue/green). Both run the same
-  # image (brokk-web:local), built once on web-blue. rolling-deploy.sh recreates
-  # them one at a time for zero-downtime releases.
-  web-blue: &web
+  # web — single replica behind Traefik. Traefik's active healthcheck + retry
+  # middleware drop the backend while it restarts; a deploy recreates it in place
+  # (brief blink on release). No blue/green. (Zero-downtime rolling comes back via
+  # Coolify in a later phase.)
+  web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
       secrets:
         - node_auth
-    image: brokk-web:local
-    environment:
-      BROKK_API_INTERNAL_URL: http://api:8789
-      LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
-      LOGTO_APP_ID: ${LOGTO_APP_ID:-}
-      LOGTO_APP_SECRET: ${LOGTO_APP_SECRET:-}
-      LOGTO_BASE_URL: ${LOGTO_BASE_URL:-}
-      LOGTO_COOKIE_SECRET: ${LOGTO_COOKIE_SECRET:-}
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/brokk.svg').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
-      interval: 5s
-      timeout: 5s
-      retries: 30
-    <<: *restart
-
-  web-green:
-    # Same image/config as web-blue (no build — shares brokk-web:local).
     image: brokk-web:local
     environment:
       BROKK_API_INTERNAL_URL: http://api:8789

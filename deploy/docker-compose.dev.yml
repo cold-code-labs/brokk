@@ -18,7 +18,6 @@ name: brokk-dev
 services:
   traefik: !reset null
   db: !reset null
-  web-green: !reset null
 
   api:
     image: brokk-api-dev:local
@@ -35,7 +34,7 @@ services:
       timeout: 5s
       retries: 30
 
-  web-blue:
+  web:
     image: brokk-web-dev:local
     ports:
       - "127.0.0.1:3011:3000"

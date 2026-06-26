@@ -1,8 +1,7 @@
 # Traefik dynamic config (file provider) — no Docker socket, so it works on any
-# Docker version. `web` runs as two always-on replicas (web-blue, web-green);
-# Traefik load-balances across them with an active healthcheck and retries failed
-# requests on the other replica. A rolling deploy recreates one replica at a time
-# (scripts/rolling-deploy.sh) — the other keeps serving, so no request is dropped.
+# Docker version. `web` is a single replica; Traefik gates it with an active
+# healthcheck and retries transient failures. A deploy recreates `web` in place
+# (brief blink while the new container becomes healthy). No blue/green.
 http:
   routers:
     brokk:
@@ -25,5 +24,4 @@ http:
           interval: "3s"
           timeout: "2s"
         servers:
-          - url: "http://web-blue:3000"
-          - url: "http://web-green:3000"
+          - url: "http://web:3000"
