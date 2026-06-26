@@ -194,7 +194,7 @@ services:
       - "3020"
     ports:
       - "127.0.0.1:3020:3020"   # tunnel's existing *.preview.coldcodelabs.com target
-    networks: [default]
+    networks: [default, coolify]   # coolify net = reachability to the dev control plane (WG 10.10.0.2:8790)
     <<: *restart
 
   chat:
