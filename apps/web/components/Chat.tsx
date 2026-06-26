@@ -741,9 +741,11 @@ function SindriPreview({
         ? "subindo…"
         : status === "failed"
           ? "falhou"
-          : status === "stopped"
-            ? "parado"
-            : "preview";
+          : status === "unsupported"
+            ? "sem runtime"
+            : status === "stopped"
+              ? "parado"
+              : "preview";
 
   return (
     <section className="sindri-preview">
@@ -854,6 +856,23 @@ function SindriPreview({
                   <Button variant="default" onClick={ensure} disabled={busy}>
                     <RotateCw size={15} /> Tentar de novo
                   </Button>
+                </div>
+              ) : status === "unsupported" ? (
+                // Huginn knew up front there's no supported runtime to boot —
+                // a clean explained state, not a failure to retry.
+                <div className="sindri-preview-msg">
+                  <div className="sindri-preview-mark">
+                    <Monitor size={26} strokeWidth={1.4} />
+                  </div>
+                  <p>Este repositório ainda não tem um runtime suportado.</p>
+                  {preview?.detail ? (
+                    <span className="sindri-preview-sub">{preview.detail}</span>
+                  ) : (
+                    <span className="sindri-preview-sub">
+                      Hoje o preview sobe apps Next.js; outros stacks são reconhecidos mas
+                      ainda não bootam.
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="sindri-preview-msg">

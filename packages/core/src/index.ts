@@ -6,6 +6,10 @@
  * Mirrors ARCHITECTURE.md §5 (domain model) and §8 (agent engine).
  */
 
+// Sleipnir runtime contract (RuntimeSpec, DetectCtx). See docs/RUNTIME.md.
+export type { RuntimeSpec, DetectCtx } from "./runtime.js";
+import type { RuntimeSpec } from "./runtime.js";
+
 // ── Enums ───────────────────────────────────────────────────────────────────
 
 /** Board columns + side states. See ARCHITECTURE.md §5 "Card lifecycle". */
@@ -62,14 +66,17 @@ export const RUN_EVENT_TYPES: readonly RunEventType[] = [
   "usage",
 ] as const;
 
-/** Lifecycle status of a dev-preview environment. */
-export type PreviewStatus = "starting" | "live" | "stopped" | "failed";
+/** Lifecycle status of a dev-preview environment. `unsupported` = the resolver
+ *  knew up front there was no supported runtime to boot (distinct from `failed` =
+ *  a supported runtime booted and crashed). */
+export type PreviewStatus = "starting" | "live" | "stopped" | "failed" | "unsupported";
 
 export const PREVIEW_STATUSES: readonly PreviewStatus[] = [
   "starting",
   "live",
   "stopped",
   "failed",
+  "unsupported",
 ] as const;
 
 /** Whether a card is fresh work or a revision of an existing PR (the Eitri loop). */
@@ -95,6 +102,10 @@ export interface Project {
   allowedTools: string[];
   /** Branch new worktrees fork from. */
   baseBranch: string;
+  /** Pinned runtime (Sleipnir) — how the preview supervisor boots this project's
+   *  checkout. Decided once at connect (Huginn skill / fast-path) and reused
+   *  deterministically. Null = resolve each boot (legacy / not yet scouted). */
+  runtime: RuntimeSpec | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -293,6 +304,9 @@ export interface Preview {
   /** Absolute checkout path the dev server runs in (mode='dev' only), else null. */
   workDir: string | null;
   status: PreviewStatus;
+  /** When status='unsupported' (or 'failed'): the human-readable reason — Huginn's
+   *  explanation of why there's no runtime to boot. Null otherwise. */
+  detail: string | null;
   /** OS PID of the preview process on the runner host, if running. */
   pid: number | null;
   lastSeenAt: string | null;
