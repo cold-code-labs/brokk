@@ -16,7 +16,8 @@
 #     radius. HOME=/home/brokk is now a writable volume, so the cache redirects the
 #     surtr override needed (read-only HOME) are gone.
 #   • node_auth is a build ARG (NODE_AUTH_TOKEN, Coolify is_buildtime) — see the
-#     Dockerfiles. Runtime env comes from Coolify-managed vars (${VAR} below).
+#     Dockerfiles. Runtime env is interpolated from Coolify-managed vars (${VAR});
+#     Coolify does NOT auto-inject, so every var a service needs is referenced here.
 #
 # Off-container deps (verified reachable from the `coolify` net 2026-06-26):
 #   db_brokk → hauldr-db-bridge:5434 · LiteLLM → litellm:4000 (litellm net)
@@ -37,19 +38,32 @@ volumes:
 x-restart: &restart
   restart: unless-stopped
 
-# Common runtime env for the worker tier (forge/chat/reviewer). Infra-fixed values
-# are inlined as defaults; secrets/tokens must be set as Coolify env vars.
+# Full runtime env for the worker tier (forge/chat/reviewer). Coolify interpolates
+# ${VAR} from its env store; infra-fixed values are inlined as defaults. Extra vars
+# on a service are harmless — better that than a missing one.
 x-worker-env: &worker-env
+  HOME: /home/brokk
   BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://api:8789}
   BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:?set in Coolify}
   BROKK_RUNNER_WORKDIR: ${BROKK_RUNNER_WORKDIR:-/home/brokk/work}
+  BROKK_RUNNER_HOST: ${BROKK_RUNNER_HOST:-surtr}
   BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:?set in Coolify}
+  BROKK_SECRETS_KEY: ${BROKK_SECRETS_KEY:-}
   GITHUB_TOKEN: ${GITHUB_TOKEN:-}
   BROKK_GIT_NAME: ${BROKK_GIT_NAME:-Brokk}
   BROKK_GIT_EMAIL: ${BROKK_GIT_EMAIL:-brokk@coldcodelabs.com}
+  BROKK_DEFAULT_REPO: ${BROKK_DEFAULT_REPO:-}
+  BROKK_DEFAULT_BRANCH: ${BROKK_DEFAULT_BRANCH:-}
+  BROKK_BROWSER: ${BROKK_BROWSER:-}
   ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
   ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
   CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+  ANTHROPIC_DEFAULT_SONNET_MODEL: ${ANTHROPIC_DEFAULT_SONNET_MODEL:-}
+  ANTHROPIC_DEFAULT_OPUS_MODEL: ${ANTHROPIC_DEFAULT_OPUS_MODEL:-}
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: ${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}
+  LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+  LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+  LANGFUSE_HOST: ${LANGFUSE_HOST:-}
 
 services:
   api:
@@ -67,6 +81,9 @@ services:
       BROKK_API_SECRET: ${BROKK_API_SECRET:-}
       BROKK_GITHUB_WEBHOOK_SECRET: ${BROKK_GITHUB_WEBHOOK_SECRET:-}
       BROKK_SINDRI_URL: ${BROKK_SINDRI_URL:-http://chat:8795}
+      BROKK_DEFAULT_REPO: ${BROKK_DEFAULT_REPO:-}
+      BROKK_DEFAULT_BRANCH: ${BROKK_DEFAULT_BRANCH:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       MIMIR_MODEL: ${MIMIR_MODEL:-gpt-4.1-mini}
       MIMIR_BASE_URL: ${MIMIR_BASE_URL:-}
       MIMIR_API_KEY: ${MIMIR_API_KEY:-}
@@ -126,6 +143,7 @@ services:
       BROKK_PREVIEW_SECRETS_DIR: ${BROKK_PREVIEW_SECRETS_DIR:-/home/brokk/preview-secrets}
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
+      BROKK_PREVIEW_PINNED: ${BROKK_PREVIEW_PINNED:-}
       BROKK_VERIFY_CMD: ${BROKK_VERIFY_CMD:-}
     depends_on:
       api:
@@ -144,13 +162,11 @@ services:
     image: brokk-reviewer:coolify
     user: "1001:1001"
     environment:
-      BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:?set in Coolify}
+      <<: *worker-env
       EITRI_APP_ID: ${EITRI_APP_ID:-}
       EITRI_APP_PRIVATE_KEY_FILE: ${EITRI_APP_PRIVATE_KEY_FILE:-/home/brokk/eitri-app.pem}
       EITRI_PROMOTE: ${EITRI_PROMOTE:-}
       BROKK_DEFAULT_MODEL: ${BROKK_DEFAULT_MODEL:-}
-      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
-      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
     depends_on:
       api:
         condition: service_healthy
@@ -169,6 +185,7 @@ services:
     environment:
       BROKK_GATEWAY_PORT: "3020"
       BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://api:8789}
+      BROKK_CONTROL_URL_EXTRA: ${BROKK_CONTROL_URL_EXTRA:-}
       BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
     expose:
