@@ -20,7 +20,7 @@
 import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Preview, Repository } from "@brokk/core";
@@ -31,6 +31,44 @@ import type { HauldrClient } from "./hauldr.js";
 interface LivePreview {
   proc: ChildProcess;
   port: number;
+}
+
+/**
+ * Per-app preview secrets. A preview process inherits only the runner's
+ * `process.env` + the Hauldr DB vars, so app-specific secrets (e.g. the LiteLLM
+ * gateway key for image generation) have nowhere to come from — the preview
+ * boots keyless and silently falls back to its demo/stub path. We let each app
+ * drop a `<hauldrProject>.env` file in BROKK_PREVIEW_SECRETS_DIR (mounted into
+ * the runner, OUTSIDE any worktree so it survives refreshes and never leaks
+ * across apps). Parsed here and merged into the spawn env. Absent dir/file →
+ * empty (no behaviour change). Minimal dotenv: `KEY=value`, `#` comments,
+ * optional surrounding quotes; no interpolation or multiline.
+ */
+function loadAppSecrets(dir: string, project: string): Record<string, string> {
+  if (!dir || !project) return {};
+  let raw: string;
+  try {
+    raw = readFileSync(join(dir, `${project}.env`), "utf8");
+  } catch {
+    return {}; // absent/unreadable → no per-app secrets
+  }
+  const out: Record<string, string> = {};
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (key) out[key] = value;
+  }
+  return out;
 }
 
 export class PreviewSupervisor {
@@ -321,9 +359,21 @@ export class PreviewSupervisor {
     const port = this.allocatePort();
     const cmd = this.expandCmd(isDev ? this.cfg.previewDevCmd : this.cfg.previewCmd, port);
 
+    // Per-app secrets (e.g. the LiteLLM gateway key) — merged AFTER the inherited
+    // env so they win, but BEFORE PORT/NODE_ENV so a stray entry can't clobber
+    // those. Kept outside the worktree, so unlike a `.env.local` they survive the
+    // worktree refresh and never bleed into other apps' previews.
+    const appSecrets = loadAppSecrets(this.cfg.previewSecretsDir, preview.hauldrProject);
+    if (Object.keys(appSecrets).length) {
+      console.log(
+        `[preview-supervisor] ${preview.subdomain}: merged ${Object.keys(appSecrets).length} app secret(s) from ${preview.hauldrProject}.env`,
+      );
+    }
+
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...hauldrEnv,
+      ...appSecrets,
       PORT: String(port),
       // Dev previews need development mode for HMR; build previews default to
       // production so apps skip dev-only overhead.
