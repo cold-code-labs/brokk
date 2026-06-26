@@ -68,7 +68,7 @@ x-worker-env: &worker-env
 services:
   api:
     build:
-      context: ..
+      context: .
       dockerfile: apps/api/Dockerfile
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
@@ -105,7 +105,7 @@ services:
 
   web:
     build:
-      context: ..
+      context: .
       dockerfile: apps/web/Dockerfile
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
@@ -132,7 +132,7 @@ services:
 
   forge:
     build:
-      context: ..
+      context: .
       dockerfile: apps/forge/Dockerfile
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
@@ -155,7 +155,7 @@ services:
 
   reviewer:
     build:
-      context: ..
+      context: .
       dockerfile: apps/reviewer/Dockerfile
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
@@ -177,7 +177,7 @@ services:
 
   gateway:
     build:
-      context: ..
+      context: .
       dockerfile: apps/gateway/Dockerfile
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
@@ -195,7 +195,7 @@ services:
 
   chat:
     build:
-      context: ..
+      context: .
       dockerfile: apps/chat/Dockerfile
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
