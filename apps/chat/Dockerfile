@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Build context is the repo root:  docker build -f apps/chat/Dockerfile .
 #
 # Sindri — the interactive chat agent. Like the forge runner it shells out to git
@@ -10,9 +11,10 @@ RUN corepack enable
 WORKDIR /repo
 
 FROM base AS build
-ARG NODE_AUTH_TOKEN
+# Read-only GitHub Packages token for the private @cold-code-labs/* deps, passed
+# as a BuildKit secret — never an ARG, so it stays out of image layers and logs.
 COPY . .
-RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
+RUN --mount=type=secret,id=node_auth,env=NODE_AUTH_TOKEN pnpm install --no-frozen-lockfile
 RUN pnpm --filter @brokk/chat-app build
 RUN pnpm --filter @brokk/chat-app deploy --prod /out
 

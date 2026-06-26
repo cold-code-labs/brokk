@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Build context is the repo root:  docker build -f apps/reviewer/Dockerfile .
 #
 # Eitri — the PR reviewer. Watches open Brokk PRs and reviews (and optionally
@@ -10,11 +11,10 @@ RUN corepack enable
 WORKDIR /repo
 
 FROM base AS build
-# Read-only GitHub Packages token for the private @cold-code-labs/* deps the
-# workspace install resolves (build-stage only; runtime image carries no token).
-ARG NODE_AUTH_TOKEN
+# Read-only GitHub Packages token for the private @cold-code-labs/* deps, passed
+# as a BuildKit secret — never an ARG, so it stays out of image layers and logs.
 COPY . .
-RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
+RUN --mount=type=secret,id=node_auth,env=NODE_AUTH_TOKEN pnpm install --no-frozen-lockfile
 RUN pnpm --filter @brokk/reviewer-app build
 RUN pnpm --filter @brokk/reviewer-app deploy --prod /out
 
