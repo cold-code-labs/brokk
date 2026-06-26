@@ -43,7 +43,7 @@ x-restart: &restart
 # on a service are harmless — better that than a missing one.
 x-worker-env: &worker-env
   HOME: /home/brokk
-  BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://api:8789}
+  BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://brokk-api:8789}
   BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:?set in Coolify}
   BROKK_RUNNER_WORKDIR: ${BROKK_RUNNER_WORKDIR:-/home/brokk/work}
   BROKK_RUNNER_HOST: ${BROKK_RUNNER_HOST:-surtr}
@@ -100,7 +100,17 @@ services:
       retries: 30
     expose:
       - "8789"
-    networks: [default, coolify, litellm]
+    # Alias dedicado: `api` é genérico e COLIDE na rede compartilhada `coolify`
+    # (Saga e Heimdall também expõem um serviço `api`) → o DNS do Docker round-robina
+    # e os workers/web batem na API errada. `brokk-api` é inequívoco. Os consumidores
+    # (BROKK_CONTROL_URL / BROKK_API_INTERNAL_URL) apontam p/ http://brokk-api:8789.
+    networks:
+      default:
+        aliases: [brokk-api]
+      coolify:
+        aliases: [brokk-api]
+      litellm:
+        aliases: [brokk-api]
     <<: *restart
 
   web:
@@ -111,7 +121,7 @@ services:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-web:coolify
     environment:
-      BROKK_API_INTERNAL_URL: ${BROKK_API_INTERNAL_URL:-http://api:8789}
+      BROKK_API_INTERNAL_URL: ${BROKK_API_INTERNAL_URL:-http://brokk-api:8789}
       LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
       LOGTO_APP_ID: ${LOGTO_APP_ID:-}
       LOGTO_APP_SECRET: ${LOGTO_APP_SECRET:-}
@@ -186,7 +196,7 @@ services:
     image: brokk-gateway:coolify
     environment:
       BROKK_GATEWAY_PORT: "3020"
-      BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://api:8789}
+      BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://brokk-api:8789}
       BROKK_CONTROL_URL_EXTRA: ${BROKK_CONTROL_URL_EXTRA:-}
       BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
