@@ -8,9 +8,11 @@ WORKDIR /repo
 
 FROM base AS build
 # Read-only GitHub Packages token for the private @cold-code-labs/* deps, passed
-# as a BuildKit secret — never an ARG, so it stays out of image layers and logs.
+# as a build ARG (NODE_AUTH_TOKEN; Coolify is_buildtime). Visible in image
+# history — acceptable for this internal tool (same posture as Heimdall OSS).
 COPY . .
-RUN --mount=type=secret,id=node_auth,env=NODE_AUTH_TOKEN pnpm install --no-frozen-lockfile
+ARG NODE_AUTH_TOKEN
+RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
 RUN pnpm --filter @brokk/web build
 
 FROM node:22-alpine AS runtime

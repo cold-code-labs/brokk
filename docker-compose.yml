@@ -46,8 +46,8 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-      secrets:
-        - node_auth
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-api:local
     environment:
       BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:-postgres://brokk:brokk@db:5432/brokk}
@@ -80,8 +80,8 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-      secrets:
-        - node_auth
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-web:local
     environment:
       BROKK_API_INTERNAL_URL: http://api:8789
@@ -105,8 +105,8 @@ services:
     build:
       context: .
       dockerfile: apps/forge/Dockerfile
-      secrets:
-        - node_auth
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-forge:local
     profiles: ["forge"]
     environment:
@@ -134,8 +134,8 @@ services:
     build:
       context: .
       dockerfile: apps/reviewer/Dockerfile
-      secrets:
-        - node_auth
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-reviewer:local
     profiles: ["forge"]
     environment:
@@ -154,8 +154,8 @@ services:
     build:
       context: .
       dockerfile: apps/gateway/Dockerfile
-      secrets:
-        - node_auth
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-gateway:local
     profiles: ["forge"]
     environment:
@@ -173,8 +173,8 @@ services:
     build:
       context: .
       dockerfile: apps/chat/Dockerfile
-      secrets:
-        - node_auth
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-chat:local
     profiles: ["forge"]
     environment:
@@ -196,11 +196,3 @@ services:
 volumes:
   brokk_pgdata:
   brokk_work:
-
-# Build-time secret: the read-only GitHub Packages token, sourced from the
-# NODE_AUTH_TOKEN env var (exported by the deploy scripts from brokk.env). Mounted
-# into the install step via BuildKit — never an ARG, so it never lands in image
-# layers, `docker history`, or build logs.
-secrets:
-  node_auth:
-    environment: NODE_AUTH_TOKEN
