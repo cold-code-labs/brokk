@@ -74,6 +74,10 @@ export const previewStatus = pgEnum("preview_status", [
   "live",
   "stopped",
   "failed",
+  // The resolver knew up front there's no supported runtime to boot (or the
+  // detected spec failed validation) — a clean state, not a booted-then-crashed
+  // 'failed'. See docs/RUNTIME.md.
+  "unsupported",
 ]);
 
 // ── Tables ───────────────────────────────────────────────────────────────────
@@ -138,6 +142,10 @@ export const projects = pgTable("projects", {
   // Forge PRs target `dev` so Eitri can auto-merge them (it refuses `main` — the
   // prod rail). Promotion dev→main stays a human merge. See docs/DEV-PREVIEW.md §7.
   baseBranch: text("base_branch").notNull().default("dev"),
+  // Sleipnir: pinned RuntimeSpec — how the preview supervisor boots this project's
+  // checkout. Decided once at connect (Huginn skill / fast-path), reused per boot.
+  // Null = resolve each boot (legacy projects fall through to the Next fast-path).
+  runtime: jsonb("runtime").$type<import("@brokk/core").RuntimeSpec>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -344,6 +352,9 @@ export const previews = pgTable(
      *  in (cwd), e.g. /home/brokk/work/sindri/checkouts/<sessionId>. The supervisor
      *  uses it verbatim — it never refreshes/resets it (that would clobber edits). */
     workDir: text("work_dir"),
+    /** When status='unsupported'/'failed': the human-readable reason (Huginn's
+     *  explanation / the validation failure). Null otherwise. */
+    detail: text("detail"),
     pid: integer("pid"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),

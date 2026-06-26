@@ -26,6 +26,7 @@ import type {
   Run,
   RunEvent,
   RunStatus,
+  RuntimeSpec,
   Subscription,
   Task,
   TaskKind,
@@ -110,6 +111,7 @@ function rowToProject(row: typeof projects.$inferSelect): Project {
     authMode: row.authMode,
     allowedTools: row.allowedTools,
     baseBranch: row.baseBranch,
+    runtime: row.runtime ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -310,6 +312,7 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
     sessionId: row.sessionId,
     workDir: row.workDir,
     status: row.status as PreviewStatus,
+    detail: row.detail ?? null,
     pid: row.pid,
     lastSeenAt: iso(row.lastSeenAt),
     expiresAt: iso(row.expiresAt),
@@ -435,6 +438,12 @@ export interface Store {
   insertProject(
     values: typeof projects.$inferInsert,
   ): Promise<typeof projects.$inferSelect>;
+  /** Pin (or re-pin) a project's Sleipnir runtime — decided once at connect by
+   *  Huginn / the fast-path, reused per preview boot. */
+  setProjectRuntime(
+    id: string,
+    runtime: RuntimeSpec | null,
+  ): Promise<typeof projects.$inferSelect | null>;
 
   // tasks
   listTasks(opts?: { projectId?: string; status?: TaskStatus }): Promise<Task[]>;
@@ -537,6 +546,7 @@ export interface Store {
     id: string,
     patch: {
       status?: PreviewStatus;
+      detail?: string | null;
       pid?: number | null;
       port?: number | null;
       expiresAt?: Date | null;
@@ -694,6 +704,14 @@ export function createStore(db: Db): Store {
     },
     async getProject(id) {
       const rows = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+      return rows[0] ?? null;
+    },
+    async setProjectRuntime(id, runtime) {
+      const rows = await db
+        .update(projects)
+        .set({ runtime: runtime ?? null, updatedAt: new Date() })
+        .where(eq(projects.id, id))
+        .returning();
       return rows[0] ?? null;
     },
     async listFleetDevRepos() {
@@ -1288,6 +1306,7 @@ export function createStore(db: Db): Store {
     async patchPreview(id, patch) {
       const set: Partial<typeof previews.$inferInsert> = { updatedAt: new Date() };
       if (patch.status !== undefined) set.status = patch.status;
+      if (patch.detail !== undefined) set.detail = patch.detail ?? null;
       if (patch.pid !== undefined) set.pid = patch.pid;
       if (patch.port !== undefined) set.port = patch.port;
       if (patch.expiresAt !== undefined) set.expiresAt = patch.expiresAt ?? undefined;
@@ -1546,6 +1565,12 @@ export async function ensureChatSchema(db: Db): Promise<void> {
       sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS session_id uuid REFERENCES chat_sessions(id) ON DELETE SET NULL;`,
     );
     await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS work_dir text;`);
+    // Sleipnir runtime: the unsupported reason + the pinned per-project RuntimeSpec.
+    await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS detail text;`);
+    await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS runtime jsonb;`);
+    // Add the 'unsupported' preview status. ADD VALUE can't run inside a txn block,
+    // so it's its own statement; IF NOT EXISTS makes it idempotent on reboot.
+    await db.execute(sql`ALTER TYPE preview_status ADD VALUE IF NOT EXISTS 'unsupported';`);
   } catch (err) {
     console.warn(
       "[db] previews dev-mode columns ALTER skipped:",

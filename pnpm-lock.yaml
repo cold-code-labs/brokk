@@ -64,6 +64,9 @@ importers:
       '@brokk/mimir':
         specifier: workspace:*
         version: link:../../packages/mimir
+      '@brokk/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       '@brokk/scout':
         specifier: workspace:*
         version: link:../../packages/agents/scout
@@ -98,6 +101,9 @@ importers:
       '@brokk/forge':
         specifier: workspace:*
         version: link:../../packages/agents/forge
+      '@brokk/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
       langfuse:
         specifier: ^3.38.20
         version: 3.38.20
@@ -282,6 +288,12 @@ importers:
       '@brokk/afl':
         specifier: workspace:*
         version: link:../../afl
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@brokk/runtime':
+        specifier: workspace:*
+        version: link:../../runtime
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -330,6 +342,22 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/runtime:
+    dependencies:
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

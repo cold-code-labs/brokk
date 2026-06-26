@@ -23,7 +23,8 @@ import { createHmac } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { Preview, Repository } from "@brokk/core";
+import type { Preview, Repository, RuntimeSpec } from "@brokk/core";
+import { buildDetectCtx, composeCommand, resolveRuntime } from "@brokk/runtime";
 import type { RunnerConfig } from "./config.js";
 import type { GhProvider } from "./git.js";
 import type { HauldrClient } from "./hauldr.js";
@@ -232,6 +233,7 @@ export class PreviewSupervisor {
       repositoryId: string;
       name: string;
       baseBranch: string;
+      runtime?: RuntimeSpec | null;
     }>(`/projects/${preview.projectId}`);
     const repo = await this.controlGet<Repository>(
       `/repositories/${project.repositoryId}`,
@@ -324,6 +326,18 @@ export class PreviewSupervisor {
       }));
     }
 
+    // Sleipnir: resolve HOW to run this checkout. Pinned spec (decided at connect
+    // by Huginn) → canonical Next fast-path → unsupported. No LLM at boot — the
+    // decision was made once at connect. A non-supported runtime is a CLEAN stop
+    // (status 'unsupported' + reason), not a 90s next-dev-then-crash 'failed'.
+    const spec = await resolveRuntime(project.runtime ?? null, buildDetectCtx(wtPath));
+    if (!spec.supported) {
+      const detail = spec.reason ?? "no supported runtime detected";
+      console.log(`[preview-supervisor] ${preview.subdomain}: unsupported — ${detail}`);
+      await this.controlPatch(`/previews/${preview.id}`, { status: "unsupported", detail });
+      return;
+    }
+
     // Schema-as-code parity with prod: if the checkout ships db/migrations + the
     // migrate client, apply them to this preview's Hauldr project BEFORE boot —
     // mirroring what the prod Docker entrypoint does on deploy. Idempotent
@@ -357,7 +371,17 @@ export class PreviewSupervisor {
     }
 
     const port = this.allocatePort();
-    const cmd = this.expandCmd(isDev ? this.cfg.previewDevCmd : this.cfg.previewCmd, port);
+    // The command comes from the resolved RuntimeSpec (Sleipnir). The legacy
+    // BROKK_PREVIEW_(DEV_)CMD env vars stay as an explicit ops override — when set
+    // they win; otherwise the spec is the law. The Next preset is byte-identical to
+    // the old dev default, so the dev lane is unchanged.
+    const override = isDev ? process.env.BROKK_PREVIEW_DEV_CMD : process.env.BROKK_PREVIEW_CMD;
+    const baseCmd =
+      override && override.trim() ? override : composeCommand(spec, isDev ? "dev" : "build");
+    const cmd = this.expandCmd(baseCmd, port);
+    console.log(
+      `[preview-supervisor] ${preview.subdomain}: runtime=${spec.label} (${spec.source})`,
+    );
 
     // Per-app secrets (e.g. the LiteLLM gateway key) — merged AFTER the inherited
     // env so they win, but BEFORE PORT/NODE_ENV so a stray entry can't clobber

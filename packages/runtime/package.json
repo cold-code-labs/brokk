@@ -1,5 +1,5 @@
 {
-  "name": "@brokk/scout",
+  "name": "@brokk/runtime",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,15 +7,15 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/*.test.ts"
   },
   "dependencies": {
-    "@brokk/afl": "workspace:*",
-    "@brokk/core": "workspace:*",
-    "@brokk/runtime": "workspace:*"
+    "@brokk/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
 }

@@ -7,3 +7,4 @@
  */
 
 export { type DiscoveryBrief, runDiscovery, type RunDiscoveryInput } from "./discovery.js";
+export { type DetectRuntimeInput, detectRuntime } from "./runtime.js";

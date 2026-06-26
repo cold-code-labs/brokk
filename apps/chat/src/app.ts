@@ -5,7 +5,8 @@ import {
   type ToolContext,
   runTurn,
 } from "@brokk/chat";
-import { runDiscovery } from "@brokk/scout";
+import { detectRuntime, runDiscovery } from "@brokk/scout";
+import { buildDetectCtx, resolveRuntime } from "@brokk/runtime";
 import type { Store } from "@brokk/db";
 import { featureBranch, type Repository } from "@brokk/core";
 import { planJob, type MimirConfig } from "@brokk/mimir";
@@ -282,6 +283,29 @@ export function buildSindri(deps: SindriDeps): Hono {
           error: null,
         });
         console.log(`[huginn] ${repo.fullName}: brief ready (${brief.missing.length} gaps)`);
+
+        // Sleipnir: pin how to run this repo, decided once here (this scout IS the
+        // rescan, so re-detect from scratch — pass null). The preview supervisor
+        // then boots from the pinned spec without re-inferring. Best-effort: a
+        // detection hiccup must never fail the discovery.
+        try {
+          const ctx = buildDetectCtx(path);
+          const spec = await resolveRuntime(null, ctx, (c) =>
+            detectRuntime(c, {
+              cfg: deps.cfg,
+              model: "haiku",
+              onProgress: (n) => console.log(`[huginn-runtime] ${repo.fullName}: ${n}`),
+            }),
+          );
+          await deps.store.setProjectRuntime(projectId, spec);
+          console.log(
+            `[huginn-runtime] ${repo.fullName}: ${spec.label} (supported=${spec.supported}, source=${spec.source})`,
+          );
+        } catch (err) {
+          console.warn(
+            `[huginn-runtime] ${repo.fullName}: runtime pin skipped — ${err instanceof Error ? err.message : err}`,
+          );
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[huginn] ${repo.fullName}: scout failed — ${msg}`);
