@@ -215,9 +215,11 @@ specs must be rejected).
   skill** wired into the discovery pass. `projects.runtime` + `previews.detail` +
   `unsupported` status. Supervisor consumes `RuntimeSpec`. Sindri UI shows the
   label + reason. **Only `nextjs` boots; everything else is recognised → `unsupported`.**
-- **v2 — promote a stack:** flip `vite`/`astro`/`node` to `supported:true` in
-  `runtime-providers.json` (+ a worked example in the skill if fuzzy). Strengthen
-  `appRoot` detection for monorepos (`apps/web`). No code change beyond the JSON.
+- **v2 — promote a stack:** ✅ `vite` + `astro` flipped to `supported:true` (preset
+  + trusted mirror in `packages/runtime/src/providers.ts`; allowlist gained the
+  `preview` verb for `vite preview`/`astro preview`). `node` stays recognised-only
+  (no standard dev server / entrypoint convention — needs a heuristic). Still TODO:
+  strengthen `appRoot` detection for monorepos (`apps/web`).
 - **v3 — generic engine:** for stacks without a first-class preset, let the skill
   target a **Nixpacks**-built image (already in our Coolify) instead of a bespoke
   `dev`/`start`, so "anything Huginn can identify" can boot.
