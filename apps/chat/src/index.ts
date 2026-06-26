@@ -17,6 +17,12 @@ async function main() {
   await ensureChatSchema(db);
   const store = createStore(db);
 
+  // The live turn registry is in-memory: any session still flagged `running` at
+  // boot is an orphan from a crash/restart (its turn died with the old process).
+  // Clear them so the UI doesn't show a phantom "running" and a new turn can start.
+  const orphans = await store.resetRunningChatTurns().catch(() => 0);
+  if (orphans) console.log(`[sindri] reset ${orphans} orphaned running turn(s) on boot`);
+
   const chatCfg = loadAflConfig();
   if (!chatCfg.authToken) {
     console.warn("[sindri] ANTHROPIC_AUTH_TOKEN unset — model calls to the gateway will fail");

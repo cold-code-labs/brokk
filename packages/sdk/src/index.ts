@@ -161,7 +161,15 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {
-      const detail = await res.text().catch(() => "");
+      let detail = await res.text().catch(() => "");
+      // A reverse-proxy/CDN (Cloudflare, Traefik) answers an unreachable origin
+      // with a full HTML error page. Don't spew the whole document into the error
+      // string — collapse it to a legible one-liner and cap the rest.
+      if (/^\s*<(?:!doctype|html)\b/i.test(detail)) {
+        detail = `${res.statusText || "upstream error"} (the API is unreachable — likely restarting)`;
+      } else if (detail.length > 300) {
+        detail = `${detail.slice(0, 300)}…`;
+      }
       throw new Error(`brokk ${method} ${path} → ${res.status} ${detail}`.trim());
     }
     return (await res.json()) as T;

@@ -32,7 +32,10 @@ async function ghList(org: string): Promise<Candidate[]> {
       "--json",
       "nameWithOwner,owner,name,defaultBranchRef,description,isArchived",
     ],
-    { maxBuffer: 8 * 1024 * 1024 },
+    // Bound the call: a hung `gh` (no auth, slow network) must fail FAST with a
+    // clean JSON 502 — never hang long enough for the edge to serve its own HTML
+    // 502/504 page (which then lands, verbatim, in the importer UI).
+    { maxBuffer: 8 * 1024 * 1024, timeout: 25_000, killSignal: "SIGKILL" },
   );
   const raw = JSON.parse(stdout) as Array<{
     nameWithOwner: string;
@@ -84,7 +87,12 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
     try {
       candidates = await ghList(org);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const e = err as NodeJS.ErrnoException & { killed?: boolean };
+      const msg = e?.killed
+        ? `timed out after 25s listing ${org} via gh`
+        : err instanceof Error
+          ? err.message
+          : String(err);
       return c.json({ error: `gh repo list failed: ${msg}` }, 502);
     }
     const connected = new Set((await deps.store.listRepositories()).map((x) => x.fullName));

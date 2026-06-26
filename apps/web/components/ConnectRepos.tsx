@@ -32,7 +32,7 @@ export default function ConnectRepos() {
       setOrg(res.org);
       setCandidates(res.candidates);
     } catch (e) {
-      setErr(String(e));
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -62,7 +62,7 @@ export default function ConnectRepos() {
       setPicked(new Set());
       await load();
     } catch (e) {
-      setErr(String(e));
+      setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -89,7 +89,16 @@ export default function ConnectRepos() {
         }
       />
 
-      {err && <Banner tone="err">⚠ {err}</Banner>}
+      {err && (
+        <Banner tone="err">
+          <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ flex: 1, minWidth: 0 }}>⚠ {humanizeErr(err)}</span>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              ↻ Tentar de novo
+            </Button>
+          </span>
+        </Banner>
+      )}
       {done !== null && (
         <Banner tone="info">
           ✓ Connected {done} repo{done === 1 ? "" : "s"}.{" "}
@@ -150,6 +159,19 @@ export default function ConnectRepos() {
       </div>
     </Main>
   );
+}
+
+/** Turn a raw SDK/proxy error into a calm, human line. Transient gateway hiccups
+ *  (502/504/unreachable, or a `gh` timeout) get a "try again" framing instead of a
+ *  stack-trace dump; anything unexpected falls through verbatim (trimmed). */
+function humanizeErr(raw: string): string {
+  if (/502|504|bad gateway|unreachable|restarting|timed out|timeout/i.test(raw)) {
+    return "Não consegui listar os repositórios agora — o serviço está reiniciando ou indisponível. Tente de novo em instantes.";
+  }
+  if (/gh repo list failed|unauthorized|401|403|auth/i.test(raw)) {
+    return "Falha ao consultar o GitHub via gh (autenticação ou acesso). Verifique o token da org e tente de novo.";
+  }
+  return raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
 }
 
 const field: React.CSSProperties = {

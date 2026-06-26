@@ -557,6 +557,10 @@ export interface Store {
   insertChatSession(values: typeof chatSessions.$inferInsert): Promise<ChatSession>;
   updateChatSession(id: string, patch: Partial<typeof chatSessions.$inferInsert>): Promise<ChatSession>;
   deleteChatSession(id: string): Promise<void>;
+  /** Clear stale `turn_state='running'` rows — the live turn registry is in-memory,
+   *  so on boot any "running" session is an orphan from a crash/restart (its turn is
+   *  gone). Returns how many were reset. Call once at startup. */
+  resetRunningChatTurns(): Promise<number>;
   /** Full transcript for a session, ordered by seq (afterSeq for incremental). */
   listChatMessages(sessionId: string, afterSeq?: number): Promise<ChatMessage[]>;
   /** Append one transcript step at the next seq (atomic max+1). Returns the row. */
@@ -1368,6 +1372,14 @@ export function createStore(db: Db): Store {
     },
     async deleteChatSession(id) {
       await db.delete(chatSessions).where(eq(chatSessions.id, id));
+    },
+    async resetRunningChatTurns() {
+      const rows = await db
+        .update(chatSessions)
+        .set({ turnState: "idle", updatedAt: new Date() })
+        .where(eq(chatSessions.turnState, "running"))
+        .returning({ id: chatSessions.id });
+      return rows.length;
     },
     async listChatMessages(sessionId, afterSeq = -1) {
       const rows = await db

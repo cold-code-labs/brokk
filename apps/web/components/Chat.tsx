@@ -131,11 +131,51 @@ export default function Chat() {
 
   const abortRef = useRef<AbortController | null>(null);
   const liveSeqRef = useRef(-1); // highest seq we've persisted into messages
+  // Projects we're already minting a first chat for — guards against a double
+  // create from React Strict-Mode's mount/remount or a fast environment re-select.
+  const creatingRef = useRef<Set<string>>(new Set());
 
   // ── loaders ─────────────────────────────────────────────────────────────────
+  // On environment change: load its sessions and make sure one is ready to use —
+  // open the newest, or mint the very first chat when the project is empty. So
+  // selecting an environment always lands you in a usable chat (never a dead end).
   useEffect(() => {
     if (!projectId) return;
-    chat.listSessions(projectId).then(setSessions).catch(() => setSessions([]));
+    let active = true;
+    (async () => {
+      const list = await chat.listSessions(projectId).catch(() => null);
+      if (!active) return;
+      if (!list) {
+        setSessions([]);
+        return;
+      }
+      setSessions(list);
+      if (list.length > 0) {
+        const newest = [...list].sort(
+          (a, b) => +new Date(sessionTime(b)) - +new Date(sessionTime(a)),
+        )[0]!;
+        void openSession(newest.id);
+        return;
+      }
+      // Empty project → create the first chat (once).
+      if (creatingRef.current.has(projectId)) return;
+      creatingRef.current.add(projectId);
+      const s = await chat.createSession({ projectId, model, effort }).catch(() => null);
+      creatingRef.current.delete(projectId);
+      if (!active || !s) return;
+      const withStats: ChatSessionWithStats = {
+        ...s,
+        stats: { messages: 0, tokensIn: 0, tokensOut: 0, lastMessageAt: null },
+      };
+      setSessions([withStats]);
+      void openSession(s.id);
+    })();
+    return () => {
+      active = false;
+    };
+    // openSession/model/effort are intentionally not deps: this fires on
+    // environment change, using whatever model/effort are current at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   const upsert = useCallback((m: { seq: number; role: ChatMessage["role"]; blocks: Block[] }) => {
