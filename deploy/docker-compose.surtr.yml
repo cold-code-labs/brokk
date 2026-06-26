@@ -60,12 +60,17 @@ services:
       PNPM_HOME: /home/brokk/work/.local/share/pnpm
       npm_config_cache: /home/brokk/work/.cache/npm
       npm_config_store_dir: /home/brokk/work/.pnpm-store
+      # Per-app preview secrets (e.g. the LiteLLM gateway key for image gen) live
+      # here as <hauldrProject>.env, OUTSIDE any worktree. The supervisor merges
+      # them into each preview's spawn env (see apps/forge/src/preview.ts).
+      BROKK_PREVIEW_SECRETS_DIR: /home/brokk/preview-secrets
     env_file:
       - /home/brokk/brokk.env
       - /home/brokk/brokk.worker.env
     user: "1001:1001"
     volumes: !override
       - /home/brokk/work:/home/brokk/work
+      - /home/brokk/preview-secrets:/home/brokk/preview-secrets:ro
       - /home/brokk/.config/gh:/home/brokk/.config/gh:ro
       - /home/brokk/.gitconfig:/home/brokk/.gitconfig:ro
 

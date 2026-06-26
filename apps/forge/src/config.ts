@@ -65,6 +65,12 @@ export interface RunnerConfig {
    *  envs (e.g. a client staging DB) that happen to share a preview slug.
    *  CSV via BROKK_PREVIEW_PINNED. */
   previewPinned: Set<string>;
+  /** Directory holding per-app preview secrets as `<hauldrProject>.env` files
+   *  (e.g. OPENAI_API_KEY pointing at the LiteLLM gateway). Merged into the
+   *  preview's spawn env at boot — kept OUTSIDE the worktree so the secrets
+   *  survive worktree refreshes and never leak across apps. Empty = disabled.
+   *  Set via BROKK_PREVIEW_SECRETS_DIR. */
+  previewSecretsDir: string;
 }
 
 export function loadRunnerConfig(env = process.env): RunnerConfig {
@@ -107,5 +113,6 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
         .map((s) => s.trim())
         .filter(Boolean),
     ),
+    previewSecretsDir: env.BROKK_PREVIEW_SECRETS_DIR ?? "",
   };
 }
