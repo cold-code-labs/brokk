@@ -233,10 +233,10 @@ test("resolveRuntime yields unsupported with no fast-path and no detector", asyn
 
 // ── composeCommand ──────────────────────────────────────────────────────────────
 
-test("composeCommand builds dev (install+dev) and build (build+start)", () => {
+test("composeCommand installs first in both modes (dev=HMR, build=build+serve)", () => {
   const s = nextSpec();
   assert.equal(composeCommand(s, "dev"), `${s.install} && ${s.dev}`);
-  assert.equal(composeCommand(s, "build"), `${s.build} && ${s.start}`);
+  assert.equal(composeCommand(s, "build"), `${s.install} && ${s.build} && ${s.start}`);
 });
 
 test("composeCommand prefixes cd for a non-root appRoot", () => {

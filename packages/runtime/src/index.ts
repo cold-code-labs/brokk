@@ -261,15 +261,16 @@ export async function resolveRuntime(
   return unsupported("no supported runtime detected (and no detector available)");
 }
 
-/** Compose the shell command for a boot mode from a (supported) spec. `dev` runs
- *  install + the HMR server; `build` runs build + serve (parity with the legacy
- *  previewCmd/previewDevCmd). Prefixes a `cd <appRoot>` when the app isn't at root.
- *  $PORT is expanded by the supervisor. */
+/** Compose the shell command for a boot mode from a (supported) spec. Both modes
+ *  install first (idempotent + fast when the worktree is warm, correct when it's a
+ *  cold checkout), then `dev` runs the HMR server and `build` runs build + serve.
+ *  Prefixes a `cd <appRoot>` when the app isn't at root. $PORT is expanded by the
+ *  supervisor. */
 export function composeCommand(spec: RuntimeSpec, mode: "dev" | "build"): string {
   const run =
     mode === "dev"
-      ? [spec.install, spec.dev].filter(Boolean).join(" && ")
-      : [spec.build, spec.start].filter(Boolean).join(" && ");
+      ? [spec.install, spec.dev].filter(Boolean)
+      : [spec.install, spec.build, spec.start].filter(Boolean);
   const root = spec.appRoot && spec.appRoot !== "." ? `cd ${spec.appRoot} && ` : "";
-  return `${root}${run}`;
+  return `${root}${run.join(" && ")}`;
 }
