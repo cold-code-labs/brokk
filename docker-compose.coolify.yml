@@ -66,7 +66,7 @@ x-worker-env: &worker-env
   LANGFUSE_HOST: ${LANGFUSE_HOST:-}
 
 services:
-  api:
+  brokk-api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -100,17 +100,11 @@ services:
       retries: 30
     expose:
       - "8789"
-    # Alias dedicado: `api` é genérico e COLIDE na rede compartilhada `coolify`
-    # (Saga e Heimdall também expõem um serviço `api`) → o DNS do Docker round-robina
-    # e os workers/web batem na API errada. `brokk-api` é inequívoco. Os consumidores
+    # Serviço nomeado `brokk-api` (NÃO `api`): o nome vira o alias único na rede
+    # compartilhada `coolify`; `api` cru colidiria com os serviços api da Saga e do
+    # Heimdall → DNS round-robin → workers/web batiam na API errada. Os consumidores
     # (BROKK_CONTROL_URL / BROKK_API_INTERNAL_URL) apontam p/ http://brokk-api:8789.
-    networks:
-      default:
-        aliases: [brokk-api]
-      coolify:
-        aliases: [brokk-api]
-      litellm:
-        aliases: [brokk-api]
+    networks: [default, coolify, litellm]
     <<: *restart
 
   web:
@@ -128,7 +122,7 @@ services:
       LOGTO_BASE_URL: ${LOGTO_BASE_URL:-https://brokk.coldcodelabs.com}
       LOGTO_COOKIE_SECRET: ${LOGTO_COOKIE_SECRET:-}
     depends_on:
-      api:
+      brokk-api:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/brokk.svg').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
@@ -158,7 +152,7 @@ services:
       BROKK_PREVIEW_PINNED: ${BROKK_PREVIEW_PINNED:-}
       BROKK_VERIFY_CMD: ${BROKK_VERIFY_CMD:-}
     depends_on:
-      api:
+      brokk-api:
         condition: service_healthy
     volumes:
       - brokk_home:/home/brokk
@@ -180,7 +174,7 @@ services:
       EITRI_PROMOTE: ${EITRI_PROMOTE:-}
       BROKK_DEFAULT_MODEL: ${BROKK_DEFAULT_MODEL:-}
     depends_on:
-      api:
+      brokk-api:
         condition: service_healthy
     volumes:
       - brokk_home:/home/brokk
@@ -223,7 +217,7 @@ services:
       BROKK_EMBED_API_KEY: ${BROKK_EMBED_API_KEY:-}
       BROKK_EMBED_MODEL: ${BROKK_EMBED_MODEL:-}
     depends_on:
-      api:
+      brokk-api:
         condition: service_healthy
     volumes:
       - brokk_home:/home/brokk
