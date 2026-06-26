@@ -300,18 +300,80 @@ const STYLE = `
   p  { color: #555; margin: 0; line-height: 1.5; }
 `.trim();
 
-const HTML_404 = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>No preview running</title>
-<style>${STYLE}</style></head>
+/** Escape the few chars that matter in HTML text/attributes. The Host header is
+ *  attacker-controllable, so the echoed domain must never be injected raw. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Falling snow — a fixed set of flakes with index-derived position/size/timing,
+// precomputed once so the 404 handler is allocation-free. Pure CSS, no JS.
+const SNOW = Array.from({ length: 16 }, (_, i) => {
+  const left = (i * 6.25 + 2) % 100;
+  const dur = 7 + (i % 6);
+  const delay = i % 8;
+  const size = 9 + (i % 4) * 4;
+  const op = (0.35 + (i % 4) * 0.18).toFixed(2);
+  return `<i class="flk" style="left:${left}%;font-size:${size}px;animation-duration:${dur}s;animation-delay:-${delay}s;opacity:${op}">❄</i>`;
+}).join("");
+
+// Cold-themed "domain not found" page. On-brand for Cold Code Labs (the Brokk
+// "Forge at Night" deep-freeze palette) and it ECHOES the domain that missed, so
+// a typo like `maglin.preview…` reads back at the visitor instead of a generic
+// dead end. Self-contained, no external deps.
+function html404(host: string): string {
+  const safe = escapeHtml(host && host.length > 0 ? host : "este endereço");
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Domínio congelado · 404</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; margin:0;
+    min-height:100vh; display:flex; align-items:center; justify-content:center; overflow:hidden;
+    background: radial-gradient(120% 120% at 50% -10%, #14395d 0%, #0c2740 45%, #071a2c 100%);
+    color:#eaf3fc; }
+  .flk { position:fixed; top:-6%; color:#cfe4fa; pointer-events:none; user-select:none;
+    animation-name: fall; animation-timing-function: linear; animation-iteration-count: infinite; }
+  @keyframes fall { to { transform: translateY(112vh) rotate(360deg); } }
+  .card { position:relative; z-index:1; text-align:center; padding:3rem 2.6rem; max-width:480px; }
+  .snowman { font-size:4.6rem; line-height:1; margin-bottom:1.2rem; display:inline-block;
+    filter: drop-shadow(0 6px 18px rgba(0,0,0,.45));
+    animation: bob 3.2s ease-in-out infinite, shiver 5s ease-in-out infinite; }
+  @keyframes bob { 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(-7px); } }
+  @keyframes shiver { 0%,88%,100%{ transform: rotate(0); } 92%{ transform: rotate(-4deg); } 96%{ transform: rotate(4deg); } }
+  .tag { display:inline-block; font-size:.72rem; letter-spacing:.18em; text-transform:uppercase;
+    color:#7fb0e3; border:1px solid rgba(127,176,227,.35); border-radius:999px; padding:.28rem .8rem; margin-bottom:1.2rem; }
+  h1 { font-size:1.55rem; font-weight:600; margin:0 0 .7rem; }
+  p  { color:#b9d2ec; margin:0 0 .5rem; line-height:1.6; font-size:1.04rem; }
+  code { display:inline-block; margin-top:.35rem; font-size:.96rem; color:#eaf3fc;
+    background: rgba(255,255,255,.07); border:1px solid rgba(180,210,240,.22);
+    border-radius:8px; padding:.4rem .7rem; word-break:break-all;
+    box-shadow: inset 0 0 22px rgba(120,170,220,.12); }
+  .hint { margin-top:1.5rem; font-size:.94rem; color:#86a6c6; }
+</style>
+</head>
 <body>
+  ${SNOW}
   <div class="card">
-    <h1>No preview running</h1>
-    <p>There is no active preview environment for this URL.<br>
-       Start a preview from the Brokk board first.</p>
+    <div class="snowman">☃️</div>
+    <span class="tag">404 · só neve por aqui</span>
+    <h1>Esse endereço congelou</h1>
+    <p>Vasculhamos o glaciar inteiro e não encontramos nenhum preview em</p>
+    <p><code>${safe}</code></p>
+    <p class="hint">Será que escapou uma letrinha no meio da nevasca? ❄️<br>
+       Confere o endereço e tenta de novo — ou inicia um preview no board do Brokk.</p>
   </div>
 </body>
 </html>`;
+}
 
 const HTML_502 = `<!DOCTYPE html>
 <html lang="en">
@@ -409,7 +471,7 @@ async function handleRequest(
 ): Promise<void> {
   const subdomain = subdomainFrom(req);
   if (!subdomain) {
-    respondHtml(res, 404, HTML_404);
+    respondHtml(res, 404, html404(req.headers.host ?? ""));
     return;
   }
 
@@ -426,7 +488,7 @@ async function handleRequest(
       respondHtml(res, 200, HTML_THAWING);
       return;
     }
-    respondHtml(res, 404, HTML_404);
+    respondHtml(res, 404, html404(req.headers.host ?? ""));
     return;
   }
 
