@@ -44,8 +44,14 @@ const cfg = loadConfig();
 
 // ── Control-plane HTTP helpers ────────────────────────────────────────────────
 
+/** A resolved control plane the gateway talks to. */
+interface CpBase {
+  hostname: string;
+  port: number;
+}
+
 /** Parse the host/port from a URL string into options suitable for http.*. */
-function parseBaseUrl(raw: string): { hostname: string; port: number } {
+function parseBaseUrl(raw: string): CpBase {
   const u = new URL(raw);
   return {
     hostname: u.hostname,
@@ -53,15 +59,18 @@ function parseBaseUrl(raw: string): { hostname: string; port: number } {
   };
 }
 
-const cpBase = parseBaseUrl(cfg.BROKK_CONTROL_URL);
+/** All control planes, primary (prod) first. The gateway is the singleton that
+ *  serves the public *.preview domain, so it merges previews across planes (e.g.
+ *  prod :8789 + dev-lane :8790) — same host, same shared secret, disjoint ports. */
+const cpBases: CpBase[] = cfg.controlUrls.map(parseBaseUrl);
 
-/** GET <control-plane>/previews and return the parsed JSON array. */
-function fetchPreviews(): Promise<unknown[]> {
+/** GET <control-plane>/previews from ONE plane and return the parsed JSON array. */
+function fetchPreviewsFrom(cp: CpBase): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const req = http.get(
       {
-        hostname: cpBase.hostname,
-        port: cpBase.port,
+        hostname: cp.hostname,
+        port: cp.port,
         path: "/previews",
         headers: { Authorization: `Bearer ${cfg.BROKK_RUNNER_SECRET}` },
       },
@@ -87,16 +96,40 @@ function fetchPreviews(): Promise<unknown[]> {
   });
 }
 
+/** A preview row paired with the control plane it came from (for bump/wake). */
+type TaggedPreview = { row: Record<string, unknown>; cp: CpBase };
+
+/** Fetch previews from every control plane and merge. A plane that errors is
+ *  skipped (logged) so one lane being down never breaks the others. */
+async function fetchAllPreviews(): Promise<TaggedPreview[]> {
+  const results = await Promise.allSettled(cpBases.map((cp) => fetchPreviewsFrom(cp)));
+  const out: TaggedPreview[] = [];
+  results.forEach((r, i) => {
+    const cp = cpBases[i]!;
+    if (r.status === "fulfilled") {
+      for (const row of r.value) {
+        if (row && typeof row === "object") out.push({ row: row as Record<string, unknown>, cp });
+      }
+    } else {
+      console.error(
+        `[gateway] /previews from ${cp.hostname}:${cp.port} failed (skipping):`,
+        r.reason instanceof Error ? r.reason.message : r.reason,
+      );
+    }
+  });
+  return out;
+}
+
 /**
  * Fire-and-forget PATCH /previews/:id to slide the TTL forward.
  * Errors are logged but never propagate — a missed bump is non-fatal.
  */
-function patchPreviewTtl(id: string, expiresAt: string): void {
+function patchPreviewTtl(id: string, expiresAt: string, cp: CpBase): void {
   const payload = JSON.stringify({ expiresAt });
   const req = http.request(
     {
-      hostname: cpBase.hostname,
-      port: cpBase.port,
+      hostname: cp.hostname,
+      port: cp.port,
       path: `/previews/${id}`,
       method: "PATCH",
       headers: {
@@ -121,12 +154,12 @@ function patchPreviewTtl(id: string, expiresAt: string): void {
  * visitor lands on its URL. Idempotent on the control plane — an already-starting
  * preview is returned, not duplicated — so a repeat hit during the thaw is safe.
  */
-function firePreview(projectId: string, branch: string): void {
+function firePreview(projectId: string, branch: string, cp: CpBase): void {
   const payload = JSON.stringify({ projectId, branch });
   const req = http.request(
     {
-      hostname: cpBase.hostname,
-      port: cpBase.port,
+      hostname: cp.hostname,
+      port: cp.port,
       path: "/previews",
       method: "POST",
       headers: {
@@ -149,6 +182,8 @@ function firePreview(projectId: string, branch: string): void {
 interface CacheEntry {
   port: number;
   id: string;
+  /** Which control plane owns this preview — bumps/wakes must target it. */
+  cp: CpBase;
 }
 
 /** Milliseconds the subdomain→port map is considered fresh before re-fetching. */
@@ -159,7 +194,7 @@ let cacheTs = 0; // epoch ms of last successful refresh
 
 /** Every known preview (any status) by subdomain → how to wake it. Lets the
  *  gateway auto-fire a reaped preview when a visitor lands on its URL. */
-let wakeable: Map<string, { projectId: string; branch: string }> = new Map();
+let wakeable: Map<string, { projectId: string; branch: string; cp: CpBase }> = new Map();
 
 /**
  * Return the current cache map, refreshing it from the control plane if stale.
@@ -171,23 +206,25 @@ async function resolveCache(): Promise<Map<string, CacheEntry>> {
   if (now - cacheTs < CACHE_TTL_MS) return cache;
 
   try {
-    const previews = await fetchPreviews();
+    const previews = await fetchAllPreviews();
     const next = new Map<string, CacheEntry>();
-    const nextWake = new Map<string, { projectId: string; branch: string }>();
-    for (const p of previews) {
-      if (p === null || typeof p !== "object" || !("subdomain" in p) || typeof p.subdomain !== "string") {
-        continue;
-      }
-      // Any preview (live or not) is wakeable as long as we know its project + branch.
+    const nextWake = new Map<string, { projectId: string; branch: string; cp: CpBase }>();
+    for (const { row: p, cp } of previews) {
+      if (!("subdomain" in p) || typeof p.subdomain !== "string") continue;
+      const subdomain = p.subdomain;
+      // Any preview (live or not) is wakeable as long as we know its project +
+      // branch. First plane (prod) wins on the rare cross-plane subdomain clash.
       if (
+        !nextWake.has(subdomain) &&
         "projectId" in p &&
         typeof p.projectId === "string" &&
         "branch" in p &&
         typeof p.branch === "string"
       ) {
-        nextWake.set(p.subdomain, { projectId: p.projectId, branch: p.branch });
+        nextWake.set(subdomain, { projectId: p.projectId, branch: p.branch, cp });
       }
       if (
+        !next.has(subdomain) &&
         "status" in p &&
         p.status === "live" &&
         "port" in p &&
@@ -195,13 +232,15 @@ async function resolveCache(): Promise<Map<string, CacheEntry>> {
         "id" in p &&
         typeof p.id === "string"
       ) {
-        next.set(p.subdomain, { port: p.port, id: p.id });
+        next.set(subdomain, { port: p.port, id: p.id, cp });
       }
     }
     cache = next;
     wakeable = nextWake;
     cacheTs = now;
-    console.log(`[gateway] cache refreshed — ${next.size} live preview(s), ${nextWake.size} wakeable`);
+    console.log(
+      `[gateway] cache refreshed — ${next.size} live preview(s), ${nextWake.size} wakeable across ${cpBases.length} plane(s)`,
+    );
   } catch (err) {
     console.error("[gateway] cache refresh failed (serving stale):", err instanceof Error ? err.message : err);
   }
@@ -214,14 +253,14 @@ async function resolveCache(): Promise<Map<string, CacheEntry>> {
 const BUMP_THROTTLE_MS = 60_000;
 const lastBumpAt = new Map<string, number>();
 
-function maybeBump(id: string): void {
+function maybeBump(id: string, cp: CpBase): void {
   const now = Date.now();
   const last = lastBumpAt.get(id) ?? 0;
   if (now - last < BUMP_THROTTLE_MS) return;
   lastBumpAt.set(id, now);
 
   const expiresAt = new Date(now + cfg.BROKK_PREVIEW_TTL_MS).toISOString();
-  patchPreviewTtl(id, expiresAt);
+  patchPreviewTtl(id, expiresAt, cp);
 }
 
 // ── Auto-wake (at most once per 15 s per subdomain) ──────────────────────────
@@ -229,12 +268,12 @@ function maybeBump(id: string): void {
 const WAKE_THROTTLE_MS = 15_000;
 const lastWakeAt = new Map<string, number>();
 
-function maybeWake(subdomain: string, projectId: string, branch: string): void {
+function maybeWake(subdomain: string, projectId: string, branch: string, cp: CpBase): void {
   const now = Date.now();
   if (now - (lastWakeAt.get(subdomain) ?? 0) < WAKE_THROTTLE_MS) return;
   lastWakeAt.set(subdomain, now);
   console.log(`[gateway] waking ${subdomain} (project ${projectId}, branch ${branch})`);
-  firePreview(projectId, branch);
+  firePreview(projectId, branch, cp);
 }
 
 // ── Static HTML error pages ───────────────────────────────────────────────────
@@ -383,7 +422,7 @@ async function handleRequest(
     // we've never seen falls through to the real not-found page.
     const wake = wakeable.get(subdomain);
     if (wake) {
-      maybeWake(subdomain, wake.projectId, wake.branch);
+      maybeWake(subdomain, wake.projectId, wake.branch, wake.cp);
       respondHtml(res, 200, HTML_THAWING);
       return;
     }
@@ -391,7 +430,7 @@ async function handleRequest(
     return;
   }
 
-  maybeBump(entry.id);
+  maybeBump(entry.id, entry.cp);
 
   // Forward the request to the upstream preview process.
   const proxyReq = http.request(
@@ -418,7 +457,7 @@ async function handleRequest(
     // visitor. Nudge the wake in case the process is gone, and let the page
     // self-recover on its next refresh once the app answers.
     const w = wakeable.get(subdomain);
-    if (w) maybeWake(subdomain, w.projectId, w.branch);
+    if (w) maybeWake(subdomain, w.projectId, w.branch, w.cp);
     respondHtml(res, 200, HTML_THAWING);
   });
   req.pipe(proxyReq, { end: true });
@@ -459,7 +498,7 @@ async function handleUpgrade(
     return;
   }
 
-  maybeBump(entry.id);
+  maybeBump(entry.id, entry.cp);
 
   // Open a raw TCP connection to the upstream preview process and replay the
   // HTTP upgrade handshake so the upstream's WebSocket server can respond.
@@ -499,7 +538,7 @@ server.listen(cfg.BROKK_GATEWAY_PORT, "0.0.0.0", () => {
   console.log(
     `[gateway] *.preview reverse proxy listening on :${cfg.BROKK_GATEWAY_PORT}`,
   );
-  console.log(`[gateway] control plane: ${cfg.BROKK_CONTROL_URL}`);
+  console.log(`[gateway] control plane(s): ${cfg.controlUrls.join(", ")}`);
   console.log(`[gateway] preview TTL bump: ${cfg.BROKK_PREVIEW_TTL_MS} ms`);
 });
 

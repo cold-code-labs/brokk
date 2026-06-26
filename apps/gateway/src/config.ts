@@ -13,6 +13,11 @@ import { z } from "zod";
  * ----------------------------------
  * BROKK_GATEWAY_PORT    Port the gateway HTTP server binds to. Default 3020.
  * BROKK_CONTROL_URL     Base URL of the Brokk control plane. Default http://127.0.0.1:8789.
+ * BROKK_CONTROL_URL_EXTRA  Optional comma-separated list of ADDITIONAL control
+ *                       planes to merge previews from (e.g. the dev-lane API on
+ *                       :8790). The singleton gateway serves the one public
+ *                       *.preview domain, so listing the dev plane here lets dev
+ *                       previews resolve on the same host. Same shared secret.
  * BROKK_PREVIEW_TTL_MS  How far into the future to push expiresAt on each
  *                       activity bump. Default 3 600 000 ms (1 hour).
  */
@@ -20,10 +25,14 @@ const Env = z.object({
   BROKK_GATEWAY_PORT: z.coerce.number().int().positive().default(3020),
   BROKK_RUNNER_SECRET: z.string().default(""),
   BROKK_CONTROL_URL: z.string().default("http://127.0.0.1:8789"),
+  BROKK_CONTROL_URL_EXTRA: z.string().default(""),
   BROKK_PREVIEW_TTL_MS: z.coerce.number().int().positive().default(3_600_000),
 });
 
-export type Config = z.infer<typeof Env>;
+export type Config = z.infer<typeof Env> & {
+  /** All control planes to resolve previews from, primary first (deduped). */
+  controlUrls: string[];
+};
 
 export function loadConfig(): Config {
   const parsed = Env.safeParse(process.env);
@@ -31,5 +40,9 @@ export function loadConfig(): Config {
     const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`);
     throw new Error(`Invalid gateway configuration:\n${issues.join("\n")}`);
   }
-  return parsed.data;
+  const extra = parsed.data.BROKK_CONTROL_URL_EXTRA.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const controlUrls = [...new Set([parsed.data.BROKK_CONTROL_URL, ...extra])];
+  return { ...parsed.data, controlUrls };
 }
