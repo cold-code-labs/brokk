@@ -127,6 +127,8 @@ services:
       retries: 30
     expose:
       - "3000"
+    ports:
+      - "127.0.0.1:3010:3000"   # tunnel's existing brokk.coldcodelabs.com target
     networks: [default]
     <<: *restart
 
@@ -190,6 +192,8 @@ services:
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
     expose:
       - "3020"
+    ports:
+      - "127.0.0.1:3020:3020"   # tunnel's existing *.preview.coldcodelabs.com target
     networks: [default]
     <<: *restart
 
