@@ -69,10 +69,38 @@ body {
 }
 
 /* ── Sindri (chat) ─────────────────────────────────────────────────────────── */
+/* Sidebar lock (all pages): brand pinned top, user/foot pinned bottom, only the
+   nav list scrolls — the shell chrome never moves. */
+.ygg-sidebar {
+  height: 100vh;
+  overflow: hidden;
+}
+.ygg-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* Sindri = app-frame page: lock the whole page to the viewport so it never
+   scrolls; only the inner panes (thread, preview, sidebar list) scroll. Scoped
+   via :has so the scrolling pages (Fleet, Dashboard…) are untouched. */
+body:has(.sindri) {
+  overflow: hidden;
+}
+.ygg-shell:has(.sindri) {
+  height: 100vh;
+  min-height: 0;
+}
+.ygg-shell:has(.sindri) > div {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
 .sindri {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   padding: 1rem 1.25rem;
   gap: 0.8rem;
   max-width: none;
@@ -832,12 +860,16 @@ body {
   display: flex;
   align-items: stretch;
   justify-content: center;
-  background:
-    repeating-conic-gradient(
-      color-mix(in srgb, var(--fg) 4%, transparent) 0% 25%,
-      transparent 0% 50%
-    )
-    50% / 18px 18px;
+  /* a calm dot-grid canvas instead of the busy checker — reads as a design
+     surface waiting to render, not a transparency void */
+  background-color: color-mix(in srgb, var(--fg) 2.5%, transparent);
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--fg) 7%, transparent) 1px,
+    transparent 1.5px
+  );
+  background-size: 20px 20px;
+  background-position: center;
 }
 
 /* browser-window mock — wraps the non-live states so the stage is never an
