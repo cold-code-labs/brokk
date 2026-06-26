@@ -3,11 +3,15 @@
 > **Status:** plan (v1). Working name: **Sleipnir** — Odin's steed that runs across
 > all worlds. The piece that knows how to *run any repo*, whatever its stack.
 >
-> **Scope of v1 (agreed):** ship the **contract + resolver + provider registry**,
-> but with **exactly one working provider: Next.js**. Everything non-Next resolves
-> to a clean `unsupported` state (with a reason) instead of a hardcoded boot that
-> fails after ~90s. Adding the second stack later = implement one `RuntimeProvider`,
-> nothing else. (asgard then gets a web app at its root and joins the dance.)
+> **Scope of v1 (agreed):** ship the **contract + resolver**, with detection done
+> **natively by Huginn as a skill** ([`runtime/SKILL.md`](./runtime/SKILL.md)) —
+> **no human in the loop**: we trust Huginn's decided `RuntimeSpec`, guarded by an
+> automatic allowlist + the session sandbox, not by an approval click. Today only
+> `nextjs` resolves to `supported: true` and boots; every other stack is
+> recognised, explained, and emitted `supported: false` → a clean `unsupported`
+> state instead of a 90s boot-then-fail. Adding a stack later = one entry in
+> [`runtime/runtime-providers.json`](./runtime/runtime-providers.json), no code.
+> (asgard then gets a web app at its root and joins the dance.)
 
 ## Why this exists
 
@@ -62,91 +66,113 @@ export interface RuntimeSpec {
   health?: string;
   /** Extra env injected into the process. */
   env?: Record<string, string>;
-  /** How this spec was chosen — provenance for the UI + debugging. */
-  source: "override" | "auto" | "preset";
+  /** Whether Sleipnir can actually boot this stack today (v1: only nextjs). */
+  supported: boolean;
+  /** Reason, when supported=false ("Vite app at apps/web — not promoted yet"). */
+  reason?: string;
+  /** Files that justify the decision — audited by the validator. */
+  evidence?: string[];
+  /** Detector confidence 0..1 (Huginn skill). */
+  confidence?: number;
+  /** How this spec was chosen — provenance for the UI + debugging.
+   *  "ai" = Huginn's runtime skill; "override" = pinned/manual; "preset" = the
+   *  cheap fast-path for a canonical match. */
+  source: "ai" | "override" | "preset";
 }
-```
 
-## The provider registry (how you add a stack)
-
-A `RuntimeProvider` is the *only* thing you write to support a new stack. It does
-cheap, read-only detection from the checkout tree and returns a `RuntimeSpec` or
-`null`. The registry is an ordered list; the resolver tries each until one bites.
-
-```ts
-// packages/core/src/runtime.ts
+/** The read-only view of a checkout the skill + validator reason over.
+ *  No execution — detection is purely from the tree + manifests. */
 export interface DetectCtx {
-  dir: string;                         // checkout root
-  files: string[];                     // shallow file list (root + one level)
-  pkg?: Record<string, unknown>;       // parsed root package.json, if any
-  read(rel: string): string | null;    // lazy file read, relative to dir
-}
-
-export interface RuntimeProvider {
-  id: string;
-  label: string;
-  /** Return a spec if this provider recognises the repo, else null. */
-  detect(ctx: DetectCtx): RuntimeSpec | null;
+  dir: string;                        // checkout root
+  files: string[];                    // tree, root + 2 levels
+  pkg?: Record<string, unknown>;      // parsed root package.json, if any
+  read(rel: string): string | null;   // lazy file read, relative to dir
 }
 ```
 
-### v1 registry — Next.js only
+## Runtime by AI — detection is a Huginn skill
+
+Detection is **not** a hand-written `if (deps.next)` ladder. It is a native
+**Huginn faculty**, defined as a skill in [`runtime/SKILL.md`](./runtime/SKILL.md)
+(mirroring the Litr design skill), reasoning over the machine-readable presets +
+command **allowlist** in
+[`runtime/runtime-providers.json`](./runtime/runtime-providers.json). Huginn
+already reads the repo for its discovery brief — this rides that same read and
+emits a `RuntimeSpec` alongside it. **We trust Huginn's decision; there is no
+human approval step.**
+
+Why that's safe without a human (the gate is *structural*, see the skill §"Why a
+skill, and why no human gate"):
+
+1. **Typed output** — Huginn fills a `RuntimeSpec` via structured output, never a
+   raw shell string of its own invention.
+2. **Allowlist** — every `install`/`dev`/`build`/`start` must match
+   `runtime-providers.json -> allowlist` (`pnpm|npm|yarn|bun` + a known framework
+   binary, `$PORT`/`$HOST` only; no `;`, pipe-to-shell, `sudo`, network). The
+   **validator** (the one piece of trusted TS) rejects anything else → `unsupported`.
+3. **Isolation** — the spec boots in the session sandbox ([brokk-isolation]) — the
+   containment that lets us trust the decision instead of approving it.
+4. **Repo content is data, not instructions** — Huginn must ignore any "run X"
+   embedded in a README/comment; the spec comes from manifests + the allowlist.
+
+**Adding a stack = one entry in `runtime-providers.json`** (label + detect signals
++ command template). No TS, no supervisor change. The skill picks it up; flip
+`supported:true` to let it boot. v1 ships `nextjs: supported:true`; `vite`/`astro`
+are present as `supported:false` — Huginn *recognises and explains* them but they
+resolve `unsupported` until promoted. That is exactly "understands & passes
+forward only Next today."
 
 ```ts
-// packages/runtime/src/providers/nextjs.ts  (the ONE working provider)
-export const nextjs: RuntimeProvider = {
-  id: "nextjs",
-  label: "Next.js",
-  detect(ctx) {
-    const deps = { ...(ctx.pkg?.dependencies ?? {}), ...(ctx.pkg?.devDependencies ?? {}) };
-    if (!("next" in deps)) return null;                 // not a Next app → pass
-    const pm = pickPackageManager(ctx);                 // pnpm | npm | yarn | bun
-    return {
-      id: "nextjs", label: "Next.js", appRoot: ".",
-      install: `${pm} install --no-frozen-lockfile`,
-      dev: `${pm} exec next dev -p $PORT -H 0.0.0.0`,
-      build: `${pm} exec next build`,
-      start: `${pm} exec next start -p $PORT -H 0.0.0.0`,
-      health: "/", source: "auto",
-    };
-  },
-};
-
-// packages/runtime/src/registry.ts
-export const PROVIDERS: RuntimeProvider[] = [nextjs];   // ← add the next one here, later
+// packages/core/src/runtime.ts — the validator is the trusted boundary
+export function validateSpec(spec: RuntimeSpec, ctx: DetectCtx): RuntimeSpec {
+  const bad = [spec.install, spec.dev, spec.build, spec.start]
+    .filter(Boolean)
+    .find((cmd) => !matchesAllowlist(cmd!));      // regex set from runtime-providers.json
+  if (bad) return { ...spec, supported: false, reason: `command rejected: ${bad}` };
+  if (!ctx.read(join(spec.appRoot, "package.json"))) {
+    return { ...spec, supported: false, reason: `no manifest at ${spec.appRoot}` };
+  }
+  return spec;
+}
 ```
-
-> **This is the whole "replicable structure":** the contract + the registry +
-> the resolver below. Supporting Vite is then `providers/vite.ts` + one line in
-> `PROVIDERS`. No supervisor changes, no schema changes.
 
 ## The resolver
 
-Precedence, computed at boot (and previewable at connect):
+Precedence, computed **once at connect** and pinned (not re-inferred per boot):
 
-1. **`project.runtime` override** (a stored `RuntimeSpec`, `source:"override"`) — the
-   manual escape hatch, exactly like Vercel's "override" toggles.
-2. **Auto-detect** — first provider in `PROVIDERS` that returns non-null.
-3. **None** → `unsupported`. The supervisor marks the preview `unsupported` with a
-   human reason ("no supported runtime detected at root — looked for: Next.js").
-   No 90s boot-then-fail.
+1. **Pinned `project.runtime`** (`source:"override"` or a previously-pinned `"ai"`
+   spec) — reuse the decision deterministically.
+2. **Cheap fast-path** — for a canonical match (lockfile + framework dep + standard
+   script) emit the preset directly, no LLM pass (`source:"preset"`).
+3. **Huginn skill** — the AI faculty resolves the fuzzy/long-tail cases
+   (`source:"ai"`), then `validateSpec` + pin.
+4. **None / invalid** → `unsupported` with a `reason`. No 90s boot-then-fail.
 
 ```ts
 // packages/runtime/src/resolve.ts
-export function resolveRuntime(project: Project, ctx: DetectCtx): RuntimeSpec | null {
-  if (project.runtime) return { ...project.runtime, source: "override" };
-  for (const p of PROVIDERS) { const s = p.detect(ctx); if (s) return s; }
-  return null;
+export async function resolveRuntime(project: Project, ctx: DetectCtx): Promise<RuntimeSpec> {
+  if (project.runtime) return project.runtime;                 // 1 pinned
+  const fast = fastPath(ctx);                                  // 2 canonical preset
+  const spec = fast ?? validateSpec(await huginn.detectRuntime(ctx), ctx); // 3 AI + validate
+  if (spec.supported) await pin(project.id, spec);             // store on project.runtime
+  return spec;                                                 // 4 may be { supported:false }
 }
 ```
 
 ## Where it plugs in (file-by-file change map)
 
-**New package** `packages/runtime` (`@brokk/runtime`) — contract, registry,
-providers, resolver. Pure, no DB/no IO beyond the passed `read()`. Unit-testable
-with fixture trees.
+**New package** `packages/runtime` (`@brokk/runtime`) — contract, fast-path,
+`validateSpec`, resolver. Pure, no DB/no IO beyond the passed `read()`.
+Unit-testable with fixture trees + the allowlist regression suite (malicious
+specs must be rejected).
 
-- `packages/core/src/runtime.ts` — export `RuntimeSpec`, `RuntimeProvider`, `DetectCtx`.
+- `docs/runtime/SKILL.md` + `runtime-providers.json` — the Huginn skill + its
+  presets/allowlist (the replicable knowledge base; **done**, this commit).
+- `packages/agents/scout` (Huginn) — extend the discovery pass to emit a
+  `RuntimeSpec` via structured output, grounded in the skill. One new tool/output
+  schema; reuses the existing connect-time read.
+- `packages/core/src/runtime.ts` — export `RuntimeSpec`, `DetectCtx`, `validateSpec`,
+  `matchesAllowlist`.
 - `packages/db/src/schema.ts`
   - `projects`: add `runtime jsonb` (nullable; null = auto each boot).
   - `previews`: add `detail text` (nullable) — carries the `unsupported`/failure
@@ -164,8 +190,9 @@ with fixture trees.
   become the **fallback** the Next provider emits, not the law. Keep the env vars as
   a global override for ops, but they stop being the only path.
 - `apps/web` (Sindri preview pane) — render the `unsupported` state explicitly
-  ("Este repositório não tem um runtime suportado ainda") instead of the failure
-  card. Show `spec.label` + `source` ("Next.js · detectado") in the preview bar.
+  ("Este repositório não tem um runtime suportado ainda", + Huginn's `reason`)
+  instead of the failure card. Show `spec.label` + `source` ("Next.js · detectado
+  por Huginn") in the preview bar.
 - `scripts/sindri-e2e.ts` — already asserts terminal state; assert `unsupported`
   carries a `detail`. (mini stays the green path; asgard becomes a clean
   `unsupported`, not a 90s `failed`.)
@@ -174,7 +201,7 @@ with fixture trees.
 
 | Need | OSS / spec | Phase |
 |---|---|---|
-| Detect framework + dev/build cmds from a repo | **`@netlify/framework-info`** (MIT) | can back the providers' `detect()` |
+| Ground-truth signals to feed Huginn's skill | **`@netlify/framework-info`** (MIT) | optional: seed `runtime-providers.json` / the fast-path |
 | Source → OCI image, no Dockerfile, multi-stack | **Nixpacks** (Railway, MIT) — *already bundled in our Coolify* | the generic build engine (Phase 2) |
 | Standardised, reproducible buildpacks | **Cloud Native Buildpacks / Paketo** (CNCF) | heavier alt to Nixpacks |
 | Schema reference for "framework → commands/output" | **Vercel Build Output API** / framework presets | informs `RuntimeSpec` |
@@ -184,28 +211,32 @@ with fixture trees.
 
 ## Roadmap
 
-- **v1 (this doc):** contract + registry + resolver + Next provider. `projects.runtime`
-  + `previews.detail` + `unsupported` status. Supervisor consumes `RuntimeSpec`.
-  Sindri UI shows runtime label + the `unsupported` state. **Only Next boots.**
-- **v2 — second stack:** add `providers/vite.ts` (or `astro`, `node`) — proves the
-  registry. `appRoot` detection for monorepos (`apps/web`). Manual override UI in
-  the Sindri/Heimdall project settings.
-- **v3 — generic engine:** swap bespoke `dev`/`start` for a **Nixpacks**-built image
-  for stacks without a first-class provider. Detection-at-connect via **Huginn**
-  (it already reads the repo for the discovery brief — extend it to emit a
-  `RuntimeSpec`, stored as the `auto` default).
-- **v4 — reproducible + isolated:** toolchain pinning (mise/engines) and run the dev
-  server in a per-session sandbox (see [brokk-isolation]).
+- **v1 (this doc):** contract + `validateSpec` + resolver + the **Huginn runtime
+  skill** wired into the discovery pass. `projects.runtime` + `previews.detail` +
+  `unsupported` status. Supervisor consumes `RuntimeSpec`. Sindri UI shows the
+  label + reason. **Only `nextjs` boots; everything else is recognised → `unsupported`.**
+- **v2 — promote a stack:** flip `vite`/`astro`/`node` to `supported:true` in
+  `runtime-providers.json` (+ a worked example in the skill if fuzzy). Strengthen
+  `appRoot` detection for monorepos (`apps/web`). No code change beyond the JSON.
+- **v3 — generic engine:** for stacks without a first-class preset, let the skill
+  target a **Nixpacks**-built image (already in our Coolify) instead of a bespoke
+  `dev`/`start`, so "anything Huginn can identify" can boot.
+- **v4 — reproducible + isolated:** toolchain pinning (mise/`engines`) and harden the
+  per-session sandbox (see [brokk-isolation]) — the trust anchor for the no-human
+  AI path.
 
 ## Open decisions
 
 1. **Name** — Sleipnir (proposed). Veto/replace freely.
-2. **Detect lazily vs at connect** — v1 detects at boot (simplest, always fresh). v3
-   moves it to Huginn at connect for a faster first preview + an editable default.
-3. **`unsupported` vs `failed`** — proposed: separate states. `unsupported` = we
-   knew up front there's nothing to run (no provider matched); `failed` = a matched
-   runtime booted and crashed. The UI and the e2e treat them differently.
-4. **Where the override UI lives** — Heimdall project settings (fleet-wide) vs the
-   Sindri header (per session). Lean Heimdall; Sindri reads it.
+2. **Fast-path or always-Huginn** — v1 keeps a cheap rule fast-path for canonical
+   Next so we don't burn an LLM pass on the obvious case. If you'd rather Huginn
+   own *every* decision (purer, costlier), drop the fast-path — the resolver seam
+   already supports it.
+3. **`unsupported` vs `failed`** — separate states. `unsupported` = Huginn knew up
+   front there's nothing supported to run (or the spec failed validation); `failed`
+   = a supported runtime booted and crashed. UI + e2e treat them differently.
+4. **Re-detect cadence** — pinned on first connect (deterministic). When does it
+   re-run? Proposed: on explicit `rescan` or when the framework manifest changes
+   between turns. Never per boot.
 
 [brokk-isolation]: ./NORTH-STAR.md
