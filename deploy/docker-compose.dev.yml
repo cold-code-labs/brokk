@@ -61,6 +61,10 @@ services:
     depends_on: !reset null
     expose: !reset null
     environment: !override
+      # !override drops the image's HOME, leaving HOME=/ — then git can't find
+      # /home/brokk/.gitconfig (the gh credential helper) and every GitHub clone
+      # fails ("could not read Username"), surfacing as a misleading ENOENT.
+      HOME: /home/brokk
       SINDRI_PORT: "8796"
       SINDRI_WORKDIR: /home/brokk/work-dev/sindri
       COREPACK_HOME: /home/brokk/work-dev/sindri/.cache/corepack
@@ -83,6 +87,8 @@ services:
     network_mode: host
     depends_on: !reset null
     environment: !override
+      # Same as chat: restore HOME so git/gh find the mounted creds when cloning.
+      HOME: /home/brokk
       BROKK_CONTROL_URL: http://127.0.0.1:8790
       BROKK_RUNNER_WORKDIR: /home/brokk/work-dev
       BROKK_PREVIEW_PORT_MIN: "4200"

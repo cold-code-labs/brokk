@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -18,6 +19,14 @@ const exec = promisify(execFile);
 async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await exec("git", args, { cwd, maxBuffer: 1024 * 1024 * 64 });
   return stdout.trim();
+}
+
+/** A legible one-liner from a failed git exec — prefer stderr (the real cause,
+ *  e.g. "Authentication failed") over the opaque "spawn git ENOENT". */
+function gitErr(e: unknown): string {
+  const err = e as { stderr?: string; message?: string };
+  const raw = (err?.stderr || err?.message || String(e)).trim();
+  return raw.split("\n").filter(Boolean).slice(0, 3).join(" ").slice(0, 300);
 }
 
 export class CheckoutManager {
@@ -51,17 +60,28 @@ export class CheckoutManager {
     await mkdir(join(this.workDir, "checkouts"), { recursive: true });
 
     // Reuse a healthy existing checkout — keep the session's working state.
-    const healthy = await git(path, ["rev-parse", "--is-inside-work-tree"])
-      .then((s) => s === "true")
-      .catch(() => false);
-    if (healthy) return { path, branch };
+    // (Guard on existsSync: running git in a non-existent cwd throws ENOENT.)
+    if (existsSync(path)) {
+      const healthy = await git(path, ["rev-parse", "--is-inside-work-tree"])
+        .then((s) => s === "true")
+        .catch(() => false);
+      if (healthy) return { path, branch };
+    }
 
+    // Ensure the bare mirror exists. Clone on first use and SURFACE a real clone
+    // failure (auth, network, bad URL) with context — otherwise a swallowed error
+    // leaves `bare` missing and the later `worktree add` (cwd = bare) dies with an
+    // opaque "spawn git ENOENT" that hides the actual cause.
     let fresh = false;
-    try {
-      await git(this.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
-      fresh = true;
-    } catch {
-      /* bare already exists */
+    if (!existsSync(join(bare, "HEAD"))) {
+      await rm(bare, { recursive: true, force: true }).catch(() => {}); // clear partial clone
+      try {
+        await git(this.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
+        fresh = true;
+      } catch (e) {
+        await rm(bare, { recursive: true, force: true }).catch(() => {});
+        throw new Error(`falha ao clonar ${repo.fullName} (${repo.cloneUrl}): ${gitErr(e)}`);
+      }
     }
     await git(bare, ["worktree", "prune"]).catch(() => {});
 
