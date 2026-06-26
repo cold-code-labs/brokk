@@ -31,6 +31,7 @@ const TOKEN = [
   "dev",
   "build",
   "start",
+  "preview",
   "next",
   "vite",
   "astro",

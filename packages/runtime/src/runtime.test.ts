@@ -151,9 +151,45 @@ test("fastPath picks the package manager from the lockfile", () => {
   assert.match(spec?.dev ?? "", /^npx next dev/);
 });
 
-test("fastPath returns null for a not-yet-promoted stack (Vite)", () => {
+test("fastPath emits the Vite preset (promoted in v2) with allowlisted commands", () => {
   const vitePkg = JSON.stringify({ dependencies: { vite: "5" }, scripts: { dev: "vite" } });
-  assert.equal(fastPath(ctxOf({ "package.json": vitePkg, "vite.config.ts": "x" })), null);
+  const spec = fastPath(ctxOf({ "package.json": vitePkg, "vite.config.ts": "x" }));
+  assert.ok(spec);
+  assert.equal(spec?.id, "vite");
+  assert.equal(spec?.supported, true);
+  assert.equal(spec?.source, "preset");
+  // Every emitted command — including `vite preview` (the v2 `preview` verb) — must
+  // pass the allowlist, or the AI path (which DOES validate) would reject Vite.
+  for (const cmd of [spec!.install, spec!.dev, spec!.build, spec!.start].filter(Boolean)) {
+    assert.equal(matchesAllowlist(cmd!), true, `vite cmd must be allowlisted: ${cmd}`);
+  }
+  // And the spec passes the full validator too.
+  assert.equal(
+    validateSpec(spec!, ctxOf({ "package.json": vitePkg, "vite.config.ts": "x" })).supported,
+    true,
+  );
+});
+
+test("fastPath emits the Astro preset with allowlisted commands", () => {
+  const astroPkg = JSON.stringify({ dependencies: { astro: "4" }, scripts: { dev: "astro dev" } });
+  const spec = fastPath(ctxOf({ "package.json": astroPkg, "astro.config.mjs": "x" }));
+  assert.ok(spec);
+  assert.equal(spec?.id, "astro");
+  assert.equal(spec?.supported, true);
+  for (const cmd of [spec!.install, spec!.dev, spec!.build, spec!.start].filter(Boolean)) {
+    assert.equal(matchesAllowlist(cmd!), true, `astro cmd must be allowlisted: ${cmd}`);
+  }
+});
+
+test("allows the vite/astro preview commands (long --port/--host flags + preview verb)", () => {
+  for (const cmd of [
+    "pnpm exec vite --port $PORT --host 0.0.0.0",
+    "pnpm exec vite preview --port $PORT --host 0.0.0.0",
+    "npx astro dev --port $PORT --host 0.0.0.0",
+    "bunx astro preview --port ${PORT} --host 0.0.0.0",
+  ]) {
+    assert.equal(matchesAllowlist(cmd), true, `should allow: ${cmd}`);
+  }
 });
 
 test("fastPath returns null when there is no package.json", () => {

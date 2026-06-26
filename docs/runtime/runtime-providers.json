@@ -1,6 +1,6 @@
 {
-  "$comment": "Machine-readable knowledge for the Runtime skill (docs/runtime/SKILL.md). The skill fills command templates from `providers` and MUST satisfy `allowlist`. v1: only nextjs is supported:true. Adding a stack = one entry here.",
-  "version": 1,
+  "$comment": "Machine-readable knowledge for the Runtime skill (docs/runtime/SKILL.md). The skill fills command templates from `providers` and MUST satisfy `allowlist`. v2: nextjs, vite, astro are supported:true. Adding a stack = one entry here (+ the trusted mirror in packages/runtime/src/providers.ts).",
+  "version": 2,
   "packageManagers": {
     "pnpm": { "lockfile": "pnpm-lock.yaml", "exec": "pnpm exec", "install": "pnpm install --no-frozen-lockfile" },
     "npm": { "lockfile": "package-lock.json", "exec": "npx", "install": "npm install" },
@@ -10,10 +10,10 @@
   "allowlist": {
     "$comment": "Every emitted install/dev/build/start command must match one of these (after $PORT/$HOST substitution). Validation is automatic and replaces human approval.",
     "binaries": ["next", "vite", "astro", "node", "next-server"],
-    "verbs": ["install", "exec", "run", "dev", "build", "start"],
+    "verbs": ["install", "exec", "run", "dev", "build", "start", "preview"],
     "patterns": [
       "^(pnpm|npm|yarn|bun)( install| exec| run)?( --[a-z-]+(=[\\w./-]+)?)*( (next|vite|astro|node|npx|bunx))?",
-      "(next|vite|astro)( dev| build| start)?( -p \\$PORT)?( -H 0.0.0.0)?",
+      "(next|vite|astro)( dev| build| start| preview)?( -p \\$PORT)?( -H 0.0.0.0)?( --port \\$PORT)?( --host 0.0.0.0)?",
       "&&"
     ],
     "forbidden": [";", "|", "`", "$(", "curl", "wget", "sudo", "chmod", "rm ", "ssh", "eval", ">", "<"]
@@ -35,10 +35,37 @@
       },
       "health": "/"
     },
-    "_examples_not_yet_supported": {
-      "$comment": "Recognised + explained, but supported:false until promoted — proves the skill 'understands and passes forward' non-Next stacks.",
-      "vite": { "label": "Vite", "supported": false, "detect": { "anyDep": ["vite"], "anyFile": ["vite.config.js", "vite.config.ts"] } },
-      "astro": { "label": "Astro", "supported": false, "detect": { "anyDep": ["astro"], "anyFile": ["astro.config.mjs"] } }
+    "vite": {
+      "label": "Vite",
+      "supported": true,
+      "detect": {
+        "anyDep": ["vite"],
+        "anyFile": ["vite.config.js", "vite.config.ts", "vite.config.mjs"],
+        "anyScriptMatches": "vite( build| preview)?"
+      },
+      "commands": {
+        "install": "{install}",
+        "dev": "{exec} vite --port $PORT --host 0.0.0.0",
+        "build": "{exec} vite build",
+        "start": "{exec} vite preview --port $PORT --host 0.0.0.0"
+      },
+      "health": "/"
+    },
+    "astro": {
+      "label": "Astro",
+      "supported": true,
+      "detect": {
+        "anyDep": ["astro"],
+        "anyFile": ["astro.config.mjs", "astro.config.ts"],
+        "anyScriptMatches": "astro (dev|build|preview)"
+      },
+      "commands": {
+        "install": "{install}",
+        "dev": "{exec} astro dev --port $PORT --host 0.0.0.0",
+        "build": "{exec} astro build",
+        "start": "{exec} astro preview --port $PORT --host 0.0.0.0"
+      },
+      "health": "/"
     }
   }
 }

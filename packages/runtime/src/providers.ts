@@ -72,18 +72,38 @@ export const PROVIDERS: Provider[] = [
     },
     health: "/",
   },
-  // Recognised + explained, but supported:false until promoted — proves the skill
-  // "understands and passes forward" non-Next stacks (see docs/RUNTIME.md v2).
+  // Promoted to first-class in v2 (docs/RUNTIME.md). Vite's dev server binds with
+  // --host; `vite preview` serves the built dist for the Fleet `build` preview.
   {
     id: "vite",
     label: "Vite",
-    supported: false,
-    detect: { anyDep: ["vite"], anyFile: ["vite.config.js", "vite.config.ts"] },
+    supported: true,
+    detect: {
+      anyDep: ["vite"],
+      anyFile: ["vite.config.js", "vite.config.ts", "vite.config.mjs"],
+      anyScriptMatches: "vite( build| preview)?",
+    },
+    commands: {
+      dev: "{exec} vite --port $PORT --host 0.0.0.0",
+      build: "{exec} vite build",
+      start: "{exec} vite preview --port $PORT --host 0.0.0.0",
+    },
+    health: "/",
   },
   {
     id: "astro",
     label: "Astro",
-    supported: false,
-    detect: { anyDep: ["astro"], anyFile: ["astro.config.mjs"] },
+    supported: true,
+    detect: {
+      anyDep: ["astro"],
+      anyFile: ["astro.config.mjs", "astro.config.ts"],
+      anyScriptMatches: "astro (dev|build|preview)",
+    },
+    commands: {
+      dev: "{exec} astro dev --port $PORT --host 0.0.0.0",
+      build: "{exec} astro build",
+      start: "{exec} astro preview --port $PORT --host 0.0.0.0",
+    },
+    health: "/",
   },
 ];

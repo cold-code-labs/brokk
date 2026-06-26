@@ -13,10 +13,11 @@ The machine-readable knowledge this skill reasons over lives in
 and the **command allowlist**. The skill MAY NOT author shell outside that
 allowlist. The plan this skill serves is [`../RUNTIME.md`](../RUNTIME.md).
 
-> **Scope today:** only `nextjs` resolves to `supported: true` and boots. Every
-> other framework is recognised, explained, and emitted with `supported: false`
-> (→ a clean `unsupported` preview state). Adding a stack = one entry in
-> `runtime-providers.json` + (if fuzzy) a worked example here. No code change.
+> **Scope today (v2):** `nextjs`, `vite`, and `astro` resolve to `supported: true`
+> and boot. Every other framework is recognised, explained, and emitted with
+> `supported: false` (→ a clean `unsupported` preview state). Adding a stack = one
+> entry in `runtime-providers.json` (+ the trusted mirror in
+> `packages/runtime/src/providers.ts`), and a worked example here if fuzzy.
 
 ---
 
