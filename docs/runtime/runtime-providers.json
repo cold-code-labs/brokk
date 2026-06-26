@@ -1,0 +1,44 @@
+{
+  "$comment": "Machine-readable knowledge for the Runtime skill (docs/runtime/SKILL.md). The skill fills command templates from `providers` and MUST satisfy `allowlist`. v1: only nextjs is supported:true. Adding a stack = one entry here.",
+  "version": 1,
+  "packageManagers": {
+    "pnpm": { "lockfile": "pnpm-lock.yaml", "exec": "pnpm exec", "install": "pnpm install --no-frozen-lockfile" },
+    "npm": { "lockfile": "package-lock.json", "exec": "npx", "install": "npm install" },
+    "yarn": { "lockfile": "yarn.lock", "exec": "yarn", "install": "yarn install" },
+    "bun": { "lockfile": "bun.lockb", "exec": "bunx", "install": "bun install" }
+  },
+  "allowlist": {
+    "$comment": "Every emitted install/dev/build/start command must match one of these (after $PORT/$HOST substitution). Validation is automatic and replaces human approval.",
+    "binaries": ["next", "vite", "astro", "node", "next-server"],
+    "verbs": ["install", "exec", "run", "dev", "build", "start"],
+    "patterns": [
+      "^(pnpm|npm|yarn|bun)( install| exec| run)?( --[a-z-]+(=[\\w./-]+)?)*( (next|vite|astro|node|npx|bunx))?",
+      "(next|vite|astro)( dev| build| start)?( -p \\$PORT)?( -H 0.0.0.0)?",
+      "&&"
+    ],
+    "forbidden": [";", "|", "`", "$(", "curl", "wget", "sudo", "chmod", "rm ", "ssh", "eval", ">", "<"]
+  },
+  "providers": {
+    "nextjs": {
+      "label": "Next.js",
+      "supported": true,
+      "detect": {
+        "anyDep": ["next"],
+        "anyFile": ["next.config.js", "next.config.mjs", "next.config.ts"],
+        "anyScriptMatches": "next (dev|build|start)"
+      },
+      "commands": {
+        "install": "{install}",
+        "dev": "{exec} next dev -p $PORT -H 0.0.0.0",
+        "build": "{exec} next build",
+        "start": "{exec} next start -p $PORT -H 0.0.0.0"
+      },
+      "health": "/"
+    },
+    "_examples_not_yet_supported": {
+      "$comment": "Recognised + explained, but supported:false until promoted — proves the skill 'understands and passes forward' non-Next stacks.",
+      "vite": { "label": "Vite", "supported": false, "detect": { "anyDep": ["vite"], "anyFile": ["vite.config.js", "vite.config.ts"] } },
+      "astro": { "label": "Astro", "supported": false, "detect": { "anyDep": ["astro"], "anyFile": ["astro.config.mjs"] } }
+    }
+  }
+}
