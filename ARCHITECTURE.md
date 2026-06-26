@@ -147,9 +147,21 @@ Branch-per-run; PR body links back to the Brokk card. Webhooks close the loop (m
 - **API key via the CCL AI gateway = deferred**: the path that gives clean ToS + central per-project spend + real $-saving compression. Revisit when Brokk goes multi-tenant/OSS or the Max window becomes the bottleneck.
 
 ## 13. Deployment
-- Control plane: Coolify app (monorepo; `apps/api` + `apps/web`), Postgres (Coolify-managed or via Hauldr).
-- Runner: on **surtr** (systemd service or container) with git/gh/claude/headroom.
-- Naming: `brokk.coldcodelabs.com` (board) when we expose it (behind CF Access).
+The whole stack runs as a **single Coolify Docker-Compose app on surtr** (`docker-compose.coolify.yml`)
+— api, web, forge (runner), reviewer (Eitri), gateway (previews), chat (Sindri). Postgres is the
+external `db_brokk` (Hauldr) via `hauldr-db-bridge:5434`. No bundled traefik/db, no blue/green,
+no `network_mode: host`.
+- **Deploy**: push to `main` → Coolify builds the 6 images (GitHub App source) and recreates in place.
+  `NODE_AUTH_TOKEN` (private @cold-code-labs/* packages) is a Coolify `is_buildtime` build ARG.
+- **State**: one named volume `brokk_home` mounted at `/home/brokk` (HOME) holds gh/git creds, the
+  Eitri app key, per-app preview secrets, and the runner work tree — portable, no host bind-mounts.
+  Workers run as uid 1001 (non-root blast radius for worktrees/previews).
+- **Networks**: the brokk compose net + external `coolify` (db + WireGuard `10.10.0.2` deps:
+  hauldr-control `:8787`, langfuse `:3015`, dev control plane `:8790`) + `litellm` (`litellm:4000`).
+- **Ingress**: the surtr cloudflared tunnel targets host loopback — `web` publishes `127.0.0.1:3010`
+  (`brokk.coldcodelabs.com`, behind Logto) and `gateway` `127.0.0.1:3020` (`*.preview.coldcodelabs.com`).
+- Self-host (OSS): `docker-compose.yml` at the repo root is the canonical standalone stack
+  (bundled traefik + Postgres); `--profile forge` adds the workers.
 
 ## 14. Relationship to the CCL ecosystem
 - **Heimdall** can embed the board / trigger tasks (Ice Breaker → "scaffold + open first PRs via Brokk").
