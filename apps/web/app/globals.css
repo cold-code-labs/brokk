@@ -159,19 +159,41 @@ body {
   background: color-mix(in srgb, #f85149 16%, transparent);
 }
 
-/* ── body: chat | preview split ── */
+/* ── body: chat | gutter | preview split ── */
 .sindri-body {
   display: grid;
   grid-template-columns: minmax(0, 42fr) minmax(0, 58fr);
-  gap: 1rem;
+  gap: 0.55rem;
   flex: 1;
   min-height: 0;
 }
-.sindri-body.is-solo {
+.sindri-body.is-solo,
+.sindri-body.is-zen {
   grid-template-columns: minmax(0, 1fr);
 }
 .sindri-body.is-blank {
   display: flex;
+}
+
+/* draggable gutter between the two panes */
+.sindri-gutter {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+}
+.sindri-gutter-grip {
+  width: 3px;
+  height: 2.2rem;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background 0.12s, height 0.12s;
+}
+.sindri-gutter:hover .sindri-gutter-grip {
+  background: var(--primary);
+  height: 3.2rem;
 }
 
 .sindri-dot {
@@ -232,31 +254,48 @@ body {
   line-height: 1.55;
 }
 
-/* session header */
+/* session header — one slim row: title · branch · meta · preview toggle */
 .sindri-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.85rem 1rem 0.7rem;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.8rem;
   border-bottom: 1px solid var(--border);
   background: var(--panel, transparent);
-}
-.sindri-head-main {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
 }
 .sindri-title {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   margin: 0;
-  font-size: 1.02rem;
-  font-weight: 650;
+  min-width: 0;
+  flex-shrink: 1;
+  font-size: 0.9rem;
+  font-weight: 600;
   color: var(--fg);
   line-height: 1.2;
+}
+.sindri-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sindri-head-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+}
+.sindri-head-meta svg {
+  color: var(--primary);
+  opacity: 0.8;
+}
+.sindri-head-sep {
+  opacity: 0.5;
 }
 .sindri-title-edit {
   background: transparent;
@@ -275,52 +314,37 @@ body {
   color: var(--primary);
 }
 .sindri-title-input {
-  font-size: 1.02rem;
-  font-weight: 650;
+  font-size: 0.9rem;
+  font-weight: 600;
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--primary);
   border-radius: var(--radius-sm, 6px);
   padding: 0.2rem 0.5rem;
   outline: none;
-  min-width: 16rem;
+  flex: 1;
+  min-width: 0;
 }
-.sindri-head-ctx {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.sindri-ctx-bit {
+.sindri-ctx-branch {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.72rem;
-  color: var(--fg-dim);
-}
-.sindri-ctx-branch {
-  font-family: var(--font-mono, monospace);
-}
-.sindri-head-right {
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-.sindri-select {
-  background: var(--card);
-  color: var(--fg);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  font-family: var(--font-mono, monospace);
+  padding: 0.15rem 0.45rem;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 6px);
-  padding: 0.4rem 0.6rem;
-  font-size: 0.82rem;
-  cursor: pointer;
+  border-radius: 999px;
+  background: var(--card);
 }
 .sindri-preview-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2rem;
-  height: 2rem;
+  flex-shrink: 0;
+  width: 1.85rem;
+  height: 1.85rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 6px);
   background: var(--card);
@@ -331,31 +355,6 @@ body {
 .sindri-preview-toggle:hover {
   color: var(--fg);
   border-color: var(--primary);
-}
-
-/* stats strip */
-.sindri-stats {
-  display: flex;
-  align-items: center;
-  gap: 1.1rem;
-  flex-wrap: wrap;
-  padding: 0.5rem 1rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-}
-.sindri-stat {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.74rem;
-  color: var(--fg-dim);
-}
-.sindri-stat svg {
-  color: var(--primary);
-  opacity: 0.85;
-}
-.sindri-stat-time {
-  margin-left: auto;
 }
 
 /* thread */
@@ -654,16 +653,17 @@ body {
 @keyframes sindri-spin {
   to { transform: rotate(360deg); }
 }
+/* composer = cockpit: textarea on top, controls + send share the footer row */
 .sindri-composer {
   display: flex;
-  gap: 0.6rem;
-  padding: 0.8rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem 0.8rem;
   border-top: 1px solid var(--border);
   background: var(--panel, var(--card));
-  align-items: flex-end;
 }
 .sindri-input {
-  flex: 1;
+  width: 100%;
   resize: none;
   background: var(--bg);
   color: var(--fg);
@@ -678,9 +678,60 @@ body {
   outline: none;
   border-color: var(--primary);
 }
+.sindri-cockpit {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.sindri-cockpit-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+.sindri-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+.sindri-chip:hover {
+  border-color: var(--primary);
+  color: var(--fg);
+}
+.sindri-chip svg {
+  color: var(--primary);
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+.sindri-chip-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--fg);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.sindri-cockpit-tok {
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: 0.1rem;
+}
 .sindri-send {
   flex-shrink: 0;
-  height: 2.4rem;
+  height: 2.3rem;
 }
 
 /* ── live preview column (the right-pane sandbox) ── */
@@ -768,6 +819,13 @@ body {
   opacity: 0.4;
   pointer-events: none;
 }
+.sindri-preview-sep {
+  width: 1px;
+  height: 1.1rem;
+  background: var(--border);
+  margin: 0 0.15rem;
+  flex-shrink: 0;
+}
 .sindri-preview-stage {
   flex: 1;
   min-height: 0;
@@ -780,6 +838,62 @@ body {
       transparent 0% 50%
     )
     50% / 18px 18px;
+}
+
+/* browser-window mock — wraps the non-live states so the stage is never an
+   empty checkered void; always reads as a screen waiting to render. */
+.sindri-preview-window {
+  margin: auto;
+  width: min(560px, calc(100% - 2.5rem));
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 12px);
+  background: var(--bg-soft, var(--card));
+  overflow: hidden;
+  box-shadow: var(--shadow-2, 0 10px 30px rgba(0, 0, 0, 0.22));
+}
+.sindri-preview-window-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel, var(--card));
+}
+.sindri-preview-dots {
+  display: inline-flex;
+  gap: 0.32rem;
+  flex-shrink: 0;
+}
+.sindri-preview-dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.sindri-preview-window-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+  background: var(--bg);
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+}
+.sindri-preview-window-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.4rem 1rem 1.8rem;
+}
+.sindri-preview-mark.is-err {
+  color: var(--danger, #f85149);
 }
 .sindri-preview-frame {
   width: 100%;
