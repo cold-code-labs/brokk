@@ -45,3 +45,59 @@ services:
       - /home/brokk/brokk-dev.env
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # ── dev-lane forge workers (chat + forge) ─────────────────────────────────────
+  # Cabled into the dev lane so the Sindri live-preview pipeline runs here too,
+  # HARD-ISOLATED from the prod workers:
+  #   • chat (Sindri) on :8796 (prod chat is host-net :8795)
+  #   • own work volume /home/brokk/work-dev (prod uses /home/brokk/work) — session
+  #     checkouts + preview worktrees never collide
+  #   • own preview port range 4200-4299 (prod uses 4100-4199)
+  # The *.preview public domain is routed by the prod gateway only (singleton), so
+  # dev-lane previews are validated on their local 127.0.0.1:<port> dev server.
+  chat:
+    image: brokk-chat-dev:local
+    profiles: !reset null
+    network_mode: host
+    depends_on: !reset null
+    expose: !reset null
+    environment: !override
+      SINDRI_PORT: "8796"
+      SINDRI_WORKDIR: /home/brokk/work-dev/sindri
+      COREPACK_HOME: /home/brokk/work-dev/sindri/.cache/corepack
+      XDG_CACHE_HOME: /home/brokk/work-dev/sindri/.cache
+      XDG_DATA_HOME: /home/brokk/work-dev/sindri/.local/share
+      PNPM_HOME: /home/brokk/work-dev/sindri/.local/share/pnpm
+      npm_config_cache: /home/brokk/work-dev/sindri/.cache/npm
+      npm_config_store_dir: /home/brokk/work-dev/sindri/.pnpm-store
+    env_file:
+      - /home/brokk/brokk-dev.env
+    user: "1001:1001"
+    volumes: !override
+      - /home/brokk/work-dev:/home/brokk/work-dev
+      - /home/brokk/.config/gh:/home/brokk/.config/gh:ro
+      - /home/brokk/.gitconfig:/home/brokk/.gitconfig:ro
+
+  forge:
+    image: brokk-forge-dev:local
+    profiles: !reset null
+    network_mode: host
+    depends_on: !reset null
+    environment: !override
+      BROKK_CONTROL_URL: http://127.0.0.1:8790
+      BROKK_RUNNER_WORKDIR: /home/brokk/work-dev
+      BROKK_PREVIEW_PORT_MIN: "4200"
+      BROKK_PREVIEW_PORT_MAX: "4299"
+      COREPACK_HOME: /home/brokk/work-dev/.cache/corepack
+      XDG_CACHE_HOME: /home/brokk/work-dev/.cache
+      XDG_DATA_HOME: /home/brokk/work-dev/.local/share
+      PNPM_HOME: /home/brokk/work-dev/.local/share/pnpm
+      npm_config_cache: /home/brokk/work-dev/.cache/npm
+      npm_config_store_dir: /home/brokk/work-dev/.pnpm-store
+    env_file:
+      - /home/brokk/brokk-dev.env
+    user: "1001:1001"
+    volumes: !override
+      - /home/brokk/work-dev:/home/brokk/work-dev
+      - /home/brokk/.config/gh:/home/brokk/.config/gh:ro
+      - /home/brokk/.gitconfig:/home/brokk/.gitconfig:ro
