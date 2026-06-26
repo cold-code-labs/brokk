@@ -45,6 +45,8 @@ import {
   ExternalLink,
   PanelRightClose,
   PanelRightOpen,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import {
@@ -75,9 +77,6 @@ const EFFORTS = [
   { id: "medium", label: "Médio" },
   { id: "high", label: "Profundo" },
 ];
-
-// All known aliases, for rendering historical sessions that ran Sonnet/Opus.
-const MODEL_LABEL: Record<string, string> = { sonnet: "Sonnet", opus: "Opus", haiku: "Haiku" };
 
 // ── small formatters ─────────────────────────────────────────────────────────
 function fmtTokens(n: number): string {
@@ -128,6 +127,11 @@ export default function Chat() {
   const [titleDraft, setTitleDraft] = useState("");
   // Right-pane preview can be collapsed to give the chat full width.
   const [previewOpen, setPreviewOpen] = useState(true);
+  // Zen/focus: collapse the chat so the preview goes full-bleed (demo mode).
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+  // Draggable split ratio (chat fraction) when both panes are open.
+  const [split, setSplit] = useState(0.42);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const liveSeqRef = useRef(-1); // highest seq we've persisted into messages
@@ -328,6 +332,27 @@ export default function Chat() {
     }
   }
 
+  // Drag the gutter between chat and preview to re-balance the split. Clamped so
+  // neither pane ever collapses by accident (use the zen/hide toggles for that).
+  function startDrag(e: React.PointerEvent) {
+    e.preventDefault();
+    const el = bodyRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const onMove = (ev: PointerEvent) => {
+      const r = (ev.clientX - rect.left) / rect.width;
+      setSplit(Math.min(0.72, Math.max(0.28, r)));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = "";
+    };
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
   // tool_use_id → result, for inline rendering.
   const results = useMemo(() => {
     const m = new Map<string, Block & { type: "tool_result" }>();
@@ -442,114 +467,73 @@ export default function Chat() {
           </div>
         </div>
       ) : (
-        <div className={`sindri-body ${previewOpen ? "" : "is-solo"}`}>
+        <div
+          ref={bodyRef}
+          className={`sindri-body ${!previewOpen ? "is-solo" : ""} ${chatCollapsed ? "is-zen" : ""}`}
+          style={
+            previewOpen && !chatCollapsed
+              ? { gridTemplateColumns: `minmax(0, ${split}fr) 8px minmax(0, ${1 - split}fr)` }
+              : undefined
+          }
+        >
           {/* ── chat column ── */}
+          {!chatCollapsed ? (
           <section className="sindri-chat">
             <>
-              {/* session header */}
+              {/* session header — one slim row: title · branch · meta · toggle */}
               <header className="sindri-head">
-                <div className="sindri-head-main">
-                  {renaming ? (
-                    <input
-                      className="sindri-title-input"
-                      autoFocus
-                      value={titleDraft}
-                      onChange={(e) => setTitleDraft(e.target.value)}
-                      onBlur={saveTitle}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") saveTitle();
-                        if (e.key === "Escape") setRenaming(false);
-                      }}
-                    />
-                  ) : (
-                    <h2
-                      className="sindri-title"
-                      onDoubleClick={() => {
+                {renaming ? (
+                  <input
+                    className="sindri-title-input"
+                    autoFocus
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onBlur={saveTitle}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveTitle();
+                      if (e.key === "Escape") setRenaming(false);
+                    }}
+                  />
+                ) : (
+                  <h2
+                    className="sindri-title"
+                    onDoubleClick={() => {
+                      setTitleDraft(currentSession?.title ?? "");
+                      setRenaming(true);
+                    }}
+                  >
+                    <span className="sindri-title-text">{currentSession?.title}</span>
+                    <button
+                      className="sindri-title-edit"
+                      title="Renomear"
+                      onClick={() => {
                         setTitleDraft(currentSession?.title ?? "");
                         setRenaming(true);
                       }}
                     >
-                      {currentSession?.title}
-                      <button
-                        className="sindri-title-edit"
-                        title="Renomear"
-                        onClick={() => {
-                          setTitleDraft(currentSession?.title ?? "");
-                          setRenaming(true);
-                        }}
-                      >
-                        <Pencil size={13} />
-                      </button>
-                    </h2>
-                  )}
-                  <div className="sindri-head-ctx">
-                    {currentSession?.branch ? (
-                      <span className="sindri-ctx-bit sindri-ctx-branch">
-                        <GitBranch size={12} /> {currentSession.branch}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className="sindri-head-right">
-                  <select
-                    className="sindri-select"
-                    value={model}
-                    title="Modelo"
-                    onChange={(e) => {
-                      setModel(e.target.value);
-                      if (sessionId) chat.patchSession(sessionId, { model: e.target.value }).catch(() => {});
-                    }}
-                  >
-                    {MODELS.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    className="sindri-select"
-                    value={effort}
-                    title="Esforço de raciocínio"
-                    onChange={(e) => {
-                      setEffort(e.target.value);
-                      if (sessionId) chat.patchSession(sessionId, { effort: e.target.value }).catch(() => {});
-                    }}
-                  >
-                    {EFFORTS.map((x) => (
-                      <option key={x.id} value={x.id}>
-                        {x.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="sindri-preview-toggle"
-                    title={previewOpen ? "Ocultar preview" : "Mostrar preview"}
-                    onClick={() => setPreviewOpen((o) => !o)}
-                  >
-                    {previewOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
-                  </button>
-                </div>
-              </header>
-
-              {/* stats strip */}
-              <div className="sindri-stats">
-                <span className="sindri-stat">
-                  <MessageSquare size={13} /> {liveStats.turns} {liveStats.turns === 1 ? "pergunta" : "perguntas"}
-                </span>
-                {MODELS.length > 1 ? (
-                  <span className="sindri-stat">
-                    <Cpu size={13} /> {MODEL_LABEL[currentSession?.model ?? model] ?? model}
+                      <Pencil size={12} />
+                    </button>
+                  </h2>
+                )}
+                {currentSession?.branch ? (
+                  <span className="sindri-ctx-branch">
+                    <GitBranch size={11} /> {currentSession.branch}
                   </span>
                 ) : null}
-                <span className="sindri-stat">
-                  <Zap size={13} /> {fmtTokens(liveStats.tokensIn)} in · {fmtTokens(liveStats.tokensOut)} out
+                <span className="sindri-head-meta">
+                  <MessageSquare size={11} /> {liveStats.turns}
+                  <span className="sindri-head-sep">·</span>
+                  {currentSession ? relTime(sessionTime(currentSession)) || "agora" : "agora"}
                 </span>
-                <span className="sindri-stat sindri-stat-time">
-                  atualizado {relTime(sessionTime(currentSession ?? ({} as ChatSessionWithStats)))}
-                </span>
-              </div>
+                <button
+                  type="button"
+                  className="sindri-preview-toggle"
+                  title={previewOpen ? "Ocultar preview" : "Mostrar preview"}
+                  onClick={() => setPreviewOpen((o) => !o)}
+                >
+                  {previewOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
+                </button>
+              </header>
 
               <StickToBottom className="sindri-thread" resize="smooth" initial="smooth">
                 <StickToBottom.Content className="sindri-thread-content">
@@ -573,6 +557,7 @@ export default function Chat() {
                 </StickToBottom.Content>
               </StickToBottom>
 
+              {/* composer = cockpit: the controls live where the hand acts */}
               <div className="sindri-composer">
                 <textarea
                   className="sindri-input"
@@ -583,18 +568,73 @@ export default function Chat() {
                   rows={3}
                   disabled={running}
                 />
-                {running ? (
-                  <Button variant="destructive" onClick={stop} className="sindri-send">
-                    <Square size={16} /> Parar
-                  </Button>
-                ) : (
-                  <Button variant="default" onClick={send} disabled={!input.trim()} className="sindri-send">
-                    <Send size={16} /> Enviar
-                  </Button>
-                )}
+                <div className="sindri-cockpit">
+                  <div className="sindri-cockpit-controls">
+                    <label className="sindri-chip" title="Modelo">
+                      <Cpu size={13} />
+                      <select
+                        className="sindri-chip-select"
+                        value={model}
+                        onChange={(e) => {
+                          setModel(e.target.value);
+                          if (sessionId) chat.patchSession(sessionId, { model: e.target.value }).catch(() => {});
+                        }}
+                      >
+                        {MODELS.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="sindri-chip" title="Esforço de raciocínio">
+                      <Zap size={13} />
+                      <select
+                        className="sindri-chip-select"
+                        value={effort}
+                        onChange={(e) => {
+                          setEffort(e.target.value);
+                          if (sessionId) chat.patchSession(sessionId, { effort: e.target.value }).catch(() => {});
+                        }}
+                      >
+                        {EFFORTS.map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <span className="sindri-cockpit-tok" title="Tokens nesta sessão">
+                      {fmtTokens(liveStats.tokensIn)} · {fmtTokens(liveStats.tokensOut)}
+                    </span>
+                  </div>
+                  {running ? (
+                    <Button variant="destructive" onClick={stop} className="sindri-send">
+                      <Square size={16} /> Parar
+                    </Button>
+                  ) : (
+                    <Button variant="default" onClick={send} disabled={!input.trim()} className="sindri-send">
+                      <Send size={16} /> Enviar
+                    </Button>
+                  )}
+                </div>
               </div>
             </>
           </section>
+          ) : null}
+
+          {/* draggable gutter — only when both panes share the stage */}
+          {previewOpen && !chatCollapsed ? (
+            <div
+              className="sindri-gutter"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Redimensionar painéis"
+              onPointerDown={startDrag}
+            >
+              <span className="sindri-gutter-grip" />
+            </div>
+          ) : null}
 
           {/* ── live preview column ── */}
           {previewOpen ? (
@@ -602,6 +642,8 @@ export default function Chat() {
               sessionId={sessionId}
               branch={currentSession?.branch ?? null}
               sawEdit={sawEdit}
+              zen={chatCollapsed}
+              onToggleZen={() => setChatCollapsed((c) => !c)}
             />
           ) : null}
         </div>
@@ -618,10 +660,14 @@ function SindriPreview({
   sessionId,
   branch,
   sawEdit,
+  zen,
+  onToggleZen,
 }: {
   sessionId: string;
   branch: string | null;
   sawEdit: boolean;
+  zen: boolean;
+  onToggleZen: () => void;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -754,6 +800,15 @@ function SindriPreview({
           >
             <ExternalLink size={15} />
           </a>
+          <span className="sindri-preview-sep" />
+          <button
+            type="button"
+            className={`sindri-preview-icon ${zen ? "is-on" : ""}`}
+            title={zen ? "Restaurar o chat" : "Foco: preview em tela cheia"}
+            onClick={onToggleZen}
+          >
+            {zen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
         </div>
       </div>
 
@@ -768,32 +823,53 @@ function SindriPreview({
               sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
             />
           </div>
-        ) : status === "starting" ? (
-          <div className="sindri-preview-msg">
-            <span className="sindri-spinner" />
-            <p>Subindo o ambiente de preview…</p>
-            <span className="sindri-preview-sub">A primeira subida pode levar ~1 min.</span>
-          </div>
-        ) : status === "failed" ? (
-          <div className="sindri-preview-msg">
-            <p>O preview falhou ao subir.</p>
-            {err ? <span className="sindri-preview-sub">{err}</span> : null}
-            <Button variant="default" onClick={ensure} disabled={busy}>
-              <RotateCw size={15} /> Tentar de novo
-            </Button>
-          </div>
         ) : (
-          <div className="sindri-preview-msg">
-            <div className="sindri-preview-mark">
-              <Monitor size={26} strokeWidth={1.4} />
+          // Never a naked checkered void: the non-live states sit inside a
+          // browser-window mock, so the stage always reads as a screen.
+          <div className="sindri-preview-window">
+            <div className="sindri-preview-window-bar">
+              <span className="sindri-preview-dots">
+                <i />
+                <i />
+                <i />
+              </span>
+              <span className="sindri-preview-window-url">
+                {preview?.url?.replace(/^https?:\/\//, "") ?? branch ?? "preview"}
+              </span>
             </div>
-            <p>Preview ao vivo das mudanças</p>
-            <span className="sindri-preview-sub">
-              Sobe sozinho na primeira edição do Sindri — ou suba agora.
-            </span>
-            <Button variant="default" onClick={ensure} disabled={busy || !branch}>
-              {busy ? <span className="sindri-spinner" /> : <Plus size={15} />} Subir preview
-            </Button>
+            <div className="sindri-preview-window-body">
+              {status === "starting" ? (
+                <div className="sindri-preview-msg">
+                  <span className="sindri-spinner" />
+                  <p>Subindo o ambiente de preview…</p>
+                  <span className="sindri-preview-sub">A primeira subida pode levar ~1 min.</span>
+                </div>
+              ) : status === "failed" ? (
+                <div className="sindri-preview-msg">
+                  <div className="sindri-preview-mark is-err">
+                    <RotateCw size={24} strokeWidth={1.5} />
+                  </div>
+                  <p>O preview falhou ao subir.</p>
+                  {err ? <span className="sindri-preview-sub">{err}</span> : null}
+                  <Button variant="default" onClick={ensure} disabled={busy}>
+                    <RotateCw size={15} /> Tentar de novo
+                  </Button>
+                </div>
+              ) : (
+                <div className="sindri-preview-msg">
+                  <div className="sindri-preview-mark">
+                    <Monitor size={26} strokeWidth={1.4} />
+                  </div>
+                  <p>Preview ao vivo das mudanças</p>
+                  <span className="sindri-preview-sub">
+                    Sobe sozinho na primeira edição do Sindri — ou suba agora.
+                  </span>
+                  <Button variant="default" onClick={ensure} disabled={busy || !branch}>
+                    {busy ? <span className="sindri-spinner" /> : <Plus size={15} />} Subir preview
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
