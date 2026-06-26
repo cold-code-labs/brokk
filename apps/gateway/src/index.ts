@@ -497,7 +497,7 @@ async function handleRequest(
   // Forward the request to the upstream preview process.
   const proxyReq = http.request(
     {
-      hostname: "127.0.0.1",
+      hostname: cfg.BROKK_PREVIEW_HOST,
       port: entry.port,
       method: req.method,
       path: req.url ?? "/",
@@ -564,7 +564,7 @@ async function handleUpgrade(
 
   // Open a raw TCP connection to the upstream preview process and replay the
   // HTTP upgrade handshake so the upstream's WebSocket server can respond.
-  const upstream = net.createConnection(entry.port, "127.0.0.1");
+  const upstream = net.createConnection(entry.port, cfg.BROKK_PREVIEW_HOST);
 
   upstream.on("error", () => {
     if (!socket.destroyed) {

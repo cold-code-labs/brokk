@@ -1,17 +1,29 @@
 # Surtr production override for ../docker-compose.yml.  (run from the repo root:
 #   docker compose -f docker-compose.yml -f deploy/docker-compose.surtr.yml ... )
 #
-# api / runner / eitri / gateway run with HOST networking — drop-in for the old
-# systemd units: they read /home/brokk/brokk.env verbatim, reach host-published
-# services (Hauldr db :5434, headroom :8793, hauldr control <hauldr-control-host>:8787, api
-# localhost:8789) on their existing addresses, and the *.preview lane keeps working
-# (gateway + runner share the host loopback exactly as before). They run as uid 1000
-# (brokk) so the mode-600 creds (gh config, eitri .pem) are readable and worktree
-# files stay brokk-owned (clean rollback to systemd).
+# BRIDGE networking (Phase 1b, 2026-06-26) — no more network_mode: host. Every
+# service runs on the brokk compose network and reaches the others by DNS
+# (api:8789, chat:8795, and the gateway proxies previews to forge:<port>). Host-
+# side deps are reached over Docker networks / the WireGuard IP, NOTHING public:
+#   • db_brokk        -> external `coolify` net, hauldr-db-bridge:5434 (socat)
+#   • LiteLLM/Ratatoskr -> external `litellm` net (the litellm Coolify app's
+#     stable resource-UUID network), litellm:4000
+#   • hauldr control / langfuse / dev-api -> the surtr WireGuard IP 10.10.0.2
+#     (:8787 / :3015 / :8790) — routable from bridge containers
+# Bridge URLs live in /home/brokk/brokk.env (host:port swapped to the above);
+# secrets stay there too. Only `web` (Traefik :3010) and `gateway` (:3020, the
+# *.preview tunnel target) publish on the host loopback.
 #
-# web runs bridged behind Traefik (host :3010 — the cloudflared tunnel target) as
-# a single replica (recreated in place on release). No bundled Postgres.
+# uid 1001 (brokk) so mode-600 creds (gh config, eitri .pem) are readable and
+# worktree files stay brokk-owned. No bundled Postgres.
 name: brokk
+
+networks:
+  coolify:
+    external: true
+  litellm:
+    external: true
+    name: cbte3k2aufcrd3o664v33y7g
 
 services:
   traefik:
@@ -21,12 +33,15 @@ services:
   db: !reset null
 
   api:
-    network_mode: host
     depends_on: !reset null
-    expose: !reset null
     environment: !reset null
     env_file:
       - /home/brokk/brokk.env
+    expose:
+      - "8789"
+    ports:
+      - "127.0.0.1:8789:8789"   # backward-compat: host-loopback access (webhooks/dev gateway)
+    networks: [default, coolify, litellm]
     user: "1001:1001"
 
   web:
@@ -34,17 +49,10 @@ services:
     env_file:
       - /home/brokk/brokk.env
       - /home/brokk/brokk.web.env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks: [default]
 
   forge:
-    network_mode: host
     depends_on: !reset null
-    # Container runs as uid 1001 with HOME=/home/brokk read-only, so pnpm/corepack's
-    # default ~/.cache/node/corepack mkdir EACCESes and preview builds die. Redirect
-    # every cache/store to the writable /home/brokk/work volume (mounted below).
-    # !override replaces the base env map wholesale (host-net runtime values come
-    # from the env_files), exactly like the !reset null it stands in for — plus these.
     environment: !override
       COREPACK_HOME: /home/brokk/work/.cache/corepack
       XDG_CACHE_HOME: /home/brokk/work/.cache
@@ -52,13 +60,13 @@ services:
       PNPM_HOME: /home/brokk/work/.local/share/pnpm
       npm_config_cache: /home/brokk/work/.cache/npm
       npm_config_store_dir: /home/brokk/work/.pnpm-store
-      # Per-app preview secrets (e.g. the LiteLLM gateway key for image gen) live
-      # here as <hauldrProject>.env, OUTSIDE any worktree. The supervisor merges
-      # them into each preview's spawn env (see apps/forge/src/preview.ts).
+      # Per-app preview secrets (<hauldrProject>.env), merged into each preview's
+      # spawn env (apps/forge/src/preview.ts).
       BROKK_PREVIEW_SECRETS_DIR: /home/brokk/preview-secrets
     env_file:
       - /home/brokk/brokk.env
       - /home/brokk/brokk.worker.env
+    networks: [default, litellm]
     user: "1001:1001"
     volumes: !override
       - /home/brokk/work:/home/brokk/work
@@ -67,32 +75,30 @@ services:
       - /home/brokk/.gitconfig:/home/brokk/.gitconfig:ro
 
   reviewer:
-    network_mode: host
     depends_on: !reset null
     environment: !reset null
     env_file:
       - /home/brokk/brokk.env
       - /home/brokk/brokk.worker.env
+    networks: [default, coolify, litellm]
     user: "1001:1001"
     volumes:
       - /home/brokk/eitri-app.pem:/home/brokk/eitri-app.pem:ro
 
   gateway:
-    network_mode: host
     environment: !reset null
-    expose: !reset null
     env_file:
       - /home/brokk/brokk.env
+    ports:
+      - "127.0.0.1:3020:3020"   # the *.preview cloudflared tunnel target
+    networks: [default]
     user: "1001:1001"
 
   chat:
-    network_mode: host
     depends_on: !reset null
-    expose: !reset null
-    # Host-net: reaches the gateway (127.0.0.1:4000) and db_brokk (127.0.0.1:5434)
-    # exactly like the runner. Session checkouts live under the shared work volume,
-    # in their own sindri/ subtree; caches redirected to the writable volume (HOME
-    # is read-only at uid 1001). The agent's bash runs pnpm/git/gh in checkouts.
+    # Bridge: reaches db (coolify net) + LiteLLM (litellm net) + api/forge by DNS.
+    # Session checkouts under the shared work volume; caches redirected to the
+    # writable volume (HOME read-only at uid 1001).
     environment: !override
       SINDRI_PORT: "8795"
       SINDRI_WORKDIR: /home/brokk/work/sindri
@@ -105,6 +111,7 @@ services:
     env_file:
       - /home/brokk/brokk.env
       - /home/brokk/brokk.worker.env
+    networks: [default, coolify, litellm]
     user: "1001:1001"
     volumes: !override
       - /home/brokk/work:/home/brokk/work

@@ -20,6 +20,12 @@ import { z } from "zod";
  *                       previews resolve on the same host. Same shared secret.
  * BROKK_PREVIEW_TTL_MS  How far into the future to push expiresAt on each
  *                       activity bump. Default 3 600 000 ms (1 hour).
+ * BROKK_PREVIEW_HOST    Host the gateway proxies preview traffic to. Previews are
+ *                       child processes of the runner (forge), binding 0.0.0.0 on
+ *                       their port. Default "127.0.0.1" (host networking — runner
+ *                       and gateway share the host loopback). On bridge networking,
+ *                       set to the runner's container name (e.g. "forge") so the
+ *                       gateway reaches the previews over the shared Docker network.
  */
 const Env = z.object({
   BROKK_GATEWAY_PORT: z.coerce.number().int().positive().default(3020),
@@ -27,6 +33,7 @@ const Env = z.object({
   BROKK_CONTROL_URL: z.string().default("http://127.0.0.1:8789"),
   BROKK_CONTROL_URL_EXTRA: z.string().default(""),
   BROKK_PREVIEW_TTL_MS: z.coerce.number().int().positive().default(3_600_000),
+  BROKK_PREVIEW_HOST: z.string().default("127.0.0.1"),
 });
 
 export type Config = z.infer<typeof Env> & {
