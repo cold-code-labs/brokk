@@ -4,6 +4,8 @@
 // parse the byte stream ourselves (EventSource can't POST).
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type { Preview } from "@brokk/sdk";
+
 const BASE = (process.env.NEXT_PUBLIC_BROKK_API_URL || "/api") + "/chat";
 
 export type Role = "user" | "assistant";
@@ -85,7 +87,15 @@ export const chat = {
     j<{ session: ChatSession }>("PATCH", `/sessions/${id}`, patch).then((r) => r.session),
   deleteSession: (id: string) => j<{ ok: true }>("DELETE", `/sessions/${id}`),
   stop: (id: string) => j<{ stopped: boolean }>("POST", `/sessions/${id}/stop`),
+  // Live preview (the right-pane sandbox). ensurePreview spins up (or reuses) the
+  // session's `next dev` HMR preview; getPreview polls its status for the UI.
+  ensurePreview: (id: string) =>
+    j<{ preview: Preview }>("POST", `/sessions/${id}/preview`).then((r) => r.preview),
+  getPreview: (id: string) =>
+    j<{ preview: Preview | null }>("GET", `/sessions/${id}/preview`).then((r) => r.preview),
 };
+
+export type { Preview };
 
 // ── Huginn: project discovery brief ──────────────────────────────────────────
 

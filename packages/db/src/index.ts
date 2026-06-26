@@ -306,6 +306,9 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
     url: row.url,
     port: row.port,
     hauldrProject: row.hauldrProject,
+    mode: row.mode,
+    sessionId: row.sessionId,
+    workDir: row.workDir,
     status: row.status as PreviewStatus,
     pid: row.pid,
     lastSeenAt: iso(row.lastSeenAt),
@@ -1237,7 +1240,15 @@ export function createStore(db: Db): Store {
         }
         const reactivated = await db
           .update(previews)
-          .set({ status: "starting", updatedAt: new Date() })
+          .set({
+            status: "starting",
+            updatedAt: new Date(),
+            // Refresh dev-mode metadata so a reused slot tracks the current
+            // session checkout (no-op for build-mode previews).
+            ...(values.mode !== undefined ? { mode: values.mode } : {}),
+            ...(values.sessionId !== undefined ? { sessionId: values.sessionId } : {}),
+            ...(values.workDir !== undefined ? { workDir: values.workDir } : {}),
+          })
           .where(eq(previews.id, row.id))
           .returning();
         return { preview: rowToPreview(reactivated[0]!), created: false };
@@ -1511,6 +1522,25 @@ export async function ensureChatSchema(db: Db): Promise<void> {
   // Huginn discovery brief — one row per project (PK = project_id), upserted by
   // each scout. Self-healed (never in drizzle) to avoid the push-hang on new
   // db_brokk tables; JSON arrays for built/missing/stack keep it schema-light.
+  // Sindri live-preview columns on the (drizzle-pushed) previews table. Added
+  // here as idempotent ALTERs so they self-heal on boot without a push (which
+  // hangs on db_brokk). Guarded: if previews doesn't exist yet (fresh DB before
+  // push), skip — the next push creates it with these columns from schema.ts.
+  try {
+    await db.execute(
+      sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'build';`,
+    );
+    await db.execute(
+      sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS session_id uuid REFERENCES chat_sessions(id) ON DELETE SET NULL;`,
+    );
+    await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS work_dir text;`);
+  } catch (err) {
+    console.warn(
+      "[db] previews dev-mode columns ALTER skipped:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
   await db.execute(sql`CREATE TABLE IF NOT EXISTS project_briefs (
     project_id uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
     status text NOT NULL DEFAULT 'pending',

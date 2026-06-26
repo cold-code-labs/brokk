@@ -1,12 +1,14 @@
 "use client";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SINDRI — the interactive chat agent. A per-project conversation that works the
-// repo live (read/write/run, open cards + PRs) over the native Messages API.
-//   • Left rail = project switcher + sessions grouped by recency, each card
-//     carrying its own stats (volume + token spend).
-//   • Right = a focused thread with an editable title, branch/model context, a
-//     live stats strip, and markdown-rendered turns.
+// SINDRI — the interactive chat agent, as a workbench (Lovable/v0 shape):
+//   • Top = a horizontal strip of session tabs + "Novo chat". Project is set by
+//     the global AMBIENTE switcher (sidebar), not here.
+//   • Left = the conversation: editable title, model/effort, live stats, thread
+//     and composer.
+//   • Right = a LIVE preview sandbox: `next dev` (HMR) running in this session's
+//     own checkout, so Sindri's edits hot-reload in the iframe (and on the public
+//     <app>-sindri-<id8>.preview.coldcodelabs.com) as it works.
 // Turns run server-side detached, so closing the tab doesn't stop Sindri.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -22,9 +24,7 @@ import {
   Hammer,
   Trash2,
   GitBranch,
-  Search,
   Check,
-  ChevronsUpDown,
   Pencil,
   MessageSquare,
   Zap,
@@ -39,6 +39,12 @@ import {
   TerminalSquare,
   ListTodo,
   GitPullRequest,
+  Monitor,
+  Smartphone,
+  RotateCw,
+  ExternalLink,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import {
@@ -48,8 +54,10 @@ import {
   type Block,
   type ChatMessage,
   type ChatSessionWithStats,
+  type Preview,
   type AgentEvent,
 } from "../lib/chat";
+import { STATUS_COLOR, t as theme } from "../lib/theme";
 
 // Full model choice. The subscription-seat gate that used to 429 Sonnet/Opus is
 // fixed at the gateway (Ratatoskr shapes the Claude Code system marker so the
@@ -93,27 +101,18 @@ function relTime(iso?: string | null): string {
   return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
 
-// Recency buckets for the session list, in display order.
-const BUCKETS = ["Hoje", "Ontem", "7 dias", "Mais antigo"] as const;
-function bucketOf(iso: string): (typeof BUCKETS)[number] {
-  const then = new Date(iso);
-  const now = new Date();
-  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const t = then.getTime();
-  if (t >= startToday) return "Hoje";
-  if (t >= startToday - 86_400_000) return "Ontem";
-  if (t >= startToday - 7 * 86_400_000) return "7 dias";
-  return "Mais antigo";
-}
-
 function sessionTime(s: ChatSessionWithStats): string {
   return s.stats.lastMessageAt || s.updatedAt;
 }
 
+// A tool_use whose name implies a file mutation → the app may have a renderable
+// change worth booting the preview for (the lazy trigger).
+const EDIT_TOOL = /write|edit|str_replace|create|apply|patch/i;
+
 export default function Chat() {
-  // Project selection is GLOBAL now (the sidebar environment switcher) — Sindri
-  // reads/writes the same context, so picking a project anywhere syncs here.
-  const { projects, currentId: projectId, setCurrentId: setProjectId } = useProject();
+  // Project selection is GLOBAL now (the sidebar AMBIENTE switcher) — Sindri reads
+  // the same context, so the active environment drives which project Sindri works.
+  const { projects, currentId: projectId } = useProject();
   const [model, setModel] = useState("sonnet");
   const [effort, setEffort] = useState("medium");
   const [sessions, setSessions] = useState<ChatSessionWithStats[]>([]);
@@ -125,10 +124,10 @@ export default function Chat() {
   const [running, setRunning] = useState(false);
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
-  const [projOpen, setProjOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  // Right-pane preview can be collapsed to give the chat full width.
+  const [previewOpen, setPreviewOpen] = useState(true);
 
   const abortRef = useRef<AbortController | null>(null);
   const liveSeqRef = useRef(-1); // highest seq we've persisted into messages
@@ -300,18 +299,20 @@ export default function Chat() {
   const currentProject = projects.find((p) => p.id === projectId);
   const currentSession = sessions.find((s) => s.id === sessionId);
 
-  // Filter + group sessions for the rail.
-  const grouped = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const filtered = q ? sessions.filter((s) => s.title.toLowerCase().includes(q)) : sessions;
-    const sorted = [...filtered].sort((a, b) => +new Date(sessionTime(b)) - +new Date(sessionTime(a)));
-    const map = new Map<string, ChatSessionWithStats[]>();
-    for (const s of sorted) {
-      const k = bucketOf(sessionTime(s));
-      (map.get(k) ?? map.set(k, []).get(k)!).push(s);
-    }
-    return BUCKETS.map((b) => [b, map.get(b) ?? []] as const).filter(([, arr]) => arr.length);
-  }, [sessions, query]);
+  // Sessions newest-first for the top tab strip.
+  const sortedSessions = useMemo(
+    () => [...sessions].sort((a, b) => +new Date(sessionTime(b)) - +new Date(sessionTime(a))),
+    [sessions],
+  );
+
+  // Lazy preview trigger: has Sindri made a file-mutating tool call this session?
+  const sawEdit = useMemo(
+    () =>
+      messages.some((m) =>
+        m.blocks.some((b) => b.type === "tool_use" && EDIT_TOOL.test(b.name)),
+      ),
+    [messages],
+  );
 
   // Live stats for the open session: aggregate token usage from loaded messages,
   // so the strip stays honest even mid-turn (before the list re-fetches).
@@ -337,123 +338,73 @@ export default function Chat() {
 
   return (
     <main className="sindri">
-      <div className="sindri-grid">
-        {/* ── session rail ── */}
-        <aside className="sindri-rail">
-          {/* project switcher */}
-          <div className="sindri-proj">
-            <button className="sindri-proj-btn" onClick={() => setProjOpen((o) => !o)}>
-              <span className="sindri-proj-info">
-                <span className="sindri-proj-name">{currentProject?.name ?? "Selecione um projeto"}</span>
-                {currentProject ? <span className="sindri-proj-sub">{currentProject.baseBranch}</span> : null}
-              </span>
-              <ChevronsUpDown size={15} className="sindri-proj-caret" />
-            </button>
-            {projOpen ? (
-              <>
-                <div className="sindri-proj-scrim" onClick={() => setProjOpen(false)} />
-                <div className="sindri-proj-menu">
-                  {projects.map((p) => (
-                    <button
-                      key={p.id}
-                      className={`sindri-proj-item ${p.id === projectId ? "is-active" : ""}`}
-                      onClick={() => {
-                        setProjectId(p.id);
-                        setProjOpen(false);
-                        setSessionId("");
-                        setMessages([]);
-                      }}
-                    >
-                      <span className="sindri-proj-item-name">{p.name}</span>
-                      {p.id === projectId ? <Check size={14} /> : null}
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : null}
-          </div>
-
-          <Button variant="default" onClick={newChat} disabled={!projectId} className="sindri-new">
-            <Plus size={16} /> Novo chat
-          </Button>
-
-          {sessions.length > 3 ? (
-            <div className="sindri-search">
-              <Search size={14} />
-              <input
-                placeholder="Buscar conversas…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </div>
-          ) : null}
-
-          <div className="sindri-sessions">
-            {sessions.length === 0 ? (
-              <p className="sindri-empty">Sem conversas ainda neste projeto.</p>
-            ) : grouped.length === 0 ? (
-              <p className="sindri-empty">Nenhuma conversa encontrada.</p>
-            ) : (
-              grouped.map(([label, arr]) => (
-                <div key={label} className="sindri-group">
-                  <div className="sindri-group-label">{label}</div>
-                  {arr.map((s) => (
-                    <button
-                      key={s.id}
-                      className={`sindri-session ${s.id === sessionId ? "is-active" : ""}`}
-                      onClick={() => openSession(s.id)}
-                    >
-                      <span className="sindri-session-top">
-                        <span className="sindri-session-title">
-                          {s.turnState === "running" ? <span className="sindri-dot" /> : null}
-                          {s.title}
-                        </span>
-                        <Trash2 size={13} className="sindri-session-del" onClick={(e) => removeSession(s.id, e)} />
-                      </span>
-                      <span className="sindri-session-meta">
-                        {MODELS.length > 1 ? (
-                          <span className="sindri-chip">{MODEL_LABEL[s.model] ?? s.model}</span>
-                        ) : null}
-                        {s.stats.messages > 0 ? (
-                          <span className="sindri-meta-bit">
-                            <MessageSquare size={11} /> {s.stats.messages}
-                          </span>
-                        ) : null}
-                        {s.stats.tokensIn + s.stats.tokensOut > 0 ? (
-                          <span className="sindri-meta-bit">
-                            <Zap size={11} /> {fmtTokens(s.stats.tokensIn + s.stats.tokensOut)}
-                          </span>
-                        ) : null}
-                        <span className="sindri-meta-time">{relTime(sessionTime(s))}</span>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ))
-            )}
-          </div>
-        </aside>
-
-        {/* ── thread ── */}
-        <section className="sindri-main">
-          {error ? (
-            <Banner tone="err" onClick={() => setError("")} style={{ cursor: "pointer" }}>
-              {error}
-            </Banner>
-          ) : null}
-
-          {!sessionId ? (
-            <div className="sindri-blank">
-              <div className="sindri-blank-mark">
-                <Hammer size={34} strokeWidth={1.4} />
-              </div>
-              <h3>{currentProject ? `Trabalhe ${currentProject.name} com Sindri` : "Selecione um projeto"}</h3>
-              <p>Abra um novo chat: ele clona o repositório e trabalha numa branch própria — lê, edita, roda, abre cards e PRs.</p>
-              <Button variant="default" onClick={newChat} disabled={!projectId}>
-                <Plus size={16} /> Novo chat
-              </Button>
-            </div>
+      {/* ── top: session tabs (horizontal scroll) ── */}
+      <div className="sindri-tabs">
+        <Button
+          variant="default"
+          onClick={newChat}
+          disabled={!projectId}
+          className="sindri-tab-new"
+        >
+          <Plus size={15} /> Novo chat
+        </Button>
+        <div className="sindri-tabs-scroll">
+          {sortedSessions.length === 0 ? (
+            <span className="sindri-tabs-empty">
+              {currentProject
+                ? `Sem conversas em ${currentProject.name} ainda.`
+                : "Selecione um ambiente no menu lateral."}
+            </span>
           ) : (
+            sortedSessions.map((s) => (
+              <button
+                key={s.id}
+                className={`sindri-tab ${s.id === sessionId ? "is-active" : ""}`}
+                onClick={() => openSession(s.id)}
+                title={`${s.title} · ${relTime(sessionTime(s))}`}
+              >
+                {s.turnState === "running" ? <span className="sindri-dot" /> : null}
+                <span className="sindri-tab-title">{s.title}</span>
+                <span
+                  className="sindri-tab-del"
+                  title="Apagar conversa"
+                  onClick={(e) => removeSession(s.id, e)}
+                >
+                  <Trash2 size={12} />
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      {error ? (
+        <Banner tone="err" onClick={() => setError("")} style={{ cursor: "pointer" }}>
+          {error}
+        </Banner>
+      ) : null}
+
+      {/* ── body: chat | live preview ── */}
+      {!sessionId ? (
+        <div className="sindri-body is-blank">
+          <div className="sindri-blank">
+            <div className="sindri-blank-mark">
+              <Hammer size={34} strokeWidth={1.4} />
+            </div>
+            <h3>{currentProject ? `Trabalhe ${currentProject.name} com Sindri` : "Selecione um ambiente"}</h3>
+            <p>
+              Abra um novo chat: ele clona o repositório e trabalha numa branch própria — lê, edita,
+              roda, e mostra o preview ao vivo das mudanças ao lado.
+            </p>
+            <Button variant="default" onClick={newChat} disabled={!projectId}>
+              <Plus size={16} /> Novo chat
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className={`sindri-body ${previewOpen ? "" : "is-solo"}`}>
+          {/* ── chat column ── */}
+          <section className="sindri-chat">
             <>
               {/* session header */}
               <header className="sindri-head">
@@ -531,6 +482,14 @@ export default function Chat() {
                       </option>
                     ))}
                   </select>
+                  <button
+                    type="button"
+                    className="sindri-preview-toggle"
+                    title={previewOpen ? "Ocultar preview" : "Mostrar preview"}
+                    onClick={() => setPreviewOpen((o) => !o)}
+                  >
+                    {previewOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+                  </button>
                 </div>
               </header>
 
@@ -595,10 +554,210 @@ export default function Chat() {
                 )}
               </div>
             </>
-          )}
-        </section>
-      </div>
+          </section>
+
+          {/* ── live preview column ── */}
+          {previewOpen ? (
+            <SindriPreview
+              sessionId={sessionId}
+              branch={currentSession?.branch ?? null}
+              sawEdit={sawEdit}
+            />
+          ) : null}
+        </div>
+      )}
     </main>
+  );
+}
+
+// ── live preview pane (the right-pane sandbox) ────────────────────────────────
+// A `next dev` (HMR) server runs in THIS session's checkout, so Sindri's edits
+// hot-reload here and on the public preview URL — one server serving both. Lazy:
+// auto-boots on the first file edit (sawEdit), or on the "Subir preview" button.
+function SindriPreview({
+  sessionId,
+  branch,
+  sawEdit,
+}: {
+  sessionId: string;
+  branch: string | null;
+  sawEdit: boolean;
+}) {
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [iframeKey, setIframeKey] = useState(0);
+  const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
+  const autoTried = useRef(""); // sessionId we've already auto-booted for
+
+  const ensure = useCallback(async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      setPreview(await chat.ensurePreview(sessionId));
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [sessionId]);
+
+  // On session change: reset + load any existing preview for it.
+  useEffect(() => {
+    setPreview(null);
+    setErr("");
+    setDevice("desktop");
+    autoTried.current = "";
+    let cancelled = false;
+    chat.getPreview(sessionId).then(
+      (pv) => !cancelled && setPreview(pv),
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  // Lazy auto-start: once Sindri makes its first file edit, boot the preview
+  // (once per session). The manual button covers every other case.
+  useEffect(() => {
+    if (sawEdit && !preview && !busy && autoTried.current !== sessionId) {
+      autoTried.current = sessionId;
+      void ensure();
+    }
+  }, [sawEdit, preview, busy, sessionId, ensure]);
+
+  // Poll status while starting (4s); slow-poll while live (12s) to catch reaps.
+  useEffect(() => {
+    const status = preview?.status;
+    if (status !== "starting" && status !== "live") return;
+    const id = setInterval(
+      () => chat.getPreview(sessionId).then(setPreview, () => {}),
+      status === "starting" ? 4000 : 12000,
+    );
+    return () => clearInterval(id);
+  }, [preview?.status, sessionId]);
+
+  const status = preview?.status;
+  const live = status === "live";
+  const statusColor =
+    status === "live"
+      ? STATUS_COLOR.done
+      : status === "starting"
+        ? STATUS_COLOR.running
+        : status === "failed"
+          ? STATUS_COLOR.failed
+          : theme.textMuted;
+  const statusLabel =
+    status === "live"
+      ? "ao vivo"
+      : status === "starting"
+        ? "subindo…"
+        : status === "failed"
+          ? "falhou"
+          : status === "stopped"
+            ? "parado"
+            : "preview";
+
+  return (
+    <section className="sindri-preview">
+      <div className="sindri-preview-bar">
+        <span className="sindri-preview-statuschip">
+          <span className="sindri-preview-dot" style={{ background: statusColor }} />
+          {statusLabel}
+        </span>
+        {preview ? (
+          <a
+            className="sindri-preview-url"
+            href={preview.url}
+            target="_blank"
+            rel="noreferrer"
+            title={preview.url}
+          >
+            {preview.url.replace(/^https?:\/\//, "")}
+          </a>
+        ) : (
+          <span className="sindri-preview-url is-empty">{branch ? branch : "sem branch"}</span>
+        )}
+        <div className="sindri-preview-actions">
+          <button
+            type="button"
+            className={`sindri-preview-icon ${device === "desktop" ? "is-on" : ""}`}
+            title="Largura desktop"
+            onClick={() => setDevice("desktop")}
+          >
+            <Monitor size={15} />
+          </button>
+          <button
+            type="button"
+            className={`sindri-preview-icon ${device === "mobile" ? "is-on" : ""}`}
+            title="Largura mobile"
+            onClick={() => setDevice("mobile")}
+          >
+            <Smartphone size={15} />
+          </button>
+          <button
+            type="button"
+            className="sindri-preview-icon"
+            title="Recarregar"
+            disabled={!live}
+            onClick={() => setIframeKey((k) => k + 1)}
+          >
+            <RotateCw size={15} />
+          </button>
+          <a
+            className={`sindri-preview-icon ${live ? "" : "is-disabled"}`}
+            title="Abrir em nova aba"
+            href={live ? preview?.url : undefined}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <ExternalLink size={15} />
+          </a>
+        </div>
+      </div>
+
+      <div className="sindri-preview-stage">
+        {live && preview ? (
+          <div className={`sindri-preview-frame is-${device}`}>
+            <iframe
+              key={iframeKey}
+              src={preview.url}
+              title="Preview ao vivo"
+              className="sindri-preview-iframe"
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+            />
+          </div>
+        ) : status === "starting" ? (
+          <div className="sindri-preview-msg">
+            <span className="sindri-spinner" />
+            <p>Subindo o ambiente de preview…</p>
+            <span className="sindri-preview-sub">A primeira subida pode levar ~1 min.</span>
+          </div>
+        ) : status === "failed" ? (
+          <div className="sindri-preview-msg">
+            <p>O preview falhou ao subir.</p>
+            {err ? <span className="sindri-preview-sub">{err}</span> : null}
+            <Button variant="default" onClick={ensure} disabled={busy}>
+              <RotateCw size={15} /> Tentar de novo
+            </Button>
+          </div>
+        ) : (
+          <div className="sindri-preview-msg">
+            <div className="sindri-preview-mark">
+              <Monitor size={26} strokeWidth={1.4} />
+            </div>
+            <p>Preview ao vivo das mudanças</p>
+            <span className="sindri-preview-sub">
+              Sobe sozinho na primeira edição do Sindri — ou suba agora.
+            </span>
+            <Button variant="default" onClick={ensure} disabled={busy || !branch}>
+              {busy ? <span className="sindri-spinner" /> : <Plus size={15} />} Subir preview
+            </Button>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

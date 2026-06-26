@@ -259,14 +259,32 @@ export class PreviewSupervisor {
       }
     }
 
-    // Refresh (or create) the persistent worktree for this preview branch.
-    // `preview.hauldrProject` is the stable slug (e.g. "brokk-dev"), reused as
-    // the directory name so node_modules survive between restarts.
-    const { path: wtPath } = await this.git.persistentCheckout({
-      repo,
-      branch: preview.branch,
-      name: preview.hauldrProject,
-    });
+    // Resolve the working directory.
+    //   • dev mode (a Sindri session): run straight in the session's live
+    //     checkout — the SAME worktree the chat agent edits. We must NOT
+    //     git-refresh/reset it (that would clobber the agent's uncommitted work);
+    //     Sindri owns its lifecycle. `next dev` then hot-reloads on every edit.
+    //   • build mode (Fleet preview): refresh (or create) the persistent worktree,
+    //     reused by hauldrProject slug so node_modules survive restarts.
+    const isDev = preview.mode === "dev";
+    let wtPath: string;
+    if (isDev) {
+      if (!preview.workDir) {
+        throw new Error(`dev preview ${preview.subdomain}: workDir is unset`);
+      }
+      wtPath = preview.workDir;
+      if (!existsSync(join(wtPath, "package.json"))) {
+        throw new Error(
+          `dev preview ${preview.subdomain}: no package.json at ${wtPath} (session checkout missing)`,
+        );
+      }
+    } else {
+      ({ path: wtPath } = await this.git.persistentCheckout({
+        repo,
+        branch: preview.branch,
+        name: preview.hauldrProject,
+      }));
+    }
 
     // Schema-as-code parity with prod: if the checkout ships db/migrations + the
     // migrate client, apply them to this preview's Hauldr project BEFORE boot —
@@ -301,14 +319,15 @@ export class PreviewSupervisor {
     }
 
     const port = this.allocatePort();
-    const cmd = this.expandCmd(this.cfg.previewCmd, port);
+    const cmd = this.expandCmd(isDev ? this.cfg.previewDevCmd : this.cfg.previewCmd, port);
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...hauldrEnv,
       PORT: String(port),
-      // Default to production so apps skip dev-only HMR overhead
-      NODE_ENV: process.env.NODE_ENV ?? "production",
+      // Dev previews need development mode for HMR; build previews default to
+      // production so apps skip dev-only overhead.
+      NODE_ENV: isDev ? "development" : (process.env.NODE_ENV ?? "production"),
     };
 
     console.log(

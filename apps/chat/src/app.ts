@@ -42,6 +42,23 @@ const PatchSession = z.object({
 
 const SendMessage = z.object({ text: z.string().min(1) });
 
+/** Derive the deterministic preview identity (subdomain / url / Hauldr project)
+ *  for a session's branch — the same scheme the control-plane POST /previews uses,
+ *  so a Sindri dev preview lands on `<app>-sindri-<id8>.preview.coldcodelabs.com`
+ *  with its own isolated `<app>_sindri_<id8>` Hauldr DB. */
+function previewIdentity(appName: string, branch: string): {
+  subdomain: string;
+  url: string;
+  hauldrProject: string;
+} {
+  const slug =
+    branch.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "dev";
+  const subdomain = `${appName}-${slug}`;
+  const url = `https://${subdomain}.preview.coldcodelabs.com`;
+  const hauldrProject = `${appName}_${slug}`.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+  return { subdomain, url, hauldrProject };
+}
+
 export function buildSindri(deps: SindriDeps): Hono {
   const app = new Hono();
   app.use("*", cors());
@@ -116,10 +133,70 @@ export function buildSindri(deps: SindriDeps): Hono {
       deps.turns.stop(id);
       const project = await deps.store.getProject(session.projectId);
       const repo = project ? await deps.store.getRepository(project.repositoryId) : null;
+      // Stop the session's live preview (if any) so the supervisor reaps the dev
+      // server + deprovisions its Hauldr compute on the next tick.
+      if (repo && session.branch) {
+        const { subdomain } = previewIdentity(repo.name, session.branch);
+        const preview = await deps.store.getPreviewBySubdomain(subdomain).catch(() => null);
+        if (preview && (preview.status === "live" || preview.status === "starting")) {
+          await deps.store.stopPreview(preview.id).catch(() => {});
+        }
+      }
       if (repo) await deps.checkouts.remove({ sessionId: id, repo }).catch(() => {});
       await deps.store.deleteChatSession(id);
     }
     return c.json({ ok: true });
+  });
+
+  // ── Live preview (the right-pane sandbox) ─────────────────────────────────────
+  // A per-session dev preview: `next dev` with HMR, run by the forge preview
+  // supervisor straight in THIS session's checkout, so the agent's edits hot-reload
+  // in the iframe and on <app>-sindri-<id8>.preview.coldcodelabs.com. POST ensures
+  // the checkout exists + writes a 'starting' dev preview row (the supervisor boots
+  // it); GET reports status for the UI to poll. Lazy: the UI only POSTs once the
+  // app has a renderable change (or the user clicks "Subir preview").
+
+  app.post("/sessions/:id/preview", async (c) => {
+    const session = await deps.store.getChatSession(c.req.param("id"));
+    if (!session) return c.json({ error: "not found" }, 404);
+    const project = await deps.store.getProject(session.projectId);
+    const repo = project ? await deps.store.getRepository(project.repositoryId) : null;
+    if (!project || !repo) return c.json({ error: "project not found" }, 404);
+
+    const branch = session.branch ?? `sindri/${session.id.slice(0, 8)}`;
+    // Materialise the checkout NOW so the dev server has files to watch on boot.
+    const { path } = await deps.checkouts.ensure({
+      sessionId: session.id,
+      branch,
+      repo: repo as Repository,
+      baseBranch: project.baseBranch,
+    });
+
+    const { subdomain, url, hauldrProject } = previewIdentity(repo.name, branch);
+    const { preview, created } = await deps.store.ensureActivePreview({
+      projectId: project.id,
+      branch,
+      subdomain,
+      url,
+      hauldrProject,
+      status: "starting",
+      mode: "dev",
+      sessionId: session.id,
+      workDir: path,
+    });
+    return c.json({ preview }, created ? 201 : 200);
+  });
+
+  app.get("/sessions/:id/preview", async (c) => {
+    const session = await deps.store.getChatSession(c.req.param("id"));
+    if (!session) return c.json({ error: "not found" }, 404);
+    if (!session.branch) return c.json({ preview: null });
+    const project = await deps.store.getProject(session.projectId);
+    const repo = project ? await deps.store.getRepository(project.repositoryId) : null;
+    if (!repo) return c.json({ preview: null });
+    const { subdomain } = previewIdentity(repo.name, session.branch);
+    const preview = await deps.store.getPreviewBySubdomain(subdomain).catch(() => null);
+    return c.json({ preview });
   });
 
   // Transcript (incremental via ?afterSeq=).

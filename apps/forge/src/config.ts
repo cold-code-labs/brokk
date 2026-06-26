@@ -45,6 +45,11 @@ export interface RunnerConfig {
    *  allocated port number. Per-project override: BROKK_PREVIEW_CMD env var.
    *  Default: `next build && next start -p $PORT` (Next.js apps). */
   previewCmd: string;
+  /** Shell command used to boot a `mode='dev'` preview (a Sindri session's live
+   *  checkout) — `next dev` with HMR so the agent's edits hot-reload. `$PORT` is
+   *  substituted. Override: BROKK_PREVIEW_DEV_CMD. `pnpm exec next dev` resolves
+   *  the local binary; `-H 0.0.0.0` is load-bearing (gateway proxies 127.0.0.1). */
+  previewDevCmd: string;
   /** How long a preview lives without a touch before the reaper kills it (ms).
    *  Configurable via BROKK_PREVIEW_TTL_MS. Default: 45 minutes. */
   previewTtlMs: number;
@@ -86,6 +91,12 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     hauldrControlUrl: (env.HAULDR_CONTROL_URL ?? "").replace(/\/$/, ""),
     hauldrToken: env.HAULDR_TOKEN ?? "",
     previewCmd: env.BROKK_PREVIEW_CMD ?? "next build && next start -p $PORT",
+    previewDevCmd:
+      env.BROKK_PREVIEW_DEV_CMD ??
+      // `pnpm exec` resolves the local `next` from node_modules/.bin and forwards
+      // args cleanly (bare `next` isn't on PATH under `sh -c`; `pnpm run dev --`
+      // leaks the `--` into next's argv). Verified e2e on the dev lane.
+      "pnpm install --no-frozen-lockfile --prod=false && pnpm exec next dev -p $PORT -H 0.0.0.0",
     previewTtlMs: Number(env.BROKK_PREVIEW_TTL_MS ?? 45 * 60 * 1000),
     previewPortMin: Number(env.BROKK_PREVIEW_PORT_MIN ?? 4100),
     previewPortMax: Number(env.BROKK_PREVIEW_PORT_MAX ?? 4199),
