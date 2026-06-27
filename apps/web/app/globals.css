@@ -110,17 +110,21 @@ body:has(.sindri) {
   height: 100%;
   box-sizing: border-box;
   overflow: hidden;
-  padding: 1rem 1.25rem;
-  gap: 0.8rem;
+  /* hug the viewport — this is a mission-critical workspace, every px goes to
+     the chat + preview panes, not to chrome margins */
+  padding: 0.55rem 0.7rem;
+  gap: 0.55rem;
   max-width: none;
   min-width: 0;
 }
 
 /* ── top: session tabs (horizontal scroll) ── */
+/* one slim strip — a row of compact thread chips, like v0/lovable. Kept short
+   vertically so the chat + preview own the height. */
 .sindri-tabs {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.4rem;
   flex-shrink: 0;
   min-width: 0;
 }
@@ -128,36 +132,41 @@ body:has(.sindri) {
   flex-shrink: 0;
   justify-content: center;
   white-space: nowrap;
+  height: 1.85rem;
+  padding: 0 0.7rem;
+  font-size: 0.8rem;
+  gap: 0.3rem;
 }
 .sindri-tabs-scroll {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.3rem;
   flex: 1;
   min-width: 0;
   overflow-x: auto;
-  padding-bottom: 2px;
+  padding-bottom: 1px;
   scrollbar-width: thin;
 }
 .sindri-tabs-empty {
   color: var(--fg-dim);
-  font-size: 0.82rem;
-  padding: 0.3rem 0.2rem;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.3rem;
   white-space: nowrap;
 }
 .sindri-tab {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.3rem;
   flex-shrink: 0;
-  max-width: 16rem;
+  max-width: 11rem;
+  height: 1.85rem;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.4rem 0.5rem 0.4rem 0.8rem;
+  border-radius: 7px;
+  padding: 0 0.3rem 0 0.6rem;
   cursor: pointer;
   color: var(--fg-soft, var(--fg));
-  font-size: 0.84rem;
+  font-size: 0.78rem;
   transition: border-color 0.12s, background 0.12s, color 0.12s;
 }
 .sindri-tab:hover {
@@ -166,7 +175,7 @@ body:has(.sindri) {
 }
 .sindri-tab.is-active {
   border-color: var(--primary);
-  background: var(--panel, var(--bg));
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
   color: var(--fg);
   font-weight: 600;
 }
@@ -179,7 +188,7 @@ body:has(.sindri) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: 5px;
   width: 1.05rem;
   height: 1.05rem;
   color: var(--fg-dim);
@@ -697,8 +706,8 @@ body:has(.sindri) {
 .sindri-composer {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.7rem 0.8rem 0.8rem;
+  gap: 0.4rem;
+  padding: 0.5rem 0.55rem 0.55rem;
   border-top: 1px solid var(--border);
   background: var(--panel, var(--card));
 }
@@ -709,9 +718,9 @@ body:has(.sindri) {
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 8px);
-  padding: 0.6rem 0.7rem;
+  padding: 0.5rem 0.6rem;
   font-family: inherit;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   line-height: 1.4;
 }
 .sindri-input:focus {
@@ -769,9 +778,17 @@ body:has(.sindri) {
   white-space: nowrap;
   margin-left: 0.1rem;
 }
+/* icon-only square send/stop — no label, so the footer row stays slim */
 .sindri-send {
   flex-shrink: 0;
-  height: 2.3rem;
+  height: 2.1rem;
+  width: 2.1rem;
+  padding: 0;
+  justify-content: center;
+  align-items: center;
+}
+.sindri-send svg {
+  margin: 0;
 }
 
 /* ── live preview column (the right-pane sandbox) ── */
