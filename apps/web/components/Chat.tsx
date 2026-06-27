@@ -565,7 +565,7 @@ export default function Chat() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKey}
-                  rows={3}
+                  rows={2}
                   disabled={running}
                 />
                 <div className="sindri-cockpit">
@@ -609,12 +609,25 @@ export default function Chat() {
                     </span>
                   </div>
                   {running ? (
-                    <Button variant="destructive" onClick={stop} className="sindri-send">
-                      <Square size={16} /> Parar
+                    <Button
+                      variant="destructive"
+                      onClick={stop}
+                      className="sindri-send"
+                      title="Parar"
+                      aria-label="Parar"
+                    >
+                      <Square size={16} />
                     </Button>
                   ) : (
-                    <Button variant="default" onClick={send} disabled={!input.trim()} className="sindri-send">
-                      <Send size={16} /> Enviar
+                    <Button
+                      variant="default"
+                      onClick={send}
+                      disabled={!input.trim()}
+                      className="sindri-send"
+                      title="Enviar (Enter)"
+                      aria-label="Enviar"
+                    >
+                      <Send size={16} />
                     </Button>
                   )}
                 </div>

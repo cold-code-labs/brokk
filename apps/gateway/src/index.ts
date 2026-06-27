@@ -442,6 +442,31 @@ function subdomainFrom(req: http.IncomingMessage): string | null {
   return label.length > 0 ? label : null;
 }
 
+/**
+ * Strip the framing guards from an upstream response so the preview can render
+ * inside the Sindri iframe (and shared demo embeds). The whole *.preview domain
+ * exists to be embedded, so dropping `X-Frame-Options` and any CSP
+ * `frame-ancestors` directive here is correct and scoped — production app
+ * domains never pass through this gateway and keep their clickjacking headers.
+ * Mutates and returns the same headers object the upstream gave us.
+ */
+function stripFramingGuards(
+  headers: http.IncomingHttpHeaders,
+): http.IncomingHttpHeaders {
+  delete headers["x-frame-options"];
+  const csp = headers["content-security-policy"];
+  if (typeof csp === "string" && /frame-ancestors/i.test(csp)) {
+    const relaxed = csp
+      .split(";")
+      .map((d) => d.trim())
+      .filter((d) => d && !/^frame-ancestors/i.test(d))
+      .join("; ");
+    if (relaxed) headers["content-security-policy"] = relaxed;
+    else delete headers["content-security-policy"];
+  }
+  return headers;
+}
+
 function respondHtml(res: http.ServerResponse, status: number, body: string): void {
   if (res.headersSent) {
     res.destroy();
@@ -505,7 +530,7 @@ async function handleRequest(
     },
     (proxyRes) => {
       if (res.headersSent) return;
-      res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+      res.writeHead(proxyRes.statusCode ?? 502, stripFramingGuards(proxyRes.headers));
       proxyRes.pipe(res, { end: true });
       proxyRes.on("error", () => res.destroy());
     },
