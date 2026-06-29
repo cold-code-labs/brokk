@@ -478,10 +478,12 @@ function stripFramingGuards(
  *  proxy host the app's dev server never knows, so the HMR socket is rejected and
  *  the Turbopack client runtime stalls: the page renders its SSR splash and never
  *  hydrates (no redirect, no interactivity). Stripping the Origin makes the dev
- *  server treat the request as same-origin. SCOPED to `/_next/*` so page-route
- *  requests keep their Origin — Server Action CSRF validation relies on it. */
+ *  server treat the request as same-origin. SCOPED to Next's dev-internal prefixes
+ *  (`/_next/` assets + HMR, `/__nextjs*` dev endpoints incl. `/__nextjs_font/`) so
+ *  page-route requests keep their Origin — Server Action CSRF validation relies on
+ *  it (server actions POST to page routes, never these prefixes). */
 function isDevAssetPath(url: string | undefined): boolean {
-  return !!url && url.startsWith("/_next/");
+  return !!url && (url.startsWith("/_next/") || url.startsWith("/__nextjs"));
 }
 
 function respondHtml(res: http.ServerResponse, status: number, body: string): void {
