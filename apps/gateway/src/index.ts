@@ -472,6 +472,18 @@ function stripFramingGuards(
   return headers;
 }
 
+/** Next.js dev (15+/Turbopack) 403s requests to its dev resources — notably the
+ *  `/_next/webpack-hmr` WebSocket — when the request's Origin is neither
+ *  same-origin nor in the app's `allowedDevOrigins`. A preview is served from a
+ *  proxy host the app's dev server never knows, so the HMR socket is rejected and
+ *  the Turbopack client runtime stalls: the page renders its SSR splash and never
+ *  hydrates (no redirect, no interactivity). Stripping the Origin makes the dev
+ *  server treat the request as same-origin. SCOPED to `/_next/*` so page-route
+ *  requests keep their Origin — Server Action CSRF validation relies on it. */
+function isDevAssetPath(url: string | undefined): boolean {
+  return !!url && url.startsWith("/_next/");
+}
+
 function respondHtml(res: http.ServerResponse, status: number, body: string): void {
   if (res.headersSent) {
     res.destroy();
@@ -525,14 +537,20 @@ async function handleRequest(
   maybeBump(entry.id, entry.cp);
 
   // Forward the request to the upstream preview process — on the host that owns
-  // this preview's control plane (planes can run on different hosts).
+  // this preview's control plane (planes can run on different hosts). Drop the
+  // Origin on /_next/* so Next dev's cross-origin guard doesn't 403 dev assets.
+  let fwdHeaders = req.headers;
+  if (isDevAssetPath(req.url) && fwdHeaders.origin) {
+    fwdHeaders = { ...req.headers };
+    delete fwdHeaders.origin;
+  }
   const proxyReq = http.request(
     {
       hostname: entry.cp.previewHost,
       port: entry.port,
       method: req.method,
       path: req.url ?? "/",
-      headers: req.headers,
+      headers: fwdHeaders,
     },
     (proxyRes) => {
       if (res.headersSent) return;
@@ -607,8 +625,12 @@ async function handleUpgrade(
   });
 
   upstream.once("connect", () => {
-    // Reconstruct and send the original HTTP upgrade request.
+    // Reconstruct and send the original HTTP upgrade request. Strip Origin on
+    // /_next/* (the HMR socket) so Next dev's cross-origin guard accepts it —
+    // otherwise the dev runtime stalls and the preview never hydrates.
+    const stripOrigin = isDevAssetPath(req.url);
     const headerLines = Object.entries(req.headers)
+      .filter(([k]) => !(stripOrigin && k.toLowerCase() === "origin"))
       .flatMap(([k, v]) =>
         Array.isArray(v) ? v.map((val) => `${k}: ${val}`) : [`${k}: ${v}`],
       )
