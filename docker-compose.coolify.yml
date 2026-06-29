@@ -194,11 +194,17 @@ services:
       BROKK_CONTROL_URL_EXTRA: ${BROKK_CONTROL_URL_EXTRA:-}
       BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
+      # The singleton gateway also serves the dev-lane plane (BROKK_CONTROL_URL_EXTRA,
+      # the host-networked runner on WG 10.10.0.2): its previews bind the HOST, not the
+      # `forge` container. Map that plane's previews to the host so they don't 502.
+      BROKK_PREVIEW_HOST_MAP: ${BROKK_PREVIEW_HOST_MAP:-}
     expose:
       - "3020"
     ports:
       - "127.0.0.1:3020:3020"   # tunnel's existing *.preview.coldcodelabs.com target
     networks: [default, coolify]   # coolify net = reachability to the dev control plane (WG 10.10.0.2:8790)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # lets BROKK_PREVIEW_HOST_MAP target the host
     <<: *restart
 
   chat:

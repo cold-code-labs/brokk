@@ -48,6 +48,10 @@ const cfg = loadConfig();
 interface CpBase {
   hostname: string;
   port: number;
+  /** Host to dial this plane's preview processes on (see BROKK_PREVIEW_HOST_MAP).
+   *  Planes can live on different hosts — prod previews inside the `forge`
+   *  container, dev-lane previews on the host — so it's resolved per plane. */
+  previewHost: string;
 }
 
 /** Parse the host/port from a URL string into options suitable for http.*. */
@@ -56,6 +60,7 @@ function parseBaseUrl(raw: string): CpBase {
   return {
     hostname: u.hostname,
     port: u.port ? parseInt(u.port, 10) : u.protocol === "https:" ? 443 : 80,
+    previewHost: cfg.previewHostFor(u.hostname),
   };
 }
 
@@ -494,10 +499,11 @@ async function handleRequest(
 
   maybeBump(entry.id, entry.cp);
 
-  // Forward the request to the upstream preview process.
+  // Forward the request to the upstream preview process — on the host that owns
+  // this preview's control plane (planes can run on different hosts).
   const proxyReq = http.request(
     {
-      hostname: cfg.BROKK_PREVIEW_HOST,
+      hostname: entry.cp.previewHost,
       port: entry.port,
       method: req.method,
       path: req.url ?? "/",
@@ -563,8 +569,10 @@ async function handleUpgrade(
   maybeBump(entry.id, entry.cp);
 
   // Open a raw TCP connection to the upstream preview process and replay the
-  // HTTP upgrade handshake so the upstream's WebSocket server can respond.
-  const upstream = net.createConnection(entry.port, cfg.BROKK_PREVIEW_HOST);
+  // HTTP upgrade handshake so the upstream's WebSocket server can respond. Dial
+  // the host that owns this preview's plane (HMR rides this WS — it must reach
+  // the same upstream as the HTTP proxy above).
+  const upstream = net.createConnection(entry.port, entry.cp.previewHost);
 
   upstream.on("error", () => {
     if (!socket.destroyed) {
@@ -601,6 +609,11 @@ server.listen(cfg.BROKK_GATEWAY_PORT, "0.0.0.0", () => {
     `[gateway] *.preview reverse proxy listening on :${cfg.BROKK_GATEWAY_PORT}`,
   );
   console.log(`[gateway] control plane(s): ${cfg.controlUrls.join(", ")}`);
+  console.log(
+    `[gateway] preview host(s): ${cpBases
+      .map((cp) => `${cp.hostname}→${cp.previewHost}`)
+      .join(", ")}`,
+  );
   console.log(`[gateway] preview TTL bump: ${cfg.BROKK_PREVIEW_TTL_MS} ms`);
 });
 

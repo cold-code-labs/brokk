@@ -26,6 +26,15 @@ import { z } from "zod";
  *                       and gateway share the host loopback). On bridge networking,
  *                       set to the runner's container name (e.g. "forge") so the
  *                       gateway reaches the previews over the shared Docker network.
+ * BROKK_PREVIEW_HOST_MAP  Optional per-control-plane override of the preview host,
+ *                       as a comma-separated list of `<control-host>=<preview-host>`
+ *                       pairs (control-host = the hostname of that plane's
+ *                       BROKK_CONTROL_URL). The singleton gateway serves planes whose
+ *                       previews live on DIFFERENT hosts — e.g. prod previews inside
+ *                       the `forge` container (BROKK_PREVIEW_HOST=forge) while the
+ *                       dev-lane runner is host-networked, so its previews are on the
+ *                       host: `10.10.0.2=host.docker.internal`. A plane with no entry
+ *                       falls back to BROKK_PREVIEW_HOST.
  */
 const Env = z.object({
   BROKK_GATEWAY_PORT: z.coerce.number().int().positive().default(3020),
@@ -34,11 +43,15 @@ const Env = z.object({
   BROKK_CONTROL_URL_EXTRA: z.string().default(""),
   BROKK_PREVIEW_TTL_MS: z.coerce.number().int().positive().default(3_600_000),
   BROKK_PREVIEW_HOST: z.string().default("127.0.0.1"),
+  BROKK_PREVIEW_HOST_MAP: z.string().default(""),
 });
 
 export type Config = z.infer<typeof Env> & {
   /** All control planes to resolve previews from, primary first (deduped). */
   controlUrls: string[];
+  /** The preview host to dial for a given control-plane hostname. Falls back to
+   *  BROKK_PREVIEW_HOST when the plane has no explicit entry. */
+  previewHostFor: (controlHostname: string) => string;
 };
 
 export function loadConfig(): Config {
@@ -51,5 +64,29 @@ export function loadConfig(): Config {
     .map((s) => s.trim())
     .filter(Boolean);
   const controlUrls = [...new Set([parsed.data.BROKK_CONTROL_URL, ...extra])];
-  return { ...parsed.data, controlUrls };
+
+  // Parse the `<control-host>=<preview-host>` pairs into a lookup. A key may be
+  // given as a bare hostname or a full URL (we normalize to the hostname).
+  const previewHosts = new Map<string, string>();
+  for (const pair of parsed.data.BROKK_PREVIEW_HOST_MAP.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const eq = pair.indexOf("=");
+    if (eq <= 0) continue;
+    const rawKey = pair.slice(0, eq).trim();
+    const val = pair.slice(eq + 1).trim();
+    if (!val) continue;
+    let key = rawKey;
+    try {
+      if (rawKey.includes("://")) key = new URL(rawKey).hostname;
+    } catch {
+      /* keep the raw key */
+    }
+    previewHosts.set(key, val);
+  }
+
+  return {
+    ...parsed.data,
+    controlUrls,
+    previewHostFor: (controlHostname: string) =>
+      previewHosts.get(controlHostname) ?? parsed.data.BROKK_PREVIEW_HOST,
+  };
 }
