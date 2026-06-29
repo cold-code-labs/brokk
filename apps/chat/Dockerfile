@@ -24,7 +24,11 @@ FROM base AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 # git + gh: Sindri reads/writes the session checkout and opens PRs via the CLIs.
-RUN apk add --no-cache git github-cli openssh-client
+# ripgrep + GNU grep/findutils: the system prompt tells Sindri to search with
+# "ripgrep/grep/find" — Alpine ships only BusyBox grep/find (no GNU flags) and no
+# rg, so the agent's natural search commands (`rg …`, `grep -rn …`) errored. Install
+# the real tools so the prompt's promise holds. (coreutils/sed for good measure.)
+RUN apk add --no-cache git github-cli openssh-client ripgrep grep findutils coreutils sed
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/apps/chat/dist ./dist
 COPY --from=build /repo/apps/chat/package.json ./package.json
