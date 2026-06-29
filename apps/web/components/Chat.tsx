@@ -688,6 +688,7 @@ function SindriPreview({
   const [iframeKey, setIframeKey] = useState(0);
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const autoTried = useRef(""); // sessionId we've already auto-booted for
+  const wokeFor = useRef(""); // sessionId we've already auto-woken a reaped preview for
 
   const ensure = useCallback(async () => {
     setBusy(true);
@@ -707,6 +708,7 @@ function SindriPreview({
     setErr("");
     setDevice("desktop");
     autoTried.current = "";
+    wokeFor.current = "";
     let cancelled = false;
     chat.getPreview(sessionId).then(
       (pv) => !cancelled && setPreview(pv),
@@ -726,10 +728,26 @@ function SindriPreview({
     }
   }, [sawEdit, preview, busy, sessionId, ensure]);
 
-  // Poll status while starting (4s); slow-poll while live (12s) to catch reaps.
+  // A reaped/idle preview (status 'stopped') for the session we're looking at:
+  // wake it automatically so the pane reflects reality instead of a stale
+  // "parado" dead-end. The gateway already wakes a preview when its URL is hit
+  // directly — this does the same the moment the session is open, so the user
+  // sees "subindo… → ao vivo" rather than having to click "Subir preview".
+  // Only resumes a preview that ALREADY existed (was booted before); a session
+  // that never had one keeps the lazy/manual flow.
+  useEffect(() => {
+    if (preview?.status === "stopped" && !busy && wokeFor.current !== sessionId) {
+      wokeFor.current = sessionId;
+      void ensure();
+    }
+  }, [preview?.status, busy, sessionId, ensure]);
+
+  // Poll status while starting (4s); slow-poll while live/stopped (12s) so the
+  // pane catches both a reap (live→stopped) and an external wake (stopped→live,
+  // e.g. someone opened the preview URL directly) without a manual refresh.
   useEffect(() => {
     const status = preview?.status;
-    if (status !== "starting" && status !== "live") return;
+    if (status !== "starting" && status !== "live" && status !== "stopped") return;
     const id = setInterval(
       () => chat.getPreview(sessionId).then(setPreview, () => {}),
       status === "starting" ? 4000 : 12000,
