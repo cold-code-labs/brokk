@@ -43,20 +43,25 @@ const PatchSession = z.object({
 
 const SendMessage = z.object({ text: z.string().min(1) });
 
-/** Derive the deterministic preview identity (subdomain / url / Hauldr project)
- *  for a session's branch — the same scheme the control-plane POST /previews uses,
- *  so a Sindri dev preview lands on `<app>-sindri-<id8>.preview.coldcodelabs.com`
- *  with its own isolated `<app>_sindri_<id8>` Hauldr DB. */
-function previewIdentity(appName: string, branch: string): {
+/** Derive the canonical Sindri preview identity (subdomain / url / Hauldr project)
+ *  for an app — ONE stable slot per app, not one per session. Every Sindri session
+ *  on `<app>` lands on `<app>-sindri.preview.coldcodelabs.com` against the shared
+ *  `<app>_dev` Hauldr DB. The session's code stays isolated on disk (its own
+ *  `sindri/<id8>` checkout); only the preview URL + data layer are shared, so
+ *  iterating never mints a fresh subdomain/DB (no `<app>_sindri_<hash>` sprawl).
+ *  Dedicated `-sindri` slot (not the bare `<app>.preview`) so it never collides
+ *  with the Fleet build-mode dev preview that already owns `<app>.preview`.
+ *  ponytail: assumes ~1 active session per app. Two sessions on the same app at
+ *  once share this slot (live = first-wins via ensureActivePreview); add a takeover
+ *  guard in POST /preview if real concurrency shows up. */
+function previewIdentity(appName: string): {
   subdomain: string;
   url: string;
   hauldrProject: string;
 } {
-  const slug =
-    branch.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "dev";
-  const subdomain = `${appName}-${slug}`;
+  const subdomain = `${appName}-sindri`.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/(^-|-$)/g, "");
   const url = `https://${subdomain}.preview.coldcodelabs.com`;
-  const hauldrProject = `${appName}_${slug}`.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+  const hauldrProject = `${appName}_dev`.toLowerCase().replace(/[^a-z0-9_]/g, "_");
   return { subdomain, url, hauldrProject };
 }
 
@@ -137,7 +142,7 @@ export function buildSindri(deps: SindriDeps): Hono {
       // Stop the session's live preview (if any) so the supervisor reaps the dev
       // server + deprovisions its Hauldr compute on the next tick.
       if (repo && session.branch) {
-        const { subdomain } = previewIdentity(repo.name, session.branch);
+        const { subdomain } = previewIdentity(repo.name);
         const preview = await deps.store.getPreviewBySubdomain(subdomain).catch(() => null);
         if (preview && (preview.status === "live" || preview.status === "starting")) {
           await deps.store.stopPreview(preview.id).catch(() => {});
@@ -152,7 +157,7 @@ export function buildSindri(deps: SindriDeps): Hono {
   // ── Live preview (the right-pane sandbox) ─────────────────────────────────────
   // A per-session dev preview: `next dev` with HMR, run by the forge preview
   // supervisor straight in THIS session's checkout, so the agent's edits hot-reload
-  // in the iframe and on <app>-sindri-<id8>.preview.coldcodelabs.com. POST ensures
+  // in the iframe and on <app>-sindri.preview.coldcodelabs.com. POST ensures
   // the checkout exists + writes a 'starting' dev preview row (the supervisor boots
   // it); GET reports status for the UI to poll. Lazy: the UI only POSTs once the
   // app has a renderable change (or the user clicks "Subir preview").
@@ -173,7 +178,7 @@ export function buildSindri(deps: SindriDeps): Hono {
       baseBranch: project.baseBranch,
     });
 
-    const { subdomain, url, hauldrProject } = previewIdentity(repo.name, branch);
+    const { subdomain, url, hauldrProject } = previewIdentity(repo.name);
     const { preview, created } = await deps.store.ensureActivePreview({
       projectId: project.id,
       branch,
@@ -195,7 +200,7 @@ export function buildSindri(deps: SindriDeps): Hono {
     const project = await deps.store.getProject(session.projectId);
     const repo = project ? await deps.store.getRepository(project.repositoryId) : null;
     if (!repo) return c.json({ preview: null });
-    const { subdomain } = previewIdentity(repo.name, session.branch);
+    const { subdomain } = previewIdentity(repo.name);
     const preview = await deps.store.getPreviewBySubdomain(subdomain).catch(() => null);
     return c.json({ preview });
   });
