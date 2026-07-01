@@ -214,6 +214,21 @@ export default function Board({ projectId }: { projectId?: string }) {
     }
   }
 
+  // Mark a card done from the ⋯ menu. Optimistic: move it to the Done column now,
+  // then persist + reconcile (revert to server truth on failure).
+  const markCardDone = useCallback(
+    async (id: string) => {
+      setTasks((prev) => prev.map((x) => (x.id === id ? { ...x, status: "done" } : x)));
+      try {
+        await brokk.patchTask(id, { status: "done" });
+      } catch (e) {
+        setErr(String(e));
+      }
+      await refresh(project?.id);
+    },
+    [project, refresh],
+  );
+
   // Kick Resolve on a card — moves it into the Analysis column and opens the drawer
   // so you can watch the plan land.
   async function analyze(id: string) {
@@ -319,13 +334,20 @@ export default function Board({ projectId }: { projectId?: string }) {
                 <div style={cardList}>
                   {items.length === 0 && <p className="ygg-dim" style={{ fontSize: 12, margin: 0 }}>—</p>}
                   {items.map((task) => (
-                    <button key={task.id} onClick={() => setSelected(task.id)} style={card(selected === task.id)}>
+                    <div
+                      key={task.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelected(task.id)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(task.id); } }}
+                      style={card(selected === task.id)}
+                    >
                       <span style={{ display: "flex", gap: 7, alignItems: "start", justifyContent: "space-between" }}>
                         <span style={{ display: "flex", gap: 7, alignItems: "start", minWidth: 0, flex: 1 }}>
                           <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
                           <span style={cardTitle}>{task.title}</span>
                         </span>
-                        <CardMenu task={task} onChanged={() => refresh(project?.id)} onError={setErr} />
+                        <CardMenu task={task} onMarkDone={markCardDone} />
                       </span>
                       <span style={cardFooter}>
                         <OwnerChip owner={task.owner} source={task.source} />
@@ -346,7 +368,7 @@ export default function Board({ projectId }: { projectId?: string }) {
                           </a>
                         )}
                       </span>
-                    </button>
+                    </div>
                   ))}
                 </div>
               </section>
@@ -354,7 +376,7 @@ export default function Board({ projectId }: { projectId?: string }) {
           })}
         </div>
       ) : (
-        <ListView tasks={visible} selected={selected} onSelect={setSelected} onChanged={() => refresh(project?.id)} onError={setErr} />
+        <ListView tasks={visible} selected={selected} onSelect={setSelected} onMarkDone={markCardDone} />
       )}
 
       {selectedTask && (
@@ -397,14 +419,12 @@ function ListView({
   tasks,
   selected,
   onSelect,
-  onChanged,
-  onError,
+  onMarkDone,
 }: {
   tasks: Task[];
   selected: string | null;
   onSelect: (id: string) => void;
-  onChanged: () => void;
-  onError: (e: string) => void;
+  onMarkDone: (id: string) => void;
 }) {
   const order = COLUMNS as readonly string[];
   const rows = [...tasks].sort(
@@ -417,7 +437,14 @@ function ListView({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {rows.map((task) => (
-        <button key={task.id} onClick={() => onSelect(task.id)} style={listRow(selected === task.id)}>
+        <div
+          key={task.id}
+          role="button"
+          tabIndex={0}
+          onClick={() => onSelect(task.id)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(task.id); } }}
+          style={listRow(selected === task.id)}
+        >
           <span style={{ ...dot, background: STATUS_COLOR[task.status], marginTop: 0 }} />
           <span style={{ fontSize: 11, color: STATUS_COLOR[task.status], width: 74, flexShrink: 0, textTransform: "uppercase", letterSpacing: 0.3 }}>
             {task.status}
@@ -431,8 +458,8 @@ function ListView({
               PR ↗
             </a>
           )}
-          <CardMenu task={task} onChanged={onChanged} onError={onError} />
-        </button>
+          <CardMenu task={task} onMarkDone={onMarkDone} />
+        </div>
       ))}
     </div>
   );
@@ -443,75 +470,43 @@ function ListView({
  *  other move). Built to grow: add more items as the card actions expand. Uses a
  *  fixed-positioned popover computed from the button rect so the column's overflow
  *  never clips it. */
-function CardMenu({
-  task,
-  onChanged,
-  onError,
-}: {
-  task: Task;
-  onChanged: () => void;
-  onError: (e: string) => void;
-}) {
+function CardMenu({ task, onMarkDone }: { task: Task; onMarkDone: (id: string) => void }) {
   const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
+  const [coords, setCoords] = useState({ top: 0, right: 8 });
   const btnRef = useRef<HTMLButtonElement>(null);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    document.addEventListener("mousedown", close);
-    window.addEventListener("scroll", close, true);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      window.removeEventListener("scroll", close, true);
-    };
-  }, [open]);
 
   function toggle(e: React.MouseEvent) {
     e.stopPropagation();
+    e.preventDefault();
     const r = btnRef.current?.getBoundingClientRect();
-    if (r) setCoords({ top: r.bottom + 4, right: window.innerWidth - r.right });
+    if (r) setCoords({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
     setOpen((o) => !o);
   }
 
-  async function markDone(e: React.MouseEvent) {
+  function markDone(e: React.MouseEvent) {
     e.stopPropagation();
     setOpen(false);
-    setBusy(true);
-    try {
-      await brokk.patchTask(task.id, { status: "done" });
-      onChanged();
-    } catch (err) {
-      onError(String(err));
-    } finally {
-      setBusy(false);
-    }
+    if (task.status !== "done") onMarkDone(task.id);
   }
 
   const isDone = task.status === "done";
   return (
     <>
-      <button
-        ref={btnRef}
-        type="button"
-        aria-label="Ações do card"
-        onClick={toggle}
-        style={{ ...menuBtn, opacity: busy ? 0.5 : 1 }}
-      >
+      <button ref={btnRef} type="button" aria-label="Ações do card" onClick={toggle} style={menuBtn}>
         <MoreHorizontal size={16} />
       </button>
-      {open && coords && (
-        <div
-          style={{ ...menuPopover, top: coords.top, right: coords.right }}
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <button type="button" onClick={markDone} disabled={isDone} style={menuItem(isDone)}>
-            <CheckCircle2 size={13} style={{ color: STATUS_COLOR.done }} />
-            {isDone ? "Já concluído" : "Marcar como concluído"}
-          </button>
-        </div>
+      {open && (
+        <>
+          {/* Full-screen backdrop closes the menu on any outside click — no document
+              listeners, so a click on a menu item can never be swallowed by a close. */}
+          <div style={menuBackdrop} onClick={(e) => { e.stopPropagation(); setOpen(false); }} />
+          <div style={{ ...menuPopover, top: coords.top, right: coords.right }} onClick={(e) => e.stopPropagation()}>
+            <button type="button" onClick={markDone} disabled={isDone} style={menuItem(isDone)}>
+              <CheckCircle2 size={13} style={{ color: STATUS_COLOR.done }} />
+              {isDone ? "Já concluído" : "Marcar como concluído"}
+            </button>
+          </div>
+        </>
       )}
     </>
   );
@@ -1484,6 +1479,7 @@ const handoffBar: React.CSSProperties = { display: "flex", gap: 8, margin: "14px
 // Per-card ⋯ menu: a flat icon button + a fixed-positioned popover (escapes the
 // column's overflow clip).
 const menuBtn: React.CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, flexShrink: 0, borderRadius: 6, border: "none", background: "transparent", color: t.textMuted, cursor: "pointer" };
+const menuBackdrop: React.CSSProperties = { position: "fixed", inset: 0, zIndex: 59 };
 const menuPopover: React.CSSProperties = { position: "fixed", zIndex: 60, minWidth: 210, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 9, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: 2 };
 const menuItem = (disabled: boolean): React.CSSProperties => ({ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 6, border: "none", background: "transparent", color: disabled ? t.textFaint : t.text, fontSize: 12.5, cursor: disabled ? "default" : "pointer" });
 
