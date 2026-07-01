@@ -187,6 +187,10 @@ export const tasks = pgTable("tasks", {
   labels: jsonb("labels").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   baseBranch: text("base_branch"),
   createdBy: text("created_by"),
+  /** Caller-supplied idempotency key (ADR 0005). from-brief returns the existing
+   *  non-terminal task with this key instead of creating a racing duplicate —
+   *  blinds fleet callers (Svalinn remediation) to double-click / re-scan / retry. */
+  dedupeKey: text("dedupe_key"),
   prUrl: text("pr_url"),
   /** For revise tasks: the PR + head branch to update, and the round number. */
   prNumber: integer("pr_number"),

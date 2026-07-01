@@ -43,6 +43,10 @@ const FromBriefBody = z
     defaultBranch: z.string().default("main"),
     baseBranch: z.string().optional(),
     createdBy: z.string().default("asgard"),
+    // Idempotency (ADR 0005). If a non-terminal task in the project already carries
+    // this key, its handle is returned instead of forging a duplicate. Caller owns
+    // the namespace (e.g. "svalinn:<target>:<engine>:<rule>").
+    dedupeKey: z.string().min(1).max(200).optional(),
   })
   .refine((d) => Boolean(d.repoFullName) || Boolean(d.projectId), {
     message: "repoFullName or projectId is required",
@@ -57,7 +61,7 @@ export function runsRoutes(deps: AppDeps): Hono {
   r.post("/from-brief", async (c) => {
     const parsed = FromBriefBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const { repoFullName, projectId, brief, title, defaultBranch, baseBranch, createdBy } =
+    const { repoFullName, projectId, brief, title, defaultBranch, baseBranch, createdBy, dedupeKey } =
       parsed.data;
 
     let project: Awaited<ReturnType<typeof deps.store.getProject>> = null;
@@ -72,6 +76,23 @@ export function runsRoutes(deps: AppDeps): Hono {
     }
     if (!project) return c.json({ error: "could not resolve a project for the repo" }, 502);
 
+    const handle = (t: { id: string; status: string }) => ({
+      taskId: t.id,
+      projectId: project!.id,
+      repositoryId: project!.repositoryId,
+      status: t.status,
+      events: `/runs/by-task/${t.id}/events`,
+      task: `/tasks/${t.id}`,
+      runs: `/tasks/${t.id}/runs`,
+    });
+
+    // Idempotency: an active task with this key already exists → return it, don't
+    // forge a second (racing) PR for the same work.
+    if (dedupeKey) {
+      const existing = await deps.store.findActiveTaskByDedupeKey(project.id, dedupeKey);
+      if (existing) return c.json({ ...handle(existing), deduped: true }, 200);
+    }
+
     const task = await deps.store.insertTask({
       projectId: project.id,
       title: (title ?? firstLine(brief)).slice(0, 200),
@@ -79,20 +100,10 @@ export function runsRoutes(deps: AppDeps): Hono {
       status: "queued",
       createdBy,
       ...(baseBranch ? { baseBranch } : {}),
+      ...(dedupeKey ? { dedupeKey } : {}),
     });
 
-    return c.json(
-      {
-        taskId: task.id,
-        projectId: project.id,
-        repositoryId: project.repositoryId,
-        status: task.status,
-        events: `/runs/by-task/${task.id}/events`,
-        task: `/tasks/${task.id}`,
-        runs: `/tasks/${task.id}/runs`,
-      },
-      201,
-    );
+    return c.json(handle(task), 201);
   });
 
   // Task-keyed live stream: wait for the runner to materialize a run for this

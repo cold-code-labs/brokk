@@ -455,6 +455,9 @@ export interface Store {
   listTasks(opts?: { projectId?: string; status?: TaskStatus }): Promise<Task[]>;
   getTask(id: string): Promise<Task | null>;
   insertTask(values: typeof tasks.$inferInsert): Promise<Task>;
+  /** Idempotency lookup for from-brief (ADR 0005): a non-terminal task in this
+   *  project carrying `dedupeKey`, if any. Returned instead of forging a dupe. */
+  findActiveTaskByDedupeKey(projectId: string, dedupeKey: string): Promise<Task | null>;
   updateTask(id: string, patch: Partial<typeof tasks.$inferInsert>): Promise<Task>;
   /** Match a merged PR back to its forge card (by stored pr_url or pr_number). */
   findTaskForMergedPr(prUrl: string, prNumber: number): Promise<Task | null>;
@@ -786,6 +789,17 @@ export function createStore(db: Db): Store {
     async insertTask(values) {
       const rows = await db.insert(tasks).values(values).returning();
       return rowToTask(rows[0]!);
+    },
+    async findActiveTaskByDedupeKey(projectId, dedupeKey) {
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(
+          sql`${tasks.projectId} = ${projectId} AND ${tasks.dedupeKey} = ${dedupeKey} AND ${tasks.status} NOT IN ('done','failed','cancelled')`,
+        )
+        .orderBy(sql`${tasks.createdAt} DESC`)
+        .limit(1);
+      return rows[0] ? rowToTask(rows[0]) : null;
     },
     async updateTask(id, patch) {
       const rows = await db
@@ -1760,6 +1774,12 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     await db.execute(sql`ALTER TYPE run_event_type ADD VALUE IF NOT EXISTS 'acceptance';`);
     // Origin evidence (Muninn verbatim excerpts) on the drizzle-pushed tasks table.
     await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb;`);
+    // from-brief idempotency key (ADR 0005). Self-healed column + a partial lookup
+    // index over only the non-terminal statuses (the ones dedup considers "active").
+    await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS dedupe_key text;`);
+    await db.execute(
+      sql`CREATE INDEX IF NOT EXISTS tasks_dedupe_key_active_idx ON tasks (project_id, dedupe_key) WHERE status NOT IN ('done','failed','cancelled');`,
+    );
     // Versioned analysis columns (the living understanding). Self-healed ADD COLUMNs
     // so existing card_analyses rows gain them without a push.
     await db.execute(sql`ALTER TABLE card_analyses ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;`);
