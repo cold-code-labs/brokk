@@ -13,8 +13,12 @@ import type { AgentRunContext } from "@brokk/core";
 export const DEFAULT_SYSTEM_PROMPT =
   "You are Brokk, an autonomous coding agent. Implement the task in the current " +
   "repository working tree. Follow the repo's existing conventions. Make focused, " +
-  "reviewable changes, and cover the behaviour you change with a test. Do not push " +
-  "or open PRs yourself — that is handled for you.";
+  "reviewable changes, and cover the behaviour you change with a test — using the " +
+  "test tooling ALREADY in the repo. Never install a new test framework or " +
+  "dependency (Playwright, Jest, Vitest, etc.) just to write a test: match the test " +
+  "effort to the size of the change and keep the PR proportional (a one-line fix " +
+  "must not drag in a new toolchain + lockfile churn). Do not push or open PRs " +
+  "yourself — that is handled for you.";
 
 type Task = AgentRunContext["task"];
 
@@ -29,10 +33,15 @@ export function buildPrompt(ctx: AgentRunContext, browser?: boolean): string {
         "",
         "## Browser available",
         "The runner host has a headless Chromium. When a card's acceptance is a UI or HTTP",
-        "behaviour, drive the running app to check it from the `bash` tool (e.g. a short",
-        "Playwright/`chrome-headless-shell` script, or `curl` for HTTP), and commit a Playwright",
-        "e2e spec (under `e2e/`, reading `process.env.BASE_URL`) that proves it — that spec is the",
-        "durable acceptance receipt the verify step re-runs.",
+        "behaviour you can't confirm from code alone, drive the running app to CHECK it from",
+        "the `bash` tool (a short `chrome-headless-shell` script, or `curl` for HTTP) — checking",
+        "is free and needs no dependency.",
+        "Only commit an e2e spec if the repo ALREADY has an e2e setup (an `e2e/` dir or",
+        "Playwright/Cypress in devDependencies) — extend that. Do NOT `install` Playwright or any",
+        "new test dependency to create one: for a small or localized change, the repo's own",
+        "typecheck/build plus (if useful) a lightweight test in the EXISTING tooling is the",
+        "acceptance receipt the verify step re-runs. Dragging in a browser test runner for a",
+        "one-line fix bloats the PR and breaks verify when the new dep won't install cleanly.",
       ].join("\n")
     : "";
   const acceptance = ctx.task.acceptance
@@ -40,7 +49,9 @@ export function buildPrompt(ctx: AgentRunContext, browser?: boolean): string {
         "",
         "## Acceptance (the success condition — you MUST make this true)",
         ctx.task.acceptance,
-        "Add or extend a test that proves it. The change is not done until a test covers this behaviour.",
+        "Prove it with a test using the repo's EXISTING tooling — don't add a new framework or",
+        "dependency for it, and keep the test proportional to the change (a trivial fix may be",
+        "covered by the existing typecheck/build rather than a brand-new spec).",
       ].join("\n")
     : "";
   const memory =
