@@ -1,20 +1,28 @@
 "use client";
 
-import type { Preview, Project, Run, RunEvent, Task } from "@brokk/sdk";
+import type { Preview, Project, Run, RunEvent, Task, TaskEvent, TaskOwner } from "@brokk/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Bot,
   Brain,
   Camera,
   CheckCircle2,
   ChevronRight,
+  Columns3,
   FileEdit,
   FileText,
   GitPullRequest,
+  Hand,
   ListTodo,
   Loader2,
+  Plus,
+  Rows3,
   ScrollText,
+  Search,
   TerminalSquare,
+  User as UserIcon,
+  Undo2,
   Wrench,
   XCircle,
 } from "lucide-react";
@@ -50,10 +58,14 @@ export default function Board({ projectId }: { projectId?: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Linear-ish controls: view mode, owner lane filter, free-text search, new-card
+  // modal. The search box gets a ref so the `/` shortcut can focus it.
+  const [view, setView] = useState<"board" | "list">("board");
+  const [ownerFilter, setOwnerFilter] = useState<"all" | TaskOwner>("all");
+  const [query, setQuery] = useState("");
+  const [showNew, setShowNew] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
   // Render only after mount: browser extensions (Dashlane etc.) mutate form HTML
   // before React hydrates, which trips hydration warnings. Client-only sidesteps it.
   const [mounted, setMounted] = useState(false);
@@ -156,23 +168,41 @@ export default function Board({ projectId }: { projectId?: string }) {
     }
   }
 
-  async function createTask(e: React.FormEvent) {
-    e.preventDefault();
-    if (!project || !title.trim()) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      const task = await brokk.createTask({ projectId: project.id, title: title.trim(), body });
-      await brokk.enqueueTask(task.id);
-      setTitle("");
-      setBody("");
+  // Create a manual card. owner='brokk' + queue → straight to the forge; owner
+  // ='human' → it stays a backlog card you own (the runner never claims it).
+  const handleCreate = useCallback(
+    async (input: { title: string; body: string; owner: TaskOwner; queue: boolean }) => {
+      if (!project) return;
+      const task = await brokk.createTask({
+        projectId: project.id,
+        title: input.title,
+        body: input.body,
+        owner: input.owner,
+      });
+      if (input.owner === "brokk" && input.queue) await brokk.enqueueTask(task.id);
       await refresh(project.id);
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setBusy(false);
+    },
+    [project, refresh],
+  );
+
+  // Keyboard: `c` opens the new-card modal, `/` focuses search — the Linear feel.
+  // Ignored while typing in a field or when a modal/drawer already owns focus.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (showNew || selected) return;
+      const el = e.target as HTMLElement | null;
+      if (el && /^(input|textarea|select)$/i.test(el.tagName)) return;
+      if (e.key === "c") {
+        e.preventDefault();
+        setShowNew(true);
+      } else if (e.key === "/") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
     }
-  }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showNew, selected]);
 
   async function enqueue(id: string) {
     try {
@@ -196,6 +226,16 @@ export default function Board({ projectId }: { projectId?: string }) {
   }
 
   const selectedTask = tasks.find((x) => x.id === selected) ?? null;
+
+  // Owner lane + free-text filter, applied to both the board and the list.
+  const q = query.trim().toLowerCase();
+  const visible = tasks.filter(
+    (x) =>
+      (ownerFilter === "all" || x.owner === ownerFilter) &&
+      (!q || x.title.toLowerCase().includes(q) || (x.body ?? "").toLowerCase().includes(q)),
+  );
+  const mineCount = tasks.filter((x) => x.owner === "human").length;
+
   if (!mounted) return null;
 
   return (
@@ -209,14 +249,22 @@ export default function Board({ projectId }: { projectId?: string }) {
           </>
         }
         actions={
-          project &&
-          (preview && preview.status !== "stopped" ? (
-            <PreviewChip preview={preview} onStop={handleStopPreview} />
-          ) : (
-            <Button variant="outline" size="sm" type="button" onClick={handlePreview} disabled={previewBusy}>
-              {previewBusy ? "starting…" : "Preview dev"}
-            </Button>
-          ))
+          <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {project && (
+              <Button size="sm" type="button" onClick={() => setShowNew(true)}>
+                <Plus size={14} style={{ marginRight: 4, verticalAlign: "-2px" }} />
+                Novo card
+              </Button>
+            )}
+            {project &&
+              (preview && preview.status !== "stopped" ? (
+                <PreviewChip preview={preview} onStop={handleStopPreview} />
+              ) : (
+                <Button variant="outline" size="sm" type="button" onClick={handlePreview} disabled={previewBusy}>
+                  {previewBusy ? "starting…" : "Preview dev"}
+                </Button>
+              ))}
+          </span>
         }
       >
         <Link href="/" className="ygg-dim" style={{ fontSize: 12, textDecoration: "none", display: "inline-block", marginBottom: 6 }}>
@@ -224,46 +272,70 @@ export default function Board({ projectId }: { projectId?: string }) {
         </Link>
       </PageHeader>
 
-      <form onSubmit={createTask} style={{ display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" }}>
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="New task title…" style={{ ...field, flex: "1 1 280px" }} />
-        <input value={body} onChange={(e) => setBody(e.target.value)} placeholder="What the agent should do…" style={{ ...field, flex: "1 1 460px" }} />
-        <Button type="submit" disabled={busy || !project || !title.trim()}>
-          {busy ? "Forging…" : "Queue task →"}
-        </Button>
-      </form>
+      {/* Toolbar: search + owner lane filter + view toggle — the "ver todos os
+          cards facilmente" surface. */}
+      <div style={toolbar}>
+        <div style={{ position: "relative", flex: "1 1 240px", minWidth: 0 }}>
+          <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: t.textFaint }} />
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar cards…  ( / )"
+            style={{ ...field, width: "100%", paddingLeft: 30 }}
+          />
+        </div>
+        <div style={segGroup}>
+          {(["all", "brokk", "human"] as const).map((o) => (
+            <button key={o} type="button" onClick={() => setOwnerFilter(o)} style={segBtn(ownerFilter === o)}>
+              {o === "all" ? "Todos" : o === "brokk" ? "Brokk" : `Meus${mineCount ? ` (${mineCount})` : ""}`}
+            </button>
+          ))}
+        </div>
+        <div style={segGroup}>
+          <button type="button" onClick={() => setView("board")} style={segBtn(view === "board")} aria-label="Board" title="Board">
+            <Columns3 size={15} />
+          </button>
+          <button type="button" onClick={() => setView("list")} style={segBtn(view === "list")} aria-label="List" title="Lista">
+            <Rows3 size={15} />
+          </button>
+        </div>
+      </div>
 
       {err && <Banner tone="err">⚠ {err}</Banner>}
       {previewErr && <Banner tone="err">⚠ preview: {previewErr}</Banner>}
 
-      <div style={boardScroll}>
-        {COLUMNS.map((key) => {
-          const items = tasks.filter((x) => x.status === key);
-          return (
-            <section key={key} style={column}>
-              <h2 style={colHead}>
-                {STATUS_LABEL[key]}
-                <span style={{ color: "var(--fg-dim)", marginLeft: 6 }}>{items.length}</span>
-              </h2>
-              <div style={cardList}>
-                {items.length === 0 && <p className="ygg-dim" style={{ fontSize: 12, margin: 0 }}>—</p>}
-                {items.map((task) => (
-                  <button key={task.id} onClick={() => setSelected(task.id)} style={card(selected === task.id)}>
-                    <span style={{ display: "flex", gap: 7, alignItems: "start", justifyContent: "space-between" }}>
-                      <span style={{ display: "flex", gap: 7, alignItems: "start", minWidth: 0, flex: 1 }}>
-                        <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
-                        <span style={cardTitle}>{task.title}</span>
+      {view === "board" ? (
+        <div style={boardScroll}>
+          {COLUMNS.map((key) => {
+            const items = visible.filter((x) => x.status === key);
+            return (
+              <section key={key} style={column}>
+                <h2 style={colHead}>
+                  {STATUS_LABEL[key]}
+                  <span style={{ color: "var(--fg-dim)", marginLeft: 6 }}>{items.length}</span>
+                </h2>
+                <div style={cardList}>
+                  {items.length === 0 && <p className="ygg-dim" style={{ fontSize: 12, margin: 0 }}>—</p>}
+                  {items.map((task) => (
+                    <button key={task.id} onClick={() => setSelected(task.id)} style={card(selected === task.id)}>
+                      <span style={{ display: "flex", gap: 7, alignItems: "start", justifyContent: "space-between" }}>
+                        <span style={{ display: "flex", gap: 7, alignItems: "start", minWidth: 0, flex: 1 }}>
+                          <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
+                          <span style={cardTitle}>{task.title}</span>
+                        </span>
+                        {/* who created this card — agent or you */}
+                        <AgentAvatar createdBy={task.createdBy} size={17} />
                       </span>
-                      {/* who created this card — agent or you */}
-                      <AgentAvatar createdBy={task.createdBy} size={17} />
-                    </span>
-                    {(task.status === "backlog" || task.prUrl) && (
                       <span style={cardFooter}>
+                        <OwnerChip owner={task.owner} source={task.source} />
+                        <span style={{ flex: 1 }} />
                         {task.status === "backlog" && (
                           <span onClick={(e) => { e.stopPropagation(); analyze(task.id); }} style={analyzeBtn}>
                             analyze →
                           </span>
                         )}
-                        {task.status === "backlog" && (
+                        {task.status === "backlog" && task.owner === "brokk" && (
                           <span onClick={(e) => { e.stopPropagation(); enqueue(task.id); }} style={miniBtn}>
                             queue →
                           </span>
@@ -274,14 +346,16 @@ export default function Board({ projectId }: { projectId?: string }) {
                           </a>
                         )}
                       </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </section>
-          );
-        })}
-      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        <ListView tasks={visible} selected={selected} onSelect={setSelected} />
+      )}
 
       {selectedTask && (
         <Detail
@@ -290,7 +364,151 @@ export default function Board({ projectId }: { projectId?: string }) {
           onChanged={() => refresh(project?.id)}
         />
       )}
+
+      {showNew && project && (
+        <NewCardModal
+          onClose={() => setShowNew(false)}
+          onCreate={handleCreate}
+        />
+      )}
     </Main>
+  );
+}
+
+/** Owner/source signal chip. 'human' reads as "Meu" (you pulled it); manual cards
+ *  get a subtle "manual" hint. Brokk-owned agent cards show nothing (the default). */
+function OwnerChip({ owner, source }: { owner: TaskOwner; source: string }) {
+  if (owner === "human") {
+    return (
+      <span style={ownerChip(STATUS_COLOR.review)}>
+        <UserIcon size={11} /> Meu
+      </span>
+    );
+  }
+  if (source === "manual") {
+    return <span style={ownerChip(t.textFaint)}>manual</span>;
+  }
+  return null;
+}
+
+/** List view — a flat, scannable table of every (filtered) card, grouped nowhere,
+ *  sorted by status order then recency. The Linear "see everything at once" mode. */
+function ListView({
+  tasks,
+  selected,
+  onSelect,
+}: {
+  tasks: Task[];
+  selected: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const order = COLUMNS as readonly string[];
+  const rows = [...tasks].sort(
+    (a, b) =>
+      order.indexOf(a.status) - order.indexOf(b.status) ||
+      (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""),
+  );
+  if (rows.length === 0)
+    return <p className="ygg-dim" style={{ fontSize: 13, marginTop: 20 }}>Nenhum card com esse filtro.</p>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {rows.map((task) => (
+        <button key={task.id} onClick={() => onSelect(task.id)} style={listRow(selected === task.id)}>
+          <span style={{ ...dot, background: STATUS_COLOR[task.status], marginTop: 0 }} />
+          <span style={{ fontSize: 11, color: STATUS_COLOR[task.status], width: 74, flexShrink: 0, textTransform: "uppercase", letterSpacing: 0.3 }}>
+            {task.status}
+          </span>
+          <span style={{ fontSize: 13.5, minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: t.text }}>
+            {task.title}
+          </span>
+          <OwnerChip owner={task.owner} source={task.source} />
+          {task.prUrl && (
+            <a href={task.prUrl} target="_blank" rel="noreferrer" style={prLink} onClick={(e) => e.stopPropagation()}>
+              PR ↗
+            </a>
+          )}
+          <AgentAvatar createdBy={task.createdBy} size={16} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** The "adicionar card manual" modal. Choose who drives it: Brokk (flows to the
+ *  forge) or you (a card you'll resolve yourself — the runner never claims it). */
+function NewCardModal({
+  onClose,
+  onCreate,
+}: {
+  onClose: () => void;
+  onCreate: (input: { title: string; body: string; owner: TaskOwner; queue: boolean }) => Promise<void>;
+}) {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [owner, setOwner] = useState<TaskOwner>("brokk");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    if (!title.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await onCreate({ title: title.trim(), body: body.trim(), owner, queue: true });
+      onClose();
+    } catch (e) {
+      setErr(String(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <h2 style={{ margin: 0, fontSize: 16 }}>Novo card</h2>
+          <Button variant="outline" size="icon" onClick={onClose} aria-label="Close">✕</Button>
+        </div>
+        {err && <Banner tone="err">⚠ {err}</Banner>}
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Título do card…"
+          // biome-ignore lint/a11y/noAutofocus: modal opened on explicit action
+          autoFocus
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submit()}
+          style={{ ...field, width: "100%", marginBottom: 8 }}
+        />
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Descrição / o que precisa ser feito…"
+          rows={4}
+          style={{ ...field, width: "100%", resize: "vertical", marginBottom: 14 }}
+        />
+        <div className="ygg-dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 7 }}>
+          Quem resolve
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+          <button type="button" onClick={() => setOwner("brokk")} style={ownerPick(owner === "brokk")}>
+            <Bot size={16} />
+            <span style={{ fontWeight: 600, fontSize: 13 }}>Brokk forja</span>
+            <span className="ygg-dim" style={{ fontSize: 11 }}>vai pra fila do forge</span>
+          </button>
+          <button type="button" onClick={() => setOwner("human")} style={ownerPick(owner === "human")}>
+            <UserIcon size={16} />
+            <span style={{ fontWeight: 600, fontSize: 13 }}>Eu resolvo</span>
+            <span className="ygg-dim" style={{ fontSize: 11 }}>fica comigo, forge ignora</span>
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>Cancelar</Button>
+          <Button onClick={submit} disabled={busy || !title.trim()}>
+            {busy ? "Criando…" : owner === "brokk" ? "Criar → forja" : "Criar card"}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -299,6 +517,22 @@ function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void;
   const [events, setEvents] = useState<RunEvent[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
   const isAnalysis = task.status === "analysis";
+  const isTerminal = task.status === "done" || task.status === "cancelled";
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [handoffErr, setHandoffErr] = useState<string | null>(null);
+
+  async function handoff(fn: () => Promise<unknown>) {
+    setHandoffBusy(true);
+    setHandoffErr(null);
+    try {
+      await fn();
+      onChanged();
+      onClose();
+    } catch (e) {
+      setHandoffErr(String(e));
+      setHandoffBusy(false);
+    }
+  }
 
   useEffect(() => {
     // A card in analysis has no runs yet — its drawer is the plan, not the log.
@@ -342,6 +576,43 @@ function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void;
         {task.body && <p className="ygg-muted" style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{task.body}</p>}
         {latest?.error && <pre style={{ ...logBox, color: STATUS_COLOR.failed, maxHeight: 120 }}>{latest.error}</pre>}
 
+        {/* Handoff: pull the card out of the forge, hand it back, or mark it
+            resolved by hand. The "resolver independente do Brokk" surface. */}
+        <div style={handoffBar}>
+          {task.owner === "brokk" ? (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={handoffBusy}
+              onClick={() => handoff(() => brokk.setTaskOwner(task.id, "human", "pego pelo humano"))}
+            >
+              <Hand size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
+              Pegar pra mim
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={handoffBusy}
+              onClick={() => handoff(() => brokk.setTaskOwner(task.id, "brokk", "devolvido ao forge"))}
+            >
+              <Undo2 size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
+              Devolver ao Brokk
+            </Button>
+          )}
+          {!isTerminal && (
+            <Button
+              size="sm"
+              disabled={handoffBusy}
+              onClick={() => handoff(() => brokk.resolveTask(task.id, "resolvido fora do forge"))}
+            >
+              <CheckCircle2 size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
+              Resolver por fora
+            </Button>
+          )}
+        </div>
+        {handoffErr && <Banner tone="err">⚠ {handoffErr}</Banner>}
+
         {isAnalysis ? (
           <AnalysisPanel task={task} onChanged={onChanged} onClose={onClose} />
         ) : (
@@ -352,9 +623,83 @@ function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void;
             <RunLog events={events} logRef={logRef} />
           </>
         )}
+
+        <Timeline taskId={task.id} status={task.status} owner={task.owner} />
       </aside>
     </div>
   );
+}
+
+/** The card's lifecycle trail — the "rastreio completo de ciclo de vida". Reads
+ *  task_events and renders who moved the card, when, and why. Re-fetched when the
+ *  card's status/owner changes so a fresh transition shows without a reopen. */
+function Timeline({ taskId, status, owner }: { taskId: string; status: string; owner: string }) {
+  const [events, setEvents] = useState<TaskEvent[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    brokk
+      .listTaskEvents(taskId)
+      .then((e) => alive && setEvents(e))
+      .catch(() => alive && setEvents([]));
+    return () => {
+      alive = false;
+    };
+    // status/owner in deps → the trail refreshes after a transition or handoff.
+  }, [taskId, status, owner]);
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "0 0 10px", letterSpacing: 0.4 }}>
+        Ciclo de vida
+      </h3>
+      {events === null ? (
+        <p className="ygg-dim" style={{ fontSize: 12 }}>carregando…</p>
+      ) : events.length === 0 ? (
+        <p className="ygg-dim" style={{ fontSize: 12 }}>sem eventos ainda.</p>
+      ) : (
+        <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 0 }}>
+          {events.map((ev, i) => (
+            <li key={ev.id} style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 10 }}>
+                <span style={{ ...dot, marginTop: 5, background: eventTint(ev) }} />
+                {i < events.length - 1 && <span style={{ flex: 1, width: 1, background: t.border, marginTop: 2 }} />}
+              </div>
+              <div style={{ paddingBottom: 12, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, color: t.text }}>
+                  {eventLabel(ev)}
+                </div>
+                <div className="ygg-dim" style={{ fontSize: 11, marginTop: 2 }}>
+                  {ev.actor} · {new Date(ev.at).toLocaleString()}
+                  {ev.reason ? ` · ${ev.reason}` : ""}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function eventTint(ev: TaskEvent): string {
+  if (ev.type === "owner") return ev.to === "human" ? STATUS_COLOR.review : STATUS_COLOR.backlog;
+  if (ev.type === "created") return STATUS_COLOR.backlog;
+  return STATUS_COLOR[ev.to ?? ""] ?? t.textFaint;
+}
+
+function eventLabel(ev: TaskEvent): string {
+  switch (ev.type) {
+    case "created":
+      return `Card criado (${ev.to})`;
+    case "owner":
+      return ev.to === "human" ? "Pego por um humano" : "Devolvido ao Brokk";
+    case "resolved":
+      return "Resolvido por fora";
+    case "status":
+      return `${ev.from ?? "—"} → ${ev.to}`;
+    default:
+      return ev.reason ?? ev.type;
+  }
 }
 
 /** The Analysis drawer — Resolve's "visão pra resolução". Polls the card's analysis
@@ -994,6 +1339,65 @@ const optionBtn = (active: boolean): React.CSSProperties => ({
   fontWeight: active ? 600 : 400,
   transition: "background .12s, border-color .12s",
 });
+
+// Toolbar + segmented controls (search / owner lane / view toggle).
+const toolbar: React.CSSProperties = { display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" };
+const segGroup: React.CSSProperties = { display: "flex", gap: 2, padding: 2, background: t.surface2, border: `1px solid ${t.border}`, borderRadius: 8 };
+const segBtn = (active: boolean): React.CSSProperties => ({
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 5,
+  fontSize: 12.5,
+  fontWeight: active ? 600 : 400,
+  padding: "5px 11px",
+  borderRadius: 6,
+  border: "none",
+  cursor: "pointer",
+  background: active ? t.surface3 : "transparent",
+  color: active ? t.text : t.textMuted,
+});
+const ownerChip = (color: string): React.CSSProperties => ({
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 3,
+  fontSize: 10.5,
+  fontWeight: 600,
+  padding: "1px 7px",
+  borderRadius: 20,
+  border: `1px solid ${color}55`,
+  color,
+  background: `${color}14`,
+  whiteSpace: "nowrap",
+});
+const listRow = (active: boolean): React.CSSProperties => ({
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  width: "100%",
+  textAlign: "left",
+  padding: "9px 12px",
+  borderRadius: 8,
+  cursor: "pointer",
+  border: `1px solid ${active ? t.borderActive : "transparent"}`,
+  background: active ? t.surface3 : t.surface2,
+  color: t.text,
+});
+const modalCard: React.CSSProperties = { width: "min(520px, 100%)", margin: "auto", alignSelf: "center", background: t.bg, border: `1px solid ${t.border}`, borderRadius: 12, padding: 22, boxShadow: "0 24px 80px rgba(0,0,0,0.5)" };
+const ownerPick = (active: boolean): React.CSSProperties => ({
+  flex: 1,
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+  alignItems: "flex-start",
+  textAlign: "left",
+  padding: "11px 13px",
+  borderRadius: 9,
+  cursor: "pointer",
+  border: `1px solid ${active ? t.borderActive : t.border}`,
+  background: active ? t.surface3 : t.surface2,
+  color: t.text,
+});
+const handoffBar: React.CSSProperties = { display: "flex", gap: 8, margin: "14px 0 4px", flexWrap: "wrap" };
 
 // Board: fixed-width columns + horizontal scroll (standard kanban). Fixed width
 // keeps cards readable regardless of column count and accommodates new columns

@@ -183,6 +183,13 @@ export const tasks = pgTable("tasks", {
   body: text("body").notNull().default(""),
   status: taskStatus("status").notNull().default("backlog"),
   kind: taskKind("kind").notNull().default("implement"),
+  /** Who drives the card: 'brokk' (the forge may claim it) or 'human' (pulled out
+   *  to be resolved by a person — the runner skips it). Plain text (not a pgEnum)
+   *  so the boot-time self-heal DDL is a trivial ADD COLUMN. See @brokk/core TaskOwner. */
+  owner: text("owner").$type<import("@brokk/core").TaskOwner>().notNull().default("brokk"),
+  /** How the card was created: 'agent' (Huginn/Muninn/Resolve) or 'manual' (added
+   *  by a human from the board). See @brokk/core TaskSource. */
+  source: text("source").$type<import("@brokk/core").TaskSource>().notNull().default("agent"),
   priority: integer("priority").notNull().default(0),
   labels: jsonb("labels").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   baseBranch: text("base_branch"),
@@ -265,6 +272,28 @@ export const runEvents = pgTable(
   (t) => ({
     runSeq: unique("run_events_run_id_seq_uniq").on(t.runId, t.seq),
   }),
+);
+
+/** Append-only lifecycle trail of a card (task) — one row per status/owner change,
+ *  creation, or manual note. This is the "rastreio de ciclo de vida": who moved the
+ *  card, when, from what to what, and why. `type` = created|status|owner|resolved|note
+ *  and `from`/`to` are plain text (a status, an owner, or null) — no pgEnum so the
+ *  boot-time self-heal DDL stays a trivial CREATE IF NOT EXISTS. Ordered by `at`. */
+export const taskEvents = pgTable(
+  "task_events",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    type: text("type").$type<import("@brokk/core").TaskEventType>().notNull(),
+    from: text("from"),
+    to: text("to"),
+    actor: text("actor").notNull().default("system"),
+    reason: text("reason"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ task: index("task_events_task_idx").on(t.taskId) }),
 );
 
 export const users = pgTable("users", {

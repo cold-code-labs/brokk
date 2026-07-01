@@ -40,10 +40,10 @@ export function webhooksRoutes(deps: AppDeps): Hono {
         }
         const task = await deps.store.findTaskForMergedPr(pr.html_url, pr.number);
         if (task && task.status !== "done") {
-          await deps.store.updateTask(task.id, {
-            status: "done",
-            prUrl: pr.html_url,
-            prNumber: pr.number,
+          await deps.store.transitionTask(task.id, "done", {
+            actor: "github",
+            reason: `PR merged (#${pr.number})`,
+            extra: { prUrl: pr.html_url, prNumber: pr.number },
           });
           return c.json({ ok: true, event, taskId: task.id, status: "done" });
         }

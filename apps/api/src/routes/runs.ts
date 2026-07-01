@@ -209,10 +209,20 @@ export function runsRoutes(deps: AppDeps): Hono {
     const taskStatus =
       status === "succeeded" ? "review" : status === "failed" ? "failed" : "cancelled";
     const resolvedPrNumber = prNumber ?? (prUrl ? prNumberFromUrl(prUrl) : null);
-    const task = await deps.store.updateTask(run.taskId, {
-      status: taskStatus,
-      ...(prUrl ? { prUrl } : {}),
-      ...(resolvedPrNumber ? { prNumber: resolvedPrNumber } : {}),
+    const task = await deps.store.transitionTask(run.taskId, taskStatus, {
+      actor: "forge",
+      reason:
+        status === "succeeded"
+          ? "PR opened"
+          : status === "failed"
+            ? error
+              ? firstLine(error)
+              : "forge failed"
+            : "run cancelled",
+      extra: {
+        ...(prUrl ? { prUrl } : {}),
+        ...(resolvedPrNumber ? { prNumber: resolvedPrNumber } : {}),
+      },
     });
 
     // Plan bookkeeping. A failed card would otherwise stall its dependents in

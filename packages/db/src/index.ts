@@ -35,7 +35,11 @@ import type {
   Subscription,
   Task,
   TaskAnalysis,
+  TaskEvent,
+  TaskEventType,
   TaskKind,
+  TaskOwner,
+  TaskSource,
   TaskStatus,
   TriageSource,
   User,
@@ -61,6 +65,7 @@ import {
   runEvents,
   runs,
   subscriptions,
+  taskEvents,
   tasks,
   users,
 } from "./schema.js";
@@ -70,7 +75,7 @@ export * from "./schema.js";
 export function createDb(connectionString: string) {
   const client = postgres(connectionString);
   const db = drizzle(client, {
-    schema: { repositories, repoMemories, projects, plans, tasks, agents, runs, runEvents, pullRequests, previews, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage, chatSessions, chatMessages },
+    schema: { repositories, repoMemories, projects, plans, tasks, taskEvents, agents, runs, runEvents, pullRequests, previews, users, subscriptions, reviews, mimirPrompts, mimirRevisions, mimirTriage, chatSessions, chatMessages },
   });
   return { db, client };
 }
@@ -89,6 +94,8 @@ function rowToTask(row: typeof tasks.$inferSelect): Task {
     body: row.body,
     status: row.status as TaskStatus,
     kind: row.kind as TaskKind,
+    owner: (row.owner as TaskOwner) ?? "brokk",
+    source: (row.source as TaskSource) ?? "agent",
     priority: row.priority,
     labels: row.labels,
     baseBranch: row.baseBranch,
@@ -106,6 +113,19 @@ function rowToTask(row: typeof tasks.$inferSelect): Task {
     evidence: Array.isArray(row.evidence) ? row.evidence : [],
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function rowToTaskEvent(row: typeof taskEvents.$inferSelect): TaskEvent {
+  return {
+    id: row.id,
+    taskId: row.taskId,
+    type: row.type as TaskEventType,
+    from: row.from,
+    to: row.to,
+    actor: row.actor,
+    reason: row.reason,
+    at: row.at.toISOString(),
   };
 }
 
@@ -460,6 +480,25 @@ export interface Store {
    *  project carrying `dedupeKey`, if any. Returned instead of forging a dupe. */
   findActiveTaskByDedupeKey(projectId: string, dedupeKey: string): Promise<Task | null>;
   updateTask(id: string, patch: Partial<typeof tasks.$inferInsert>): Promise<Task>;
+  /** Move a card to `to` AND record the move on its lifecycle trail (task_events).
+   *  The single choke-point every status change should go through so the card's
+   *  history is complete. `extra` patches other columns in the same write (e.g.
+   *  prUrl on complete, acceptance on approve). A no-op move (already at `to`) is
+   *  still logged. */
+  transitionTask(
+    id: string,
+    to: TaskStatus,
+    opts: { actor: string; reason?: string; extra?: Partial<typeof tasks.$inferInsert> },
+  ): Promise<Task>;
+  /** Hand a card to a person (owner='human' → the runner skips it) or back to the
+   *  forge (owner='brokk'), logging the handoff. */
+  setTaskOwner(
+    id: string,
+    owner: TaskOwner,
+    opts: { actor: string; reason?: string },
+  ): Promise<Task>;
+  /** The card's append-only lifecycle trail (task_events), oldest first. */
+  listTaskEvents(taskId: string): Promise<TaskEvent[]>;
   /** Match a merged PR back to its forge card (by stored pr_url or pr_number). */
   findTaskForMergedPr(prUrl: string, prNumber: number): Promise<Task | null>;
   /** Is there already a revise task in flight for this PR? (dedup the loop) */
@@ -789,7 +828,19 @@ export function createStore(db: Db): Store {
     },
     async insertTask(values) {
       const rows = await db.insert(tasks).values(values).returning();
-      return rowToTask(rows[0]!);
+      const task = rowToTask(rows[0]!);
+      // Genesis event — the first entry on the card's lifecycle trail.
+      await db
+        .insert(taskEvents)
+        .values({
+          taskId: task.id,
+          type: "created",
+          from: null,
+          to: task.status,
+          actor: task.createdBy ?? "system",
+        })
+        .catch(() => {});
+      return task;
     },
     async findActiveTaskByDedupeKey(projectId, dedupeKey) {
       const rows = await db
@@ -810,6 +861,66 @@ export function createStore(db: Db): Store {
         .returning();
       if (!rows[0]) throw new Error(`task ${id} not found`);
       return rowToTask(rows[0]);
+    },
+    async transitionTask(id, to, opts) {
+      const current = await db
+        .select({ status: tasks.status })
+        .from(tasks)
+        .where(eq(tasks.id, id))
+        .limit(1);
+      const from = current[0]?.status ?? null;
+      const rows = await db
+        .update(tasks)
+        .set({ ...opts.extra, status: to, updatedAt: new Date() })
+        .where(eq(tasks.id, id))
+        .returning();
+      if (!rows[0]) throw new Error(`task ${id} not found`);
+      await db
+        .insert(taskEvents)
+        .values({
+          taskId: id,
+          type: "status",
+          from,
+          to,
+          actor: opts.actor,
+          reason: opts.reason ?? null,
+        })
+        .catch(() => {});
+      return rowToTask(rows[0]);
+    },
+    async setTaskOwner(id, owner, opts) {
+      const current = await db
+        .select({ owner: tasks.owner })
+        .from(tasks)
+        .where(eq(tasks.id, id))
+        .limit(1);
+      const from = current[0]?.owner ?? null;
+      const rows = await db
+        .update(tasks)
+        .set({ owner, updatedAt: new Date() })
+        .where(eq(tasks.id, id))
+        .returning();
+      if (!rows[0]) throw new Error(`task ${id} not found`);
+      await db
+        .insert(taskEvents)
+        .values({
+          taskId: id,
+          type: "owner",
+          from,
+          to: owner,
+          actor: opts.actor,
+          reason: opts.reason ?? null,
+        })
+        .catch(() => {});
+      return rowToTask(rows[0]);
+    },
+    async listTaskEvents(taskId) {
+      const rows = await db
+        .select()
+        .from(taskEvents)
+        .where(eq(taskEvents.taskId, taskId))
+        .orderBy(asc(taskEvents.at));
+      return rows.map(rowToTaskEvent);
     },
     async findTaskForMergedPr(prUrl, prNumber) {
       const url = prUrl.replace(/\/$/, "");
@@ -959,7 +1070,8 @@ export function createStore(db: Db): Store {
         const candidates = await tx
           .select()
           .from(tasks)
-          .where(eq(tasks.status, "queued"))
+          // owner='human' cards are pulled out for a person — the forge skips them.
+          .where(and(eq(tasks.status, "queued"), eq(tasks.owner, "brokk")))
           .orderBy(sql`${tasks.priority} desc`, asc(tasks.createdAt))
           .limit(10)
           .for("update", { skipLocked: true });
@@ -1015,6 +1127,15 @@ export function createStore(db: Db): Store {
           .set({ status: "running", updatedAt: new Date() })
           .where(eq(tasks.id, taskRow.id))
           .returning();
+        // Log the claim on the card's lifecycle trail (same tx as the flip).
+        await tx.insert(taskEvents).values({
+          taskId: taskRow.id,
+          type: "status",
+          from: "queued",
+          to: "running",
+          actor: "forge",
+          reason: `claimed by runner ${runnerId}`,
+        });
 
         // Round-robin: grab the least-recently-used active seat and lock it so
         // two concurrent claims don't both pick the same one.
@@ -1127,10 +1248,27 @@ export function createStore(db: Db): Store {
     },
     async markPlanDone(planId, prUrl, prNumber) {
       return db.transaction(async (tx) => {
-        await tx
+        // Cards flipping to done by the shared-PR merge — capture each id first so
+        // every one gets a lifecycle entry (not just a silent bulk update).
+        const flipped = await tx
           .update(tasks)
           .set({ status: "done", prUrl, prNumber, updatedAt: new Date() })
-          .where(and(eq(tasks.planId, planId), sql`${tasks.status} <> 'done'`));
+          .where(and(eq(tasks.planId, planId), sql`${tasks.status} <> 'done'`))
+          .returning({ id: tasks.id, from: tasks.status });
+        if (flipped.length) {
+          await tx.insert(taskEvents).values(
+            flipped.map((t) => ({
+              taskId: t.id,
+              type: "status" as const,
+              // `from` is the post-update value here (done); record the merge as the
+              // reason so the trail reads "→ done (plan PR merged)".
+              from: null,
+              to: "done",
+              actor: "github",
+              reason: `plan PR merged (#${prNumber ?? "?"})`,
+            })),
+          );
+        }
         const rows = await tx
           .update(plans)
           .set({ status: "done", updatedAt: new Date() })
@@ -1797,6 +1935,11 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     await db.execute(
       sql`CREATE INDEX IF NOT EXISTS tasks_dedupe_key_active_idx ON tasks (project_id, dedupe_key) WHERE status NOT IN ('done','failed','cancelled');`,
     );
+    // Card ownership + origin (Phase A lifecycle). Plain text (no ADD VALUE dance);
+    // 'brokk' = forge may claim it, 'human' = pulled out for a person to resolve;
+    // source 'agent'|'manual'. Backfilled to the safe defaults on existing rows.
+    await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner text NOT NULL DEFAULT 'brokk';`);
+    await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'agent';`);
     // Versioned analysis columns (the living understanding). Self-healed ADD COLUMNs
     // so existing card_analyses rows gain them without a push.
     await db.execute(sql`ALTER TABLE card_analyses ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;`);
@@ -1811,6 +1954,22 @@ export async function ensureChatSchema(db: Db): Promise<void> {
       err instanceof Error ? err.message : err,
     );
   }
+
+  // Card lifecycle trail (Phase A). Append-only; self-healed (kept out of the
+  // drizzle push path, like project_briefs) so it survives an image rebuild.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS task_events (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    task_id uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    type text NOT NULL,
+    "from" text,
+    "to" text,
+    actor text NOT NULL DEFAULT 'system',
+    reason text,
+    at timestamptz NOT NULL DEFAULT now()
+  );`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS task_events_task_idx ON task_events (task_id);`,
+  );
 
   await db.execute(sql`CREATE TABLE IF NOT EXISTS project_briefs (
     project_id uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,

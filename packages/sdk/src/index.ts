@@ -15,10 +15,12 @@ import type {
 // Re-export the domain types so consumers (web) depend only on the SDK.
 export type {
   Agent, Preview, PreviewStatus, Project, Repository, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
+  TaskOwner, TaskSource, TaskEvent, TaskEventType,
   ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
   Plan, PlanDraft, PlannedCard, PlanMode, PlanStatus, ClarifyQuestion,
   TaskAnalysis, AnalysisStatus, AnalysisStep, AnalysisEvidence, AnalysisRevision, AnalysisQuestion,
 } from "@brokk/core";
+export { TASK_STATUSES, TASK_OWNERS, TASK_SOURCES, TASK_TRANSITIONS, canTransition } from "@brokk/core";
 
 /** What POST /tasks/:id/analysis/approve returns — atomic enqueues the card,
  *  feature spawns the sub-cards under a new plan. */
@@ -95,6 +97,8 @@ export interface CreateTaskInput {
   labels?: string[];
   baseBranch?: string;
   createdBy?: string;
+  /** 'brokk' (default — flows to the forge) or 'human' (you'll resolve it). */
+  owner?: import("@brokk/core").TaskOwner;
 }
 
 /** Minimal typed client over the Brokk control-plane API. Shared by the web UI
@@ -116,6 +120,14 @@ export interface BrokkClient {
   createTask(input: CreateTaskInput): Promise<Task>;
   patchTask(id: string, patch: Partial<Task>): Promise<Task>;
   enqueueTask(id: string): Promise<Task>;
+  /** Hand a card to a person (owner='human' → the forge skips it) or back to the
+   *  forge ('brokk'). The board's "pegar" / "devolver". */
+  setTaskOwner(id: string, owner: import("@brokk/core").TaskOwner, reason?: string): Promise<Task>;
+  /** Mark a card resolved by hand (outside the forge): moves it to done + claims it
+   *  for the human. The board's "resolver por fora". */
+  resolveTask(id: string, reason?: string): Promise<Task>;
+  /** The card's append-only lifecycle trail (created/status/owner/resolved/note). */
+  listTaskEvents(id: string): Promise<import("@brokk/core").TaskEvent[]>;
   /** The card's Resolve analysis (null if never analysed). Read-only mirror. */
   getAnalysis(taskId: string): Promise<import("@brokk/core").TaskAnalysis | null>;
   /** Approve a ready analysis: atomic enqueues the card, feature spawns sub-cards. */
@@ -227,6 +239,18 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     },
     enqueueTask(id) {
       return req<Task>("POST", `/tasks/${encodeURIComponent(id)}/enqueue`);
+    },
+    setTaskOwner(id, owner, reason) {
+      return req<Task>("PATCH", `/tasks/${encodeURIComponent(id)}/owner`, { owner, reason });
+    },
+    resolveTask(id, reason) {
+      return req<Task>("POST", `/tasks/${encodeURIComponent(id)}/resolve`, { reason });
+    },
+    listTaskEvents(id) {
+      return req<import("@brokk/core").TaskEvent[]>(
+        "GET",
+        `/tasks/${encodeURIComponent(id)}/events`,
+      );
     },
     getAnalysis(taskId) {
       return req<import("@brokk/core").TaskAnalysis | null>(

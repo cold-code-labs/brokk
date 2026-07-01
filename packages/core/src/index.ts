@@ -36,6 +36,57 @@ export const TASK_STATUSES: readonly TaskStatus[] = [
   "cancelled",
 ] as const;
 
+/** Who is driving a card. `brokk` = the forge may claim it (the default); `human`
+ *  = a person pulled it to resolve it themselves, so the runner leaves it alone.
+ *  Plain strings (not a pg enum) so the boot-time self-heal DDL stays a trivial
+ *  ADD COLUMN — the chat-tables precedent. */
+export type TaskOwner = "brokk" | "human";
+export const TASK_OWNERS: readonly TaskOwner[] = ["brokk", "human"] as const;
+
+/** How the card entered the board. `agent` = Huginn/Muninn/Resolve created it;
+ *  `manual` = a human added it from the board. */
+export type TaskSource = "agent" | "manual";
+export const TASK_SOURCES: readonly TaskSource[] = ["agent", "manual"] as const;
+
+/** The kind of thing a {@link TaskEvent} records on a card's timeline. */
+export type TaskEventType = "created" | "status" | "owner" | "resolved" | "note";
+
+/** One append-only entry in a card's life. Together they are the card's full
+ *  lifecycle trail — who moved it, when, from what to what, and why. `from`/`to`
+ *  hold the status (type=status), the owner (type=owner), or are null (note). */
+export interface TaskEvent {
+  id: string;
+  taskId: string;
+  type: TaskEventType;
+  from: string | null;
+  to: string | null;
+  /** brokk | resolve | huginn | forge | system | a user email. */
+  actor: string;
+  /** Optional human-readable note (e.g. why it was pulled or force-moved). */
+  reason: string | null;
+  at: string;
+}
+
+/** The canonical card FSM — which status a card may legally move to from each
+ *  status. The board uses it to gray out illegal moves; transitions still get
+ *  logged either way. Terminal states (`done`/`cancelled`) can be reopened to
+ *  `backlog` for a rework. */
+export const TASK_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
+  backlog: ["analysis", "queued", "cancelled"],
+  analysis: ["queued", "backlog", "cancelled"],
+  queued: ["running", "backlog", "done", "cancelled"],
+  running: ["review", "failed", "done", "cancelled"],
+  review: ["done", "failed", "backlog"],
+  done: ["backlog"],
+  failed: ["queued", "backlog", "cancelled"],
+  cancelled: ["backlog"],
+} as const;
+
+/** Is `to` a legal next status from `from`? A no-op (from === to) is allowed. */
+export function canTransition(from: TaskStatus, to: TaskStatus): boolean {
+  return from === to || TASK_TRANSITIONS[from].includes(to);
+}
+
 /** One execution attempt of a task. */
 export type RunStatus =
   | "queued"
@@ -185,6 +236,12 @@ export interface Task {
   body: string;
   status: TaskStatus;
   kind: TaskKind;
+  /** Who drives the card: `brokk` (forge may claim it) or `human` (pulled out of
+   *  the forge to be resolved by a person). Default `brokk`. */
+  owner: TaskOwner;
+  /** How the card entered the board: `agent` (Huginn/Muninn/Resolve) or `manual`
+   *  (added by a human from the board). Default `agent`. */
+  source: TaskSource;
   priority: number;
   labels: string[];
   baseBranch: string | null;
