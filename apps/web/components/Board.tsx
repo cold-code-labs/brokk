@@ -206,7 +206,7 @@ export default function Board({ projectId }: { projectId?: string }) {
       {err && <Banner tone="err">⚠ {err}</Banner>}
       {previewErr && <Banner tone="err">⚠ preview: {previewErr}</Banner>}
 
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${COLUMNS.length}, minmax(0,1fr))`, gap: 12 }}>
+      <div style={boardScroll}>
         {COLUMNS.map((key) => {
           const items = tasks.filter((x) => x.status === key);
           return (
@@ -222,7 +222,7 @@ export default function Board({ projectId }: { projectId?: string }) {
                     <span style={{ display: "flex", gap: 7, alignItems: "start", justifyContent: "space-between" }}>
                       <span style={{ display: "flex", gap: 7, alignItems: "start", minWidth: 0, flex: 1 }}>
                         <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
-                        <span style={{ fontSize: 13, lineHeight: 1.3, minWidth: 0, overflowWrap: "anywhere" }}>{task.title}</span>
+                        <span style={cardTitle}>{task.title}</span>
                       </span>
                       {/* who created this card — agent or you */}
                       <AgentAvatar createdBy={task.createdBy} size={17} />
@@ -343,9 +343,15 @@ const field: React.CSSProperties = {
   minWidth: 160,
 };
 
-const column: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 10, display: "flex", flexDirection: "column", minHeight: 0 };
-const cardList: React.CSSProperties = { flex: "1 1 auto", minHeight: 0, maxHeight: 320, overflowY: "auto", overflowX: "hidden" };
-const colHead: React.CSSProperties = { fontSize: 12, textTransform: "uppercase", color: t.textMuted, margin: "0 0 10px", letterSpacing: 0.4 };
+// Board: fixed-width columns + horizontal scroll (standard kanban). Fixed width
+// keeps cards readable regardless of column count and accommodates new columns
+// (e.g. Analysis) without squeezing the rest.
+const boardScroll: React.CSSProperties = { display: "flex", gap: 14, overflowX: "auto", overflowY: "hidden", paddingBottom: 10, scrollSnapType: "x proximity" };
+const column: React.CSSProperties = { flex: "0 0 300px", scrollSnapAlign: "start", background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", minHeight: 0 };
+const cardList: React.CSSProperties = { flex: "1 1 auto", minHeight: 0, maxHeight: "min(62vh, 640px)", overflowY: "auto", overflowX: "hidden", paddingRight: 2 };
+const colHead: React.CSSProperties = { fontSize: 12, textTransform: "uppercase", color: t.textMuted, margin: "0 0 12px", letterSpacing: 0.4 };
+// Title clamped to 3 lines — long ajuste titles no longer eat the whole column.
+const cardTitle: React.CSSProperties = { fontSize: 13.5, lineHeight: 1.35, minWidth: 0, wordBreak: "break-word", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" };
 const dot: React.CSSProperties = { width: 7, height: 7, borderRadius: 7, flexShrink: 0, marginTop: 5 };
 const cardFooter: React.CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8, alignItems: "center" };
 const prLink: React.CSSProperties = { fontSize: 11, color: t.purple, textDecoration: "none" };
@@ -355,5 +361,5 @@ const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%",
 const logBox: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };
 
 function card(active: boolean): React.CSSProperties {
-  return { display: "flex", flexDirection: "column", width: "100%", textAlign: "left", background: active ? t.surface3 : t.surface2, border: `1px solid ${active ? t.borderActive : t.border2}`, borderRadius: 8, padding: "9px 10px", marginBottom: 8, color: t.text, cursor: "pointer" };
+  return { display: "flex", flexDirection: "column", width: "100%", textAlign: "left", background: active ? t.surface3 : t.surface2, border: `1px solid ${active ? t.borderActive : t.border2}`, borderRadius: 8, padding: "11px 12px", marginBottom: 9, color: t.text, cursor: "pointer" };
 }
