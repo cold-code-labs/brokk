@@ -5,7 +5,7 @@ import {
   type ToolContext,
   runTurn,
 } from "@brokk/chat";
-import { detectRuntime, runDiscovery, runResolve } from "@brokk/scout";
+import { detectRuntime, runDiscovery, runMeetingScout, runResolve } from "@brokk/scout";
 import { buildDetectCtx, resolveRuntime } from "@brokk/runtime";
 import type { Store } from "@brokk/db";
 import { featureBranch, type Repository } from "@brokk/core";
@@ -436,8 +436,76 @@ export function buildSindri(deps: SindriDeps): Hono {
     return c.json({ analysis, running: analyzing.has(taskId) });
   });
 
+  // ── Muninn backfill ──────────────────────────────────────────────────────────
+  // Re-run Muninn on a transcript and attach its verbatim `evidencia` to the cards
+  // it already produced — so pre-evidence cards gain real quotes for traceability.
+  // Matching is by CONTENT token-overlap (title+body), not title equality: the new
+  // Muninn corrects titles, so an exact-title match would miss the very cards we fixed.
+  app.post("/muninn/backfill/:projectId", async (c) => {
+    const projectId = c.req.param("projectId");
+    const project = await deps.store.getProject(projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const transcript = typeof body?.transcript === "string" ? body.transcript : "";
+    const meetingTitle = typeof body?.meetingTitle === "string" ? body.meetingTitle : "Reunião";
+    if (!transcript.trim()) return c.json({ error: "transcript required" }, 400);
+
+    const scout = await runMeetingScout({
+      cfg: deps.cfg,
+      transcript,
+      meetingTitle,
+      model: "sonnet",
+      onProgress: (n) => console.log(`[muninn-backfill] ${project.name}: ${n}`),
+    });
+
+    const cards = await deps.store.listTasks({ projectId });
+    const tok = (s: string): Set<string> =>
+      new Set(
+        (s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").match(/[a-z0-9]{4,}/g) ?? []).filter(
+          (w) => !STOPWORDS.has(w),
+        ),
+      );
+    const overlap = (a: Set<string>, b: Set<string>): number => {
+      let n = 0;
+      for (const t of a) if (b.has(t)) n++;
+      return n;
+    };
+    const cardTokens = cards.map((t) => ({ card: t, tokens: tok(`${t.title} ${t.body}`) }));
+
+    const results: { ajuste: string; matched: string | null; quotes: number }[] = [];
+    let updated = 0;
+    for (const a of scout.ajustes) {
+      if (!a.evidencia.length) continue;
+      const at = tok(`${a.titulo} ${a.o_que_pediram}`);
+      let best: { card: (typeof cards)[number]; score: number } | null = null;
+      for (const ct of cardTokens) {
+        const s = overlap(at, ct.tokens);
+        if (!best || s > best.score) best = { card: ct.card, score: s };
+      }
+      if (!best || best.score < 3) {
+        results.push({ ajuste: a.titulo, matched: null, quotes: a.evidencia.length });
+        continue;
+      }
+      await deps.store.updateTask(best.card.id, {
+        evidence: a.evidencia.map((e) => ({ quote: e.quote, speaker: e.speaker ?? null, note: null })),
+      });
+      updated++;
+      results.push({ ajuste: a.titulo, matched: best.card.title, quotes: a.evidencia.length });
+    }
+    console.log(`[muninn-backfill] ${project.name}: ${updated}/${scout.ajustes.length} cards updated`);
+    return c.json({ ajustes: scout.ajustes.length, updated, results });
+  });
+
   return app;
 }
+
+// Common Portuguese words to ignore when matching ajustes to cards by content.
+const STOPWORDS = new Set([
+  "para", "pelo", "pela", "como", "está", "esta", "esse", "essa", "isso", "aqui",
+  "vaso", "então", "cada", "mais", "muito", "todo", "toda", "quando", "onde", "porque",
+  "sobre", "entre", "também", "ainda", "pode", "vamos", "fazer", "feito", "sendo",
+  "reunião", "muninn", "card", "cliente", "vira", "plano",
+]);
 
 /** Run one turn for a session: ensure the checkout, build context, drive the loop,
  *  and keep the session's turn_state honest no matter how it ends. */

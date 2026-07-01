@@ -18,3 +18,12 @@ export {
   runResolve,
   type RunResolveInput,
 } from "./resolve.js";
+// Muninn — the meeting scout: a Saga transcript → classified ajustes (+ verbatim
+// evidencia). runMeetingScout runs it; the chat backfill re-runs it over a transcript.
+export {
+  type Ajuste,
+  type MeetingEvidence,
+  type MeetingScout,
+  runMeetingScout,
+  type RunMeetingScoutInput,
+} from "./meeting.js";
