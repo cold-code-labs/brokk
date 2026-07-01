@@ -361,7 +361,10 @@ async function runVerify(cmd: string, cwd: string): Promise<VerifyResult> {
     // "tsc: not found". Force a dev env for the verify subprocess only.
     const { stdout, stderr } = await execAsync(cmd, {
       cwd,
-      env: { ...process.env, NODE_ENV: "development" },
+      // CI=true makes pnpm non-interactive: without a TTY it otherwise aborts
+      // (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY) when it wants to purge a
+      // node_modules built with different settings, instead of just doing it.
+      env: { ...process.env, NODE_ENV: "development", CI: "true" },
       maxBuffer: 1024 * 1024 * 64,
       timeout: 8 * 60 * 1000,
     });
