@@ -361,6 +361,11 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
   const [answers, setAnswers] = useState("");
   const [busy, setBusy] = useState<null | "approve" | "reanalyze">(null);
   const [err, setErr] = useState<string | null>(null);
+  // Non-technical-first: the plain summary + premises lead; the technical detail
+  // (rationale + per-step internals) starts collapsed behind a toggle, and each
+  // step expands on demand.
+  const [showTech, setShowTech] = useState(false);
+  const [openSteps, setOpenSteps] = useState<Record<number, boolean>>({});
 
   // Poll the analysis while a scout is in flight (or the row is still pending).
   useEffect(() => {
@@ -438,52 +443,37 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
         </>
       )}
 
-      {analysis?.status === "ready" && (
+      {analysis?.status === "ready" && (() => {
+        const needsConfirm = analysis.questions.length > 0;
+        const isFeature = analysis.mode === "feature";
+        return (
         <>
-          <span
-            className="ygg-badge"
-            data-tone={analysis.mode === "feature" ? "warn" : "ok"}
-            style={{ marginBottom: 10, display: "inline-block" }}
-          >
-            {analysis.mode === "feature" ? "feature · vira sub-cards" : "atomic · 1 card / 1 PR"}
-          </span>
+          {/* Sinais em destaque: escopo + confiança (derivada das premissas em aberto). */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <span className="ygg-badge" data-tone={isFeature ? "warn" : "ok"}>
+              {isFeature ? `feature · ${analysis.steps.length} sub-cards` : "atomic · 1 PR"}
+            </span>
+            <span className="ygg-badge" data-tone={needsConfirm ? "warn" : "ok"}>
+              {needsConfirm ? `⚠ ${analysis.questions.length} premissa(s) a confirmar` : "✓ plano confiante"}
+            </span>
+          </div>
 
+          {/* Resumo em linguagem simples — a "manchete", pra qualquer pessoa entender. */}
           {analysis.approach && (
-            <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "0 0 6px" }}>{analysis.approach}</p>
+            <p style={{ fontSize: 15, lineHeight: 1.5, margin: "0 0 6px", fontWeight: 500 }}>{analysis.approach}</p>
           )}
-          {analysis.rationale && (
-            <p className="ygg-muted" style={{ fontSize: 12.5, lineHeight: 1.5, margin: "0 0 14px" }}>
-              {analysis.rationale}
-            </p>
-          )}
+          <p className="ygg-dim" style={{ fontSize: 12.5, margin: "0 0 16px" }}>
+            {isFeature
+              ? `Trabalho maior — o Brokk vai quebrar em ${analysis.steps.length} sub-cards em sequência.`
+              : "Mudança localizada — vira um PR direto."}
+          </p>
 
-          {analysis.steps.length > 0 && (
-            <ol style={{ margin: "0 0 14px", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 10 }}>
-              {analysis.steps.map((s, i) => (
-                <li key={i} style={{ fontSize: 13, lineHeight: 1.45 }}>
-                  <div style={{ fontWeight: 600 }}>{s.title}</div>
-                  {s.detail && <div className="ygg-muted" style={{ marginTop: 2 }}>{s.detail}</div>}
-                  {s.touches.length > 0 && (
-                    <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 5 }}>
-                      {s.touches.map((f) => (
-                        <code key={f} style={touchChip}>{f}</code>
-                      ))}
-                    </div>
-                  )}
-                  {s.acceptance && (
-                    <div className="ygg-dim" style={{ marginTop: 3, fontSize: 11.5 }}>✓ {s.acceptance}</div>
-                  )}
-                </li>
-              ))}
-            </ol>
-          )}
-
-          {analysis.questions.length > 0 && (
-            <div style={{ marginBottom: 14 }}>
-              <h4 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "0 0 6px" }}>
-                Dúvidas pro handoff
-              </h4>
-              <ul style={{ margin: "0 0 8px", paddingLeft: 18 }}>
+          {/* Premissas a confirmar — elevado acima do técnico: é o que mais importa
+              pro humano decidir (o seam de "não consigo julgar isso pelo código"). */}
+          {needsConfirm && (
+            <div style={calloutBox}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Antes de aprovar, confirme:</div>
+              <ul style={{ margin: "0 0 10px", paddingLeft: 18 }}>
                 {analysis.questions.map((q, i) => (
                   <li key={i} style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 4 }}>{q}</li>
                 ))}
@@ -491,36 +481,90 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
               <textarea
                 value={answers}
                 onChange={(e) => setAnswers(e.target.value)}
-                placeholder="Responda as dúvidas e re-analise para refinar o plano…"
+                placeholder="Responda e re-analise para refinar o plano…"
                 rows={3}
                 style={{ ...field, width: "100%", resize: "vertical", minWidth: 0 }}
               />
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={reanalyze}
-                disabled={busy !== null || !answers.trim()}
-                style={{ marginTop: 8 }}
-              >
+              <Button size="sm" onClick={reanalyze} disabled={busy !== null || !answers.trim()} style={{ marginTop: 8 }}>
                 {busy === "reanalyze" ? "re-analisando…" : "Re-analisar com respostas"}
               </Button>
             </div>
           )}
 
-          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-            <Button onClick={approve} disabled={busy !== null}>
+          {/* Detalhes técnicos — colapsados por padrão (não-técnico primeiro). */}
+          <button type="button" onClick={() => setShowTech((v) => !v)} style={techToggle}>
+            <span>{showTech ? "▾" : "▸"} Detalhes técnicos</span>
+            <span className="ygg-dim" style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+              {analysis.steps.length} passo(s)
+            </span>
+          </button>
+
+          {showTech && (
+            <div style={{ marginTop: 10 }}>
+              {analysis.rationale && (
+                <p className="ygg-muted" style={{ fontSize: 12.5, lineHeight: 1.5, margin: "0 0 12px" }}>
+                  {analysis.rationale}
+                </p>
+              )}
+              <ol style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8 }}>
+                {analysis.steps.map((s, i) => {
+                  const open = !!openSteps[i];
+                  return (
+                    <li key={i} style={stepCard}>
+                      <button
+                        type="button"
+                        onClick={() => setOpenSteps((m) => ({ ...m, [i]: !m[i] }))}
+                        style={stepHead}
+                      >
+                        <span style={{ display: "flex", gap: 8, alignItems: "baseline", minWidth: 0 }}>
+                          <span className="ygg-dim" style={{ fontVariantNumeric: "tabular-nums" }}>{i + 1}.</span>
+                          <span style={{ fontWeight: 600, fontSize: 13, minWidth: 0, wordBreak: "break-word" }}>{s.title}</span>
+                        </span>
+                        <span className="ygg-dim" style={{ fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
+                          {s.touches.length > 0 ? `${s.touches.length} arq. ` : ""}{open ? "▾" : "▸"}
+                        </span>
+                      </button>
+                      {open && (
+                        <div style={{ padding: "0 11px 11px" }}>
+                          {s.detail && (
+                            <div className="ygg-muted" style={{ fontSize: 12.5, lineHeight: 1.45, marginBottom: 6 }}>{s.detail}</div>
+                          )}
+                          {s.touches.length > 0 && (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 6 }}>
+                              {s.touches.map((f) => (
+                                <code key={f} style={touchChip}>{f}</code>
+                              ))}
+                            </div>
+                          )}
+                          {s.acceptance && <div className="ygg-dim" style={{ fontSize: 11.5 }}>✓ {s.acceptance}</div>}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          )}
+
+          {/* Ações. Com premissas em aberto, Aprovar vira secundário — o CTA primário
+              é responder+re-analisar (no callout acima). */}
+          <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+            <Button onClick={approve} disabled={busy !== null} variant={needsConfirm ? "outline" : undefined}>
               {busy === "approve"
                 ? "aprovando…"
-                : analysis.mode === "feature"
-                  ? "Aprovar → criar sub-cards"
-                  : "Aprovar → enfileirar"}
+                : needsConfirm
+                  ? (isFeature ? "Aprovar mesmo assim → sub-cards" : "Aprovar mesmo assim → enfileirar")
+                  : (isFeature ? "Aprovar → criar sub-cards" : "Aprovar → enfileirar")}
             </Button>
-            <Button variant="outline" onClick={reanalyze} disabled={busy !== null}>
-              {busy === "reanalyze" ? "…" : "Re-analisar"}
-            </Button>
+            {!needsConfirm && (
+              <Button variant="outline" onClick={reanalyze} disabled={busy !== null}>
+                {busy === "reanalyze" ? "…" : "Re-analisar"}
+              </Button>
+            )}
           </div>
         </>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -567,6 +611,10 @@ const prLink: React.CSSProperties = { fontSize: 11, color: t.purple, textDecorat
 const miniBtn: React.CSSProperties = { fontSize: 11, color: STATUS_COLOR.queued, border: `1px solid ${STATUS_COLOR.queued}44`, borderRadius: 6, padding: "2px 8px" };
 const analyzeBtn: React.CSSProperties = { fontSize: 11, color: STATUS_COLOR.analysis, border: `1px solid ${STATUS_COLOR.analysis}44`, borderRadius: 6, padding: "2px 8px" };
 const touchChip: React.CSSProperties = { fontSize: 11, fontFamily: "ui-monospace, SFMono-Regular, monospace", background: t.inset, border: `1px solid ${t.border}`, borderRadius: 5, padding: "1px 6px", color: t.textMuted };
+const calloutBox: React.CSSProperties = { background: t.surface2, border: `1px solid ${STATUS_COLOR.queued}66`, borderLeft: `3px solid ${STATUS_COLOR.queued}`, borderRadius: 8, padding: "12px 14px", marginBottom: 16 };
+const techToggle: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", borderTop: `1px solid ${t.border}`, padding: "10px 0 2px", color: t.textMuted, fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600, cursor: "pointer" };
+const stepCard: React.CSSProperties = { border: `1px solid ${t.border}`, borderRadius: 8, background: t.surface2, overflow: "hidden" };
+const stepHead: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", padding: "9px 11px", color: t.text, cursor: "pointer" };
 const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 50 };
 const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%", background: t.bg, borderLeft: `1px solid ${t.border}`, padding: 22, overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" };
 const logBox: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };

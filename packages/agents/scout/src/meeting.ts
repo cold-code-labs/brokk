@@ -76,7 +76,7 @@ const SUBMIT_TOOL: ToolDef = {
           type: "object",
           properties: {
             titulo: { type: "string", description: "Título curto, imperativo." },
-            o_que_pediram: { type: "string", description: "O que o cliente pediu, fiel à fala. Concreto." },
+            o_que_pediram: { type: "string", description: "O que o cliente pediu, fiel à fala — o estado RESOLVIDO do tópico (não a primeira menção). Se foi corrigido/contestado na conversa, registre a correção." },
             area: { type: "string", enum: ["mockup", "crm", "ativacoes", "billing", "outro"] },
             tipo: {
               type: "string",
@@ -111,6 +111,12 @@ Você recebe a transcrição de UMA reunião (pode ter ruído de fala, sobreposi
 2. Extrair SÓ o que é acionável no PRODUTO — pedidos de mudança, bugs relatados, features, ajustes de comportamento. Um ajuste = uma tarefa fraseável.
 3. Descartar tudo que não é trabalho: papo social, comida, logística da feira, brincadeiras, quem chega que horas. Liste o descartado em fora_de_escopo.
 4. Classificar cada ajuste: area, tipo (bug/ajuste/feature/epico), disposicao (pronto/discovery/bloqueado/deferido) e vira_plano.
+
+Reconcilie o TÓPICO, não a primeira fala (crítico):
+- Uma reunião é conversa: o entendimento EVOLUI. Alguém afirma algo, testa ao vivo, corrige, restringe. Antes de escrever um ajuste, siga o TÓPICO INTEIRO até onde ele conclui.
+- Capture o estado RESOLVIDO no fim do fio — NÃO a primeira menção nem uma fala confiante-mas-prematura. Se alguém disse "não funciona" e segundos depois descobriram "na real funciona no trackpad, só quebra no mouse", o ajuste é a versão CORRIGIDA.
+- Se o tópico ficou CONTESTADO ou a causa não fechou, diga isso em o_que_pediram (ex.: "afirmado X, depois corrigido para Y; causa provável Z") — não congele a primeira versão. Isso evita que o resto do pipeline resolva o problema ERRADO.
+- No título e no o_que_pediram, reflita o que ficou DE FATO entendido — inclusive a distinção quando ela importa (mouse × trackpad, funciona-em-parte × não-funciona-nada).
 
 Regras de classificação:
 - tipo=ajuste para tweaks pequenos (mudar um default, ajustar um prompt, trocar um texto/número hardcoded). tipo=epico para frentes grandes (várias telas/semanas) — épico NUNCA é "ajuste fino".
