@@ -1756,6 +1756,8 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     // Resolve: the 'analysis' card status. Same ADD VALUE self-heal (push hangs on
     // db_brokk); AFTER 'backlog' keeps the enum order matching the board columns.
     await db.execute(sql`ALTER TYPE task_status ADD VALUE IF NOT EXISTS 'analysis' AFTER 'backlog';`);
+    // Nv2 QA: the live-acceptance receipt run event. Same ADD VALUE self-heal.
+    await db.execute(sql`ALTER TYPE run_event_type ADD VALUE IF NOT EXISTS 'acceptance';`);
     // Origin evidence (Muninn verbatim excerpts) on the drizzle-pushed tasks table.
     await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb;`);
     // Versioned analysis columns (the living understanding). Self-healed ADD COLUMNs

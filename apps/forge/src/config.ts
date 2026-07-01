@@ -31,6 +31,9 @@ export interface RunnerConfig {
    *  behaves exactly as today (file/bash/git tools only, no browser). Toggled by
    *  BROKK_BROWSER ("1"/"true"). See engine.ts for the wiring. */
   browser: boolean;
+  /** Headless Chromium binary the acceptance receipt (and browser checks) drive.
+   *  Default /usr/bin/chromium (present on the surtr runner). BROKK_CHROMIUM. */
+  chromiumPath: string;
   /** Poll interval (ms) between claim attempts when the queue is empty. */
   pollIntervalMs: number;
 
@@ -92,6 +95,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     verifyCmd: env.BROKK_VERIFY_CMD ?? "",
     healAttempts: Number(env.BROKK_HEAL_ATTEMPTS ?? 2),
     browser: /^(1|true|yes)$/i.test(env.BROKK_BROWSER ?? ""),
+    chromiumPath: env.BROKK_CHROMIUM ?? "/usr/bin/chromium",
     pollIntervalMs: Number(env.BROKK_RUNNER_POLL_MS ?? 3000),
     // Preview supervisor
     hauldrControlUrl: (env.HAULDR_CONTROL_URL ?? "").replace(/\/$/, ""),

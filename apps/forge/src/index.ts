@@ -9,7 +9,7 @@
  */
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { Plan, Project, RepoMemory, RunEvent, Repository, Run, RunResult, Task } from "@brokk/core";
+import type { AcceptanceReceipt, Plan, Project, RepoMemory, RunEvent, Repository, Run, RunResult, Task } from "@brokk/core";
 import { runBranch } from "@brokk/core";
 import { loadRunnerConfig, type RunnerConfig } from "./config.js";
 
@@ -17,7 +17,8 @@ const execAsync = promisify(exec);
 import { GhProvider } from "./git.js";
 import { ForgeEngine } from "@brokk/forge";
 import { HauldrClient } from "./hauldr.js";
-import { PreviewSupervisor } from "./preview.js";
+import { runAcceptanceReceipt } from "./acceptance.js";
+import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
 import { buildRepoMap } from "./repomap.js";
 import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
 
@@ -184,6 +185,34 @@ async function handleRun(
     const usage = result.usage;
     const verify = result.verify;
 
+    // Live-acceptance receipt (Nv2 QA): if the card shipped a `.brokk/acceptance.mjs`
+    // check, boot the worktree app and run it — a green typecheck proves it compiles,
+    // this proves it BEHAVES. Best-effort: a boot/check failure is a red receipt, not
+    // a runner crash, and it does NOT (yet) fail the run — verify stays the gate.
+    let receipt: Awaited<ReturnType<typeof runAcceptanceReceipt>> = null;
+    if (cfg.browser) {
+      // Best-effort per-app secrets so gated pages can render — keyed by the
+      // project slug (the `<slug>.env` convention in previewSecretsDir). Absent
+      // file → {} (the check script owns whatever else it needs to reach the UI).
+      const bootEnv = project?.name
+        ? loadAppSecrets(cfg.previewSecretsDir, project.name)
+        : {};
+      buffer.emit({ type: "status", payload: { phase: "acceptance" } });
+      receipt = await runAcceptanceReceipt({
+        wtPath: wt.path,
+        cfg,
+        bootEnv,
+        log: (m) => console.log(m),
+      }).catch((err) => {
+        console.error("[forge] acceptance receipt error:", err);
+        return null;
+      });
+      if (receipt?.ran) {
+        buffer.emit({ type: "acceptance", payload: receipt });
+        console.log(`[forge] acceptance ${receipt.ok ? "✓" : "✗"} for run ${run.id}`);
+      }
+    }
+
     buffer.emit({ type: "status", payload: { phase: "push", branch } });
     await git.push({
       cwd: wt.path,
@@ -213,7 +242,7 @@ async function handleRun(
           branch,
           baseBranch,
           title: `${plan!.summary}`,
-          body: planPrBody(plan!, verify),
+          body: planPrBody(plan!, verify, receipt),
         });
         const updated = await api<{ prUrl: string | null; prNumber: number | null }>(
           cfg,
@@ -233,7 +262,7 @@ async function handleRun(
         branch,
         baseBranch,
         title: task.title,
-        body: prBody(task, verify),
+        body: prBody(task, verify, receipt),
       });
     }
     buffer.emit({ type: "status", payload: { phase: prPhase, url: pr.url } });
@@ -375,7 +404,27 @@ async function runVerify(cmd: string, cwd: string): Promise<VerifyResult> {
   }
 }
 
-function prBody(task: Task, verify: VerifyResult | null): string {
+/** Render the live-acceptance receipt for a PR body. The screenshot is a base64
+ *  data URL (GitHub won't render it inline without a host), so it lives in the
+ *  Brokk run-log; here we surface the pass/fail verdict + the check's output. */
+function acceptanceBlock(receipt: AcceptanceReceipt | null): string[] {
+  if (!receipt?.ran) return [];
+  return [
+    `**Acceptance (live):** ${receipt.ok ? "✅ met" : "❌ not met"}` +
+      (receipt.screenshot ? " · 📷 screenshot in the Brokk run-log" : ""),
+    "",
+    "<details><summary>acceptance check output</summary>",
+    "",
+    "```",
+    receipt.output.slice(-2000) || "(no output)",
+    "```",
+    "",
+    "</details>",
+    "",
+  ];
+}
+
+function prBody(task: Task, verify: VerifyResult | null, receipt?: AcceptanceReceipt | null): string {
   const lines = [task.body || "_(no description)_", ""];
   if (verify) {
     lines.push(
@@ -391,18 +440,20 @@ function prBody(task: Task, verify: VerifyResult | null): string {
       "",
     );
   }
+  lines.push(...acceptanceBlock(receipt ?? null));
   lines.push("---", `🔨 Forged by **Brokk** · task \`${task.id}\``);
   return lines.join("\n");
 }
 
 /** PR body for a plan's shared feature PR (opened by the first card). Describes
  *  the feature; the individual cards land as commits on this branch. */
-function planPrBody(plan: Plan, verify: VerifyResult | null): string {
+function planPrBody(plan: Plan, verify: VerifyResult | null, receipt?: AcceptanceReceipt | null): string {
   const lines = [plan.rationale || plan.summary, ""];
   lines.push(`**Plan:** ${plan.mode} · base \`${plan.baseBranch}\``, "");
   if (verify) {
     lines.push(`**Verify (first card):** ${verify.ok ? "✅ passed" : "❌ failed"}`, "");
   }
+  lines.push(...acceptanceBlock(receipt ?? null));
   lines.push(
     "_Cards of this plan compose into this single PR; each lands as a commit on the feature branch._",
     "",

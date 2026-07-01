@@ -45,7 +45,7 @@ interface LivePreview {
  * empty (no behaviour change). Minimal dotenv: `KEY=value`, `#` comments,
  * optional surrounding quotes; no interpolation or multiline.
  */
-function loadAppSecrets(dir: string, project: string): Record<string, string> {
+export function loadAppSecrets(dir: string, project: string): Record<string, string> {
   if (!dir || !project) return {};
   let raw: string;
   try {

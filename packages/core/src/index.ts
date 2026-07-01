@@ -59,7 +59,8 @@ export type RunEventType =
   | "tool_use"
   | "tool_result"
   | "log"
-  | "usage";
+  | "usage"
+  | "acceptance";
 
 export const RUN_EVENT_TYPES: readonly RunEventType[] = [
   "status",
@@ -68,7 +69,19 @@ export const RUN_EVENT_TYPES: readonly RunEventType[] = [
   "tool_result",
   "log",
   "usage",
+  "acceptance",
 ] as const;
+
+/** Live-acceptance receipt (Nv2 QA): the forge booted the worktree app and ran
+ *  the card's `.brokk/acceptance.mjs` check against it. `ran=false` means the
+ *  card shipped no check (non-UI card) — nothing was asserted. The screenshot is
+ *  a base64 PNG data URL for the board run-log; it is NOT committed to the repo. */
+export interface AcceptanceReceipt {
+  ran: boolean;
+  ok: boolean;
+  output: string;
+  screenshot?: string;
+}
 
 /** Lifecycle status of a dev-preview environment. `unsupported` = the resolver
  *  knew up front there was no supported runtime to boot (distinct from `failed` =

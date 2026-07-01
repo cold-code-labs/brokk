@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Brain,
+  Camera,
   CheckCircle2,
   ChevronRight,
   FileEdit,
@@ -719,6 +720,8 @@ function phaseMeta(p: Record<string, unknown>): { label: string; tint: string; I
         : { label: "Verify falhou", tint: STATUS_COLOR.failed, Icon: XCircle };
     case "heal":
       return { label: `Corrigindo (tentativa ${p.attempt}/${p.of})`, tint: STATUS_COLOR.queued, Icon: Loader2 };
+    case "acceptance":
+      return { label: "Testando ao vivo…", tint: STATUS_COLOR.running, Icon: Loader2 };
     case "forge_pass":
       return { label: "Forja concluída", tint: t.textMuted, Icon: CheckCircle2 };
     case "agent_done":
@@ -748,6 +751,10 @@ function RunLog({ events, logRef }: { events: RunEvent[]; logRef: React.RefObjec
     if (e.type === "log") {
       const text = p?.verify ?? p?.error ?? (typeof p === "string" ? p : "");
       if (text) items.push(<LogRow key={i} error={p?.level === "error"} text={String(text)} />);
+      return;
+    }
+    if (e.type === "acceptance") {
+      items.push(<AcceptanceRow key={i} receipt={p ?? {}} />);
       return;
     }
     if (e.type === "message") {
@@ -820,6 +827,48 @@ function ToolRow({ tool, result }: { tool: ToolBlock; result?: ToolResultP }) {
         <div style={{ padding: "0 10px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
           <pre style={runPre}>{JSON.stringify(input, null, 2).slice(0, 2000)}</pre>
           {result?.preview && <pre style={{ ...runPre, color: result.ok ? t.textMuted : STATUS_COLOR.failed }}>{result.preview.slice(0, 2000)}</pre>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Live-acceptance receipt: pass/fail verdict + the check's output, and (when the
+ *  check took one) the screenshot — the visual proof the change behaves. */
+function AcceptanceRow({
+  receipt,
+}: {
+  receipt: { ran?: boolean; ok?: boolean; output?: string; screenshot?: string };
+}) {
+  const [open, setOpen] = useState(false);
+  if (!receipt?.ran) return null;
+  const tint = receipt.ok ? STATUS_COLOR.done : STATUS_COLOR.failed;
+  return (
+    <div style={{ border: `1px solid ${t.border}`, borderRadius: 7, background: t.surface2, overflow: "hidden" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={toolRowHead}>
+        <Camera size={13} style={{ color: tint, flexShrink: 0 }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: tint }}>
+          Aceite ao vivo · {receipt.ok ? "✅ passou" : "❌ falhou"}
+        </span>
+        <ChevronRight
+          size={13}
+          style={{ marginLeft: "auto", color: t.textMuted, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}
+        />
+      </button>
+      {open && (
+        <div style={{ padding: 10, borderTop: `1px solid ${t.border}`, display: "grid", gap: 8 }}>
+          {receipt.screenshot && (
+            <img
+              src={receipt.screenshot}
+              alt="acceptance screenshot"
+              style={{ width: "100%", borderRadius: 6, border: `1px solid ${t.border}` }}
+            />
+          )}
+          {receipt.output && (
+            <pre style={{ fontSize: 11.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", color: t.textMuted, margin: 0 }}>
+              {receipt.output}
+            </pre>
+          )}
         </div>
       )}
     </div>
