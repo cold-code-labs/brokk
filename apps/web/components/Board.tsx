@@ -205,9 +205,12 @@ export default function Board({ projectId }: { projectId?: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [showNew, selected]);
 
-  async function enqueue(id: string) {
+  // Queue an ALREADY-ANALYSED card: approve its Resolve analysis (atomic → enqueue,
+  // feature → spawn sub-cards). Backlog cards can't queue directly — they must be
+  // analysed first, so the queue action only lives on cards in the Analysis column.
+  async function approveAndQueue(id: string) {
     try {
-      await brokk.enqueueTask(id);
+      await brokk.approveAnalysis(id);
       await refresh(project?.id);
     } catch (e) {
       setErr(String(e));
@@ -357,8 +360,10 @@ export default function Board({ projectId }: { projectId?: string }) {
                             analyze →
                           </span>
                         )}
-                        {task.status === "backlog" && task.owner === "brokk" && (
-                          <span onClick={(e) => { e.stopPropagation(); enqueue(task.id); }} style={miniBtn}>
+                        {/* Queue only for already-analysed cards (owner=brokk). Backlog
+                            must go through analyze first. */}
+                        {task.status === "analysis" && task.owner === "brokk" && (
+                          <span onClick={(e) => { e.stopPropagation(); approveAndQueue(task.id); }} style={miniBtn}>
                             queue →
                           </span>
                         )}
