@@ -4,6 +4,20 @@ import type { Preview, Project, Run, RunEvent, Task } from "@brokk/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Brain,
+  CheckCircle2,
+  ChevronRight,
+  FileEdit,
+  FileText,
+  GitPullRequest,
+  ListTodo,
+  Loader2,
+  ScrollText,
+  TerminalSquare,
+  Wrench,
+  XCircle,
+} from "lucide-react";
+import {
   Main,
   PageHeader,
   Banner,
@@ -331,18 +345,10 @@ function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void;
           <AnalysisPanel task={task} onChanged={onChanged} onClose={onClose} />
         ) : (
           <>
-            <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "16px 0 6px" }}>
+            <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "16px 0 8px" }}>
               Live run log{latest ? ` · ${latest.id.slice(0, 8)}` : ""}
             </h3>
-            <div ref={logRef} style={logBox}>
-              {events.length === 0 && <span className="ygg-dim">no events yet…</span>}
-              {events.map((e, i) => (
-                <div key={i} style={{ marginBottom: 4 }}>
-                  <span style={{ color: STATUS_COLOR[e.type] ?? "var(--fg-dim)", fontWeight: 600 }}>{e.type}</span>{" "}
-                  <span className="ygg-muted">{summarize(e)}</span>
-                </div>
-              ))}
-            </div>
+            <RunLog events={events} logRef={logRef} />
           </>
         )}
       </aside>
@@ -680,20 +686,160 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
   );
 }
 
-function summarize(e: RunEvent): string {
-  const p = e.payload as any;
-  if (e.type === "status") return p?.phase ?? JSON.stringify(p);
-  if (e.type === "usage") return `in ${p?.input_tokens ?? "?"} / out ${p?.output_tokens ?? "?"}`;
-  if (e.type === "message") {
-    const c = p?.message?.content ?? p?.content;
-    if (Array.isArray(c)) {
-      const text = c.map((b: any) => b?.text ?? (b?.type ? `[${b.type}]` : "")).join(" ").trim();
-      return text.slice(0, 200) || "[message]";
-    }
-    return "[message]";
+// ── Live run log — a legible activity feed (icons + per-type treatment, à la
+// Sindri). The forge emits typed RunEvents; we render assistant narration, tool
+// calls (paired with their result), phase pills, and verify output — not raw
+// `message [tool_use]` lines. Tools come from message content blocks (always
+// present); standalone tool_use events are deduped by id; tool_result events
+// supply the pairing. ──────────────────────────────────────────────────────────
+
+type ToolBlock = { id?: string; name?: string; input?: Record<string, unknown> };
+type ToolResultP = { tool_use_id?: string; ok?: boolean; preview?: string };
+
+/** Tool name → friendly verb + icon (mirrors Sindri's TOOL_META). */
+const TOOL_META: { match: RegExp; label: string; Icon: typeof Wrench }[] = [
+  { match: /write|edit|str_replace|create|apply|patch/i, label: "Editando", Icon: FileEdit },
+  { match: /read|cat|view|get_file/i, label: "Lendo", Icon: FileText },
+  { match: /bash|shell|run|exec|command|terminal/i, label: "Executando", Icon: TerminalSquare },
+  { match: /pr|pull|merge|commit|push|branch|git/i, label: "Git", Icon: GitPullRequest },
+  { match: /card|task|plan|todo/i, label: "Planejando", Icon: ListTodo },
+];
+function toolMeta(name = "") {
+  return TOOL_META.find((t) => t.match.test(name)) ?? { label: "Ferramenta", Icon: Wrench };
+}
+
+/** Friendly phase label + tint + icon for a `status` event. Null = don't show. */
+function phaseMeta(p: Record<string, unknown>): { label: string; tint: string; Icon: typeof Wrench } | null {
+  switch (p.phase) {
+    case "verify_start":
+      return { label: p.round != null ? `Verificando (rodada ${p.round})…` : "Verificando…", tint: STATUS_COLOR.running, Icon: Loader2 };
+    case "verify_done":
+      return p.ok
+        ? { label: "Verify passou", tint: STATUS_COLOR.done, Icon: CheckCircle2 }
+        : { label: "Verify falhou", tint: STATUS_COLOR.failed, Icon: XCircle };
+    case "heal":
+      return { label: `Corrigindo (tentativa ${p.attempt}/${p.of})`, tint: STATUS_COLOR.queued, Icon: Loader2 };
+    case "forge_pass":
+      return { label: "Forja concluída", tint: t.textMuted, Icon: CheckCircle2 };
+    case "agent_done":
+      return { label: "Run finalizada", tint: t.textMuted, Icon: CheckCircle2 };
+    default:
+      return null; // agent_start etc. — noise, skip
   }
-  const s = JSON.stringify(p);
-  return s.length > 200 ? s.slice(0, 200) + "…" : s;
+}
+
+function RunLog({ events, logRef }: { events: RunEvent[]; logRef: React.RefObject<HTMLDivElement | null> }) {
+  const resultById = new Map<string, ToolResultP>();
+  for (const e of events) {
+    if (e.type === "tool_result") {
+      const p = e.payload as ToolResultP;
+      if (p?.tool_use_id) resultById.set(p.tool_use_id, p);
+    }
+  }
+
+  const items: React.ReactNode[] = [];
+  events.forEach((e, i) => {
+    const p = e.payload as any;
+    if (e.type === "status") {
+      const m = phaseMeta(p ?? {});
+      if (m) items.push(<PhaseRow key={i} {...m} />);
+      return;
+    }
+    if (e.type === "log") {
+      const text = p?.verify ?? p?.error ?? (typeof p === "string" ? p : "");
+      if (text) items.push(<LogRow key={i} error={p?.level === "error"} text={String(text)} />);
+      return;
+    }
+    if (e.type === "message") {
+      const c = p?.content ?? p?.message?.content;
+      const blocks: any[] = Array.isArray(c) ? c : [];
+      const text = blocks.filter((b) => b?.type === "text").map((b) => b.text).join("\n").trim();
+      if (text) items.push(<TextRow key={`${i}-t`} text={text} />);
+      blocks
+        .filter((b) => b?.type === "tool_use")
+        .forEach((b: ToolBlock, j) =>
+          items.push(<ToolRow key={`${i}-${j}`} tool={b} result={b.id ? resultById.get(b.id) : undefined} />),
+        );
+    }
+    // standalone tool_use / tool_result / usage: deduped/folded (rendered via message)
+  });
+
+  return (
+    <div ref={logRef} style={runLogBox}>
+      {items.length === 0 ? <span className="ygg-dim" style={{ fontSize: 12 }}>sem eventos ainda…</span> : items}
+    </div>
+  );
+}
+
+function TextRow({ text }: { text: string }) {
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+      <Brain size={14} style={{ color: t.purple, flexShrink: 0, marginTop: 2 }} />
+      <div style={{ fontSize: 12.5, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", minWidth: 0, color: t.text }}>
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function PhaseRow({ label, tint, Icon }: { label: string; tint: string; Icon: typeof Wrench }) {
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "2px 0" }}>
+      <Icon size={13} style={{ color: tint, flexShrink: 0 }} />
+      <span style={{ fontSize: 11.5, fontWeight: 600, color: tint, textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</span>
+    </div>
+  );
+}
+
+function ToolRow({ tool, result }: { tool: ToolBlock; result?: ToolResultP }) {
+  const [open, setOpen] = useState(false);
+  const { label, Icon } = toolMeta(tool.name);
+  const input = tool.input ?? {};
+  const arg =
+    (input.command as string) || (input.file_path as string) || (input.path as string) || (input.title as string) || "";
+  const status: "running" | "ok" | "error" = !result ? "running" : result.ok ? "ok" : "error";
+  const pill = status === "running" ? STATUS_COLOR.running : status === "ok" ? STATUS_COLOR.done : STATUS_COLOR.failed;
+  return (
+    <div style={{ border: `1px solid ${t.border}`, borderRadius: 7, background: t.surface2, overflow: "hidden" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={toolRowHead}>
+        <Icon size={13} style={{ color: t.textMuted, flexShrink: 0 }} />
+        <span style={{ fontSize: 12, fontWeight: 600, flexShrink: 0 }}>{label}</span>
+        <code style={{ fontSize: 11, color: t.textFaint, fontFamily: "ui-monospace, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>
+          {String(arg).slice(0, 100)}
+        </code>
+        {status === "running" ? (
+          <Loader2 size={12} style={{ color: pill, flexShrink: 0 }} />
+        ) : (
+          <span style={{ fontSize: 10, fontWeight: 700, color: pill, flexShrink: 0, textTransform: "uppercase" }}>
+            {status === "ok" ? "ok" : "erro"}
+          </span>
+        )}
+        <ChevronRight size={13} style={{ color: t.textFaint, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
+      </button>
+      {open && (
+        <div style={{ padding: "0 10px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+          <pre style={runPre}>{JSON.stringify(input, null, 2).slice(0, 2000)}</pre>
+          {result?.preview && <pre style={{ ...runPre, color: result.ok ? t.textMuted : STATUS_COLOR.failed }}>{result.preview.slice(0, 2000)}</pre>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LogRow({ text, error }: { text: string; error?: boolean }) {
+  const [open, setOpen] = useState(!!error);
+  return (
+    <div style={{ border: `1px solid ${error ? `${STATUS_COLOR.failed}55` : t.border}`, borderRadius: 7, background: t.surface2, overflow: "hidden" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} style={toolRowHead}>
+        <ScrollText size={13} style={{ color: error ? STATUS_COLOR.failed : t.textMuted, flexShrink: 0 }} />
+        <span style={{ fontSize: 12, fontWeight: 600, flex: 1, color: error ? STATUS_COLOR.failed : t.text }}>
+          {error ? "Saída do verify (falhou)" : "Log"}
+        </span>
+        <ChevronRight size={13} style={{ color: t.textFaint, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
+      </button>
+      {open && <pre style={{ ...runPre, margin: "0 10px 10px", color: error ? STATUS_COLOR.failed : t.textMuted }}>{text.slice(-3000)}</pre>}
+    </div>
+  );
 }
 
 const field: React.CSSProperties = {
@@ -730,6 +876,9 @@ const quoteBox: React.CSSProperties = { margin: 0, background: t.surface2, borde
 const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 50 };
 const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%", background: t.bg, borderLeft: `1px solid ${t.border}`, padding: 22, overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" };
 const logBox: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };
+const runLogBox: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 8, maxHeight: "min(58vh, 560px)", overflowY: "auto", paddingRight: 4 };
+const toolRowHead: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", padding: "8px 10px", color: t.text, cursor: "pointer" };
+const runPre: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 6, padding: 8, margin: 0, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", overflowX: "auto" };
 
 function card(active: boolean): React.CSSProperties {
   return { display: "flex", flexDirection: "column", width: "100%", textAlign: "left", background: active ? t.surface3 : t.surface2, border: `1px solid ${active ? t.borderActive : t.border2}`, borderRadius: 8, padding: "11px 12px", marginBottom: 9, color: t.text, cursor: "pointer" };
