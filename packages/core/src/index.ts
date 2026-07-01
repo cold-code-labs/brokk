@@ -766,6 +766,15 @@ export interface AnalysisEvidence {
   note?: string | null;
 }
 
+/** An open question Resolve wants answered before the plan is trustworthy. Each
+ *  ships TWO suggested answer paths so the human can pick one per question (or
+ *  write a custom answer) instead of composing free-form prose. */
+export interface AnalysisQuestion {
+  question: string;
+  /** Two concrete, mutually-distinct answer paths the human can choose from. */
+  options: string[];
+}
+
 /** A prior version of a card's analysis, snapshotted when a refine produced a new
  *  one. Append-only history kept inline on the analysis (`revisions`) so the whole
  *  lineage travels in one payload — v1 → v2 → … stays traceable in the drawer. */
@@ -778,7 +787,7 @@ export interface AnalysisRevision {
   rationale: string | null;
   mode: PlanMode | null;
   steps: AnalysisStep[];
-  questions: string[];
+  questions: AnalysisQuestion[];
   /** The human "Adicionar Detalhes" text that produced THIS version (null for v1). */
   inputDetails: string | null;
   createdAt: string;
@@ -812,8 +821,9 @@ export interface TaskAnalysis {
   mode: PlanMode | null;
   /** Concrete implementation steps, in order. */
   steps: AnalysisStep[];
-  /** Open questions for the human (the handoff). Empty when the plan is confident. */
-  questions: string[];
+  /** Open questions for the human (the handoff), each with two suggested answer
+   *  paths. Empty when the plan is confident. */
+  questions: AnalysisQuestion[];
   /** The human "Adicionar Detalhes" text that produced the current head (null for v1). */
   inputDetails: string | null;
   /** Prior versions, newest last — the append-only lineage. */

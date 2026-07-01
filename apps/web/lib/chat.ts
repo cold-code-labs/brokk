@@ -4,7 +4,7 @@
 // parse the byte stream ourselves (EventSource can't POST).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { Preview, TaskAnalysis } from "@brokk/sdk";
+import type { AnalysisQuestion, Preview, TaskAnalysis } from "@brokk/sdk";
 
 const BASE = (process.env.NEXT_PUBLIC_BROKK_API_URL || "/api") + "/chat";
 
@@ -126,7 +126,7 @@ export const discovery = {
 
 // ── Resolve: per-card analysis ────────────────────────────────────────────────
 
-export type { TaskAnalysis };
+export type { TaskAnalysis, AnalysisQuestion };
 
 export const analysis = {
   /** The card's analysis (+ whether a scout is running). null if never analysed. */

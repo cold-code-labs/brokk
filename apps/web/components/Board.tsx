@@ -25,7 +25,7 @@ import {
   Button,
 } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
-import { analysis as analysisApi, type TaskAnalysis } from "../lib/chat";
+import { analysis as analysisApi, type AnalysisQuestion, type TaskAnalysis } from "../lib/chat";
 import { useProject } from "../lib/project-context";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
 import { AgentAvatar } from "./AgentAvatar";
@@ -365,7 +365,6 @@ function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void;
 function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: () => void; onClose: () => void }) {
   const [analysis, setAnalysis] = useState<TaskAnalysis | null>(null);
   const [running, setRunning] = useState(false);
-  const [answers, setAnswers] = useState("");
   const [detailsInput, setDetailsInput] = useState("");
   const [busy, setBusy] = useState<null | "approve" | "reanalyze" | "details">(null);
   const [err, setErr] = useState<string | null>(null);
@@ -411,12 +410,13 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
     }
   }
 
-  async function reanalyze() {
+  // `composed` = the human's per-question answers, folded into one string by
+  // ConfirmQuestions. Empty = a bare re-run (retry / re-plan without new input).
+  async function reanalyze(composed = "") {
     setBusy("reanalyze");
     setErr(null);
     try {
-      await analysisApi.answer(task.id, answers.trim());
-      setAnswers("");
+      await analysisApi.answer(task.id, composed.trim());
       setRunning(true);
     } catch (e) {
       setErr(String(e));
@@ -463,7 +463,7 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
       {failed && (
         <>
           <pre style={{ ...logBox, color: STATUS_COLOR.failed, maxHeight: 140 }}>{analysis?.error ?? "falhou"}</pre>
-          <Button size="sm" variant="outline" onClick={reanalyze} disabled={busy !== null} style={{ marginTop: 10 }}>
+          <Button size="sm" variant="outline" onClick={() => reanalyze()} disabled={busy !== null} style={{ marginTop: 10 }}>
             {busy === "reanalyze" ? "re-analisando…" : "Tentar de novo"}
           </Button>
         </>
@@ -533,26 +533,15 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
           )}
 
           {/* Premissas a confirmar — elevado acima do técnico: é o que mais importa
-              pro humano decidir (o seam de "não consigo julgar isso pelo código"). */}
+              pro humano decidir (o seam de "não consigo julgar isso pelo código").
+              Pergunta-a-pergunta: 2 caminhos + "Outro"; responde todas → re-analisa. */}
           {needsConfirm && (
-            <div style={calloutBox}>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>Antes de aprovar, confirme:</div>
-              <ul style={{ margin: "0 0 10px", paddingLeft: 18 }}>
-                {analysis.questions.map((q, i) => (
-                  <li key={i} style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 4 }}>{q}</li>
-                ))}
-              </ul>
-              <textarea
-                value={answers}
-                onChange={(e) => setAnswers(e.target.value)}
-                placeholder="Responda e re-analise para refinar o plano…"
-                rows={3}
-                style={{ ...field, width: "100%", resize: "vertical", minWidth: 0 }}
-              />
-              <Button size="sm" onClick={reanalyze} disabled={busy !== null || !answers.trim()} style={{ marginTop: 8 }}>
-                {busy === "reanalyze" ? "re-analisando…" : "Re-analisar com respostas"}
-              </Button>
-            </div>
+            <ConfirmQuestions
+              key={analysis.version}
+              questions={analysis.questions}
+              busy={busy === "reanalyze"}
+              onSubmit={(composed) => reanalyze(composed)}
+            />
           )}
 
           {/* Detalhes técnicos — colapsados por padrão (não-técnico primeiro). */}
@@ -675,7 +664,7 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
                   : (isFeature ? "Aprovar → criar sub-cards" : "Aprovar → enfileirar")}
             </Button>
             {!needsConfirm && (
-              <Button variant="outline" onClick={reanalyze} disabled={busy !== null}>
+              <Button variant="outline" onClick={() => reanalyze()} disabled={busy !== null}>
                 {busy === "reanalyze" ? "…" : "Re-analisar"}
               </Button>
             )}
@@ -833,6 +822,88 @@ function ToolRow({ tool, result }: { tool: ToolBlock; result?: ToolResultP }) {
   );
 }
 
+/** The "confirme antes de aprovar" seam, isolated per question. Each question
+ *  offers Resolve's two answer paths + "Outro" (custom). The human answers every
+ *  question; only then does "Iniciar re-análise" enable — it folds the answers
+ *  into one string and hands it to the Resolve re-run. */
+function ConfirmQuestions({
+  questions,
+  busy,
+  onSubmit,
+}: {
+  questions: AnalysisQuestion[];
+  busy: boolean;
+  onSubmit: (answers: string) => void;
+}) {
+  // Chosen answer per question (option text OR the custom text). Empty = unanswered.
+  const [picked, setPicked] = useState<Record<number, string>>({});
+  // Which questions have the custom ("Outro") input revealed.
+  const [customOpen, setCustomOpen] = useState<Record<number, boolean>>({});
+
+  const answered = questions.filter((_, i) => (picked[i] ?? "").trim()).length;
+  const allAnswered = answered === questions.length;
+
+  const choose = (i: number, val: string) => {
+    setPicked((p) => ({ ...p, [i]: val }));
+    setCustomOpen((c) => ({ ...c, [i]: false }));
+  };
+  const openCustom = (i: number) => {
+    setCustomOpen((c) => ({ ...c, [i]: true }));
+    setPicked((p) => ({ ...p, [i]: "" }));
+  };
+
+  const submit = () =>
+    onSubmit(questions.map((q, i) => `P: ${q.question}\nR: ${(picked[i] ?? "").trim()}`).join("\n\n"));
+
+  return (
+    <div style={calloutBox}>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Antes de aprovar, confirme:</div>
+      <div style={{ display: "grid", gap: 10 }}>
+        {questions.map((q, i) => {
+          const isCustom = customOpen[i];
+          const sel = picked[i] ?? "";
+          return (
+            <div key={i} style={questionCard}>
+              <div style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 8, fontWeight: 500, color: t.text }}>
+                {i + 1}. {q.question}
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                {q.options.map((opt, j) => (
+                  <button key={j} type="button" onClick={() => choose(i, opt)} style={optionBtn(!isCustom && sel === opt)}>
+                    {opt}
+                  </button>
+                ))}
+                <button type="button" onClick={() => openCustom(i)} style={optionBtn(!!isCustom)}>
+                  ✎ Outro…
+                </button>
+                {isCustom && (
+                  <textarea
+                    value={sel}
+                    onChange={(e) => setPicked((p) => ({ ...p, [i]: e.target.value }))}
+                    placeholder="Sua resposta…"
+                    rows={2}
+                    // biome-ignore lint/a11y/noAutofocus: revealed on explicit click
+                    autoFocus
+                    style={{ ...field, width: "100%", resize: "vertical" }}
+                  />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
+        <Button size="sm" onClick={submit} disabled={busy || !allAnswered}>
+          {busy ? "re-analisando…" : "Iniciar re-análise"}
+        </Button>
+        <span className="ygg-dim" style={{ fontSize: 11.5 }}>
+          {answered}/{questions.length} respondidas
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** Live-acceptance receipt: pass/fail verdict + the check's output, and (when the
  *  check took one) the screenshot — the visual proof the change behaves. */
 function AcceptanceRow({
@@ -899,8 +970,30 @@ const field: React.CSSProperties = {
   color: "var(--fg)",
   font: "inherit",
   fontSize: "0.9rem",
-  minWidth: 160,
+  minWidth: 0,
+  // border-box so `width: 100%` includes padding/border and never overflows its
+  // container (the confirm callout / details box).
+  boxSizing: "border-box",
 };
+
+// One confirmation question, isolated. `optionBtn(active)` = a full-width answer
+// path; active highlights the chosen one (or the revealed "Outro").
+const questionCard: React.CSSProperties = { border: `1px solid ${t.border}`, borderRadius: 8, background: t.surface, padding: "10px 12px" };
+const optionBtn = (active: boolean): React.CSSProperties => ({
+  width: "100%",
+  textAlign: "left",
+  fontSize: 12.5,
+  lineHeight: 1.4,
+  padding: "7px 10px",
+  borderRadius: 7,
+  cursor: "pointer",
+  boxSizing: "border-box",
+  border: `1px solid ${active ? STATUS_COLOR.analysis : t.border}`,
+  background: active ? `${STATUS_COLOR.analysis}18` : t.surface2,
+  color: active ? t.text : t.textMuted,
+  fontWeight: active ? 600 : 400,
+  transition: "background .12s, border-color .12s",
+});
 
 // Board: fixed-width columns + horizontal scroll (standard kanban). Fixed width
 // keeps cards readable regardless of column count and accommodates new columns

@@ -1,6 +1,7 @@
 import type {
   Agent,
   AnalysisEvidence,
+  AnalysisQuestion,
   AnalysisRevision,
   AnalysisStatus,
   AnalysisStep,
@@ -624,7 +625,7 @@ export interface Store {
       rationale?: string | null;
       mode?: PlanMode | null;
       steps?: TaskAnalysis["steps"];
-      questions?: string[];
+      questions?: TaskAnalysis["questions"];
       model?: string | null;
       error?: string | null;
     },
@@ -1639,6 +1640,22 @@ function mapEvidence(v: unknown): AnalysisEvidence[] {
         .filter((e) => e.quote)
     : [];
 }
+/** Coerce stored questions to the current shape. Tolerates the legacy `string[]`
+ *  (pre-options analyses) by lifting each into a question with no options. */
+function mapQuestions(v: unknown): AnalysisQuestion[] {
+  return Array.isArray(v)
+    ? v
+        .map((q): AnalysisQuestion =>
+          typeof q === "string"
+            ? { question: q.trim(), options: [] }
+            : {
+                question: str((q as Record<string, unknown>).question),
+                options: strList((q as Record<string, unknown>).options).slice(0, 2),
+              },
+        )
+        .filter((q) => q.question)
+    : [];
+}
 
 /** Map a raw card_analyses row (self-healed table, not in drizzle) to the type.
  *  jsonb columns come back already-parsed from node-postgres. */
@@ -1655,7 +1672,7 @@ function rowToAnalysis(row: Record<string, unknown>): TaskAnalysis {
         rationale: (r.rationale as string | null) ?? null,
         mode: (r.mode as PlanMode | null) ?? null,
         steps: mapSteps(r.steps),
-        questions: strList(r.questions),
+        questions: mapQuestions(r.questions),
         inputDetails: (r.inputDetails as string | null) ?? null,
         createdAt: str(r.createdAt) || iso(row.updated_at),
       }))
@@ -1671,7 +1688,7 @@ function rowToAnalysis(row: Record<string, unknown>): TaskAnalysis {
     rationale: (row.rationale as string | null) ?? null,
     mode: (row.mode as PlanMode | null) ?? null,
     steps: mapSteps(row.steps),
-    questions: strList(row.questions),
+    questions: mapQuestions(row.questions),
     inputDetails: (row.input_details as string | null) ?? null,
     revisions,
     model: (row.model as string | null) ?? null,

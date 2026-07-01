@@ -52,8 +52,15 @@ export interface ResolveAnalysis {
   /** atomic = one card/one PR; feature = break into the steps as sub-cards (DAG). */
   mode: "atomic" | "feature";
   steps: ResolveStep[];
-  /** Open questions for the human — the handoff. Empty when the plan is confident. */
-  questions: string[];
+  /** Open questions for the human — the handoff. Empty when the plan is confident.
+   *  Each ships two suggested answer paths so the human picks instead of typing. */
+  questions: ResolveQuestion[];
+}
+
+/** One open question + two concrete answer paths the human chooses between. */
+export interface ResolveQuestion {
+  question: string;
+  options: string[];
 }
 
 /** The prior version, passed on a refine so Resolve improves it instead of starting
@@ -127,7 +134,22 @@ const SUBMIT_TOOL: ToolDef = {
           required: ["title", "touches", "detail", "acceptance"],
         },
       },
-      questions: { type: "array", items: { type: "string" }, description: "Dúvidas pro humano (handoff): premissas de comportamento de runtime que você NÃO confirmou no código / que o código contradiz, ou ambiguidade que muda a solução. Vazio SÓ se tudo é confirmável estaticamente." },
+      questions: {
+        type: "array",
+        description: "Dúvidas pro humano (handoff): premissas de comportamento de runtime que você NÃO confirmou no código / que o código contradiz, ou ambiguidade que muda a solução. Vazio SÓ se tudo é confirmável estaticamente.",
+        items: {
+          type: "object",
+          properties: {
+            question: { type: "string", description: "A pergunta, clara e específica." },
+            options: {
+              type: "array",
+              items: { type: "string" },
+              description: "EXATAMENTE 2 caminhos de resposta plausíveis, concretos e mutuamente distintos (o humano escolhe um, ou escreve o dele). Ex.: ['Entre operadores da mesma org', 'Um operador disparando vários clientes']. Não inclua opção 'Outro' — a UI já oferece.",
+            },
+          },
+          required: ["question", "options"],
+        },
+      },
     },
     required: ["details", "evidence", "approach", "rationale", "mode", "steps", "questions"],
   },
@@ -165,7 +187,7 @@ Depois chame submit_analysis com:
 - approach + rationale: a estratégia e o porquê, ancorados no código real. No rationale, separe o que VERIFICOU no código do que ASSUMIU do runtime.
 - mode: atomic se é mudança pequena/localizada (1 PR); feature se precisa quebrar em vários passos.
 - steps: passos concretos, cada um com \`touches\` = arquivos REAIS (que você viu no checkout), detail e acceptance.
-- questions: dúvidas pro humano quando (a) algo é genuinamente ambíguo e muda a solução (decisão de produto, dado que falta), OU (b) o card afirma um comportamento de runtime que você NÃO confirmou no código / que o código contradiz. Se está tudo confirmável no código, deixe vazio — não invente dúvidas.
+- questions: dúvidas pro humano quando (a) algo é genuinamente ambíguo e muda a solução (decisão de produto, dado que falta), OU (b) o card afirma um comportamento de runtime que você NÃO confirmou no código / que o código contradiz. Se está tudo confirmável no código, deixe vazio — não invente dúvidas. Cada pergunta vem com EXATAMENTE 2 opções de resposta concretas e distintas (os dois caminhos mais prováveis) — o humano escolhe uma ou escreve a dele. NÃO inclua "Outro"/"Ambos" nas opções; a UI cuida disso.
 
 Regras: read-only, nunca escreva/commite. Seja específico e ancorado no que você REALMENTE viu. Chame submit_analysis exatamente uma vez.`;
 
@@ -204,6 +226,17 @@ function coerce(input: Record<string, unknown>): ResolveAnalysis {
         .filter((e) => e.quote)
         .slice(0, 12)
     : [];
+  const questions: ResolveQuestion[] = Array.isArray(input.questions)
+    ? (input.questions as unknown[])
+        .map((q) => {
+          // Tolerate a bare string (older shape / model slip) — no options then.
+          if (typeof q === "string") return { question: q.trim(), options: [] as string[] };
+          const o = q as Record<string, unknown>;
+          return { question: str(o.question), options: list(o.options).slice(0, 2) };
+        })
+        .filter((q) => q.question)
+        .slice(0, 10)
+    : [];
   const revisedTitle = str(input.revised_title);
   return {
     revisedTitle: revisedTitle || null,
@@ -213,7 +246,7 @@ function coerce(input: Record<string, unknown>): ResolveAnalysis {
     rationale: str(input.rationale),
     mode: input.mode === "feature" ? "feature" : "atomic",
     steps,
-    questions: list(input.questions),
+    questions,
   };
 }
 
