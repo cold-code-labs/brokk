@@ -114,6 +114,70 @@ export function projectsRoutes(deps: AppDeps): Hono {
     return c.json({ created, skipped, planId: plan.id }, 201);
   });
 
+  // Muninn: turn a meeting's classified `ajustes` into PROPOSED cards — the
+  // meeting-fed sibling of backlog-from-brief. Two differences from Huginn's brief:
+  //  1. A meeting's ajustes are INDEPENDENT (each its own story → its own PR), so
+  //     they do NOT share a feature plan; planId stays null.
+  //  2. `vira_plano` ajustes (épico/discovery) are NOT forge-ready — they need the
+  //     planner to break them down first. They get the MUNINN_PLAN_LABEL, which
+  //     approve-proposed does NOT auto-enqueue; simple ajustes get DISCOVERY_LABEL
+  //     (forge-ready). bloqueado/deferido never become cards — returned as notes.
+  // Accepts the Muninn output directly (runMeetingScout runs upstream, e.g. in the
+  // scout service, so this stays a fast DB write, not a 60s LLM call in-request).
+  // Idempotent: dedup on card title (matched against prior Muninn cards).
+  r.post("/:id/ajustes-from-meeting", async (c) => {
+    const id = c.req.param("id");
+    const project = await deps.store.getProject(id);
+    if (!project) return c.json({ error: "not found" }, 404);
+    const parsed = AjustesFromMeetingBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const { meetingTitle, ajustes } = parsed.data;
+
+    const cardAjustes = ajustes.filter((a) => a.disposicao === "pronto" || a.disposicao === "discovery");
+    const notes = ajustes.filter((a) => a.disposicao === "bloqueado" || a.disposicao === "deferido");
+
+    const existing = await deps.store.listTasks({ projectId: id });
+    const seen = new Set(
+      existing
+        .filter((t) => (t.labels ?? []).some((l) => l === DISCOVERY_LABEL || l === MUNINN_PLAN_LABEL))
+        .map((t) => normItem(t.title ?? "")),
+    );
+
+    const created = [];
+    let skipped = 0;
+    for (const a of cardAjustes) {
+      if (seen.has(normItem(a.titulo))) {
+        skipped++;
+        continue;
+      }
+      seen.add(normItem(a.titulo));
+      const label = a.vira_plano ? MUNINN_PLAN_LABEL : DISCOVERY_LABEL;
+      const task = await deps.store.insertTask({
+        projectId: id,
+        title: toCardTitle(a.titulo),
+        body: `${a.o_que_pediram}\n\n— reunião: ${meetingTitle} · ${a.area}/${a.tipo} · ${a.disposicao}${a.vira_plano ? " · vira plano" : ""} (Muninn)`,
+        status: "backlog",
+        baseBranch: project.baseBranch,
+        createdBy: "muninn",
+        labels: [label],
+        planId: null,
+        planKey: null,
+        dependsOn: [],
+      });
+      created.push(task);
+    }
+    // notes are surfaced (bloqueado/deferido) but never carded — the caller shows
+    // them so nothing said in the meeting silently vanishes.
+    return c.json(
+      {
+        created,
+        skipped,
+        notes: notes.map((n) => ({ titulo: n.titulo, disposicao: n.disposicao, nota: n.nota ?? null })),
+      },
+      201,
+    );
+  });
+
   // Huginn Phase 3: "Aprovar todos" — enqueue every PROPOSED backlog card at once
   // (those Huginn discovery or the Sindri planner staged). backlog→queued is the
   // gate, so this flips the whole proposed set into the forge in one click.
@@ -134,6 +198,24 @@ export function projectsRoutes(deps: AppDeps): Hono {
 
 const DISCOVERY_LABEL = "discovery";
 const PLAN_LABEL = "plan";
+// Muninn ajustes flagged vira_plano — proposed but NOT forge-ready (await the
+// planner). approve-proposed deliberately ignores this label.
+const MUNINN_PLAN_LABEL = "muninn-plan";
+
+// One ajuste as Muninn classifies it (mirrors packages/agents/scout meeting.ts).
+const AjusteSchema = z.object({
+  titulo: z.string().min(1),
+  o_que_pediram: z.string().default(""),
+  area: z.enum(["mockup", "crm", "ativacoes", "billing", "outro"]).default("outro"),
+  tipo: z.enum(["bug", "ajuste", "feature", "epico"]).default("ajuste"),
+  disposicao: z.enum(["pronto", "discovery", "bloqueado", "deferido"]).default("discovery"),
+  vira_plano: z.boolean().default(false),
+  nota: z.string().optional(),
+});
+const AjustesFromMeetingBody = z.object({
+  meetingTitle: z.string().min(1).default("Reunião"),
+  ajustes: z.array(AjusteSchema).default([]),
+});
 const normItem = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 200);
 /** A concise card title from a (possibly long) missing-item sentence. */
 function toCardTitle(item: string): string {
