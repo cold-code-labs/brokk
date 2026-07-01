@@ -10,4 +10,11 @@ export { type DiscoveryBrief, runDiscovery, type RunDiscoveryInput } from "./dis
 export { type DetectRuntimeInput, detectRuntime } from "./runtime.js";
 // Resolve — the per-card analysis scout (Muninn's sibling): ONE card + a read-only
 // checkout → a concrete resolution plan (approach / steps / questions / mode).
-export { type ResolveAnalysis, type ResolveStep, runResolve, type RunResolveInput } from "./resolve.js";
+export {
+  type ResolveAnalysis,
+  type ResolveEvidence,
+  type ResolvePrior,
+  type ResolveStep,
+  runResolve,
+  type RunResolveInput,
+} from "./resolve.js";

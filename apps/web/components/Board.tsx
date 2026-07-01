@@ -359,12 +359,14 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
   const [analysis, setAnalysis] = useState<TaskAnalysis | null>(null);
   const [running, setRunning] = useState(false);
   const [answers, setAnswers] = useState("");
-  const [busy, setBusy] = useState<null | "approve" | "reanalyze">(null);
+  const [detailsInput, setDetailsInput] = useState("");
+  const [busy, setBusy] = useState<null | "approve" | "reanalyze" | "details">(null);
   const [err, setErr] = useState<string | null>(null);
   // Non-technical-first: the plain summary + premises lead; the technical detail
   // (rationale + per-step internals) starts collapsed behind a toggle, and each
-  // step expands on demand.
+  // step expands on demand. History is opt-in too.
   const [showTech, setShowTech] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [openSteps, setOpenSteps] = useState<Record<number, boolean>>({});
 
   // Poll the analysis while a scout is in flight (or the row is still pending).
@@ -416,6 +418,23 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
     }
   }
 
+  // "Adicionar Detalhes": new authoritative info → a full v+1 (title/citations/
+  // details/plan), with the prior version snapshotted into history.
+  async function addDetails() {
+    if (!detailsInput.trim()) return;
+    setBusy("details");
+    setErr(null);
+    try {
+      await analysisApi.addDetails(task.id, detailsInput.trim());
+      setDetailsInput("");
+      setRunning(true);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const pending = running || analysis?.status === "pending" || !analysis;
   const failed = analysis?.status === "failed";
 
@@ -446,10 +465,13 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
       {analysis?.status === "ready" && (() => {
         const needsConfirm = analysis.questions.length > 0;
         const isFeature = analysis.mode === "feature";
+        const titleChanged = !!analysis.revisedTitle && analysis.revisedTitle !== task.title;
+        const problem = analysis.details || analysis.approach;
         return (
         <>
-          {/* Sinais em destaque: escopo + confiança (derivada das premissas em aberto). */}
+          {/* Sinais em destaque: versão + escopo + confiança (das premissas em aberto). */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+            <span className="ygg-badge">v{analysis.version}</span>
             <span className="ygg-badge" data-tone={isFeature ? "warn" : "ok"}>
               {isFeature ? `feature · ${analysis.steps.length} sub-cards` : "atomic · 1 PR"}
             </span>
@@ -458,15 +480,50 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
             </span>
           </div>
 
-          {/* Resumo em linguagem simples — a "manchete", pra qualquer pessoa entender. */}
-          {analysis.approach && (
-            <p style={{ fontSize: 15, lineHeight: 1.5, margin: "0 0 6px", fontWeight: 500 }}>{analysis.approach}</p>
+          {/* Título corrigido — destaque: conserta a moldura enganosa que veio do card. */}
+          {titleChanged && (
+            <div style={{ ...calloutBox, borderColor: `${STATUS_COLOR.analysis}66`, borderLeftColor: STATUS_COLOR.analysis }}>
+              <div className="ygg-dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>
+                Título corrigido
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.4 }}>{analysis.revisedTitle}</div>
+              <div className="ygg-dim" style={{ fontSize: 11, marginTop: 4, textDecoration: "line-through" }}>{task.title}</div>
+              <div className="ygg-dim" style={{ fontSize: 11, marginTop: 3 }}>substitui o título do card ao aprovar</div>
+            </div>
           )}
-          <p className="ygg-dim" style={{ fontSize: 12.5, margin: "0 0 16px" }}>
+
+          {/* O problema em linguagem simples — a "manchete", pra qualquer pessoa entender. */}
+          {problem && (
+            <p style={{ fontSize: 15, lineHeight: 1.5, margin: "0 0 6px", fontWeight: 500 }}>{problem}</p>
+          )}
+          <p className="ygg-dim" style={{ fontSize: 12.5, margin: "0 0 14px" }}>
             {isFeature
-              ? `Trabalho maior — o Brokk vai quebrar em ${analysis.steps.length} sub-cards em sequência.`
+              ? `Trabalho maior — vira ${analysis.steps.length} sub-cards em sequência.`
               : "Mudança localizada — vira um PR direto."}
           </p>
+
+          {/* Citações da reunião — verbatim, rastreabilidade real. */}
+          {analysis.evidence.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div className="ygg-dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>
+                Da reunião
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {analysis.evidence.map((ev, i) => (
+                  <blockquote key={i} style={quoteBox}>
+                    <span style={{ fontSize: 13, lineHeight: 1.45, fontStyle: "italic" }}>“{ev.quote}”</span>
+                    {(ev.speaker || ev.note) && (
+                      <div className="ygg-dim" style={{ fontSize: 11, marginTop: 3 }}>
+                        {ev.speaker ? `— ${ev.speaker}` : ""}
+                        {ev.speaker && ev.note ? " · " : ""}
+                        {ev.note ?? ""}
+                      </div>
+                    )}
+                  </blockquote>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Premissas a confirmar — elevado acima do técnico: é o que mais importa
               pro humano decidir (o seam de "não consigo julgar isso pelo código"). */}
@@ -546,6 +603,60 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
             </div>
           )}
 
+          {/* Adicionar Detalhes — sempre disponível: injeta info nova e autoritativa
+              (o que a IA não pôde saber), regenerando título/citações/plano numa v+1. */}
+          <div style={{ marginTop: 16, borderTop: `1px solid ${t.border}`, paddingTop: 12 }}>
+            <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: t.textMuted, fontWeight: 600, marginBottom: 8 }}>
+              Adicionar detalhes
+            </div>
+            <textarea
+              value={detailsInput}
+              onChange={(e) => setDetailsInput(e.target.value)}
+              placeholder="Sabe algo que a IA não sabe? Escreva — ela regenera título, citações e plano."
+              rows={3}
+              style={{ ...field, width: "100%", resize: "vertical", minWidth: 0 }}
+            />
+            <Button size="sm" variant="outline" onClick={addDetails} disabled={busy !== null || !detailsInput.trim()} style={{ marginTop: 8 }}>
+              {busy === "details" ? "gerando revisão…" : `Gerar revisão → v${analysis.version + 1}`}
+            </Button>
+          </div>
+
+          {/* Histórico de versões — a linhagem v1 → v2 → … */}
+          {analysis.revisions.length > 0 && (
+            <>
+              <button type="button" onClick={() => setShowHistory((v) => !v)} style={techToggle}>
+                <span>{showHistory ? "▾" : "▸"} Histórico</span>
+                <span className="ygg-dim" style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
+                  {analysis.revisions.length} versão(ões) anterior(es)
+                </span>
+              </button>
+              {showHistory && (
+                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[...analysis.revisions].reverse().map((r, i) => (
+                    <div key={i} style={stepCard}>
+                      <div style={{ padding: "9px 11px" }}>
+                        <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                          <span className="ygg-badge">v{r.version}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, minWidth: 0, wordBreak: "break-word" }}>
+                            {r.title ?? task.title}
+                          </span>
+                        </div>
+                        {r.inputDetails && (
+                          <div className="ygg-dim" style={{ fontSize: 11.5, marginTop: 5 }}>
+                            + detalhe: {r.inputDetails}
+                          </div>
+                        )}
+                        {r.details && (
+                          <div className="ygg-muted" style={{ fontSize: 12, marginTop: 4, lineHeight: 1.4 }}>{r.details}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
           {/* Ações. Com premissas em aberto, Aprovar vira secundário — o CTA primário
               é responder+re-analisar (no callout acima). */}
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
@@ -615,6 +726,7 @@ const calloutBox: React.CSSProperties = { background: t.surface2, border: `1px s
 const techToggle: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", borderTop: `1px solid ${t.border}`, padding: "10px 0 2px", color: t.textMuted, fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600, cursor: "pointer" };
 const stepCard: React.CSSProperties = { border: `1px solid ${t.border}`, borderRadius: 8, background: t.surface2, overflow: "hidden" };
 const stepHead: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", padding: "9px 11px", color: t.text, cursor: "pointer" };
+const quoteBox: React.CSSProperties = { margin: 0, background: t.surface2, borderLeft: `3px solid ${t.border2}`, borderRadius: 6, padding: "8px 11px", color: t.text };
 const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 50 };
 const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%", background: t.bg, borderLeft: `1px solid ${t.border}`, padding: 22, overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" };
 const logBox: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };

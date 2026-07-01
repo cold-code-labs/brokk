@@ -163,6 +163,8 @@ export function projectsRoutes(deps: AppDeps): Hono {
         planId: null,
         planKey: null,
         dependsOn: [],
+        // Origin evidence: the real meeting quotes, for the analyst to cite from.
+        evidence: a.evidencia.map((e) => ({ quote: e.quote, speaker: e.speaker ?? null, note: null })),
       });
       created.push(task);
     }
@@ -210,6 +212,11 @@ const AjusteSchema = z.object({
   tipo: z.enum(["bug", "ajuste", "feature", "epico"]).default("ajuste"),
   disposicao: z.enum(["pronto", "discovery", "bloqueado", "deferido"]).default("discovery"),
   vira_plano: z.boolean().default(false),
+  // Verbatim meeting excerpts grounding the ajuste → stored as the card's origin
+  // evidence (tasks.evidence) so the analyst can cite real quotes for traceability.
+  evidencia: z
+    .array(z.object({ quote: z.string().min(1), speaker: z.string().optional() }))
+    .default([]),
   nota: z.string().optional(),
 });
 const AjustesFromMeetingBody = z.object({

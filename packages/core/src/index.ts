@@ -197,6 +197,10 @@ export interface Task {
    *  the behaviour a test must cover. The forge is required to make it pass; the
    *  verify loop runs it. Null for pre-acceptance cards. */
   acceptance: string | null;
+  /** Origin evidence: verbatim excerpts Muninn extracted from the meeting when it
+   *  created this card (the real quotes, incl. any live correction) — the immutable
+   *  source the analyst curates citations from. Empty for non-meeting cards. */
+  evidence: AnalysisEvidence[];
   createdAt: string;
   updatedAt: string;
 }
@@ -737,13 +741,56 @@ export interface AnalysisStep {
   acceptance: string;
 }
 
-/** The resolution plan Resolve (the per-card scout) produces by reading ONE card
- *  against a read-only checkout: HOW to solve it, WHERE in the code, and the open
- *  questions for the human. `mode` drives approval — atomic enqueues the card,
- *  feature expands the steps into sub-cards. One analysis per task (latest wins). */
+/** A verbatim excerpt grounding the card — a REAL quote from the meeting (Muninn's
+ *  origin evidence) or from the human's added details, for traceability. Never
+ *  invented: the analyst only curates from quotes it was given. */
+export interface AnalysisEvidence {
+  /** The verbatim words, as said/written. */
+  quote: string;
+  /** Who said it, when known (Muninn extracts this from the transcript). */
+  speaker?: string | null;
+  /** Why this excerpt matters to the card — one line. */
+  note?: string | null;
+}
+
+/** A prior version of a card's analysis, snapshotted when a refine produced a new
+ *  one. Append-only history kept inline on the analysis (`revisions`) so the whole
+ *  lineage travels in one payload — v1 → v2 → … stays traceable in the drawer. */
+export interface AnalysisRevision {
+  version: number;
+  title: string | null;
+  details: string | null;
+  evidence: AnalysisEvidence[];
+  approach: string | null;
+  rationale: string | null;
+  mode: PlanMode | null;
+  steps: AnalysisStep[];
+  questions: string[];
+  /** The human "Adicionar Detalhes" text that produced THIS version (null for v1). */
+  inputDetails: string | null;
+  createdAt: string;
+}
+
+/** The card's living, versioned understanding — problem (revised title + cited
+ *  evidence + details) AND plan (approach/steps/questions) — that Resolve produces
+ *  from ONE card + a read-only checkout, and that a human refines with "Adicionar
+ *  Detalhes" (each refine bumps `version` and snapshots the prior into `revisions`).
+ *  `mode` drives approval — atomic enqueues the card, feature expands the steps into
+ *  sub-cards. One analysis per task (the current head; history in `revisions`). */
 export interface TaskAnalysis {
   taskId: string;
   status: AnalysisStatus;
+  /** The current version number (1 = first analysis). */
+  version: number;
+  /** A corrected, faithful title the analyst proposes when the card's own title is
+   *  misleading. Applied to the card on approval. Null = keep the card's title. */
+  revisedTitle: string | null;
+  /** Plain-language restatement of the PROBLEM — what's actually wrong, for anyone
+   *  (incl. non-technical) to grasp. Distinct from `approach` (the fix). */
+  details: string | null;
+  /** Verbatim excerpts grounding the card (curated from Muninn's origin evidence +
+   *  the human's added details) — real quotes, for traceability. */
+  evidence: AnalysisEvidence[];
   /** 1–3 sentences: the strategy to solve the card. */
   approach: string | null;
   /** Why this approach — what in the code justifies it. */
@@ -754,6 +801,10 @@ export interface TaskAnalysis {
   steps: AnalysisStep[];
   /** Open questions for the human (the handoff). Empty when the plan is confident. */
   questions: string[];
+  /** The human "Adicionar Detalhes" text that produced the current head (null for v1). */
+  inputDetails: string | null;
+  /** Prior versions, newest last — the append-only lineage. */
+  revisions: AnalysisRevision[];
   /** Model that produced the analysis. */
   model: string | null;
   /** Failure reason when status = "failed". */

@@ -17,7 +17,7 @@ export type {
   Agent, Preview, PreviewStatus, Project, Repository, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
   ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
   Plan, PlanDraft, PlannedCard, PlanMode, PlanStatus, ClarifyQuestion,
-  TaskAnalysis, AnalysisStatus, AnalysisStep,
+  TaskAnalysis, AnalysisStatus, AnalysisStep, AnalysisEvidence, AnalysisRevision,
 } from "@brokk/core";
 
 /** What POST /tasks/:id/analysis/approve returns — atomic enqueues the card,

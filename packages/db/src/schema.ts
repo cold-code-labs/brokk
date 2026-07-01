@@ -204,6 +204,9 @@ export const tasks = pgTable("tasks", {
   /** The card's success condition (#3) — what the forge must make true + cover
    *  with a test. The verify loop runs it. */
   acceptance: text("acceptance"),
+  /** Origin evidence: verbatim meeting excerpts Muninn stored when it created this
+   *  card (AnalysisEvidence[]). The immutable source the analyst cites from. */
+  evidence: jsonb("evidence").$type<import("@brokk/core").AnalysisEvidence[]>().notNull().default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

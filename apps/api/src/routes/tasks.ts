@@ -102,9 +102,14 @@ export function tasksRoutes(deps: AppDeps): Hono {
     if (!project) return c.json({ error: "project not found" }, 404);
     const baseBranch = task.baseBranch ?? project.baseBranch;
 
+    // The analyst's corrected title (when the card's own was misleading) is applied
+    // to the card on approval — the fix Muninn's first framing missed.
+    const titlePatch = analysis.revisedTitle ? { title: analysis.revisedTitle } : {};
+
     if (analysis.mode !== "feature") {
       const touches = [...new Set(analysis.steps.flatMap((s) => s.touches))].slice(0, 30);
       const updated = await deps.store.updateTask(id, {
+        ...titlePatch,
         status: "queued",
         acceptance: analysis.steps[0]?.acceptance || analysis.approach || task.acceptance,
         touches,
@@ -152,7 +157,7 @@ export function tasksRoutes(deps: AppDeps): Hono {
       prevKey = key;
     }
 
-    await deps.store.updateTask(id, { status: "done" });
+    await deps.store.updateTask(id, { ...titlePatch, status: "done" });
     return c.json({ mode: "feature", planId: plan.id, parent: id, cards }, 201);
   });
 

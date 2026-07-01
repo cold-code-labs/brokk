@@ -138,6 +138,10 @@ export const analysis = {
   /** Re-run after answering Resolve's questions — refines the plan with `answers`. */
   answer: (taskId: string, answers: string) =>
     j<{ status: string; running: boolean }>("POST", `/analyze/${taskId}`, { answers }),
+  /** "Adicionar Detalhes" — inject NEW authoritative info; regenerates a full v+1
+   *  (title, citations, details, plan) and snapshots the prior version. */
+  addDetails: (taskId: string, details: string) =>
+    j<{ status: string; running: boolean }>("POST", `/analyze/${taskId}`, { details }),
 };
 
 /** Parse an SSE response body, invoking onEvent per frame. Used by both the

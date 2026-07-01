@@ -26,6 +26,13 @@ export type Area = "mockup" | "crm" | "ativacoes" | "billing" | "outro";
 export type Tipo = "bug" | "ajuste" | "feature" | "epico";
 export type Disposicao = "pronto" | "discovery" | "bloqueado" | "deferido";
 
+/** A verbatim excerpt from the transcript grounding an ajuste — the REAL words
+ *  (incl. any live correction), for traceability. Mirrors @brokk/core AnalysisEvidence. */
+export interface MeetingEvidence {
+  quote: string;
+  speaker?: string;
+}
+
 /** One actionable adjustment extracted from a meeting — a card-candidate. */
 export interface Ajuste {
   titulo: string;
@@ -36,6 +43,9 @@ export interface Ajuste {
   disposicao: Disposicao;
   /** false → one standalone card; true → a Plano with a DAG (épico/discovery). */
   vira_plano: boolean;
+  /** Verbatim excerpts that ground this ajuste — the real exchange (incl. the
+   *  RESOLVED state / any correction), for traceability. */
+  evidencia: MeetingEvidence[];
   /** For bloqueado/deferido: what it waits on / why it was parked. */
   nota?: string;
 }
@@ -89,9 +99,21 @@ const SUBMIT_TOOL: ToolDef = {
               description: "pronto=escopo claro; discovery=alinhar antes; bloqueado=espera input externo; deferido=ver depois.",
             },
             vira_plano: { type: "boolean", description: "false=1 card; true=Plano com DAG (discovery ou épico)." },
+            evidencia: {
+              type: "array",
+              description: "Trechos VERBATIM da transcrição que embasam este ajuste — a troca REAL, incluindo a correção/estado resolvido. 1-4 trechos. Não parafraseie: aspas fiéis.",
+              items: {
+                type: "object",
+                properties: {
+                  quote: { type: "string", description: "As palavras exatas ditas, verbatim." },
+                  speaker: { type: "string", description: "Quem falou, se der pra inferir." },
+                },
+                required: ["quote"],
+              },
+            },
             nota: { type: "string", description: "Só p/ bloqueado/deferido: em que depende ou por que adiado." },
           },
-          required: ["titulo", "o_que_pediram", "area", "tipo", "disposicao", "vira_plano"],
+          required: ["titulo", "o_que_pediram", "area", "tipo", "disposicao", "vira_plano", "evidencia"],
         },
       },
       fora_de_escopo: {
@@ -124,7 +146,7 @@ Regras de classificação:
 - vira_plano=true SE tipo=epico OU disposicao=discovery. vira_plano=false para ajustes simples e prontos (viram 1 card direto).
 - Inclua itens bloqueado/deferido com a disposição correta e uma nota; o pipeline os trata como nota, não card.
 
-Seja fiel: cada ajuste ancorado em algo REAL dito. Não invente, não repita. Responda em português. Chame submit_ajustes exatamente uma vez.`;
+Seja fiel: cada ajuste ancorado em algo REAL dito. Em \`evidencia\`, cite os trechos VERBATIM (aspas fiéis, não paráfrase) da troca que embasa o ajuste — inclua a fala que fecha o entendimento (a correção, quando houve), pra dar rastreabilidade. Não invente, não repita. Responda em português. Chame submit_ajustes exatamente uma vez.`;
 
 function coerce(input: Record<string, unknown>): MeetingScout {
   const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
@@ -139,6 +161,12 @@ function coerce(input: Record<string, unknown>): MeetingScout {
           tipo: oneOf<Tipo>(a.tipo, ["bug", "ajuste", "feature", "epico"], "ajuste"),
           disposicao: oneOf<Disposicao>(a.disposicao, ["pronto", "discovery", "bloqueado", "deferido"], "discovery"),
           vira_plano: Boolean(a.vira_plano),
+          evidencia: Array.isArray(a.evidencia)
+            ? (a.evidencia as Record<string, unknown>[])
+                .map((e) => ({ quote: str(e.quote), speaker: str(e.speaker) || undefined }))
+                .filter((e) => e.quote)
+                .slice(0, 4)
+            : [],
           nota: str(a.nota) || undefined,
         }))
         .filter((a) => a.titulo)

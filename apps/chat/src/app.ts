@@ -338,8 +338,10 @@ export function buildSindri(deps: SindriDeps): Hono {
 
   // Kick a (detached) Resolve scout for ONE card. Moves the card into the `analysis`
   // column and returns immediately; the analysis row tracks pending → ready/failed.
-  // Optional `answers` (a re-run after the human answered Resolve's questions) is
-  // threaded into the scout so it refines the plan instead of starting cold.
+  // Human input threads in: `answers` (to earlier questions) and `details` ("Adicionar
+  // Detalhes" — NEW authoritative info). When there's human input AND a prior head,
+  // a NEW version is started (the head is snapshotted into revisions); otherwise the
+  // current version is recomputed in place.
   app.post("/analyze/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
     const task = await deps.store.getTask(taskId);
@@ -351,10 +353,28 @@ export function buildSindri(deps: SindriDeps): Hono {
     if (!repo) return c.json({ error: "repository not found" }, 404);
 
     const body = await c.req.json().catch(() => ({}));
-    const answers = typeof body?.answers === "string" ? body.answers.trim() : undefined;
+    const answers = typeof body?.answers === "string" && body.answers.trim() ? body.answers.trim() : undefined;
+    const details = typeof body?.details === "string" && body.details.trim() ? body.details.trim() : undefined;
+
+    // Read the prior head to (a) know if this refine should bump a version and
+    // (b) hand Resolve the previous version to improve on.
+    const head = await deps.store.getTaskAnalysis(taskId);
+    const humanInput = [details && `Detalhes: ${details}`, answers && `Respostas: ${answers}`]
+      .filter(Boolean)
+      .join("\n");
+    const prior =
+      head && head.status !== "failed"
+        ? { version: head.version, title: head.revisedTitle ?? task.title, details: head.details, approach: head.approach }
+        : undefined;
 
     analyzing.add(taskId);
-    await deps.store.upsertTaskAnalysis(taskId, { status: "pending" });
+    // New version only when the human contributed input AND there's a head to revise;
+    // otherwise just mark the current head pending (fresh compute / bare re-run).
+    if (humanInput && head && head.status === "ready") {
+      await deps.store.beginAnalysisRevision(taskId, humanInput);
+    } else {
+      await deps.store.setAnalysisStatus(taskId, "pending");
+    }
     // Entering analysis IS the card's state — surface it on the board immediately.
     await deps.store.updateTask(taskId, { status: "analysis" }).catch(() => {});
 
@@ -374,12 +394,18 @@ export function buildSindri(deps: SindriDeps): Hono {
           cwd: path,
           repoFullName: repo.fullName,
           card: { title: task.title, body: task.body },
+          evidence: task.evidence,
           answers,
+          details,
+          prior,
           model: "sonnet",
           onProgress: (n) => console.log(`[resolve] ${task.title}: ${n}`),
         });
         await deps.store.upsertTaskAnalysis(taskId, {
           status: "ready",
+          revisedTitle: analysis.revisedTitle,
+          details: analysis.details,
+          evidence: analysis.evidence,
           approach: analysis.approach,
           rationale: analysis.rationale,
           mode: analysis.mode,
@@ -389,12 +415,12 @@ export function buildSindri(deps: SindriDeps): Hono {
           error: null,
         });
         console.log(
-          `[resolve] ${task.title}: analysis ready (${analysis.mode}, ${analysis.steps.length} steps, ${analysis.questions.length} questions)`,
+          `[resolve] ${task.title}: analysis ready (${analysis.mode}, ${analysis.steps.length} steps, ${analysis.questions.length} questions, ${analysis.evidence.length} quotes)`,
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[resolve] ${task.title}: analysis failed — ${msg}`);
-        await deps.store.upsertTaskAnalysis(taskId, { status: "failed", error: msg }).catch(() => {});
+        await deps.store.setAnalysisStatus(taskId, "failed", msg).catch(() => {});
       } finally {
         analyzing.delete(taskId);
       }

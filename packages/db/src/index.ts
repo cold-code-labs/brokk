@@ -1,6 +1,9 @@
 import type {
   Agent,
+  AnalysisEvidence,
+  AnalysisRevision,
   AnalysisStatus,
+  AnalysisStep,
   BriefStatus,
   ChatMessage,
   ChatSession,
@@ -99,6 +102,7 @@ function rowToTask(row: typeof tasks.$inferSelect): Task {
     forca: row.forca as ForcaLevel | null,
     touches: row.touches,
     acceptance: row.acceptance,
+    evidence: Array.isArray(row.evidence) ? row.evidence : [],
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -600,15 +604,19 @@ export interface Store {
     },
   ): Promise<ProjectBrief>;
 
-  // resolve (per-card analysis): one analysis per task
-  /** The latest resolution analysis for a task, or null if never analysed. */
+  // resolve (per-card analysis): the card's living, versioned understanding
+  /** The latest analysis (current head) for a task, or null if never analysed. */
   getTaskAnalysis(taskId: string): Promise<TaskAnalysis | null>;
-  /** Upsert a task's analysis (keyed by task_id). Pass status + any fields Resolve
-   *  has so far; omitted fields keep their column default on insert. */
+  /** Upsert the current head (status + problem + plan). Does NOT touch version /
+   *  revisions / input_details — those are managed by beginAnalysisRevision. On
+   *  first insert the head is version 1 with no history. */
   upsertTaskAnalysis(
     taskId: string,
     fields: {
       status: AnalysisStatus;
+      revisedTitle?: string | null;
+      details?: string | null;
+      evidence?: AnalysisEvidence[];
       approach?: string | null;
       rationale?: string | null;
       mode?: PlanMode | null;
@@ -617,7 +625,15 @@ export interface Store {
       model?: string | null;
       error?: string | null;
     },
-  ): Promise<TaskAnalysis>;
+  ): Promise<TaskAnalysis | null>;
+  /** Mark the head's status (pending/failed) WITHOUT touching its content — inserts
+   *  a fresh pending row if none exists. Used to flag "analysing…" and to record a
+   *  failure while preserving the last good problem+plan. */
+  setAnalysisStatus(taskId: string, status: AnalysisStatus, error?: string | null): Promise<void>;
+  /** Start a new version: snapshot the current ready head into `revisions`, bump
+   *  `version`, record the human `inputDetails` that triggered it, and set the head
+   *  to pending. No-op (returns null) if there's no existing head to revise. */
+  beginAnalysisRevision(taskId: string, inputDetails: string): Promise<TaskAnalysis | null>;
 }
 
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
@@ -1485,22 +1501,30 @@ export function createStore(db: Db): Store {
 
     async getTaskAnalysis(taskId) {
       const rows = await db.execute(
-        sql`SELECT task_id, status, approach, rationale, mode, steps, questions, model, error, created_at, updated_at
+        sql`SELECT task_id, status, version, revised_title, details, evidence, approach, rationale, mode,
+                   steps, questions, input_details, revisions, model, error, created_at, updated_at
             FROM card_analyses WHERE task_id = ${taskId} LIMIT 1`,
       );
       const row = execRows(rows)[0];
       return row ? rowToAnalysis(row) : null;
     },
     async upsertTaskAnalysis(taskId, fields) {
+      // The ready-result write: full problem + plan for the CURRENT version. Never
+      // touches version / revisions / input_details (managed by the revision path).
+      const evidence = JSON.stringify(fields.evidence ?? []);
       const steps = JSON.stringify(fields.steps ?? []);
       const questions = JSON.stringify(fields.questions ?? []);
       const rows = await db.execute(
         sql`INSERT INTO card_analyses
-              (task_id, status, approach, rationale, mode, steps, questions, model, error, updated_at)
-            VALUES (${taskId}, ${fields.status}, ${fields.approach ?? null}, ${fields.rationale ?? null},
-              ${fields.mode ?? null}, ${steps}::jsonb, ${questions}::jsonb, ${fields.model ?? null}, ${fields.error ?? null}, now())
+              (task_id, status, revised_title, details, evidence, approach, rationale, mode, steps, questions, model, error, updated_at)
+            VALUES (${taskId}, ${fields.status}, ${fields.revisedTitle ?? null}, ${fields.details ?? null}, ${evidence}::jsonb,
+              ${fields.approach ?? null}, ${fields.rationale ?? null}, ${fields.mode ?? null}, ${steps}::jsonb, ${questions}::jsonb,
+              ${fields.model ?? null}, ${fields.error ?? null}, now())
             ON CONFLICT (task_id) DO UPDATE SET
               status = EXCLUDED.status,
+              revised_title = EXCLUDED.revised_title,
+              details = EXCLUDED.details,
+              evidence = EXCLUDED.evidence,
               approach = EXCLUDED.approach,
               rationale = EXCLUDED.rationale,
               mode = EXCLUDED.mode,
@@ -1509,10 +1533,50 @@ export function createStore(db: Db): Store {
               model = EXCLUDED.model,
               error = EXCLUDED.error,
               updated_at = now()
-            RETURNING task_id, status, approach, rationale, mode, steps, questions, model, error, created_at, updated_at`,
+            RETURNING task_id, status, version, revised_title, details, evidence, approach, rationale, mode,
+                      steps, questions, input_details, revisions, model, error, created_at, updated_at`,
       );
       const row = execRows(rows)[0];
-      return rowToAnalysis(row!);
+      return row ? rowToAnalysis(row) : null;
+    },
+    async setAnalysisStatus(taskId, status, error = null) {
+      // Status-only marker (pending/failed) that preserves the last good content.
+      await db.execute(
+        sql`INSERT INTO card_analyses (task_id, status, error)
+            VALUES (${taskId}, ${status}, ${error})
+            ON CONFLICT (task_id) DO UPDATE SET status = EXCLUDED.status, error = EXCLUDED.error, updated_at = now()`,
+      );
+    },
+    async beginAnalysisRevision(taskId, inputDetails) {
+      // Snapshot the current head into revisions[], bump version, record the human
+      // input, and flip to pending — all preserving the content until the refine
+      // overwrites it. No-op if there's no row yet (returns null → caller falls back).
+      const rows = await db.execute(
+        sql`UPDATE card_analyses SET
+              revisions = COALESCE(revisions, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+                'version', version,
+                'title', revised_title,
+                'details', details,
+                'evidence', evidence,
+                'approach', approach,
+                'rationale', rationale,
+                'mode', mode,
+                'steps', steps,
+                'questions', questions,
+                'inputDetails', input_details,
+                'createdAt', to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SSOF')
+              )),
+              version = version + 1,
+              input_details = ${inputDetails},
+              status = 'pending',
+              error = NULL,
+              updated_at = now()
+            WHERE task_id = ${taskId}
+            RETURNING task_id, status, version, revised_title, details, evidence, approach, rationale, mode,
+                      steps, questions, input_details, revisions, model, error, created_at, updated_at`,
+      );
+      const row = execRows(rows)[0];
+      return row ? rowToAnalysis(row) : null;
     },
   };
 }
@@ -1538,27 +1602,64 @@ function rowToBrief(row: Record<string, unknown>): ProjectBrief {
   };
 }
 
+const str = (v: unknown): string => (typeof v === "string" ? v : "");
+const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
+function mapSteps(v: unknown): AnalysisStep[] {
+  return Array.isArray(v)
+    ? (v as Record<string, unknown>[]).map((s) => ({
+        title: str(s.title),
+        touches: strList(s.touches),
+        detail: str(s.detail),
+        acceptance: str(s.acceptance),
+      }))
+    : [];
+}
+function mapEvidence(v: unknown): AnalysisEvidence[] {
+  return Array.isArray(v)
+    ? (v as Record<string, unknown>[])
+        .map((e) => ({
+          quote: str(e.quote),
+          speaker: (e.speaker as string | null) ?? null,
+          note: (e.note as string | null) ?? null,
+        }))
+        .filter((e) => e.quote)
+    : [];
+}
+
 /** Map a raw card_analyses row (self-healed table, not in drizzle) to the type.
- *  jsonb steps/questions come back already-parsed from node-postgres. */
+ *  jsonb columns come back already-parsed from node-postgres. */
 function rowToAnalysis(row: Record<string, unknown>): TaskAnalysis {
   const iso = (v: unknown): string =>
     v instanceof Date ? v.toISOString() : typeof v === "string" ? v : new Date().toISOString();
-  const steps: TaskAnalysis["steps"] = Array.isArray(row.steps)
-    ? (row.steps as Record<string, unknown>[]).map((s) => ({
-        title: typeof s.title === "string" ? s.title : "",
-        touches: Array.isArray(s.touches) ? (s.touches as string[]) : [],
-        detail: typeof s.detail === "string" ? s.detail : "",
-        acceptance: typeof s.acceptance === "string" ? s.acceptance : "",
+  const revisions: AnalysisRevision[] = Array.isArray(row.revisions)
+    ? (row.revisions as Record<string, unknown>[]).map((r) => ({
+        version: typeof r.version === "number" ? r.version : Number(r.version) || 0,
+        title: (r.title as string | null) ?? null,
+        details: (r.details as string | null) ?? null,
+        evidence: mapEvidence(r.evidence),
+        approach: (r.approach as string | null) ?? null,
+        rationale: (r.rationale as string | null) ?? null,
+        mode: (r.mode as PlanMode | null) ?? null,
+        steps: mapSteps(r.steps),
+        questions: strList(r.questions),
+        inputDetails: (r.inputDetails as string | null) ?? null,
+        createdAt: str(r.createdAt) || iso(row.updated_at),
       }))
     : [];
   return {
     taskId: String(row.task_id),
     status: String(row.status) as AnalysisStatus,
+    version: typeof row.version === "number" ? row.version : Number(row.version) || 1,
+    revisedTitle: (row.revised_title as string | null) ?? null,
+    details: (row.details as string | null) ?? null,
+    evidence: mapEvidence(row.evidence),
     approach: (row.approach as string | null) ?? null,
     rationale: (row.rationale as string | null) ?? null,
     mode: (row.mode as PlanMode | null) ?? null,
-    steps,
-    questions: Array.isArray(row.questions) ? (row.questions as string[]) : [],
+    steps: mapSteps(row.steps),
+    questions: strList(row.questions),
+    inputDetails: (row.input_details as string | null) ?? null,
+    revisions,
     model: (row.model as string | null) ?? null,
     error: (row.error as string | null) ?? null,
     createdAt: iso(row.created_at),
@@ -1655,6 +1756,16 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     // Resolve: the 'analysis' card status. Same ADD VALUE self-heal (push hangs on
     // db_brokk); AFTER 'backlog' keeps the enum order matching the board columns.
     await db.execute(sql`ALTER TYPE task_status ADD VALUE IF NOT EXISTS 'analysis' AFTER 'backlog';`);
+    // Origin evidence (Muninn verbatim excerpts) on the drizzle-pushed tasks table.
+    await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb;`);
+    // Versioned analysis columns (the living understanding). Self-healed ADD COLUMNs
+    // so existing card_analyses rows gain them without a push.
+    await db.execute(sql`ALTER TABLE card_analyses ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;`);
+    await db.execute(sql`ALTER TABLE card_analyses ADD COLUMN IF NOT EXISTS revised_title text;`);
+    await db.execute(sql`ALTER TABLE card_analyses ADD COLUMN IF NOT EXISTS details text;`);
+    await db.execute(sql`ALTER TABLE card_analyses ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb;`);
+    await db.execute(sql`ALTER TABLE card_analyses ADD COLUMN IF NOT EXISTS input_details text;`);
+    await db.execute(sql`ALTER TABLE card_analyses ADD COLUMN IF NOT EXISTS revisions jsonb NOT NULL DEFAULT '[]'::jsonb;`);
   } catch (err) {
     console.warn(
       "[db] previews dev-mode columns ALTER skipped:",
@@ -1682,11 +1793,17 @@ export async function ensureChatSchema(db: Db): Promise<void> {
   await db.execute(sql`CREATE TABLE IF NOT EXISTS card_analyses (
     task_id uuid PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
     status text NOT NULL DEFAULT 'pending',
+    version integer NOT NULL DEFAULT 1,
+    revised_title text,
+    details text,
+    evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
     approach text,
     rationale text,
     mode text,
     steps jsonb NOT NULL DEFAULT '[]'::jsonb,
     questions jsonb NOT NULL DEFAULT '[]'::jsonb,
+    input_details text,
+    revisions jsonb NOT NULL DEFAULT '[]'::jsonb,
     model text,
     error text,
     created_at timestamptz NOT NULL DEFAULT now(),
