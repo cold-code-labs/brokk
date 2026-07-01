@@ -6,6 +6,40 @@
 
 ---
 
+## 🧪 QA · Recibo de aceite ao vivo (Nv2) — LIVE em v1 (commit `0c1adee`)
+
+**O que é:** depois do verify, se o card deixou `.brokk/acceptance.mjs` no worktree,
+o forge **boota o app do cliente numa porta efêmera e roda esse check** contra ele —
+verify prova que compila, isto prova que **se comporta**. Recibo = veredito (✅/❌) +
+screenshot. Verdict vai no corpo da PR; screenshot vira **run-event `acceptance`** e
+renderiza no run-log do board (`AcceptanceRow` em `Board.tsx`). Não commita screenshot
+no repo do cliente — só o script rida a PR (verify re-roda ele pra sempre).
+
+**Arquivos:** `apps/forge/src/acceptance.ts` (boot efêmero + CDP + captura),
+`apps/forge/src/index.ts` (roda após verify, emite evento, rida no corpo da PR),
+`packages/agents/forge/src/prompts.ts` (convenção `.brokk/acceptance.mjs`),
+core/db (`acceptance` RunEventType + enum self-heal ALTER), `apps/web/components/Board.tsx`.
+Gate proporcional: sem script → pulado. `BROKK_CHROMIUM` default `/usr/bin/chromium`.
+
+**Decisão (Vitor, 2026-07-01): fica em v1** — **advisory, NÃO bloqueia** a run (verify
+segue o gate). O screenshot no run-log é o **sinal honesto** e auditável por humano.
+
+**⚠️ Limitação conhecida do v1 (provada ao vivo, PR #27 fechada):** o check que o
+agente escreve pode ser **teatro** — `chromium --screenshot` sai 0 mesmo na tela de
+login, e o boot do maglink cai no `/login` (esteira é gated por Logto, bootou
+`AUTH_MODE=stub`). Resultado: "✅ met" **falso**, screenshot da tela de login. O
+screenshot expôs isso na hora (por isso v1 é aceitável advisory).
+
+**Frente deferida — v1.1 (endurecer, quando quiser):**
+1. **Prompt:** exigir **assert real via CDP** (achar o elemento no DOM, checar
+   computed-style/comportamento, sair ≠0 se ausente) + **click-through do login stub**
+   ("Entrar com um clique" existe em `AUTH_MODE=stub` = seam credential-free) +
+   **proibir** screenshot-só-como-prova.
+2. **Forge:** guarda anti-teatro que rebaixa `met→inconclusivo` quando não houve
+   assertion real; depois virar **gate** (bloquear promoção dev→main em ❌).
+
+---
+
 ## ✅ RESOLVIDO (sessão 2026-07-01, parte 2) — verify verde de ponta a ponta
 
 O verify do forge estava falhando por **DUAS** causas empilhadas, agora ambas
