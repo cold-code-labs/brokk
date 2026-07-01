@@ -26,6 +26,7 @@ export const t = {
 /** Status → color. The one place statuses are colored (was duplicated). */
 export const STATUS_COLOR: Record<string, string> = {
   backlog: "#6b7488",
+  analysis: "#3fb0ac",
   queued: "#d2a000",
   running: "#2f81f7",
   review: "#a371f7",
@@ -37,6 +38,7 @@ export const STATUS_COLOR: Record<string, string> = {
 
 export const STATUS_LABEL: Record<string, string> = {
   backlog: "Backlog",
+  analysis: "Analysis",
   queued: "Queued",
   running: "Running",
   review: "Review · PR",

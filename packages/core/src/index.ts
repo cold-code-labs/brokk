@@ -12,9 +12,12 @@ import type { RuntimeSpec } from "./runtime.js";
 
 // ── Enums ───────────────────────────────────────────────────────────────────
 
-/** Board columns + side states. See ARCHITECTURE.md §5 "Card lifecycle". */
+/** Board columns + side states. See ARCHITECTURE.md §5 "Card lifecycle".
+ *  `analysis` sits between backlog and queued: Resolve (the per-card scout) is
+ *  working out HOW/WHERE to solve the card before it's approved into the forge. */
 export type TaskStatus =
   | "backlog"
+  | "analysis"
   | "queued"
   | "running"
   | "review"
@@ -24,6 +27,7 @@ export type TaskStatus =
 
 export const TASK_STATUSES: readonly TaskStatus[] = [
   "backlog",
+  "analysis",
   "queued",
   "running",
   "review",
@@ -710,6 +714,47 @@ export interface ProjectBrief {
   /** Key technologies detected. */
   stack: string[];
   /** Model that produced the brief. */
+  model: string | null;
+  /** Failure reason when status = "failed". */
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Resolve: per-card analysis ───────────────────────────────────────────────
+
+/** Lifecycle of a card's resolution analysis. `pending` = Resolve is analysing;
+ *  `ready` = a plan is available; `failed` = the scout errored. */
+export type AnalysisStatus = "pending" | "ready" | "failed";
+
+/** One concrete implementation step Resolve pins for a card. Mirrors the scout's
+ *  ResolveStep (packages/agents/scout resolve.ts). `touches` are REAL paths the
+ *  scout saw in the checkout; `acceptance` becomes the sub-card's success cond. */
+export interface AnalysisStep {
+  title: string;
+  touches: string[];
+  detail: string;
+  acceptance: string;
+}
+
+/** The resolution plan Resolve (the per-card scout) produces by reading ONE card
+ *  against a read-only checkout: HOW to solve it, WHERE in the code, and the open
+ *  questions for the human. `mode` drives approval — atomic enqueues the card,
+ *  feature expands the steps into sub-cards. One analysis per task (latest wins). */
+export interface TaskAnalysis {
+  taskId: string;
+  status: AnalysisStatus;
+  /** 1–3 sentences: the strategy to solve the card. */
+  approach: string | null;
+  /** Why this approach — what in the code justifies it. */
+  rationale: string | null;
+  /** atomic = one card/one PR; feature = break the steps into sub-cards (DAG). */
+  mode: PlanMode | null;
+  /** Concrete implementation steps, in order. */
+  steps: AnalysisStep[];
+  /** Open questions for the human (the handoff). Empty when the plan is confident. */
+  questions: string[];
+  /** Model that produced the analysis. */
   model: string | null;
   /** Failure reason when status = "failed". */
   error: string | null;

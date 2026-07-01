@@ -4,7 +4,7 @@
 // parse the byte stream ourselves (EventSource can't POST).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { Preview } from "@brokk/sdk";
+import type { Preview, TaskAnalysis } from "@brokk/sdk";
 
 const BASE = (process.env.NEXT_PUBLIC_BROKK_API_URL || "/api") + "/chat";
 
@@ -122,6 +122,22 @@ export const discovery = {
   /** (Re)scout the project — kicks a detached Huginn run; returns immediately. */
   scout: (projectId: string) =>
     j<{ status: string; running: boolean }>("POST", `/discover/${projectId}`),
+};
+
+// ── Resolve: per-card analysis ────────────────────────────────────────────────
+
+export type { TaskAnalysis };
+
+export const analysis = {
+  /** The card's analysis (+ whether a scout is running). null if never analysed. */
+  get: (taskId: string) =>
+    j<{ analysis: TaskAnalysis | null; running: boolean }>("GET", `/analyze/${taskId}`),
+  /** Kick a detached Resolve scout for the card — moves it into `analysis`. */
+  scout: (taskId: string) =>
+    j<{ status: string; running: boolean }>("POST", `/analyze/${taskId}`),
+  /** Re-run after answering Resolve's questions — refines the plan with `answers`. */
+  answer: (taskId: string, answers: string) =>
+    j<{ status: string; running: boolean }>("POST", `/analyze/${taskId}`, { answers }),
 };
 
 /** Parse an SSE response body, invoking onEvent per frame. Used by both the

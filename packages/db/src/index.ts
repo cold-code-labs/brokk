@@ -1,5 +1,6 @@
 import type {
   Agent,
+  AnalysisStatus,
   BriefStatus,
   ChatMessage,
   ChatSession,
@@ -29,6 +30,7 @@ import type {
   RuntimeSpec,
   Subscription,
   Task,
+  TaskAnalysis,
   TaskKind,
   TaskStatus,
   TriageSource,
@@ -597,6 +599,25 @@ export interface Store {
       error?: string | null;
     },
   ): Promise<ProjectBrief>;
+
+  // resolve (per-card analysis): one analysis per task
+  /** The latest resolution analysis for a task, or null if never analysed. */
+  getTaskAnalysis(taskId: string): Promise<TaskAnalysis | null>;
+  /** Upsert a task's analysis (keyed by task_id). Pass status + any fields Resolve
+   *  has so far; omitted fields keep their column default on insert. */
+  upsertTaskAnalysis(
+    taskId: string,
+    fields: {
+      status: AnalysisStatus;
+      approach?: string | null;
+      rationale?: string | null;
+      mode?: PlanMode | null;
+      steps?: TaskAnalysis["steps"];
+      questions?: string[];
+      model?: string | null;
+      error?: string | null;
+    },
+  ): Promise<TaskAnalysis>;
 }
 
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
@@ -1461,6 +1482,38 @@ export function createStore(db: Db): Store {
       const row = execRows(rows)[0];
       return rowToBrief(row!);
     },
+
+    async getTaskAnalysis(taskId) {
+      const rows = await db.execute(
+        sql`SELECT task_id, status, approach, rationale, mode, steps, questions, model, error, created_at, updated_at
+            FROM card_analyses WHERE task_id = ${taskId} LIMIT 1`,
+      );
+      const row = execRows(rows)[0];
+      return row ? rowToAnalysis(row) : null;
+    },
+    async upsertTaskAnalysis(taskId, fields) {
+      const steps = JSON.stringify(fields.steps ?? []);
+      const questions = JSON.stringify(fields.questions ?? []);
+      const rows = await db.execute(
+        sql`INSERT INTO card_analyses
+              (task_id, status, approach, rationale, mode, steps, questions, model, error, updated_at)
+            VALUES (${taskId}, ${fields.status}, ${fields.approach ?? null}, ${fields.rationale ?? null},
+              ${fields.mode ?? null}, ${steps}::jsonb, ${questions}::jsonb, ${fields.model ?? null}, ${fields.error ?? null}, now())
+            ON CONFLICT (task_id) DO UPDATE SET
+              status = EXCLUDED.status,
+              approach = EXCLUDED.approach,
+              rationale = EXCLUDED.rationale,
+              mode = EXCLUDED.mode,
+              steps = EXCLUDED.steps,
+              questions = EXCLUDED.questions,
+              model = EXCLUDED.model,
+              error = EXCLUDED.error,
+              updated_at = now()
+            RETURNING task_id, status, approach, rationale, mode, steps, questions, model, error, created_at, updated_at`,
+      );
+      const row = execRows(rows)[0];
+      return rowToAnalysis(row!);
+    },
   };
 }
 
@@ -1478,6 +1531,34 @@ function rowToBrief(row: Record<string, unknown>): ProjectBrief {
     built: arr(row.built),
     missing: arr(row.missing),
     stack: arr(row.stack),
+    model: (row.model as string | null) ?? null,
+    error: (row.error as string | null) ?? null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+/** Map a raw card_analyses row (self-healed table, not in drizzle) to the type.
+ *  jsonb steps/questions come back already-parsed from node-postgres. */
+function rowToAnalysis(row: Record<string, unknown>): TaskAnalysis {
+  const iso = (v: unknown): string =>
+    v instanceof Date ? v.toISOString() : typeof v === "string" ? v : new Date().toISOString();
+  const steps: TaskAnalysis["steps"] = Array.isArray(row.steps)
+    ? (row.steps as Record<string, unknown>[]).map((s) => ({
+        title: typeof s.title === "string" ? s.title : "",
+        touches: Array.isArray(s.touches) ? (s.touches as string[]) : [],
+        detail: typeof s.detail === "string" ? s.detail : "",
+        acceptance: typeof s.acceptance === "string" ? s.acceptance : "",
+      }))
+    : [];
+  return {
+    taskId: String(row.task_id),
+    status: String(row.status) as AnalysisStatus,
+    approach: (row.approach as string | null) ?? null,
+    rationale: (row.rationale as string | null) ?? null,
+    mode: (row.mode as PlanMode | null) ?? null,
+    steps,
+    questions: Array.isArray(row.questions) ? (row.questions as string[]) : [],
     model: (row.model as string | null) ?? null,
     error: (row.error as string | null) ?? null,
     createdAt: iso(row.created_at),
@@ -1571,6 +1652,9 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     // Add the 'unsupported' preview status. ADD VALUE can't run inside a txn block,
     // so it's its own statement; IF NOT EXISTS makes it idempotent on reboot.
     await db.execute(sql`ALTER TYPE preview_status ADD VALUE IF NOT EXISTS 'unsupported';`);
+    // Resolve: the 'analysis' card status. Same ADD VALUE self-heal (push hangs on
+    // db_brokk); AFTER 'backlog' keeps the enum order matching the board columns.
+    await db.execute(sql`ALTER TYPE task_status ADD VALUE IF NOT EXISTS 'analysis' AFTER 'backlog';`);
   } catch (err) {
     console.warn(
       "[db] previews dev-mode columns ALTER skipped:",
@@ -1586,6 +1670,23 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     built jsonb NOT NULL DEFAULT '[]'::jsonb,
     missing jsonb NOT NULL DEFAULT '[]'::jsonb,
     stack jsonb NOT NULL DEFAULT '[]'::jsonb,
+    model text,
+    error text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );`);
+
+  // Resolve per-card analysis — one row per task (PK = task_id), upserted by the
+  // scout. Same self-heal rationale as project_briefs (kept out of drizzle to dodge
+  // the push-hang on new db_brokk tables); JSON steps/questions keep it schema-light.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS card_analyses (
+    task_id uuid PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+    status text NOT NULL DEFAULT 'pending',
+    approach text,
+    rationale text,
+    mode text,
+    steps jsonb NOT NULL DEFAULT '[]'::jsonb,
+    questions jsonb NOT NULL DEFAULT '[]'::jsonb,
     model text,
     error text,
     created_at timestamptz NOT NULL DEFAULT now(),

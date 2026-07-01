@@ -24,6 +24,8 @@ import {
 
 export const taskStatus = pgEnum("task_status", [
   "backlog",
+  // Resolve (per-card scout) is working out how/where before the card is approved.
+  "analysis",
   "queued",
   "running",
   "review",

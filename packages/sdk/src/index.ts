@@ -17,7 +17,20 @@ export type {
   Agent, Preview, PreviewStatus, Project, Repository, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
   ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
   Plan, PlanDraft, PlannedCard, PlanMode, PlanStatus, ClarifyQuestion,
+  TaskAnalysis, AnalysisStatus, AnalysisStep,
 } from "@brokk/core";
+
+/** What POST /tasks/:id/analysis/approve returns — atomic enqueues the card,
+ *  feature spawns the sub-cards under a new plan. */
+export interface ApproveAnalysisResult {
+  mode: "atomic" | "feature";
+  /** The sub-cards created (feature mode); empty for atomic. */
+  cards: import("@brokk/core").Task[];
+  /** The enriched+enqueued card (atomic mode only). */
+  task?: import("@brokk/core").Task;
+  /** The feature plan the sub-cards compose into (feature mode only). */
+  planId?: string;
+}
 
 /** A repo the gh importer found in the org but that isn't connected yet. */
 export interface RepoCandidate {
@@ -103,6 +116,10 @@ export interface BrokkClient {
   createTask(input: CreateTaskInput): Promise<Task>;
   patchTask(id: string, patch: Partial<Task>): Promise<Task>;
   enqueueTask(id: string): Promise<Task>;
+  /** The card's Resolve analysis (null if never analysed). Read-only mirror. */
+  getAnalysis(taskId: string): Promise<import("@brokk/core").TaskAnalysis | null>;
+  /** Approve a ready analysis: atomic enqueues the card, feature spawns sub-cards. */
+  approveAnalysis(taskId: string): Promise<ApproveAnalysisResult>;
   /** Huginn Phase 2: create proposed backlog cards from a project's discovery
    *  brief (one per "missing" item). Idempotent — re-running skips carded items. */
   backlogFromBrief(projectId: string): Promise<{ created: Task[]; skipped: number }>;
@@ -210,6 +227,18 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     },
     enqueueTask(id) {
       return req<Task>("POST", `/tasks/${encodeURIComponent(id)}/enqueue`);
+    },
+    getAnalysis(taskId) {
+      return req<import("@brokk/core").TaskAnalysis | null>(
+        "GET",
+        `/tasks/${encodeURIComponent(taskId)}/analysis`,
+      );
+    },
+    approveAnalysis(taskId) {
+      return req<ApproveAnalysisResult>(
+        "POST",
+        `/tasks/${encodeURIComponent(taskId)}/analysis/approve`,
+      );
     },
     backlogFromBrief(projectId) {
       return req<{ created: Task[]; skipped: number }>(

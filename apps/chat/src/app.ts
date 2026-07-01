@@ -5,7 +5,7 @@ import {
   type ToolContext,
   runTurn,
 } from "@brokk/chat";
-import { detectRuntime, runDiscovery } from "@brokk/scout";
+import { detectRuntime, runDiscovery, runResolve } from "@brokk/scout";
 import { buildDetectCtx, resolveRuntime } from "@brokk/runtime";
 import type { Store } from "@brokk/db";
 import { featureBranch, type Repository } from "@brokk/core";
@@ -328,6 +328,86 @@ export function buildSindri(deps: SindriDeps): Hono {
     const projectId = c.req.param("projectId");
     const brief = await deps.store.getProjectBrief(projectId);
     return c.json({ brief, running: scouting.has(projectId) });
+  });
+
+  // ── Resolve: per-card analysis ────────────────────────────────────────────────
+
+  // In-flight analyses, so re-triggering (or answering a question → re-run) doesn't
+  // run two Resolve scouts at once for the same card.
+  const analyzing = new Set<string>();
+
+  // Kick a (detached) Resolve scout for ONE card. Moves the card into the `analysis`
+  // column and returns immediately; the analysis row tracks pending → ready/failed.
+  // Optional `answers` (a re-run after the human answered Resolve's questions) is
+  // threaded into the scout so it refines the plan instead of starting cold.
+  app.post("/analyze/:taskId", async (c) => {
+    const taskId = c.req.param("taskId");
+    const task = await deps.store.getTask(taskId);
+    if (!task) return c.json({ error: "task not found" }, 404);
+    if (analyzing.has(taskId)) return c.json({ status: "pending", running: true }, 202);
+    const project = await deps.store.getProject(task.projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    const repo = await deps.store.getRepository(project.repositoryId);
+    if (!repo) return c.json({ error: "repository not found" }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const answers = typeof body?.answers === "string" ? body.answers.trim() : undefined;
+
+    analyzing.add(taskId);
+    await deps.store.upsertTaskAnalysis(taskId, { status: "pending" });
+    // Entering analysis IS the card's state — surface it on the board immediately.
+    await deps.store.updateTask(taskId, { status: "analysis" }).catch(() => {});
+
+    // Detached: survives the HTTP response (like discovery). Resolve reads a fresh
+    // read-only checkout off the card's base branch, then stores the plan.
+    void (async () => {
+      const branch = `resolve/${taskId.slice(0, 8)}`;
+      try {
+        const { path } = await deps.checkouts.ensure({
+          sessionId: `resolve-${taskId}`,
+          branch,
+          repo: repo as Parameters<typeof deps.checkouts.ensure>[0]["repo"],
+          baseBranch: task.baseBranch ?? project.baseBranch,
+        });
+        const analysis = await runResolve({
+          cfg: deps.cfg,
+          cwd: path,
+          repoFullName: repo.fullName,
+          card: { title: task.title, body: task.body },
+          answers,
+          model: "sonnet",
+          onProgress: (n) => console.log(`[resolve] ${task.title}: ${n}`),
+        });
+        await deps.store.upsertTaskAnalysis(taskId, {
+          status: "ready",
+          approach: analysis.approach,
+          rationale: analysis.rationale,
+          mode: analysis.mode,
+          steps: analysis.steps,
+          questions: analysis.questions,
+          model: "sonnet",
+          error: null,
+        });
+        console.log(
+          `[resolve] ${task.title}: analysis ready (${analysis.mode}, ${analysis.steps.length} steps, ${analysis.questions.length} questions)`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[resolve] ${task.title}: analysis failed — ${msg}`);
+        await deps.store.upsertTaskAnalysis(taskId, { status: "failed", error: msg }).catch(() => {});
+      } finally {
+        analyzing.delete(taskId);
+      }
+    })();
+
+    return c.json({ status: "pending", running: true }, 202);
+  });
+
+  // Fetch a card's analysis (+ whether a scout is currently running).
+  app.get("/analyze/:taskId", async (c) => {
+    const taskId = c.req.param("taskId");
+    const analysis = await deps.store.getTaskAnalysis(taskId);
+    return c.json({ analysis, running: analyzing.has(taskId) });
   });
 
   return app;

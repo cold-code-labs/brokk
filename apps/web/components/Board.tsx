@@ -10,15 +10,17 @@ import {
   Button,
 } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
+import { analysis as analysisApi, type TaskAnalysis } from "../lib/chat";
 import { useProject } from "../lib/project-context";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
 import { AgentAvatar } from "./AgentAvatar";
 import { PreviewChip } from "./PreviewChip";
 
-const COLUMNS = ["backlog", "queued", "running", "review", "done", "failed"] as const;
+const COLUMNS = ["backlog", "analysis", "queued", "running", "review", "done", "failed"] as const;
 
 /** Status → Yggdrasil badge tone (the four supported tones). */
 const STATUS_TONE: Record<string, "ok" | "warn" | "err" | "info" | undefined> = {
+  analysis: "info",
   queued: "warn",
   running: "info",
   review: "info",
@@ -166,6 +168,18 @@ export default function Board({ projectId }: { projectId?: string }) {
     }
   }
 
+  // Kick Resolve on a card — moves it into the Analysis column and opens the drawer
+  // so you can watch the plan land.
+  async function analyze(id: string) {
+    try {
+      await analysisApi.scout(id);
+      setSelected(id);
+      await refresh(project?.id);
+    } catch (e) {
+      setErr(String(e));
+    }
+  }
+
   const selectedTask = tasks.find((x) => x.id === selected) ?? null;
   if (!mounted) return null;
 
@@ -230,6 +244,11 @@ export default function Board({ projectId }: { projectId?: string }) {
                     {(task.status === "backlog" || task.prUrl) && (
                       <span style={cardFooter}>
                         {task.status === "backlog" && (
+                          <span onClick={(e) => { e.stopPropagation(); analyze(task.id); }} style={analyzeBtn}>
+                            analyze →
+                          </span>
+                        )}
+                        {task.status === "backlog" && (
                           <span onClick={(e) => { e.stopPropagation(); enqueue(task.id); }} style={miniBtn}>
                             queue →
                           </span>
@@ -249,17 +268,26 @@ export default function Board({ projectId }: { projectId?: string }) {
         })}
       </div>
 
-      {selectedTask && <Detail task={selectedTask} onClose={() => setSelected(null)} />}
+      {selectedTask && (
+        <Detail
+          task={selectedTask}
+          onClose={() => setSelected(null)}
+          onChanged={() => refresh(project?.id)}
+        />
+      )}
     </Main>
   );
 }
 
-function Detail({ task, onClose }: { task: Task; onClose: () => void }) {
+function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void; onChanged: () => void }) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
+  const isAnalysis = task.status === "analysis";
 
   useEffect(() => {
+    // A card in analysis has no runs yet — its drawer is the plan, not the log.
+    if (isAnalysis) return;
     let unsub: (() => void) | undefined;
     setEvents([]);
     (async () => {
@@ -269,7 +297,7 @@ function Detail({ task, onClose }: { task: Task; onClose: () => void }) {
       if (latest) unsub = brokk.streamRunEvents(latest.id, (e) => setEvents((prev) => [...prev, e]));
     })();
     return () => unsub?.();
-  }, [task.id]);
+  }, [task.id, isAnalysis]);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
@@ -299,19 +327,200 @@ function Detail({ task, onClose }: { task: Task; onClose: () => void }) {
         {task.body && <p className="ygg-muted" style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{task.body}</p>}
         {latest?.error && <pre style={{ ...logBox, color: STATUS_COLOR.failed, maxHeight: 120 }}>{latest.error}</pre>}
 
-        <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "16px 0 6px" }}>
-          Live run log{latest ? ` · ${latest.id.slice(0, 8)}` : ""}
-        </h3>
-        <div ref={logRef} style={logBox}>
-          {events.length === 0 && <span className="ygg-dim">no events yet…</span>}
-          {events.map((e, i) => (
-            <div key={i} style={{ marginBottom: 4 }}>
-              <span style={{ color: STATUS_COLOR[e.type] ?? "var(--fg-dim)", fontWeight: 600 }}>{e.type}</span>{" "}
-              <span className="ygg-muted">{summarize(e)}</span>
+        {isAnalysis ? (
+          <AnalysisPanel task={task} onChanged={onChanged} onClose={onClose} />
+        ) : (
+          <>
+            <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "16px 0 6px" }}>
+              Live run log{latest ? ` · ${latest.id.slice(0, 8)}` : ""}
+            </h3>
+            <div ref={logRef} style={logBox}>
+              {events.length === 0 && <span className="ygg-dim">no events yet…</span>}
+              {events.map((e, i) => (
+                <div key={i} style={{ marginBottom: 4 }}>
+                  <span style={{ color: STATUS_COLOR[e.type] ?? "var(--fg-dim)", fontWeight: 600 }}>{e.type}</span>{" "}
+                  <span className="ygg-muted">{summarize(e)}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </>
+        )}
       </aside>
+    </div>
+  );
+}
+
+/** The Analysis drawer — Resolve's "visão pra resolução". Polls the card's analysis
+ *  while the scout runs, then renders the plan: approach + rationale, the ordered
+ *  steps (with the files each touches), and the open questions. Questions get an
+ *  answer box that re-runs Resolve; "Aprovar" enqueues (atomic) or spawns the
+ *  sub-cards (feature). */
+function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: () => void; onClose: () => void }) {
+  const [analysis, setAnalysis] = useState<TaskAnalysis | null>(null);
+  const [running, setRunning] = useState(false);
+  const [answers, setAnswers] = useState("");
+  const [busy, setBusy] = useState<null | "approve" | "reanalyze">(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Poll the analysis while a scout is in flight (or the row is still pending).
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await analysisApi.get(task.id);
+        if (!alive) return;
+        setAnalysis(r.analysis);
+        setRunning(r.running || r.analysis?.status === "pending");
+      } catch {
+        /* transient — keep polling */
+      }
+    };
+    tick();
+    const i = setInterval(tick, 2500);
+    return () => {
+      alive = false;
+      clearInterval(i);
+    };
+  }, [task.id]);
+
+  async function approve() {
+    setBusy("approve");
+    setErr(null);
+    try {
+      await brokk.approveAnalysis(task.id);
+      onChanged();
+      onClose();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function reanalyze() {
+    setBusy("reanalyze");
+    setErr(null);
+    try {
+      await analysisApi.answer(task.id, answers.trim());
+      setAnswers("");
+      setRunning(true);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const pending = running || analysis?.status === "pending" || !analysis;
+  const failed = analysis?.status === "failed";
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "0 0 10px", letterSpacing: 0.4 }}>
+        Resolve · visão da resolução
+      </h3>
+
+      {err && <Banner tone="err">⚠ {err}</Banner>}
+
+      {pending && !failed && (
+        <p className="ygg-dim" style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ ...dot, background: STATUS_COLOR.analysis, marginTop: 0 }} />
+          Resolve está lendo o checkout e montando o plano…
+        </p>
+      )}
+
+      {failed && (
+        <>
+          <pre style={{ ...logBox, color: STATUS_COLOR.failed, maxHeight: 140 }}>{analysis?.error ?? "falhou"}</pre>
+          <Button size="sm" variant="outline" onClick={reanalyze} disabled={busy !== null} style={{ marginTop: 10 }}>
+            {busy === "reanalyze" ? "re-analisando…" : "Tentar de novo"}
+          </Button>
+        </>
+      )}
+
+      {analysis?.status === "ready" && (
+        <>
+          <span
+            className="ygg-badge"
+            data-tone={analysis.mode === "feature" ? "warn" : "ok"}
+            style={{ marginBottom: 10, display: "inline-block" }}
+          >
+            {analysis.mode === "feature" ? "feature · vira sub-cards" : "atomic · 1 card / 1 PR"}
+          </span>
+
+          {analysis.approach && (
+            <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "0 0 6px" }}>{analysis.approach}</p>
+          )}
+          {analysis.rationale && (
+            <p className="ygg-muted" style={{ fontSize: 12.5, lineHeight: 1.5, margin: "0 0 14px" }}>
+              {analysis.rationale}
+            </p>
+          )}
+
+          {analysis.steps.length > 0 && (
+            <ol style={{ margin: "0 0 14px", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 10 }}>
+              {analysis.steps.map((s, i) => (
+                <li key={i} style={{ fontSize: 13, lineHeight: 1.45 }}>
+                  <div style={{ fontWeight: 600 }}>{s.title}</div>
+                  {s.detail && <div className="ygg-muted" style={{ marginTop: 2 }}>{s.detail}</div>}
+                  {s.touches.length > 0 && (
+                    <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 5 }}>
+                      {s.touches.map((f) => (
+                        <code key={f} style={touchChip}>{f}</code>
+                      ))}
+                    </div>
+                  )}
+                  {s.acceptance && (
+                    <div className="ygg-dim" style={{ marginTop: 3, fontSize: 11.5 }}>✓ {s.acceptance}</div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )}
+
+          {analysis.questions.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <h4 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "0 0 6px" }}>
+                Dúvidas pro handoff
+              </h4>
+              <ul style={{ margin: "0 0 8px", paddingLeft: 18 }}>
+                {analysis.questions.map((q, i) => (
+                  <li key={i} style={{ fontSize: 13, lineHeight: 1.45, marginBottom: 4 }}>{q}</li>
+                ))}
+              </ul>
+              <textarea
+                value={answers}
+                onChange={(e) => setAnswers(e.target.value)}
+                placeholder="Responda as dúvidas e re-analise para refinar o plano…"
+                rows={3}
+                style={{ ...field, width: "100%", resize: "vertical", minWidth: 0 }}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={reanalyze}
+                disabled={busy !== null || !answers.trim()}
+                style={{ marginTop: 8 }}
+              >
+                {busy === "reanalyze" ? "re-analisando…" : "Re-analisar com respostas"}
+              </Button>
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <Button onClick={approve} disabled={busy !== null}>
+              {busy === "approve"
+                ? "aprovando…"
+                : analysis.mode === "feature"
+                  ? "Aprovar → criar sub-cards"
+                  : "Aprovar → enfileirar"}
+            </Button>
+            <Button variant="outline" onClick={reanalyze} disabled={busy !== null}>
+              {busy === "reanalyze" ? "…" : "Re-analisar"}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -356,6 +565,8 @@ const dot: React.CSSProperties = { width: 7, height: 7, borderRadius: 7, flexShr
 const cardFooter: React.CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8, alignItems: "center" };
 const prLink: React.CSSProperties = { fontSize: 11, color: t.purple, textDecoration: "none" };
 const miniBtn: React.CSSProperties = { fontSize: 11, color: STATUS_COLOR.queued, border: `1px solid ${STATUS_COLOR.queued}44`, borderRadius: 6, padding: "2px 8px" };
+const analyzeBtn: React.CSSProperties = { fontSize: 11, color: STATUS_COLOR.analysis, border: `1px solid ${STATUS_COLOR.analysis}44`, borderRadius: 6, padding: "2px 8px" };
+const touchChip: React.CSSProperties = { fontSize: 11, fontFamily: "ui-monospace, SFMono-Regular, monospace", background: t.inset, border: `1px solid ${t.border}`, borderRadius: 5, padding: "1px 6px", color: t.textMuted };
 const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 50 };
 const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%", background: t.bg, borderLeft: `1px solid ${t.border}`, padding: 22, overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" };
 const logBox: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };
