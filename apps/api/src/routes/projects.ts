@@ -191,7 +191,12 @@ export function projectsRoutes(deps: AppDeps): Hono {
     const proposed = backlog.filter((t) =>
       (t.labels ?? []).some((l) => l === DISCOVERY_LABEL || l === PLAN_LABEL),
     );
-    for (const t of proposed) await deps.store.updateTask(t.id, { status: "queued" });
+    // Route through transitionTask so each move lands on the lifecycle trail and
+    // gets the queued⇒owner=brokk guard (a raw updateTask would bypass both).
+    const actor = c.req.header("x-brokk-actor") || "human";
+    for (const t of proposed) {
+      await deps.store.transitionTask(t.id, "queued", { actor, reason: "approve-proposed" });
+    }
     return c.json({ enqueued: proposed.length }, 200);
   });
 

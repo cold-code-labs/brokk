@@ -215,8 +215,9 @@ export function tasksRoutes(deps: AppDeps): Hono {
     return c.json(updated);
   });
 
-  // Mark a card resolved by hand (outside the forge) — moves it to done, records a
-  // 'resolved' note, and claims it for the human so the runner never revisits it.
+  // Mark a card resolved by hand (outside the forge) — one atomic store call moves
+  // it to done + claims it for the human + records a `resolved` event, so a mid-way
+  // failure can't strand a card owner=human but not-done.
   const ResolveBody = z.object({ reason: z.string().optional() });
   r.post("/:id/resolve", async (c) => {
     const parsed = ResolveBody.safeParse(await c.req.json().catch(() => ({})));
@@ -224,13 +225,9 @@ export function tasksRoutes(deps: AppDeps): Hono {
     const id = c.req.param("id");
     const task = await deps.store.getTask(id);
     if (!task) return c.json({ error: "not found" }, 404);
-    const actor = actorOf(c);
-    if (task.owner !== "human") {
-      await deps.store.setTaskOwner(id, "human" as never, { actor, reason: "resolved by hand" });
-    }
-    const updated = await deps.store.transitionTask(id, "done", {
-      actor,
-      reason: parsed.data.reason || "resolved outside the forge",
+    const updated = await deps.store.resolveByHand(id, {
+      actor: actorOf(c),
+      reason: parsed.data.reason,
     });
     return c.json(updated);
   });

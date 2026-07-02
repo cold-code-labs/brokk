@@ -82,6 +82,33 @@ export function createDb(connectionString: string) {
 
 export type Db = ReturnType<typeof createDb>["db"];
 
+/** A db handle OR an open transaction — both expose `.insert`. */
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/** Append one entry to a card's lifecycle trail (task_events). The single place a
+ *  lifecycle event is written — call it inside the same tx as the status/owner
+ *  change so the trail can't silently diverge from the card. */
+async function appendTaskEvent(
+  exec: DbOrTx,
+  v: {
+    taskId: string;
+    type: TaskEventType;
+    from: string | null;
+    to: string | null;
+    actor: string;
+    reason?: string | null;
+  },
+): Promise<void> {
+  await exec.insert(taskEvents).values({
+    taskId: v.taskId,
+    type: v.type,
+    from: v.from,
+    to: v.to,
+    actor: v.actor,
+    reason: v.reason ?? null,
+  });
+}
+
 // ── Row → domain mappers ──────────────────────────────────────────────────────
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
@@ -497,6 +524,9 @@ export interface Store {
     owner: TaskOwner,
     opts: { actor: string; reason?: string },
   ): Promise<Task>;
+  /** Resolve a card by hand (outside the forge): one transaction sets status=done +
+   *  owner=human and records a `resolved` lifecycle event. */
+  resolveByHand(id: string, opts: { actor: string; reason?: string }): Promise<Task>;
   /** The card's append-only lifecycle trail (task_events), oldest first. */
   listTaskEvents(taskId: string): Promise<TaskEvent[]>;
   /** Match a merged PR back to its forge card (by stored pr_url or pr_number). */
@@ -827,20 +857,19 @@ export function createStore(db: Db): Store {
       return rows[0] ? rowToTask(rows[0]) : null;
     },
     async insertTask(values) {
-      const rows = await db.insert(tasks).values(values).returning();
-      const task = rowToTask(rows[0]!);
-      // Genesis event — the first entry on the card's lifecycle trail.
-      await db
-        .insert(taskEvents)
-        .values({
+      return db.transaction(async (tx) => {
+        const rows = await tx.insert(tasks).values(values).returning();
+        const task = rowToTask(rows[0]!);
+        // Genesis event — the first entry on the card's lifecycle trail (same tx).
+        await appendTaskEvent(tx, {
           taskId: task.id,
           type: "created",
           from: null,
           to: task.status,
           actor: task.createdBy ?? "system",
-        })
-        .catch(() => {});
-      return task;
+        });
+        return task;
+      });
     },
     async findActiveTaskByDedupeKey(projectId, dedupeKey) {
       const rows = await db
@@ -863,56 +892,83 @@ export function createStore(db: Db): Store {
       return rowToTask(rows[0]);
     },
     async transitionTask(id, to, opts) {
-      const current = await db
-        .select({ status: tasks.status })
-        .from(tasks)
-        .where(eq(tasks.id, id))
-        .limit(1);
-      const from = current[0]?.status ?? null;
-      const rows = await db
-        .update(tasks)
-        .set({ ...opts.extra, status: to, updatedAt: new Date() })
-        .where(eq(tasks.id, id))
-        .returning();
-      if (!rows[0]) throw new Error(`task ${id} not found`);
-      await db
-        .insert(taskEvents)
-        .values({
-          taskId: id,
-          type: "status",
-          from,
-          to,
-          actor: opts.actor,
-          reason: opts.reason ?? null,
-        })
-        .catch(() => {});
-      return rowToTask(rows[0]);
+      return db.transaction(async (tx) => {
+        const current = await tx
+          .select({ status: tasks.status, owner: tasks.owner })
+          .from(tasks)
+          .where(eq(tasks.id, id))
+          .limit(1);
+        const from = current[0]?.status ?? null;
+        const prevOwner = current[0]?.owner ?? null;
+        // Queuing hands the card to the forge; a human-owned card would be stranded
+        // (claimNext filters owner='brokk'), so force brokk ownership when queuing.
+        const forceOwner = to === "queued" && prevOwner !== "brokk";
+        const rows = await tx
+          .update(tasks)
+          .set({ ...opts.extra, status: to, ...(forceOwner ? { owner: "brokk" as const } : {}), updatedAt: new Date() })
+          .where(eq(tasks.id, id))
+          .returning();
+        if (!rows[0]) throw new Error(`task ${id} not found`);
+        await appendTaskEvent(tx, { taskId: id, type: "status", from, to, actor: opts.actor, reason: opts.reason });
+        if (forceOwner) {
+          await appendTaskEvent(tx, {
+            taskId: id,
+            type: "owner",
+            from: prevOwner,
+            to: "brokk",
+            actor: opts.actor,
+            reason: "enfileirado para o forge",
+          });
+        }
+        return rowToTask(rows[0]);
+      });
     },
     async setTaskOwner(id, owner, opts) {
-      const current = await db
-        .select({ owner: tasks.owner })
-        .from(tasks)
-        .where(eq(tasks.id, id))
-        .limit(1);
-      const from = current[0]?.owner ?? null;
-      const rows = await db
-        .update(tasks)
-        .set({ owner, updatedAt: new Date() })
-        .where(eq(tasks.id, id))
-        .returning();
-      if (!rows[0]) throw new Error(`task ${id} not found`);
-      await db
-        .insert(taskEvents)
-        .values({
+      return db.transaction(async (tx) => {
+        const current = await tx
+          .select({ owner: tasks.owner })
+          .from(tasks)
+          .where(eq(tasks.id, id))
+          .limit(1);
+        const from = current[0]?.owner ?? null;
+        const rows = await tx
+          .update(tasks)
+          .set({ owner, updatedAt: new Date() })
+          .where(eq(tasks.id, id))
+          .returning();
+        if (!rows[0]) throw new Error(`task ${id} not found`);
+        await appendTaskEvent(tx, { taskId: id, type: "owner", from, to: owner, actor: opts.actor, reason: opts.reason });
+        return rowToTask(rows[0]);
+      });
+    },
+    async resolveByHand(id, opts) {
+      // #2: atomic "done by hand" — one tx sets owner=human + status=done and logs
+      // both, emitting the dedicated `resolved` event. Replaces the two-write route.
+      return db.transaction(async (tx) => {
+        const current = await tx
+          .select({ status: tasks.status, owner: tasks.owner })
+          .from(tasks)
+          .where(eq(tasks.id, id))
+          .limit(1);
+        if (!current[0]) throw new Error(`task ${id} not found`);
+        const rows = await tx
+          .update(tasks)
+          .set({ status: "done", owner: "human", updatedAt: new Date() })
+          .where(eq(tasks.id, id))
+          .returning();
+        if (current[0].owner !== "human") {
+          await appendTaskEvent(tx, { taskId: id, type: "owner", from: current[0].owner, to: "human", actor: opts.actor, reason: "resolvido à mão" });
+        }
+        await appendTaskEvent(tx, {
           taskId: id,
-          type: "owner",
-          from,
-          to: owner,
+          type: "resolved",
+          from: current[0].status,
+          to: "done",
           actor: opts.actor,
-          reason: opts.reason ?? null,
-        })
-        .catch(() => {});
-      return rowToTask(rows[0]);
+          reason: opts.reason ?? "resolvido fora do forge",
+        });
+        return rowToTask(rows[0]);
+      });
     },
     async listTaskEvents(taskId) {
       const rows = await db
@@ -1128,7 +1184,7 @@ export function createStore(db: Db): Store {
           .where(eq(tasks.id, taskRow.id))
           .returning();
         // Log the claim on the card's lifecycle trail (same tx as the flip).
-        await tx.insert(taskEvents).values({
+        await appendTaskEvent(tx, {
           taskId: taskRow.id,
           type: "status",
           from: "queued",
@@ -1248,26 +1304,25 @@ export function createStore(db: Db): Store {
     },
     async markPlanDone(planId, prUrl, prNumber) {
       return db.transaction(async (tx) => {
-        // Cards flipping to done by the shared-PR merge — capture each id first so
-        // every one gets a lifecycle entry (not just a silent bulk update).
-        const flipped = await tx
+        // Capture each card's real prior status BEFORE the bulk update — RETURNING
+        // would yield the post-update value ('done'), losing the true `from` (#4).
+        const targets = await tx
+          .select({ id: tasks.id, from: tasks.status })
+          .from(tasks)
+          .where(and(eq(tasks.planId, planId), sql`${tasks.status} <> 'done'`));
+        await tx
           .update(tasks)
           .set({ status: "done", prUrl, prNumber, updatedAt: new Date() })
-          .where(and(eq(tasks.planId, planId), sql`${tasks.status} <> 'done'`))
-          .returning({ id: tasks.id, from: tasks.status });
-        if (flipped.length) {
-          await tx.insert(taskEvents).values(
-            flipped.map((t) => ({
-              taskId: t.id,
-              type: "status" as const,
-              // `from` is the post-update value here (done); record the merge as the
-              // reason so the trail reads "→ done (plan PR merged)".
-              from: null,
-              to: "done",
-              actor: "github",
-              reason: `plan PR merged (#${prNumber ?? "?"})`,
-            })),
-          );
+          .where(and(eq(tasks.planId, planId), sql`${tasks.status} <> 'done'`));
+        for (const t of targets) {
+          await appendTaskEvent(tx, {
+            taskId: t.id,
+            type: "status",
+            from: t.from,
+            to: "done",
+            actor: "github",
+            reason: `plan PR merged (#${prNumber ?? "?"})`,
+          });
         }
         const rows = await tx
           .update(plans)
