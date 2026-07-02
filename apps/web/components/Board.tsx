@@ -212,18 +212,23 @@ export default function Board({ projectId }: { projectId?: string }) {
     try {
       await brokk.approveAnalysis(id);
       await refresh(project?.id);
-    } catch (e) {
-      setErr(String(e));
+    } catch {
+      // #5: the analysis isn't ready yet (or needs the confirm-questions flow) —
+      // open the drawer where the analysis + Aprovar live, instead of a bare error.
+      setSelected(id);
     }
   }
 
-  // Mark a card done from the ⋯ menu. Optimistic: move it to the Done column now,
-  // then persist + reconcile (revert to server truth on failure).
+  // Mark a card done from the ⋯ menu = resolve it by hand (same meaning as the
+  // drawer's "Resolver por fora", #10): done + owner=human + a `resolved` event.
+  // Optimistic: move to Done now, then persist + reconcile.
   const markCardDone = useCallback(
     async (id: string) => {
-      setTasks((prev) => prev.map((x) => (x.id === id ? { ...x, status: "done" } : x)));
+      setTasks((prev) =>
+        prev.map((x) => (x.id === id ? { ...x, status: "done", owner: "human" } : x)),
+      );
       try {
-        await brokk.patchTask(id, { status: "done" });
+        await brokk.resolveTask(id, "concluído pelo menu do card");
       } catch (e) {
         setErr(String(e));
       }
@@ -480,6 +485,30 @@ function CardMenu({ task, onMarkDone }: { task: Task; onMarkDone: (id: string) =
   const [coords, setCoords] = useState({ top: 0, right: 8 });
   const btnRef = useRef<HTMLButtonElement>(null);
 
+  // #7: the popover is fixed at click-time coords, so if the board scrolls (or the
+  // layout shifts) while it's open it would detach and float over another card.
+  // Re-pin it to its button on scroll/resize instead of closing — closing on every
+  // scroll misfires under the column's scroll-snap. Close only if the button leaves
+  // the viewport.
+  useEffect(() => {
+    if (!open) return;
+    const reposition = () => {
+      const r = btnRef.current?.getBoundingClientRect();
+      if (!r) return;
+      if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) {
+        setOpen(false);
+        return;
+      }
+      setCoords({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+    };
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [open]);
+
   function toggle(e: React.MouseEvent) {
     e.stopPropagation();
     e.preventDefault();
@@ -491,10 +520,19 @@ function CardMenu({ task, onMarkDone }: { task: Task; onMarkDone: (id: string) =
   function markDone(e: React.MouseEvent) {
     e.stopPropagation();
     setOpen(false);
-    if (task.status !== "done") onMarkDone(task.id);
+    if (canMarkDone) onMarkDone(task.id);
   }
 
   const isDone = task.status === "done";
+  // #6: a running card has a live forge run — force-marking it done races the
+  // runner (which will flip it back on completion), so the action is disabled.
+  const isRunning = task.status === "running";
+  const canMarkDone = !isDone && !isRunning;
+  const doneLabel = isDone
+    ? "Já concluído"
+    : isRunning
+      ? "Em execução no forge…"
+      : "Marcar como concluído";
   return (
     <>
       <button ref={btnRef} type="button" aria-label="Ações do card" onClick={toggle} style={menuBtn}>
@@ -506,9 +544,9 @@ function CardMenu({ task, onMarkDone }: { task: Task; onMarkDone: (id: string) =
               listeners, so a click on a menu item can never be swallowed by a close. */}
           <div style={menuBackdrop} onClick={(e) => { e.stopPropagation(); setOpen(false); }} />
           <div style={{ ...menuPopover, top: coords.top, right: coords.right }} onClick={(e) => e.stopPropagation()}>
-            <button type="button" onClick={markDone} disabled={isDone} style={menuItem(isDone)}>
+            <button type="button" onClick={markDone} disabled={!canMarkDone} style={menuItem(!canMarkDone)}>
               <CheckCircle2 size={13} style={{ color: STATUS_COLOR.done }} />
-              {isDone ? "Já concluído" : "Marcar como concluído"}
+              {doneLabel}
             </button>
           </div>
         </>

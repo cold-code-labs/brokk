@@ -20,7 +20,7 @@ export type {
   Plan, PlanDraft, PlannedCard, PlanMode, PlanStatus, ClarifyQuestion,
   TaskAnalysis, AnalysisStatus, AnalysisStep, AnalysisEvidence, AnalysisRevision, AnalysisQuestion,
 } from "@brokk/core";
-export { TASK_STATUSES, TASK_OWNERS, TASK_SOURCES, TASK_TRANSITIONS, canTransition } from "@brokk/core";
+export { TASK_STATUSES, TASK_OWNERS, TASK_SOURCES } from "@brokk/core";
 
 /** What POST /tasks/:id/analysis/approve returns — atomic enqueues the card,
  *  feature spawns the sub-cards under a new plan. */

@@ -67,26 +67,6 @@ export interface TaskEvent {
   at: string;
 }
 
-/** The canonical card FSM — which status a card may legally move to from each
- *  status. The board uses it to gray out illegal moves; transitions still get
- *  logged either way. Terminal states (`done`/`cancelled`) can be reopened to
- *  `backlog` for a rework. */
-export const TASK_TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
-  backlog: ["analysis", "queued", "cancelled"],
-  analysis: ["queued", "backlog", "cancelled"],
-  queued: ["running", "backlog", "done", "cancelled"],
-  running: ["review", "failed", "done", "cancelled"],
-  review: ["done", "failed", "backlog"],
-  done: ["backlog"],
-  failed: ["queued", "backlog", "cancelled"],
-  cancelled: ["backlog"],
-} as const;
-
-/** Is `to` a legal next status from `from`? A no-op (from === to) is allowed. */
-export function canTransition(from: TaskStatus, to: TaskStatus): boolean {
-  return from === to || TASK_TRANSITIONS[from].includes(to);
-}
-
 /** One execution attempt of a task. */
 export type RunStatus =
   | "queued"
