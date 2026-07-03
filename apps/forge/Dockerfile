@@ -21,6 +21,17 @@ RUN pnpm --filter @brokk/forge-app build
 # Self-contained prod tree (only @brokk/forge-app's external deps).
 RUN pnpm --filter @brokk/forge-app deploy --prod /out
 
+# brokk-sandbox — the Landlock FS jail for the bash hand (isolation Nível 2). A
+# tiny static Go binary (CGO off → runs on alpine musl or debian glibc alike),
+# dropped on PATH so packages/afl picks it up automatically.
+FROM golang:1.24-alpine AS sandbox
+ENV GOTOOLCHAIN=local CGO_ENABLED=0
+WORKDIR /src
+COPY tools/brokk-sandbox/go.mod tools/brokk-sandbox/go.sum ./
+RUN go mod download
+COPY tools/brokk-sandbox/ ./
+RUN go build -ldflags="-s -w" -o /brokk-sandbox .
+
 FROM base AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
@@ -38,6 +49,7 @@ RUN apk add --no-cache git github-cli openssh-client \
       chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-emoji
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+COPY --from=sandbox /brokk-sandbox /usr/local/bin/brokk-sandbox
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/apps/forge/dist ./dist
 COPY --from=build /repo/apps/forge/package.json ./package.json

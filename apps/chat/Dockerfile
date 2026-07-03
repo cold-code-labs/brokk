@@ -20,6 +20,16 @@ RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
 RUN pnpm --filter @brokk/chat-app build
 RUN pnpm --filter @brokk/chat-app deploy --prod /out
 
+# brokk-sandbox — the Landlock FS jail for the bash hand (isolation Nível 2). Tiny
+# static Go binary (CGO off), dropped on PATH so packages/afl picks it up.
+FROM golang:1.24-alpine AS sandbox
+ENV GOTOOLCHAIN=local CGO_ENABLED=0
+WORKDIR /src
+COPY tools/brokk-sandbox/go.mod tools/brokk-sandbox/go.sum ./
+RUN go mod download
+COPY tools/brokk-sandbox/ ./
+RUN go build -ldflags="-s -w" -o /brokk-sandbox .
+
 FROM base AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
@@ -29,6 +39,7 @@ ENV NODE_ENV=production
 # rg, so the agent's natural search commands (`rg …`, `grep -rn …`) errored. Install
 # the real tools so the prompt's promise holds. (coreutils/sed for good measure.)
 RUN apk add --no-cache git github-cli openssh-client ripgrep grep findutils coreutils sed
+COPY --from=sandbox /brokk-sandbox /usr/local/bin/brokk-sandbox
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/apps/chat/dist ./dist
 COPY --from=build /repo/apps/chat/package.json ./package.json
