@@ -27,7 +27,6 @@ import {
   Check,
   MessageSquare,
   Zap,
-  Cpu,
   Copy,
   Brain,
   ArrowDown,
@@ -440,26 +439,23 @@ export default function Chat() {
     [messages],
   );
 
-  // Live stats for the open session: aggregate token usage from loaded messages,
-  // so the strip stays honest even mid-turn (before the list re-fetches).
-  const liveStats = useMemo(() => {
+  // Token usage for the open session (shown in the preview header): aggregate
+  // from loaded messages, falling back to the rail's stored aggregate.
+  const tokens = useMemo(() => {
     let tin = 0;
     let tout = 0;
-    let turns = 0;
     for (const m of messages) {
-      if (m.role === "user" && m.blocks.some((b) => b.type === "text")) turns++;
       const u = (m.meta as { usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number } } | null)?.usage;
       if (u) {
         tin += (u.inputTokens ?? 0) + (u.cacheReadTokens ?? 0);
         tout += u.outputTokens ?? 0;
       }
     }
-    // Fall back to the rail's aggregate when the open transcript carries no meta.
     if (!tin && !tout && currentSession) {
       tin = currentSession.stats.tokensIn;
       tout = currentSession.stats.tokensOut;
     }
-    return { turns, tokensIn: tin, tokensOut: tout };
+    return { tin, tout };
   }, [messages, currentSession]);
 
   return (
@@ -510,8 +506,10 @@ export default function Chat() {
                   onClick={newChat}
                   disabled={!projectId}
                   className="sindri-tab-new"
+                  title="Novo chat"
+                  aria-label="Novo chat"
                 >
-                  <Plus size={15} /> Novo
+                  <Plus size={16} />
                 </Button>
                 <div className="sindri-tabs-scroll">
                   {sortedSessions.length === 0 ? (
@@ -536,7 +534,11 @@ export default function Chat() {
                           }}
                           title={`${s.title} · ${relTime(sessionTime(s))}`}
                         >
-                          {s.turnState === "running" ? <span className="sindri-dot" /> : null}
+                          {s.turnState === "running" ? (
+                            <span className="sindri-dot" />
+                          ) : (
+                            <MessageSquare size={12} className="sindri-tab-icon" />
+                          )}
                           {renaming && active ? (
                             <input
                               className="sindri-tab-rename"
@@ -612,25 +614,15 @@ export default function Chat() {
                 />
                 <div className="sindri-cockpit">
                   <div className="sindri-cockpit-controls">
-                    <label className="sindri-chip" title="Modelo">
-                      <Cpu size={13} />
-                      <select
-                        className="sindri-chip-select"
-                        value={model}
-                        onChange={(e) => {
-                          setModel(e.target.value);
-                          if (sessionId) chat.patchSession(sessionId, { model: e.target.value }).catch(() => {});
-                        }}
-                      >
-                        {MODELS.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="sindri-chip" title="Esforço de raciocínio">
+                    {/* effort: a lightning chip whose signal bars fill up with the
+                        reasoning level (leve=1 · médio=2 · profundo=3). */}
+                    <label className="sindri-chip sindri-effort" title="Esforço de raciocínio">
                       <Zap size={13} />
+                      <span className="sindri-bars" data-level={effort} aria-hidden="true">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
                       <select
                         className="sindri-chip-select"
                         value={effort}
@@ -646,17 +638,23 @@ export default function Chat() {
                         ))}
                       </select>
                     </label>
-                    <span className="sindri-cockpit-tok" title="Tokens nesta sessão">
-                      {fmtTokens(liveStats.tokensIn)} · {fmtTokens(liveStats.tokensOut)}
-                    </span>
-                    <span className="sindri-cockpit-ctx" title="Contexto da sessão">
-                      <MessageSquare size={12} /> {liveStats.turns}
-                      {currentSession?.branch ? (
-                        <span className="sindri-cockpit-branch" title={`Branch ${currentSession.branch}`}>
-                          <GitBranch size={12} /> {currentSession.branch}
-                        </span>
-                      ) : null}
-                    </span>
+                    <label className="sindri-chip sindri-model" title="Modelo">
+                      <select
+                        className="sindri-chip-select"
+                        value={model}
+                        onChange={(e) => {
+                          setModel(e.target.value);
+                          if (sessionId) chat.patchSession(sessionId, { model: e.target.value }).catch(() => {});
+                        }}
+                      >
+                        {MODELS.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={12} className="sindri-chip-caret" />
+                    </label>
                   </div>
                   {running ? (
                     <Button
@@ -713,6 +711,8 @@ export default function Chat() {
               onHide={() => setPreviewOpen(false)}
               device={device}
               setDevice={setDevice}
+              tokensIn={tokens.tin}
+              tokensOut={tokens.tout}
             />
           ) : null}
         </div>
@@ -734,6 +734,8 @@ function SindriPreview({
   onHide,
   device,
   setDevice,
+  tokensIn,
+  tokensOut,
 }: {
   sessionId: string;
   branch: string | null;
@@ -743,6 +745,8 @@ function SindriPreview({
   onHide: () => void;
   device: "desktop" | "mobile";
   setDevice: (d: "desktop" | "mobile") => void;
+  tokensIn: number;
+  tokensOut: number;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -863,19 +867,17 @@ function SindriPreview({
           <span className="sindri-preview-dot" style={{ background: statusColor }} />
           {statusLabel}
         </span>
-        {preview ? (
-          <a
-            className="sindri-preview-url"
-            href={preview.url}
-            target="_blank"
-            rel="noreferrer"
-            title={preview.url}
-          >
-            {preview.url.replace(/^https?:\/\//, "")}
-          </a>
-        ) : (
-          <span className="sindri-preview-url is-empty">{branch ? branch : "sem branch"}</span>
-        )}
+        {branch ? (
+          <span className="sindri-preview-branch" title={`Worktree da sessão: ${branch}`}>
+            <GitBranch size={12} /> {branch}
+          </span>
+        ) : null}
+        {tokensIn > 0 && tokensOut > 0 ? (
+          <span className="sindri-preview-tok" title="Tokens nesta sessão (entrada · saída)">
+            {fmtTokens(tokensIn)} · {fmtTokens(tokensOut)}
+          </span>
+        ) : null}
+        <span className="sindri-preview-spacer" />
         <div className="sindri-preview-actions">
           <button
             type="button"
