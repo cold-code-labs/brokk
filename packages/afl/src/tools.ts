@@ -6,22 +6,21 @@
 // stays lean. Agents that need DOMAIN tools (create_card, plan_work, submit_brief,
 // …) define those themselves and compose them on top via `composeExecutors`.
 //
-// Trust model (two layers, defence in depth):
-//   • env hygiene — `shellEnv` allowlists what reaches the shell so infra secrets
-//     never leak to a (possibly prompt-injected) command (Nível 1).
-//   • filesystem jail — `sandboxBinPath` runs bash inside a Landlock ruleset so the
-//     shell can touch only its own checkout + caches, not sibling sessions, the
-//     on-disk gh/npm credentials, or the rest of $HOME (Nível 2, best-effort).
-// See docs/NORTH-STAR.md §5, §9 and the brokk-isolation memory.
+// Trust model: the bash hand runs through the execution enclave (`ExecEnclave`,
+// see enclave.ts) — env hygiene (Nível 1) + Landlock FS jail (Nível 2) + egress
+// uid-split (Nível 3) live there, behind one interface so a gVisor backend can
+// swap in without touching the agents (ADR 0010). This file owns the file ops
+// (read/write/edit/list) + routes bash to the enclave.
+// See docs/NORTH-STAR.md §5, §9, docs/decisoes/0010 (Edda) and brokk-isolation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { exec, execFile } from "node:child_process";
-import { promises as fs, statSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { promises as fs } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { type ExecEnclave, localEnclave } from "./enclave.js";
 import type { PartialExecutor, ToolDef } from "./types.js";
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 /** Where the generic tools operate. */
@@ -32,128 +31,12 @@ export interface FsToolContext {
    *  PRs). Default true (the forge needs it). Read-only consumers (e.g. the
    *  reviewer) pass false to keep gh tokens out of a no-push agent's shell. */
   gh?: boolean;
+  /** Where bash runs. Default `localEnclave` (this container + Landlock/uid jail).
+   *  The plug point for a per-project RunscEnclave (ADR 0010 Fase 1). */
+  enclave?: ExecEnclave;
 }
 
 const MAX_OUT = 60_000; // cap tool output handed back to the model
-
-// ── bash env hygiene (isolation Nível 1) ──────────────────────────────────────
-// The bash subprocess must NOT inherit Brokk's infra secrets (gateway vkey, DB
-// URL, runner/api secrets, model/Langfuse keys…). A prompt-injected `env | grep
-// TOKEN` should find nothing useful. We ALLOWLIST (robust) rather than denylist
-// (fragile — a new secret env var would leak by default). Only what a shell +
-// git + gh legitimately need passes through; gh/git creds are the ONE deliberate
-// exception (callers commit + open PRs through them) and are opt-in per caller.
-const ENV_ALLOW = new Set([
-  "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "TZ", "LANG", "LANGUAGE", "PWD",
-]);
-const ENV_ALLOW_PREFIX = ["LC_", "GIT_AUTHOR_", "GIT_COMMITTER_"];
-const GH_KEYS = ["GH_TOKEN", "GITHUB_TOKEN"];
-
-/** Curated env for a bash subprocess: allowlisted vars only. `gh: true` adds the
- *  GitHub creds so `gh`/`git push` work; read-only callers omit it. */
-export function shellEnv(opts?: { gh?: boolean; extra?: Record<string, string> }): NodeJS.ProcessEnv {
-  const out: NodeJS.ProcessEnv = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v === undefined) continue;
-    if (ENV_ALLOW.has(k) || ENV_ALLOW_PREFIX.some((p) => k.startsWith(p))) out[k] = v;
-  }
-  if (opts?.gh) for (const k of GH_KEYS) if (process.env[k]) out[k] = process.env[k];
-  out.NODE_ENV = "development";
-  out.GIT_TERMINAL_PROMPT = "0";
-  return { ...out, ...opts?.extra };
-}
-
-// ── bash FS sandbox (isolation Nível 2) ───────────────────────────────────────
-// A Landlock jail around the bash hand: the shell may touch ONLY the session's own
-// checkout (RW), the package-manager caches a build legitimately writes (RW), and a
-// read-only system toolchain. EVERY other path — sibling sessions' checkouts,
-// ~/.config/gh & ~/.npmrc credentials (the FS copies of what shellEnv strips from
-// the env), the rest of $HOME, host files — is denied by the KERNEL, not by
-// convention. Where shellEnv (Nível 1) closes the env-leak, this closes the
-// filesystem-leak; the two are layers, not alternatives.
-//
-// Landlock (not bubblewrap): this host blocks nested unprivileged user namespaces
-// (Ubuntu 24.04 apparmor_restrict_unprivileged_userns), so bwrap can't run without
-// granting the container CAP_SYS_ADMIN + seccomp/apparmor=unconfined — weakening the
-// OUTER boundary to build an inner one. Landlock needs no privilege, no userns, no
-// caps: the process restricts ITSELF before exec. Reading another process's environ
-// (the node worker's infra secrets) is separately blocked by Yama ptrace_scope=1.
-// See tools/brokk-sandbox/main.go and the brokk-isolation memory.
-//
-// Best-effort: no binary (local/dev) or an unsupported kernel ⇒ run unsandboxed.
-// Security tightens where the platform allows; availability is never sacrificed.
-// Set BROKK_SANDBOX=0 to force off.
-
-const SANDBOX_BIN = "brokk-sandbox";
-
-/** Absolute path of the sandbox binary on PATH, or null when absent / disabled.
- *  Resolved once at load: containers ship it in /usr/local/bin, dev machines don't. */
-const sandboxBinPath: string | null = (() => {
-  const flag = process.env.BROKK_SANDBOX;
-  if (flag === "0" || flag === "off") return null;
-  for (const dir of (process.env.PATH ?? "").split(":")) {
-    if (!dir) continue;
-    try {
-      const p = `${dir}/${SANDBOX_BIN}`;
-      if (statSync(p).isFile()) return p;
-    } catch {
-      /* not here — keep looking */
-    }
-  }
-  return null;
-})();
-
-/** The egress uid/gid the sandbox drops the bash hand to (isolation Nível 3). A uid
- *  distinct from the node worker's (1001) is the discriminator the container's nft
- *  ruleset keys on to firewall the shell off the fleet's internal subnets. The
- *  drop is best-effort: only takes effect where brokk-sandbox ships setuid to this
- *  uid (the containers); a bare binary (dev/local) warns and runs as-is. Set
- *  BROKK_BASH_UID=0 (or empty) to disable passing the flags entirely. gid defaults
- *  to the worker's gid so the shell shares the group and can write the checkout. */
-const bashUid: number | null = (() => {
-  const raw = process.env.BROKK_BASH_UID;
-  if (raw === "" || raw === "0") return null;
-  const n = Number(raw ?? 1002);
-  return Number.isInteger(n) && n > 0 ? n : 1002;
-})();
-const bashGid = Number(process.env.BROKK_BASH_GID ?? 1001);
-
-/** The Landlock ruleset for a checkout, expressed as brokk-sandbox flags.
- *  RW = the checkout + the caches npm/pnpm/yarn/bun + the reviewer's scanners write;
- *  RO = the system toolchain + the two credential files a build reads; ~/.config/gh
- *  is granted only when the caller pushes (gh) — a read-only consumer (reviewer,
- *  discovery) can't read the GitHub token off disk. gitCommonDir is a worktree's
- *  shared git dir, which lives OUTSIDE the checkout (forge/reviewer use worktrees) —
- *  granted RW so commit/log/push work; omitted for chat's self-contained clones.
- *  --uid/--gid make the shell drop to the egress uid before Landlock + exec. */
-function sandboxArgs(cwd: string, gh: boolean, gitCommonDir?: string): string[] {
-  const home = process.env.HOME || "/home/brokk";
-  // /proc & /sys read-only: build tools read them for cpu/mem sizing (os.cpus,
-  // cgroup limits). Reading another process's environ is separately blocked by Yama
-  // ptrace_scope=1, so granting /proc does NOT re-expose the node worker's secrets.
-  const ro = ["/usr", "/bin", "/lib", "/lib64", "/sbin", "/etc", "/opt", "/proc", "/sys", "/run"];
-  const rw = [
-    "/dev",
-    "/tmp",
-    cwd,
-    `${home}/.npm`,
-    `${home}/.cache`,
-    `${home}/.local`,
-    `${home}/.config/pnpm`,
-    `${home}/.yarn`,
-    `${home}/.bun`,
-    `${home}/.semgrep`,
-  ];
-  const roFile = [`${home}/.npmrc`, `${home}/.gitconfig`];
-  if (gh) rw.push(`${home}/.config/gh`);
-  if (gitCommonDir && !gitCommonDir.startsWith(cwd)) rw.push(gitCommonDir);
-  const args: string[] = [];
-  if (bashUid !== null) args.push("--uid", String(bashUid), "--gid", String(bashGid));
-  for (const d of ro) args.push("--ro", d);
-  for (const d of rw) args.push("--rw", d);
-  for (const f of roFile) args.push("--ro-file", f);
-  return args;
-}
 
 /** A git worktree keeps its shared object store / refs in a common dir OUTSIDE the
  *  checkout; the sandbox must grant it or every git write EACCES-es. Best-effort:
@@ -266,6 +149,7 @@ export const FS_READONLY_TOOL_DEFS: ToolDef[] = FS_TOOL_DEFS.filter((t) =>
 export function makeFsExecutor(ctx: FsToolContext): PartialExecutor {
   const root = ctx.cwd;
   const gh = ctx.gh ?? true;
+  const enclave = ctx.enclave ?? localEnclave;
   // Resolve the worktree's shared git dir once (cwd is fixed per executor) and reuse
   // the promise across bash calls; only matters when the sandbox is active.
   let commonDirP: Promise<string | undefined> | undefined;
@@ -314,32 +198,17 @@ export function makeFsExecutor(ctx: FsToolContext): PartialExecutor {
           return { ok: true, content: clip(out) || "(empty)" };
         }
         case "bash": {
-          const timeout = Math.min(600_000, Number(input.timeout_ms ?? 120_000));
-          try {
-            const command = String(input.command);
-            // Allowlisted env only — no infra secrets reach the shell. gh creds
-            // included only when the consumer opts in (forge pushes; reviewer
-            // doesn't).
-            const opts = { cwd: root, timeout, maxBuffer: 1024 * 1024 * 32, env: shellEnv({ gh }) };
-            // When the Landlock jail is available, run the command THROUGH it so the
-            // shell can touch only the granted paths; otherwise fall back to a bare
-            // shell (dev/local, or a kernel without Landlock). Same stdout/stderr/exit
-            // shape either way, so the catch below handles both.
-            const { stdout, stderr } = sandboxBinPath
-              ? await execFileAsync(
-                  sandboxBinPath,
-                  [...sandboxArgs(root, gh, await gitCommonDir()), "--", "/bin/sh", "-c", command],
-                  opts,
-                )
-              : await execAsync(command, opts);
-            return { ok: true, content: clip(`${stdout}${stderr ? `\n${stderr}` : ""}`.trim() || "(no output)") };
-          } catch (e: any) {
-            const out = `${e?.stdout ?? ""}\n${e?.stderr ?? ""}`.trim();
-            return {
-              ok: false,
-              content: clip(`exit ${e?.code ?? "?"}\n${out || e?.message || String(e)}`),
-            };
-          }
+          // Route bash to the execution enclave: it owns the env allowlist + Landlock
+          // jail + egress uid-split and normalises the run to {out, code} (never throws
+          // for a non-zero exit). Same output shape as the old inline executor.
+          const { out, code } = await enclave.exec(String(input.command), root, {
+            gh,
+            timeoutMs: Number(input.timeout_ms ?? 120_000),
+            gitCommonDir: await gitCommonDir(),
+          });
+          return code === 0
+            ? { ok: true, content: clip(out || "(no output)") }
+            : { ok: false, content: clip(`exit ${code ?? "?"}\n${out}`) };
         }
         default:
           return null; // not a generic tool — let a domain executor try

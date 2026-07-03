@@ -26,6 +26,14 @@ export {
   runAgentLoop,
 } from "./loop.js";
 export {
+  type ExecEnclave,
+  type ExecOpts,
+  type ExecResult,
+  LocalEnclave,
+  localEnclave,
+  shellEnv,
+} from "./enclave.js";
+export {
   clip,
   composeExecutors,
   FS_READONLY_TOOL_DEFS,
@@ -33,7 +41,6 @@ export {
   type FsToolContext,
   makeFsExecutor,
   safePath,
-  shellEnv,
 } from "./tools.js";
 export type {
   ChatTurnMessage,
