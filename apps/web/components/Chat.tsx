@@ -25,7 +25,6 @@ import {
   Trash2,
   GitBranch,
   Check,
-  Pencil,
   MessageSquare,
   Zap,
   Cpu,
@@ -451,46 +450,6 @@ export default function Chat() {
 
   return (
     <main className="sindri">
-      {/* ── top: session tabs (horizontal scroll) ── */}
-      <div className="sindri-tabs">
-        <Button
-          variant="default"
-          onClick={newChat}
-          disabled={!projectId}
-          className="sindri-tab-new"
-        >
-          <Plus size={15} /> Novo chat
-        </Button>
-        <div className="sindri-tabs-scroll">
-          {sortedSessions.length === 0 ? (
-            <span className="sindri-tabs-empty">
-              {currentProject
-                ? `Sem conversas em ${currentProject.name} ainda.`
-                : "Selecione um ambiente no menu lateral."}
-            </span>
-          ) : (
-            sortedSessions.map((s) => (
-              <button
-                key={s.id}
-                className={`sindri-tab ${s.id === sessionId ? "is-active" : ""}`}
-                onClick={() => openSession(s.id)}
-                title={`${s.title} · ${relTime(sessionTime(s))}`}
-              >
-                {s.turnState === "running" ? <span className="sindri-dot" /> : null}
-                <span className="sindri-tab-title">{s.title}</span>
-                <span
-                  className="sindri-tab-del"
-                  title="Apagar conversa"
-                  onClick={(e) => removeSession(s.id, e)}
-                >
-                  <Trash2 size={12} />
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-      </div>
-
       {error ? (
         <Banner tone="err" onClick={() => setError("")} style={{ cursor: "pointer" }}>
           {error}
@@ -520,7 +479,7 @@ export default function Chat() {
           className={`sindri-body ${!previewOpen ? "is-solo" : ""} ${chatCollapsed ? "is-zen" : ""}`}
           style={
             previewOpen && !chatCollapsed
-              ? { gridTemplateColumns: `minmax(0, ${split}fr) 8px minmax(0, ${1 - split}fr)` }
+              ? { gridTemplateColumns: `minmax(0, ${split}fr) 6px minmax(0, ${1 - split}fr)` }
               : undefined
           }
         >
@@ -528,59 +487,80 @@ export default function Chat() {
           {!chatCollapsed ? (
           <section className="sindri-chat">
             <>
-              {/* session header — one slim row: title · branch · meta · toggle */}
+              {/* session header = the tab bar: new-chat + horizontally-scrolling
+                  session chips (folded up from the old top strip). The active chip
+                  renames on double-click; the preview restores here when hidden. */}
               <header className="sindri-head">
-                {renaming ? (
-                  <input
-                    className="sindri-title-input"
-                    autoFocus
-                    value={titleDraft}
-                    onChange={(e) => setTitleDraft(e.target.value)}
-                    onBlur={saveTitle}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") saveTitle();
-                      if (e.key === "Escape") setRenaming(false);
-                    }}
-                  />
-                ) : (
-                  <h2
-                    className="sindri-title"
-                    onDoubleClick={() => {
-                      setTitleDraft(currentSession?.title ?? "");
-                      setRenaming(true);
-                    }}
-                  >
-                    <span className="sindri-title-text">{currentSession?.title}</span>
-                    <button
-                      className="sindri-title-edit"
-                      title="Renomear"
-                      onClick={() => {
-                        setTitleDraft(currentSession?.title ?? "");
-                        setRenaming(true);
-                      }}
-                    >
-                      <Pencil size={12} />
-                    </button>
-                  </h2>
-                )}
-                {currentSession?.branch ? (
-                  <span className="sindri-ctx-branch">
-                    <GitBranch size={11} /> {currentSession.branch}
-                  </span>
-                ) : null}
-                <span className="sindri-head-meta">
-                  <MessageSquare size={11} /> {liveStats.turns}
-                  <span className="sindri-head-sep">·</span>
-                  {currentSession ? relTime(sessionTime(currentSession)) || "agora" : "agora"}
-                </span>
-                <button
-                  type="button"
-                  className="sindri-preview-toggle"
-                  title={previewOpen ? "Ocultar preview" : "Mostrar preview"}
-                  onClick={() => setPreviewOpen((o) => !o)}
+                <Button
+                  variant="default"
+                  onClick={newChat}
+                  disabled={!projectId}
+                  className="sindri-tab-new"
                 >
-                  {previewOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
-                </button>
+                  <Plus size={15} /> Novo
+                </Button>
+                <div className="sindri-tabs-scroll">
+                  {sortedSessions.length === 0 ? (
+                    <span className="sindri-tabs-empty">
+                      {currentProject ? `Sem conversas em ${currentProject.name}.` : "Selecione um ambiente."}
+                    </span>
+                  ) : (
+                    sortedSessions.map((s) => {
+                      const active = s.id === sessionId;
+                      return (
+                        <div
+                          key={s.id}
+                          className={`sindri-tab ${active ? "is-active" : ""}`}
+                          onClick={() => {
+                            if (!active) void openSession(s.id);
+                          }}
+                          onDoubleClick={() => {
+                            if (active) {
+                              setTitleDraft(s.title);
+                              setRenaming(true);
+                            }
+                          }}
+                          title={`${s.title} · ${relTime(sessionTime(s))}`}
+                        >
+                          {s.turnState === "running" ? <span className="sindri-dot" /> : null}
+                          {renaming && active ? (
+                            <input
+                              className="sindri-tab-rename"
+                              autoFocus
+                              value={titleDraft}
+                              onChange={(e) => setTitleDraft(e.target.value)}
+                              onBlur={saveTitle}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveTitle();
+                                if (e.key === "Escape") setRenaming(false);
+                              }}
+                            />
+                          ) : (
+                            <span className="sindri-tab-title">{s.title}</span>
+                          )}
+                          <span
+                            className="sindri-tab-del"
+                            title="Apagar conversa"
+                            onClick={(e) => removeSession(s.id, e)}
+                          >
+                            <Trash2 size={12} />
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                {!previewOpen ? (
+                  <button
+                    type="button"
+                    className="sindri-preview-toggle"
+                    title="Mostrar preview"
+                    onClick={() => setPreviewOpen(true)}
+                  >
+                    <PanelRightOpen size={15} />
+                  </button>
+                ) : null}
               </header>
 
               <StickToBottom className="sindri-thread" resize="smooth" initial="smooth">
@@ -655,6 +635,14 @@ export default function Chat() {
                     <span className="sindri-cockpit-tok" title="Tokens nesta sessão">
                       {fmtTokens(liveStats.tokensIn)} · {fmtTokens(liveStats.tokensOut)}
                     </span>
+                    <span className="sindri-cockpit-ctx" title="Contexto da sessão">
+                      <MessageSquare size={12} /> {liveStats.turns}
+                      {currentSession?.branch ? (
+                        <span className="sindri-cockpit-branch" title={`Branch ${currentSession.branch}`}>
+                          <GitBranch size={12} /> {currentSession.branch}
+                        </span>
+                      ) : null}
+                    </span>
                   </div>
                   {running ? (
                     <Button
@@ -711,6 +699,7 @@ export default function Chat() {
               sawEdit={sawEdit}
               zen={chatCollapsed}
               onToggleZen={() => setChatCollapsed((c) => !c)}
+              onHide={() => setPreviewOpen(false)}
             />
           ) : null}
         </div>
@@ -729,12 +718,14 @@ function SindriPreview({
   sawEdit,
   zen,
   onToggleZen,
+  onHide,
 }: {
   sessionId: string;
   branch: string | null;
   sawEdit: boolean;
   zen: boolean;
   onToggleZen: () => void;
+  onHide: () => void;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -915,6 +906,14 @@ function SindriPreview({
             onClick={() => setView((v) => (v === "database" ? "preview" : "database"))}
           >
             <Database size={15} />
+          </button>
+          <button
+            type="button"
+            className="sindri-preview-icon"
+            title="Ocultar preview (chat inteiro)"
+            onClick={onHide}
+          >
+            <PanelRightClose size={15} />
           </button>
           <button
             type="button"
