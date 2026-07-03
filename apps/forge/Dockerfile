@@ -60,7 +60,12 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
 RUN addgroup -g 1001 brokk 2>/dev/null || true \
  && adduser -D -H -u 1002 -G brokk -h /home/brokk brokk-bash 2>/dev/null || true \
  && mkdir -p /home/brokk && chown 1001:1001 /home/brokk && chmod 2775 /home/brokk \
- && git config --system --add safe.directory '*'
+ && git config --system --add safe.directory '*' \
+ && git config --system credential."https://github.com".helper '!/usr/bin/gh auth git-credential' \
+ && git config --system credential."https://gist.github.com".helper '!/usr/bin/gh auth git-credential'
+# gh credential helper (system-wide) so a bare `git push`/`gh` authenticates via
+# GH_TOKEN — codified in the image instead of relying on a `gh auth setup-git` in the
+# volume-mounted ~/.gitconfig (which a volume reset would silently drop).
 # brokk-sandbox ships SETUID to uid 1002 (owner-exec setuid; no root needed at run):
 # node (1001, in group 1001) execs it → euid 1002 → it drops fully, then Landlock+exec.
 COPY --from=sandbox /brokk-sandbox /usr/local/bin/brokk-sandbox

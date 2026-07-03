@@ -104,6 +104,12 @@ const server = createServer(async (req, res) => {
       if (!b.project || !b.checkoutRoot || typeof b.command !== "string" || !b.cwd) {
         return send(res, 400, { error: "project, checkoutRoot, command, cwd required" });
       }
+      // Self-heal the base image on every exec, not just at startup: a host image
+      // prune AFTER boot would otherwise leave a cold enclave unable to `docker run`
+      // (the image can't be pulled — it's local-only), silently breaking every agent's
+      // bash. The inspect is a cheap local daemon call when the image is present; it
+      // only (re)builds when it's actually gone.
+      await ensureBaseImage();
       const enc = enclaveFor(
         String(b.project),
         String(b.checkoutRoot),

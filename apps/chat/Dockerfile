@@ -48,7 +48,14 @@ RUN apk add --no-cache git github-cli openssh-client ripgrep grep findutils core
 RUN addgroup -g 1001 brokk 2>/dev/null || true \
  && adduser -D -H -u 1002 -G brokk -h /home/brokk brokk-bash 2>/dev/null || true \
  && mkdir -p /home/brokk && chown 1001:1001 /home/brokk && chmod 2775 /home/brokk \
- && git config --system --add safe.directory '*'
+ && git config --system --add safe.directory '*' \
+ && git config --system credential."https://github.com".helper '!/usr/bin/gh auth git-credential' \
+ && git config --system credential."https://gist.github.com".helper '!/usr/bin/gh auth git-credential'
+# gh credential helper (system-wide): Sindri publishes via the model's plain `git push`
+# in bash. Post-flip that push routes to THIS worker (creds side of the enclave split);
+# without a helper git can't turn GH_TOKEN into HTTPS auth ("could not read Username").
+# `gh auth git-credential` reads GH_TOKEN/GITHUB_TOKEN — the same mechanism the forge's
+# ~/.gitconfig uses — so a bare `git push`/`gh` authenticates on the worker.
 COPY --from=sandbox /brokk-sandbox /usr/local/bin/brokk-sandbox
 RUN chown 1002:1001 /usr/local/bin/brokk-sandbox && chmod 4750 /usr/local/bin/brokk-sandbox
 COPY tools/brokk-egress/egress.nft /etc/brokk/egress.nft

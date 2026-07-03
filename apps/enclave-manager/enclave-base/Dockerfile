@@ -8,4 +8,8 @@ FROM node:22-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates openssh-client \
  && rm -rf /var/lib/apt/lists/* \
- && corepack enable
+ && corepack enable \
+ && git config --system --add safe.directory '*'
+# safe.directory='*': the enclave runs as root but the bind-mounted checkout is owned
+# by the worker uid (1001); without this, a local `git commit/status` in the enclave
+# dies with "detected dubious ownership" and the agent burns turns working around it.
