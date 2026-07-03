@@ -262,17 +262,20 @@ body:has(.sindri) {
   cursor: col-resize;
   touch-action: none;
 }
+/* the divider is ALWAYS visible: a full-height hairline at rest so the two panes
+   never look like they bump. On hover/drag it thickens into a primary pill. */
 .sindri-gutter-grip {
-  width: 2px;
-  height: 1.8rem;
-  border-radius: 999px;
-  background: var(--border);
-  transition: background 0.12s, height 0.12s;
+  width: 1px;
+  height: 100%;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--fg) 15%, transparent);
+  transition: background 0.12s, width 0.12s, border-radius 0.12s;
 }
 .sindri-gutter:hover .sindri-gutter-grip,
 .sindri-gutter.is-dragging .sindri-gutter-grip {
+  width: 3px;
+  border-radius: 999px;
   background: var(--primary);
-  height: 3.2rem;
 }
 
 .sindri-dot {
