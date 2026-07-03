@@ -11,9 +11,11 @@ import type { AppDeps } from "../app.js";
  * provisioning). See ADR 0012.
  */
 
-/** Resolve a Hauldr project name to its internal Postgres URL via the control
- *  plane (GET /v1/projects/:name → internal.dbUrl). Null when the control plane
- *  is unconfigured, the project is missing, or it has no connection yet. */
+/** Resolve a Hauldr project name to a Postgres URL via the control plane
+ *  (GET /v1/projects/:name). Prefers `internal.adminDbUrl` — the owner/superuser
+ *  connection — so the Studio can see + read every table regardless of RLS or the
+ *  authenticator's grants (which vary by cluster); falls back to `internal.dbUrl`
+ *  on older control planes. Null when unconfigured, missing, or not ready. */
 async function resolveDbUrl(deps: AppDeps, project: string): Promise<string | null> {
   if (!deps.hauldrControlUrl || !deps.hauldrToken) return null;
   const res = await fetch(
@@ -22,9 +24,11 @@ async function resolveDbUrl(deps: AppDeps, project: string): Promise<string | nu
   ).catch(() => null);
   if (!res || !res.ok) return null;
   const raw = (await res.json().catch(() => null)) as
-    | { internal?: { dbUrl?: string }; db_url?: string; dbUrl?: string }
+    | { internal?: { adminDbUrl?: string; dbUrl?: string }; db_url?: string; dbUrl?: string }
     | null;
-  return raw?.internal?.dbUrl ?? raw?.db_url ?? raw?.dbUrl ?? null;
+  return (
+    raw?.internal?.adminDbUrl ?? raw?.internal?.dbUrl ?? raw?.db_url ?? raw?.dbUrl ?? null
+  );
 }
 
 /** Open a short-lived, READ-ONLY connection to a project db, run `fn`, close it.
