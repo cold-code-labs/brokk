@@ -17,5 +17,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --no-frozen-lockfile
+        env:
+          # auth to GitHub Packages for private @cold-code-labs/* deps
+          # (yggdrasil) — same token Coolify uses at build time.
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
       - run: pnpm typecheck
       - run: pnpm build
