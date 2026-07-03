@@ -79,13 +79,14 @@ const EFFORTS = [
 ];
 
 // Split (chat fraction) — persisted per-browser, so the balance you set survives
-// reloads and session switches. Snap points give a magnetic 60/50/42 without
-// pixel-hunting; double-clicking the gutter restores the default.
+// reloads and session switches. Default is an even 50/50 so the conversation gets
+// real width; snap points give a magnetic 50/60/68 without pixel-hunting, and
+// double-clicking the gutter restores the default.
 const SPLIT_KEY = "sindri-split";
-const SPLIT_DEFAULT = 0.42;
-const SPLIT_MIN = 0.28;
+const SPLIT_DEFAULT = 0.5;
+const SPLIT_MIN = 0.3;
 const SPLIT_MAX = 0.72;
-const SPLIT_SNAP = [0.42, 0.5, 0.6];
+const SPLIT_SNAP = [0.4, 0.5, 0.6];
 function snapSplit(r: number): number {
   const clamped = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, r));
   for (const p of SPLIT_SNAP) if (Math.abs(clamped - p) < 0.018) return p;
