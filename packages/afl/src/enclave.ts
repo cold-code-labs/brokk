@@ -17,8 +17,8 @@
 
 import { exec, execFile } from "node:child_process";
 import { statSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { basename, dirname, relative } from "node:path";
 import { promisify } from "node:util";
 
 const execAsync = promisify(exec);
@@ -247,11 +247,20 @@ export interface RunscEnclaveOpts {
    *  enclave gets a bind-mounted resolv.conf with real upstreams instead. Fleet
    *  names still don't resolve (not in public DNS), so lateral-by-name stays dead. */
   dns?: string[];
-  /** Host-visible dir where the generated resolv.conf is written (then bind-mounted
-   *  read-only at /etc/resolv.conf). Default = the checkout's parent. Must be a real
-   *  host path the Docker daemon can mount — the same host-topology concern the
-   *  session layer owns. */
+  /** Host-visible dir where the generated resolv.conf is written (then mounted
+   *  read-only at /etc/resolv.conf). Default = the checkout's parent (bind mode) or
+   *  `<homeMount>/work/.enclave` (volume mode). */
   resolvDir?: string;
+  /** When the checkout lives inside a Docker NAMED VOLUME (prod: worktrees under the
+   *  `brokk_home` volume), set this to the volume name. The enclave then mounts only
+   *  the checkout's SUBPATH of that volume (`--mount volume-subpath`, validated to
+   *  isolate: the enclave sees its own checkout, not siblings) — the manager can't
+   *  bind a host path because the checkout isn't one. Unset ⇒ bind mode (dev-lane
+   *  host paths). */
+  homeVolume?: string;
+  /** Mount point of `homeVolume` (where the checkout paths are rooted). Default
+   *  `/home/brokk`. Subpaths are computed relative to it. */
+  homeMount?: string;
 }
 
 /** The gVisor (runsc) execution enclave for one project. Implements the same
@@ -265,6 +274,8 @@ export class RunscEnclave implements ExecEnclave {
   private readonly name: string;
   private readonly dns: string[];
   private readonly resolvPath: string;
+  private readonly homeVolume: string | undefined;
+  private readonly homeMount: string;
   /** Single in-flight start, so concurrent execs don't race to boot the container. */
   private startP: Promise<void> | undefined;
 
@@ -275,8 +286,29 @@ export class RunscEnclave implements ExecEnclave {
     this.network = opts.network || `brokk-enclave-${this.project}`;
     this.name = `brokk-enclave-${this.project}`;
     this.dns = opts.dns || (process.env.BROKK_ENCLAVE_DNS || "1.1.1.1,8.8.8.8").split(",").map((s) => s.trim()).filter(Boolean);
-    const resolvDir = opts.resolvDir || dirname(this.checkoutRoot);
+    this.homeVolume = opts.homeVolume || process.env.BROKK_ENCLAVE_HOME_VOLUME || undefined;
+    this.homeMount = opts.homeMount || process.env.BROKK_ENCLAVE_HOME_MOUNT || "/home/brokk";
+    // In volume mode the resolv.conf must live INSIDE the volume (so a subpath mount
+    // can reach it); in bind mode it sits next to the checkout on the host.
+    const resolvDir = opts.resolvDir || (this.homeVolume ? `${this.homeMount}/work/.enclave` : dirname(this.checkoutRoot));
     this.resolvPath = `${resolvDir}/.brokk-enclave-${this.project}-resolv.conf`;
+  }
+
+  /** The checkout + resolv.conf mount args. Bind mode (host paths) by default;
+   *  volume-subpath mode when the checkout lives in a named volume (prod). Both
+   *  give the enclave ONLY its own checkout (siblings stay invisible). */
+  private mountArgs(): string[] {
+    if (!this.homeVolume) {
+      return [
+        "-v", `${this.checkoutRoot}:${this.checkoutRoot}`,
+        "-v", `${this.resolvPath}:/etc/resolv.conf:ro`,
+      ];
+    }
+    const rel = (p: string) => relative(this.homeMount, p);
+    return [
+      "--mount", `type=volume,source=${this.homeVolume},volume-subpath=${rel(this.checkoutRoot)},target=${this.checkoutRoot}`,
+      "--mount", `type=volume,source=${this.homeVolume},volume-subpath=${rel(this.resolvPath)},target=/etc/resolv.conf,readonly`,
+    ];
   }
 
   private async docker(args: string[], timeoutMs = 120_000): Promise<{ out: string; code: number | string | null }> {
@@ -312,6 +344,7 @@ export class RunscEnclave implements ExecEnclave {
       // effort: in the co-located worker this write lands on the host dockerd mounts;
       // if it can't be written the run still tries the pre-existing path.
       try {
+        await mkdir(dirname(this.resolvPath), { recursive: true });
         await writeFile(this.resolvPath, `${this.dns.map((n) => `nameserver ${n}`).join("\n")}\n`);
       } catch {
         /* pre-provisioned path, or read-only worker — let the run try the mount */
@@ -325,8 +358,7 @@ export class RunscEnclave implements ExecEnclave {
           "--runtime=runsc",
           "--network", this.network,
           "--label", `brokk.enclave=${this.project}`,
-          "-v", `${this.checkoutRoot}:${this.checkoutRoot}`,
-          "-v", `${this.resolvPath}:/etc/resolv.conf:ro`,
+          ...this.mountArgs(),
           "-w", this.checkoutRoot,
           this.image,
           "sleep", "infinity",
@@ -367,4 +399,90 @@ export class RunscEnclave implements ExecEnclave {
     await this.docker(["rm", "-f", this.name], 30_000);
     await this.docker(["network", "rm", this.network], 15_000);
   }
+}
+
+// ── BrokeredEnclave — the worker-side client (no Docker socket) ────────────────
+// The trusted worker must NOT hold the Docker socket (socket ≈ host root). Instead
+// a single privileged enclave-manager sidecar holds the socket and drives runsc; the
+// worker reaches it over HTTP with a shared token. So the worker uses THIS backend —
+// a thin `ExecEnclave` client that forwards `exec` to the manager, which runs it in
+// the project's warm gVisor enclave and returns `{out, code}`. Untrusted code stays
+// in the enclave (no socket); the worker keeps zero container-spawning privilege.
+
+export interface BrokeredEnclaveOpts {
+  /** Per-project id — the manager keys the warm enclave on it. */
+  project: string;
+  /** The project's checkout path (host/volume path the manager mounts into the enclave). */
+  checkoutRoot: string;
+  /** Base URL of the enclave-manager sidecar (e.g. http://brokk-enclave-manager:8795). */
+  managerUrl: string;
+  /** Shared bearer token — only trusted workers may drive the manager. */
+  token: string;
+  /** Optional enclave image override (else the manager's default). */
+  image?: string;
+}
+
+/** `ExecEnclave` that forwards to the enclave-manager over HTTP. Drops into
+ *  `FsToolContext.enclave` like any backend; the agents never know the bash ran a
+ *  network hop away inside gVisor. Never throws — transport/enclave failures come
+ *  back as `{ code: null }` so the tool layer surfaces them like any bash error. */
+export class BrokeredEnclave implements ExecEnclave {
+  constructor(private readonly opts: BrokeredEnclaveOpts) {}
+
+  async exec(command: string, cwd: string, opts: ExecOpts = {}): Promise<ExecResult> {
+    const timeoutMs = Math.min(600_000, Number(opts.timeoutMs ?? 120_000));
+    try {
+      const res = await fetch(`${this.opts.managerUrl.replace(/\/$/, "")}/exec`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${this.opts.token}` },
+        body: JSON.stringify({
+          project: this.opts.project,
+          checkoutRoot: this.opts.checkoutRoot,
+          image: this.opts.image,
+          command,
+          cwd,
+          timeoutMs,
+        }),
+        // Allow the command's own budget plus a margin for the manager's boot/exec hop.
+        signal: AbortSignal.timeout(timeoutMs + 20_000),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        return { out: `enclave manager ${res.status}: ${body}`.slice(0, 1000), code: null };
+      }
+      const j = (await res.json()) as { out?: unknown; code?: unknown };
+      return { out: String(j.out ?? ""), code: (j.code ?? null) as number | string | null };
+    } catch (e: any) {
+      return { out: `enclave manager unreachable: ${e?.message ?? String(e)}`, code: null };
+    }
+  }
+}
+
+// ── resolveEnclave — the one selection point the agents call ───────────────────
+// The agents don't decide backends; they ask for the enclave for a checkout and get
+// the right one for the deployment: the brokered gVisor enclave when it's wired
+// (BROKK_ENCLAVE_BACKEND=runsc + a manager URL/token), else the default LocalEnclave.
+// So flipping N4 on/off in an environment is pure config — no code path in the
+// agents changes. Instances are memoised per checkout so a session's warm enclave is
+// reused across turns/tool-calls.
+
+const _brokered = new Map<string, ExecEnclave>();
+
+/** The `ExecEnclave` for a project checkout. `BrokeredEnclave` (→ gVisor) when N4 is
+ *  wired for this environment; `localEnclave` otherwise. Default is ALWAYS local — a
+ *  deployment opts in by setting BROKK_ENCLAVE_BACKEND=runsc + the manager URL/token. */
+export function resolveEnclave(opts: { checkoutRoot: string; project?: string }): ExecEnclave {
+  const url = process.env.BROKK_ENCLAVE_MANAGER_URL;
+  const token = process.env.BROKK_ENCLAVE_MANAGER_TOKEN;
+  if ((process.env.BROKK_ENCLAVE_BACKEND ?? "local") !== "runsc" || !url || !token) return localEnclave;
+  // Key per checkout (stable across a session's turns): the manager mounts exactly
+  // this checkout, so one warm enclave per checkout. (Per-project warm sharing across
+  // branches is a later refinement — it needs the worktrees grouped under one dir.)
+  const key = opts.project || basename(opts.checkoutRoot) || opts.checkoutRoot;
+  let e = _brokered.get(key);
+  if (!e) {
+    e = new BrokeredEnclave({ project: key, checkoutRoot: opts.checkoutRoot, managerUrl: url, token });
+    _brokered.set(key, e);
+  }
+  return e;
 }

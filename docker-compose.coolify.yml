@@ -64,6 +64,13 @@ x-worker-env: &worker-env
   LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
   LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
   LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+  # N4 execution enclave (ADR 0010). Default OFF: workers use LocalEnclave (N1-N3),
+  # prod behaviour unchanged. Flip = set BROKK_ENCLAVE_BACKEND=runsc in Coolify (the
+  # manager + token must be live first). The worker never holds the Docker socket —
+  # it drives the enclave-manager sidecar over this token-gated URL.
+  BROKK_ENCLAVE_BACKEND: ${BROKK_ENCLAVE_BACKEND:-local}
+  BROKK_ENCLAVE_MANAGER_URL: ${BROKK_ENCLAVE_MANAGER_URL:-http://enclave-manager:8795}
+  BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
 
 services:
   brokk-api:
@@ -184,6 +191,32 @@ services:
     volumes:
       - brokk_home:/home/brokk
     networks: [default, coolify, litellm]
+    <<: *restart
+
+  # The N4 execution-enclave broker (ADR 0010 Fase 1). The ONLY component with the
+  # Docker socket — it spawns/drives per-project gVisor (runsc) enclaves so the
+  # workers never touch the socket. Reachable only on the app-private `default` net
+  # (no coolify alias → no cross-app collision), token-gated. Inert until a worker
+  # calls it (i.e. until BROKK_ENCLAVE_BACKEND=runsc). Needs the host runsc runtime
+  # (Midgard `runsc` role) + BROKK_ENCLAVE_HOME_VOLUME = the real (Coolify-sanitised)
+  # brokk_home volume name, so it can mount each checkout's subpath into the enclave.
+  enclave-manager:
+    build:
+      context: .
+      dockerfile: apps/enclave-manager/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
+    image: brokk-enclave-manager:coolify
+    environment:
+      BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:?set in Coolify}
+      BROKK_ENCLAVE_HOME_VOLUME: ${BROKK_ENCLAVE_HOME_VOLUME:-}
+      BROKK_ENCLAVE_HOME_MOUNT: /home/brokk
+      BROKK_ENCLAVE_IMAGE: ${BROKK_ENCLAVE_IMAGE:-node:20}
+      BROKK_ENCLAVE_DNS: ${BROKK_ENCLAVE_DNS:-1.1.1.1,8.8.8.8}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - brokk_home:/home/brokk
+    networks: [default]
     <<: *restart
 
   gateway:

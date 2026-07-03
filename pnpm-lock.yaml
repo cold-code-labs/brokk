@@ -96,6 +96,25 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  apps/enclave-manager:
+    dependencies:
+      '@brokk/afl':
+        specifier: workspace:*
+        version: link:../../packages/afl
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.3)
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   apps/forge:
     dependencies:
       '@brokk/core':

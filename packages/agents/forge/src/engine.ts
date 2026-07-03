@@ -27,6 +27,7 @@ import {
   type AflConfig,
   type ChatTurnMessage,
   composeExecutors,
+  resolveEnclave,
   FS_TOOL_DEFS,
   makeFsExecutor,
   resolveModel,
@@ -80,7 +81,11 @@ export class ForgeEngine implements AgentEngine {
     const system = this.opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     // The generic hands are the only executor; compose wraps the partial with the
     // unknown-tool fallback to satisfy the loop's full ToolExecutor.
-    const exec = composeExecutors(makeFsExecutor({ cwd: ctx.cwd }));
+    // Route bash through the environment's enclave (gVisor when N4 is wired, else
+    // local). Per-checkout, so the forge task's worktree is the sandbox boundary.
+    const exec = composeExecutors(
+      makeFsExecutor({ cwd: ctx.cwd, enclave: resolveEnclave({ checkoutRoot: ctx.cwd }) }),
+    );
     const usage: RunUsage = { tokensIn: 0, tokensOut: 0, headroomSaved: 0 };
     const hooks = this.forgeHooks(ctx, usage);
 

@@ -15,6 +15,7 @@ import {
   composeExecutors,
   FS_TOOL_DEFS,
   makeFsExecutor,
+  resolveEnclave,
   type PartialExecutor,
   type ToolDef,
   type ToolExecutor,
@@ -140,5 +141,8 @@ function makeDomainExecutor(ctx: ToolContext): PartialExecutor {
 /** Build the executor bound to one session's checkout + project: afl's generic
  *  hands composed with the Brokk-domain tools. */
 export function makeExecutor(ctx: ToolContext): ToolExecutor {
-  return composeExecutors(makeFsExecutor({ cwd: ctx.cwd }), makeDomainExecutor(ctx));
+  return composeExecutors(
+    makeFsExecutor({ cwd: ctx.cwd, enclave: resolveEnclave({ checkoutRoot: ctx.cwd }) }),
+    makeDomainExecutor(ctx),
+  );
 }

@@ -16,6 +16,7 @@ import {
   FS_READONLY_TOOL_DEFS,
   loadAflConfig,
   makeFsExecutor,
+  resolveEnclave,
   resolveModel,
   runAgentLoop,
   type TextBlock,
@@ -89,7 +90,9 @@ export async function reviewPr(opts: {
   const cfg = opts.cfg ?? loadAflConfig();
   const model = resolveModel(cfg, opts.model);
   // Read-only hands, no gh creds — the reviewer inspects, never pushes.
-  const exec = composeExecutors(makeFsExecutor({ cwd: opts.cwd, gh: false }));
+  const exec = composeExecutors(
+    makeFsExecutor({ cwd: opts.cwd, gh: false, enclave: resolveEnclave({ checkoutRoot: opts.cwd }) }),
+  );
   const messages: ChatTurnMessage[] = [
     { role: "user", content: [{ type: "text", text: buildReviewPrompt(opts) }] },
   ];

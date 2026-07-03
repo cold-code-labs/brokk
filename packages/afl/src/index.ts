@@ -26,11 +26,14 @@ export {
   runAgentLoop,
 } from "./loop.js";
 export {
+  BrokeredEnclave,
+  type BrokeredEnclaveOpts,
   type ExecEnclave,
   type ExecOpts,
   type ExecResult,
   LocalEnclave,
   localEnclave,
+  resolveEnclave,
   RunscEnclave,
   type RunscEnclaveOpts,
   shellEnv,
