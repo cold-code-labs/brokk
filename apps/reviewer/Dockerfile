@@ -20,6 +20,16 @@ RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
 RUN pnpm --filter @brokk/reviewer-app build
 RUN pnpm --filter @brokk/reviewer-app deploy --prod /out
 
+# brokk-sandbox — the Landlock FS jail for the bash hand (isolation Nível 2). Static
+# CGO-off Go binary runs on this debian (glibc) runtime just as on the alpine ones.
+FROM golang:1.24-alpine AS sandbox
+ENV GOTOOLCHAIN=local CGO_ENABLED=0
+WORKDIR /src
+COPY tools/brokk-sandbox/go.mod tools/brokk-sandbox/go.sum ./
+RUN go mod download
+COPY tools/brokk-sandbox/ ./
+RUN go build -ldflags="-s -w" -o /brokk-sandbox .
+
 FROM base AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
@@ -46,6 +56,7 @@ RUN pipx install semgrep
 # Eitri runs as uid 1001 with HOME=/home/brokk; make it real + writable so the
 # scanners' caches (~/.cache/trivy, ~/.semgrep) don't EACCES at scan time.
 RUN mkdir -p /home/brokk && chown -R 1001:1001 /home/brokk
+COPY --from=sandbox /brokk-sandbox /usr/local/bin/brokk-sandbox
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/apps/reviewer/dist ./dist
 COPY --from=build /repo/apps/reviewer/package.json ./package.json
