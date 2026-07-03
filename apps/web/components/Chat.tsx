@@ -78,6 +78,20 @@ const EFFORTS = [
   { id: "high", label: "Profundo" },
 ];
 
+// Split (chat fraction) — persisted per-browser, so the balance you set survives
+// reloads and session switches. Snap points give a magnetic 60/50/42 without
+// pixel-hunting; double-clicking the gutter restores the default.
+const SPLIT_KEY = "sindri-split";
+const SPLIT_DEFAULT = 0.42;
+const SPLIT_MIN = 0.28;
+const SPLIT_MAX = 0.72;
+const SPLIT_SNAP = [0.42, 0.5, 0.6];
+function snapSplit(r: number): number {
+  const clamped = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, r));
+  for (const p of SPLIT_SNAP) if (Math.abs(clamped - p) < 0.018) return p;
+  return clamped;
+}
+
 // ── small formatters ─────────────────────────────────────────────────────────
 function fmtTokens(n: number): string {
   if (!n) return "0";
@@ -130,7 +144,8 @@ export default function Chat() {
   // Zen/focus: collapse the chat so the preview goes full-bleed (demo mode).
   const [chatCollapsed, setChatCollapsed] = useState(false);
   // Draggable split ratio (chat fraction) when both panes are open.
-  const [split, setSplit] = useState(0.42);
+  const [split, setSplit] = useState(SPLIT_DEFAULT);
+  const [dragging, setDragging] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -181,6 +196,17 @@ export default function Chat() {
     // environment change, using whatever model/effort are current at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // Restore the persisted split once on mount (client-only; the body isn't
+  // rendered until a session loads, so this lands before the grid paints).
+  useEffect(() => {
+    try {
+      const v = parseFloat(localStorage.getItem(SPLIT_KEY) ?? "");
+      if (v >= SPLIT_MIN && v <= SPLIT_MAX) setSplit(v);
+    } catch {
+      /* private mode / no storage — keep the default */
+    }
+  }, []);
 
   const upsert = useCallback((m: { seq: number; role: ChatMessage["role"]; blocks: Block[] }) => {
     if (m.seq > liveSeqRef.current) liveSeqRef.current = m.seq;
@@ -333,24 +359,43 @@ export default function Chat() {
   }
 
   // Drag the gutter between chat and preview to re-balance the split. Clamped so
-  // neither pane ever collapses by accident (use the zen/hide toggles for that).
+  // neither pane ever collapses by accident (use the zen/hide toggles for that),
+  // snapped to the 42/50/60 marks, and persisted on release.
   function startDrag(e: React.PointerEvent) {
     e.preventDefault();
     const el = bodyRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
+    let last = split;
+    setDragging(true);
     const onMove = (ev: PointerEvent) => {
-      const r = (ev.clientX - rect.left) / rect.width;
-      setSplit(Math.min(0.72, Math.max(0.28, r)));
+      last = snapSplit((ev.clientX - rect.left) / rect.width);
+      setSplit(last);
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       document.body.style.userSelect = "";
+      setDragging(false);
+      try {
+        localStorage.setItem(SPLIT_KEY, String(last));
+      } catch {
+        /* no storage — the in-session split still holds */
+      }
     };
     document.body.style.userSelect = "none";
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+  }
+
+  // Double-click the gutter → restore the default balance.
+  function resetSplit() {
+    setSplit(SPLIT_DEFAULT);
+    try {
+      localStorage.setItem(SPLIT_KEY, String(SPLIT_DEFAULT));
+    } catch {
+      /* no storage */
+    }
   }
 
   // tool_use_id → result, for inline rendering.
@@ -639,13 +684,19 @@ export default function Chat() {
           {/* draggable gutter — only when both panes share the stage */}
           {previewOpen && !chatCollapsed ? (
             <div
-              className="sindri-gutter"
+              className={`sindri-gutter ${dragging ? "is-dragging" : ""}`}
               role="separator"
               aria-orientation="vertical"
-              aria-label="Redimensionar painéis"
+              aria-valuenow={Math.round(split * 100)}
+              aria-label="Redimensionar painéis (duplo-clique restaura)"
+              title="Arraste para redimensionar · duplo-clique restaura"
               onPointerDown={startDrag}
+              onDoubleClick={resetSplit}
             >
               <span className="sindri-gutter-grip" />
+              {dragging ? (
+                <span className="sindri-gutter-readout">{Math.round(split * 100)}%</span>
+              ) : null}
             </div>
           ) : null}
 
@@ -687,6 +738,8 @@ function SindriPreview({
   const [err, setErr] = useState("");
   const [iframeKey, setIframeKey] = useState(0);
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [stageW, setStageW] = useState(0);
   const autoTried = useRef(""); // sessionId we've already auto-booted for
   const wokeFor = useRef(""); // sessionId we've already auto-woken a reaped preview for
 
@@ -755,8 +808,21 @@ function SindriPreview({
     return () => clearInterval(id);
   }, [preview?.status, sessionId]);
 
+  // Measure the actual rendered viewport so the toolbar shows a real px readout
+  // (like devtools) — it updates live as the gutter re-balances the panes.
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      setStageW(Math.round(entries[0]?.contentRect.width ?? 0));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const status = preview?.status;
   const live = status === "live";
+  const dimLabel = device === "mobile" ? "390px" : stageW ? `${stageW}px` : "auto";
   const statusColor =
     status === "live"
       ? STATUS_COLOR.done
@@ -815,6 +881,9 @@ function SindriPreview({
           >
             <Smartphone size={15} />
           </button>
+          <span className="sindri-preview-dim" title="Largura do viewport">
+            {dimLabel}
+          </span>
           <button
             type="button"
             className="sindri-preview-icon"
@@ -845,7 +914,7 @@ function SindriPreview({
         </div>
       </div>
 
-      <div className="sindri-preview-stage">
+      <div className="sindri-preview-stage" ref={stageRef}>
         {live && preview ? (
           <div className={`sindri-preview-frame is-${device}`}>
             <iframe
@@ -961,8 +1030,41 @@ function MessageView({
         {tools.map((t) => (
           <ToolCall key={t.id} tool={t} result={results.get(t.id)} />
         ))}
+        {!isUser ? <TurnSummary tools={tools} /> : null}
         {!isUser && text ? <MessageActions text={text} /> : null}
       </div>
+    </div>
+  );
+}
+
+// ── turn summary ──────────────────────────────────────────────────────────────
+// A one-glance recap of what a turn actually changed, derived from the message's
+// own tool blocks (no extra data): how many actions, and which files were touched.
+// Renders only when files were edited — a pure read/run turn stays clean.
+function TurnSummary({ tools }: { tools: (Block & { type: "tool_use" })[] }) {
+  const files = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tools) {
+      if (!EDIT_TOOL.test(t.name)) continue;
+      const p = (t.input.file_path as string) || (t.input.path as string);
+      if (p) set.add(p.split("/").pop() || p);
+    }
+    return [...set];
+  }, [tools]);
+  if (!files.length) return null;
+  return (
+    <div className="sindri-turn-meta">
+      <span className="sindri-turn-stat">
+        <Wrench size={11} /> {tools.length} {tools.length === 1 ? "ação" : "ações"}
+      </span>
+      <span className="sindri-head-sep">·</span>
+      <span className="sindri-turn-stat">
+        <FileEdit size={11} /> {files.length} {files.length === 1 ? "arquivo" : "arquivos"}
+      </span>
+      <span className="sindri-turn-files" title={files.join(", ")}>
+        {files.slice(0, 4).join(", ")}
+        {files.length > 4 ? ` +${files.length - 4}` : ""}
+      </span>
     </div>
   );
 }

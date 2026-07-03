@@ -226,6 +226,7 @@ body:has(.sindri) {
 
 /* draggable gutter between the two panes */
 .sindri-gutter {
+  position: relative;
   align-self: stretch;
   display: flex;
   align-items: center;
@@ -240,9 +241,27 @@ body:has(.sindri) {
   background: var(--border);
   transition: background 0.12s, height 0.12s;
 }
-.sindri-gutter:hover .sindri-gutter-grip {
+.sindri-gutter:hover .sindri-gutter-grip,
+.sindri-gutter.is-dragging .sindri-gutter-grip {
   background: var(--primary);
   height: 3.2rem;
+}
+/* live % readout while dragging — floats above the grip, never affects layout */
+.sindri-gutter-readout {
+  position: absolute;
+  top: 0.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground, #fff);
+  font-size: 0.64rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
 }
 
 .sindri-dot {
@@ -526,6 +545,39 @@ body:has(.sindri) {
 .sindri-reasoning-body .sindri-md {
   font-size: 0.84rem;
   opacity: 0.92;
+}
+
+/* turn summary — a quiet recap of what the turn changed (actions · files) */
+.sindri-turn-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.sindri-turn-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.sindri-turn-meta svg {
+  color: var(--primary);
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+.sindri-turn-files {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  font-family: var(--font-mono, monospace);
+  opacity: 0.75;
 }
 
 /* per-message actions — quiet, fade in on hover of the bubble */
@@ -882,6 +934,17 @@ body:has(.sindri) {
   background: var(--border);
   margin: 0 0.15rem;
   flex-shrink: 0;
+}
+/* live viewport width readout, sits between the device toggles and the actions */
+.sindri-preview-dim {
+  flex-shrink: 0;
+  min-width: 3.1rem;
+  text-align: center;
+  padding: 0 0.1rem;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+  white-space: nowrap;
 }
 .sindri-preview-stage {
   flex: 1;
