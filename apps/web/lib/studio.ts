@@ -36,9 +36,29 @@ export interface StudioRows {
   offset: number;
 }
 
+/** Build a concise message from a failed response. Drops HTML error pages
+ *  (proxy/CDN 5xx during a redeploy) and truncates, so the panel never renders a
+ *  raw error page — just a short, human line. */
+async function failMessage(res: Response): Promise<string> {
+  const body = (await res.text().catch(() => "")).trim();
+  const looksHtml = /^<(?:!doctype|html)/i.test(body);
+  let detail = "";
+  if (body && !looksHtml) {
+    try {
+      detail = String((JSON.parse(body) as { error?: unknown }).error ?? body);
+    } catch {
+      detail = body;
+    }
+    detail = detail.slice(0, 200);
+  } else if (res.status >= 502 && res.status <= 504) {
+    detail = "serviço indisponível (talvez subindo)";
+  }
+  return `${res.status}${detail ? ` — ${detail}` : ""}`;
+}
+
 async function j<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
-  if (!res.ok) throw new Error(`GET ${path} → ${res.status} ${await res.text().catch(() => "")}`);
+  if (!res.ok) throw new Error(await failMessage(res));
   return (await res.json()) as T;
 }
 
