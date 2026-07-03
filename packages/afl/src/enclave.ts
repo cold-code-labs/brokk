@@ -261,6 +261,12 @@ export interface RunscEnclaveOpts {
   /** Mount point of `homeVolume` (where the checkout paths are rooted). Default
    *  `/home/brokk`. Subpaths are computed relative to it. */
   homeMount?: string;
+  /** A git worktree's shared common dir (the bare clone), which lives OUTSIDE the
+   *  checkout — forge/reviewer/chat all use worktrees, whose `.git` file points here.
+   *  Mounted into the enclave (at its real path) so `git status/log/commit` work; a
+   *  self-contained clone (common dir == checkout) omits it. Mirrors LocalEnclave's
+   *  Landlock grant. The worker resolves it (`resolveGitCommonDir`) and passes it in. */
+  gitCommonDir?: string;
 }
 
 /** The gVisor (runsc) execution enclave for one project. Implements the same
@@ -276,6 +282,7 @@ export class RunscEnclave implements ExecEnclave {
   private readonly resolvPath: string;
   private readonly homeVolume: string | undefined;
   private readonly homeMount: string;
+  private readonly gitCommonDir: string | undefined;
   /** Single in-flight start, so concurrent execs don't race to boot the container. */
   private startP: Promise<void> | undefined;
 
@@ -288,6 +295,9 @@ export class RunscEnclave implements ExecEnclave {
     this.dns = opts.dns || (process.env.BROKK_ENCLAVE_DNS || "1.1.1.1,8.8.8.8").split(",").map((s) => s.trim()).filter(Boolean);
     this.homeVolume = opts.homeVolume || process.env.BROKK_ENCLAVE_HOME_VOLUME || undefined;
     this.homeMount = opts.homeMount || process.env.BROKK_ENCLAVE_HOME_MOUNT || "/home/brokk";
+    // Mount the worktree's common dir only when it's OUTSIDE the checkout (else it's
+    // already covered by the checkout mount) — same rule as LocalEnclave's sandbox.
+    this.gitCommonDir = opts.gitCommonDir && !opts.gitCommonDir.startsWith(opts.checkoutRoot) ? opts.gitCommonDir : undefined;
     // In volume mode the resolv.conf must live INSIDE the volume (so a subpath mount
     // can reach it); in bind mode it sits next to the checkout on the host.
     const resolvDir = opts.resolvDir || (this.homeVolume ? `${this.homeMount}/work/.enclave` : dirname(this.checkoutRoot));
@@ -299,16 +309,22 @@ export class RunscEnclave implements ExecEnclave {
    *  give the enclave ONLY its own checkout (siblings stay invisible). */
   private mountArgs(): string[] {
     if (!this.homeVolume) {
-      return [
+      const m = [
         "-v", `${this.checkoutRoot}:${this.checkoutRoot}`,
         "-v", `${this.resolvPath}:/etc/resolv.conf:ro`,
       ];
+      if (this.gitCommonDir) m.push("-v", `${this.gitCommonDir}:${this.gitCommonDir}`);
+      return m;
     }
     const rel = (p: string) => relative(this.homeMount, p);
-    return [
+    const m = [
       "--mount", `type=volume,source=${this.homeVolume},volume-subpath=${rel(this.checkoutRoot)},target=${this.checkoutRoot}`,
       "--mount", `type=volume,source=${this.homeVolume},volume-subpath=${rel(this.resolvPath)},target=/etc/resolv.conf,readonly`,
     ];
+    if (this.gitCommonDir) {
+      m.push("--mount", `type=volume,source=${this.homeVolume},volume-subpath=${rel(this.gitCommonDir)},target=${this.gitCommonDir}`);
+    }
+    return m;
   }
 
   private async docker(args: string[], timeoutMs = 120_000): Promise<{ out: string; code: number | string | null }> {
@@ -439,6 +455,7 @@ export class BrokeredEnclave implements ExecEnclave {
           project: this.opts.project,
           checkoutRoot: this.opts.checkoutRoot,
           image: this.opts.image,
+          gitCommonDir: opts.gitCommonDir,
           command,
           cwd,
           timeoutMs,

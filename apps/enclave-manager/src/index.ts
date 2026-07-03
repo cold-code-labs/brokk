@@ -58,10 +58,10 @@ async function ensureBaseImage(): Promise<void> {
 // an optional per-request `image` lets different projects pin different runtimes
 // (fixed at first-create, since the enclave is warm thereafter).
 const enclaves = new Map<string, RunscEnclave>();
-function enclaveFor(project: string, checkoutRoot: string, image?: string): RunscEnclave {
+function enclaveFor(project: string, checkoutRoot: string, image?: string, gitCommonDir?: string): RunscEnclave {
   let e = enclaves.get(project);
   if (!e) {
-    e = new RunscEnclave({ project, checkoutRoot, image });
+    e = new RunscEnclave({ project, checkoutRoot, image, gitCommonDir });
     enclaves.set(project, e);
   }
   return e;
@@ -104,7 +104,12 @@ const server = createServer(async (req, res) => {
       if (!b.project || !b.checkoutRoot || typeof b.command !== "string" || !b.cwd) {
         return send(res, 400, { error: "project, checkoutRoot, command, cwd required" });
       }
-      const enc = enclaveFor(String(b.project), String(b.checkoutRoot), b.image ? String(b.image) : undefined);
+      const enc = enclaveFor(
+        String(b.project),
+        String(b.checkoutRoot),
+        b.image ? String(b.image) : undefined,
+        b.gitCommonDir ? String(b.gitCommonDir) : undefined,
+      );
       const r = await enc.exec(String(b.command), String(b.cwd), { timeoutMs: Number(b.timeoutMs) || undefined });
       return send(res, 200, r);
     }
