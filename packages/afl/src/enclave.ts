@@ -17,6 +17,8 @@
 
 import { exec, execFile } from "node:child_process";
 import { statSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { promisify } from "node:util";
 
 const execAsync = promisify(exec);
@@ -201,3 +203,168 @@ export class LocalEnclave implements ExecEnclave {
 /** The process-wide default enclave. `makeFsExecutor` uses it unless a caller injects
  *  its own (the plug point for RunscEnclave in Fase 1). */
 export const localEnclave: ExecEnclave = new LocalEnclave();
+
+// ── RunscEnclave — the Nível 4 backend (ADR 0010 Fase 1) ──────────────────────
+// The gVisor backend: instead of running the command in THIS container, it
+// dispatches into a persistent, WARM `--runtime=runsc` container that is dedicated
+// to ONE project (connected repo). A container escape must break the gVisor sentry
+// (a userspace kernel), not the host kernel — the boundary N1–N3 can't give while
+// sharing the host kernel. This is opt-in: the trusted worker (this process) keeps
+// the secrets/git/control and drives the enclave from outside; the untrusted code
+// runs inside, credential-free and off the fleet network.
+//
+// Model (ADR 0010): ONE enclave per project, not per session. Boots once (the cold
+// `install`), stays warm, reaped by idle. Branches (= sessions) are git worktrees
+// created by the WORKER on the host checkout and bind-mounted in — so this class
+// only needs `exec`; the worktree/preview lifecycle lives in the session layer.
+//
+// Requirements: the runsc runtime registered on the Docker host (Midgard `runsc`
+// role) + this process able to reach the Docker daemon (socket). Where either is
+// missing, callers keep the default LocalEnclave — this backend is never forced.
+
+const DOCKER_BIN = process.env.BROKK_DOCKER_BIN || "docker";
+
+export interface RunscEnclaveOpts {
+  /** Stable per-project id — one warm enclave per project. Sanitised into the
+   *  container name `brokk-enclave-<project>` and its dedicated network. */
+  project: string;
+  /** Host path of the project checkout. Bind-mounted into the enclave at the SAME
+   *  path so the `cwd` the worker passes to exec resolves identically inside. Must
+   *  be host-visible to the Docker daemon (same constraint every bind mount has). */
+  checkoutRoot: string;
+  /** Enclave image — must carry the project toolchain (node/pnpm/git). Default
+   *  overridable via BROKK_ENCLAVE_IMAGE. */
+  image?: string;
+  /** Per-project bridge network. Default `brokk-enclave-<project>` — a DEDICATED
+   *  bridge per project gives BOTH boundaries the ADR wants: Docker's inter-network
+   *  isolation walls the enclave off from the fleet's `coolify` net AND from other
+   *  projects' enclaves (validated: reaching a fleet container's private IP times
+   *  out). */
+  network?: string;
+  /** Upstream DNS servers for the enclave. Default 1.1.1.1 + 8.8.8.8. Needed because
+   *  on a user-defined bridge Docker pins resolv.conf to the embedded resolver at
+   *  127.0.0.11, which gVisor's netstack CANNOT reach (Connection refused) — so the
+   *  enclave gets a bind-mounted resolv.conf with real upstreams instead. Fleet
+   *  names still don't resolve (not in public DNS), so lateral-by-name stays dead. */
+  dns?: string[];
+  /** Host-visible dir where the generated resolv.conf is written (then bind-mounted
+   *  read-only at /etc/resolv.conf). Default = the checkout's parent. Must be a real
+   *  host path the Docker daemon can mount — the same host-topology concern the
+   *  session layer owns. */
+  resolvDir?: string;
+}
+
+/** The gVisor (runsc) execution enclave for one project. Implements the same
+ *  `ExecEnclave.exec` the agents call, so it drops into `FsToolContext.enclave`
+ *  with zero agent changes. Lazily boots + warms its container on first exec. */
+export class RunscEnclave implements ExecEnclave {
+  private readonly project: string;
+  private readonly checkoutRoot: string;
+  private readonly image: string;
+  private readonly network: string;
+  private readonly name: string;
+  private readonly dns: string[];
+  private readonly resolvPath: string;
+  /** Single in-flight start, so concurrent execs don't race to boot the container. */
+  private startP: Promise<void> | undefined;
+
+  constructor(opts: RunscEnclaveOpts) {
+    this.project = opts.project.replace(/[^a-zA-Z0-9_.-]/g, "-");
+    this.checkoutRoot = opts.checkoutRoot;
+    this.image = opts.image || process.env.BROKK_ENCLAVE_IMAGE || "node:20";
+    this.network = opts.network || `brokk-enclave-${this.project}`;
+    this.name = `brokk-enclave-${this.project}`;
+    this.dns = opts.dns || (process.env.BROKK_ENCLAVE_DNS || "1.1.1.1,8.8.8.8").split(",").map((s) => s.trim()).filter(Boolean);
+    const resolvDir = opts.resolvDir || dirname(this.checkoutRoot);
+    this.resolvPath = `${resolvDir}/.brokk-enclave-${this.project}-resolv.conf`;
+  }
+
+  private async docker(args: string[], timeoutMs = 120_000): Promise<{ out: string; code: number | string | null }> {
+    try {
+      const { stdout, stderr } = await execFileAsync(DOCKER_BIN, args, {
+        timeout: timeoutMs,
+        maxBuffer: 1024 * 1024 * 32,
+      });
+      return { out: `${stdout}${stderr ? `\n${stderr}` : ""}`.trim(), code: 0 };
+    } catch (e: any) {
+      const out = `${e?.stdout ?? ""}\n${e?.stderr ?? ""}`.trim();
+      return { out: out || e?.message || String(e), code: e?.code ?? null };
+    }
+  }
+
+  /** Idempotent boot + warm. Ensures the dedicated bridge exists, then the enclave
+   *  container is running (reuse if up, `start` if stopped, `run` if absent).
+   *  Concurrency-guarded: many execs share one boot. */
+  async ensureStarted(): Promise<void> {
+    return (this.startP ??= (async () => {
+      // Dedicated per-project bridge — ignore "already exists".
+      await this.docker(["network", "create", this.network], 30_000);
+      const running = await this.docker(["inspect", "-f", "{{.State.Running}}", this.name], 15_000);
+      if (running.code === 0 && running.out === "true") return;
+      if (running.code === 0) {
+        // exists but stopped → start it
+        const started = await this.docker(["start", this.name], 30_000);
+        if (started.code === 0) return;
+      }
+      // absent (or start failed) → (re)create. Remove any stale husk first.
+      await this.docker(["rm", "-f", this.name], 30_000);
+      // Real-upstream resolv.conf so DNS works under gVisor (see `dns` doc). Best
+      // effort: in the co-located worker this write lands on the host dockerd mounts;
+      // if it can't be written the run still tries the pre-existing path.
+      try {
+        await writeFile(this.resolvPath, `${this.dns.map((n) => `nameserver ${n}`).join("\n")}\n`);
+      } catch {
+        /* pre-provisioned path, or read-only worker — let the run try the mount */
+      }
+      // `sleep infinity` keeps the enclave warm; the worker drives it via `exec`.
+      // No secret env, no fleet network. --runtime=runsc is the whole point.
+      const run = await this.docker(
+        [
+          "run", "-d",
+          "--name", this.name,
+          "--runtime=runsc",
+          "--network", this.network,
+          "--label", `brokk.enclave=${this.project}`,
+          "-v", `${this.checkoutRoot}:${this.checkoutRoot}`,
+          "-v", `${this.resolvPath}:/etc/resolv.conf:ro`,
+          "-w", this.checkoutRoot,
+          this.image,
+          "sleep", "infinity",
+        ],
+        120_000,
+      );
+      if (run.code !== 0) {
+        // Boot failed — surface it; the caller decides whether to fall back to Local.
+        this.startP = undefined; // let a later exec retry
+        throw new Error(`RunscEnclave: failed to start ${this.name}: ${run.out}`);
+      }
+    })());
+  }
+
+  /** Run one command INSIDE the warm gVisor enclave. Credential-free by design —
+   *  the enclave never receives gh/infra tokens (the worker commits/pushes outside),
+   *  so `opts.gh` is intentionally ignored here (a stronger stance than LocalEnclave:
+   *  N1 elevated to a kernel guarantee). Same `{out, code}` contract — never throws
+   *  for a non-zero exit. */
+  async exec(command: string, cwd: string, opts: ExecOpts = {}): Promise<ExecResult> {
+    try {
+      await this.ensureStarted();
+    } catch (e: any) {
+      return { out: `enclave unavailable: ${e?.message ?? String(e)}`, code: null };
+    }
+    const timeout = Math.min(600_000, Number(opts.timeoutMs ?? 120_000));
+    // docker exec returns the command's own exit code; the {out, code} normalisation
+    // in this.docker() carries a non-zero exit in `code` without throwing.
+    return this.docker(
+      ["exec", "-w", cwd, "-e", "NODE_ENV=development", "-e", "GIT_TERMINAL_PROMPT=0", this.name, "/bin/sh", "-c", command],
+      timeout,
+    );
+  }
+
+  /** Tear the enclave down (idle reap / cleanup). Best-effort. */
+  async stop(): Promise<void> {
+    this.startP = undefined;
+    await this.docker(["rm", "-f", this.name], 30_000);
+    await this.docker(["network", "rm", this.network], 15_000);
+  }
+}

@@ -31,6 +31,8 @@ export {
   type ExecResult,
   LocalEnclave,
   localEnclave,
+  RunscEnclave,
+  type RunscEnclaveOpts,
   shellEnv,
 } from "./enclave.js";
 export {
