@@ -93,6 +93,9 @@ function snapSplit(r: number): number {
   for (const p of SPLIT_SNAP) if (Math.abs(clamped - p) < 0.018) return p;
   return clamped;
 }
+// The preview never drags narrower than a phone: at that edge the drag stops and
+// the viewport flips to mobile (dragging back out flips it to desktop again).
+const PREVIEW_MOBILE_PX = 430;
 
 // ── small formatters ─────────────────────────────────────────────────────────
 function fmtTokens(n: number): string {
@@ -148,6 +151,9 @@ export default function Chat() {
   // Draggable split ratio (chat fraction) when both panes are open.
   const [split, setSplit] = useState(SPLIT_DEFAULT);
   const [dragging, setDragging] = useState(false);
+  // Preview viewport (lifted here so the gutter drag can flip it to mobile at the
+  // narrow edge); the preview's own toggles also drive it.
+  const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -371,8 +377,16 @@ export default function Chat() {
     let last = split;
     setDragging(true);
     const onMove = (ev: PointerEvent) => {
-      last = snapSplit((ev.clientX - rect.left) / rect.width);
-      setSplit(last);
+      let r = snapSplit((ev.clientX - rect.left) / rect.width);
+      // Cap the chat so the preview never gets narrower than a phone.
+      const maxSplit = Math.min(SPLIT_MAX, 1 - PREVIEW_MOBILE_PX / rect.width);
+      if (r > maxSplit) r = maxSplit;
+      last = r;
+      setSplit(r);
+      // Flip the viewport to mobile once the preview is phone-narrow, back to
+      // desktop as it widens again.
+      const previewPx = (1 - r) * rect.width;
+      setDevice(previewPx <= PREVIEW_MOBILE_PX + 60 ? "mobile" : "desktop");
     };
     const onUp = () => {
       window.removeEventListener("pointermove", onMove);
@@ -685,9 +699,6 @@ export default function Chat() {
               onDoubleClick={resetSplit}
             >
               <span className="sindri-gutter-grip" />
-              {dragging ? (
-                <span className="sindri-gutter-readout">{Math.round(split * 100)}%</span>
-              ) : null}
             </div>
           ) : null}
 
@@ -700,6 +711,8 @@ export default function Chat() {
               zen={chatCollapsed}
               onToggleZen={() => setChatCollapsed((c) => !c)}
               onHide={() => setPreviewOpen(false)}
+              device={device}
+              setDevice={setDevice}
             />
           ) : null}
         </div>
@@ -719,6 +732,8 @@ function SindriPreview({
   zen,
   onToggleZen,
   onHide,
+  device,
+  setDevice,
 }: {
   sessionId: string;
   branch: string | null;
@@ -726,12 +741,13 @@ function SindriPreview({
   zen: boolean;
   onToggleZen: () => void;
   onHide: () => void;
+  device: "desktop" | "mobile";
+  setDevice: (d: "desktop" | "mobile") => void;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [iframeKey, setIframeKey] = useState(0);
-  const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   // The stage shows either the live preview iframe or the read-only DB Studio.
   const [view, setView] = useState<"preview" | "database">("preview");
   const stageRef = useRef<HTMLDivElement | null>(null);

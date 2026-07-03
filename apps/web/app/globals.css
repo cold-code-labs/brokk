@@ -259,23 +259,6 @@ body:has(.sindri) {
   background: var(--primary);
   height: 3.2rem;
 }
-/* live % readout while dragging — floats above the grip, never affects layout */
-.sindri-gutter-readout {
-  position: absolute;
-  top: 0.5rem;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 0.05rem 0.4rem;
-  border-radius: 999px;
-  background: var(--primary);
-  color: var(--primary-foreground, #fff);
-  font-size: 0.64rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 5;
-}
 
 .sindri-dot {
   width: 7px;
