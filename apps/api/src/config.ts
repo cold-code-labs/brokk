@@ -20,6 +20,12 @@ const Env = z.object({
 
   // Base URL of the Sindri chat runtime (worker host). Empty = /chat → 503.
   BROKK_SINDRI_URL: z.string().default(""),
+
+  // Hauldr control-plane — lets the read-only Studio (routes/studio.ts) resolve a
+  // preview's Hauldr project to its internal dbUrl and introspect/read its tables.
+  // Both empty = /studio disabled (overview reports connected:false, reads → 503).
+  HAULDR_CONTROL_URL: z.string().default(""),
+  HAULDR_TOKEN: z.string().default(""),
 });
 
 export type Config = z.infer<typeof Env>;

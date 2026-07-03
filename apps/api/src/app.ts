@@ -10,6 +10,7 @@ import { projectsRoutes } from "./routes/projects.js";
 import { repositoriesRoutes } from "./routes/repositories.js";
 import { runnerRoutes } from "./routes/runner.js";
 import { runsRoutes } from "./routes/runs.js";
+import { studioRoutes } from "./routes/studio.js";
 import { subscriptionsRoutes } from "./routes/subscriptions.js";
 import { tasksRoutes } from "./routes/tasks.js";
 import { usersRoutes } from "./routes/users.js";
@@ -29,6 +30,10 @@ export interface AppDeps {
   /** Base URL of the Sindri chat runtime (e.g. http://127.0.0.1:8795). Empty =
    *  /chat returns 503. */
   sindriUrl?: string;
+  /** Hauldr control-plane base URL + bearer, for the read-only Studio (resolve a
+   *  preview's Hauldr project → dbUrl → introspect). Both empty = /studio off. */
+  hauldrControlUrl?: string;
+  hauldrToken?: string;
 }
 
 /** Assemble the control-plane HTTP app from its dependencies. Pure wiring — no
@@ -90,6 +95,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/subscriptions", subscriptionsRoutes(deps));
   app.route("/tasks", tasksRoutes(deps));
   app.route("/runs", runsRoutes(deps));
+  app.route("/studio", studioRoutes(deps));
   app.route("/runner", runnerRoutes(deps));
   app.route("/webhooks", webhooksRoutes(deps));
 

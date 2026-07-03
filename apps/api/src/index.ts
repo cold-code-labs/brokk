@@ -27,6 +27,8 @@ async function main() {
     githubWebhookSecret: cfg.BROKK_GITHUB_WEBHOOK_SECRET,
     mimir,
     sindriUrl: cfg.BROKK_SINDRI_URL,
+    hauldrControlUrl: cfg.HAULDR_CONTROL_URL,
+    hauldrToken: cfg.HAULDR_TOKEN,
   });
 
   serve({ fetch: app.fetch, port: cfg.BROKK_API_PORT }, ({ port }) => {

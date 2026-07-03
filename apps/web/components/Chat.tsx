@@ -42,6 +42,7 @@ import {
   Monitor,
   Smartphone,
   RotateCw,
+  Database,
   ExternalLink,
   PanelRightClose,
   PanelRightOpen,
@@ -60,6 +61,7 @@ import {
   type AgentEvent,
 } from "../lib/chat";
 import { STATUS_COLOR, t as theme } from "../lib/theme";
+import { StudioPanel } from "./StudioPanel";
 
 // Full model choice. The subscription-seat gate that used to 429 Sonnet/Opus is
 // fixed at the gateway (Ratatoskr shapes the Claude Code system marker so the
@@ -739,6 +741,8 @@ function SindriPreview({
   const [err, setErr] = useState("");
   const [iframeKey, setIframeKey] = useState(0);
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
+  // The stage shows either the live preview iframe or the read-only DB Studio.
+  const [view, setView] = useState<"preview" | "database">("preview");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageW, setStageW] = useState(0);
   const autoTried = useRef(""); // sessionId we've already auto-booted for
@@ -906,6 +910,14 @@ function SindriPreview({
           <span className="sindri-preview-sep" />
           <button
             type="button"
+            className={`sindri-preview-icon ${view === "database" ? "is-on" : ""}`}
+            title={view === "database" ? "Voltar ao preview" : "Banco de dados"}
+            onClick={() => setView((v) => (v === "database" ? "preview" : "database"))}
+          >
+            <Database size={15} />
+          </button>
+          <button
+            type="button"
             className={`sindri-preview-icon ${zen ? "is-on" : ""}`}
             title={zen ? "Restaurar o chat" : "Foco: preview em tela cheia"}
             onClick={onToggleZen}
@@ -916,7 +928,9 @@ function SindriPreview({
       </div>
 
       <div className="sindri-preview-stage" ref={stageRef}>
-        {live && preview ? (
+        {view === "database" ? (
+          <StudioPanel previewId={preview?.id ?? null} />
+        ) : live && preview ? (
           <div className={`sindri-preview-frame is-${device}`}>
             <iframe
               key={iframeKey}
