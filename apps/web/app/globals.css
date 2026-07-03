@@ -1029,6 +1029,25 @@ body:has(.sindri) {
   margin: 0 0.15rem;
   flex-shrink: 0;
 }
+/* segmented view switcher (preview · code · database) — grouped pill, far left */
+.sindri-viewswitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.sindri-viewswitch .sindri-preview-icon {
+  width: 1.7rem;
+  height: 1.6rem;
+}
+.sindri-viewswitch .sindri-preview-icon.is-on {
+  background: var(--bg-soft, var(--card));
+  border-color: var(--border);
+  box-shadow: var(--shadow-1, 0 1px 2px rgba(0, 0, 0, 0.12));
+}
 /* live viewport width readout, sits between the device toggles and the actions */
 .sindri-preview-dim {
   flex-shrink: 0;
@@ -1039,6 +1058,43 @@ body:has(.sindri) {
   font-variant-numeric: tabular-nums;
   color: var(--fg-dim);
   white-space: nowrap;
+}
+/* code view — scaffold state (live file view + drag-drop are the next build) */
+.sindri-code-scaffold {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  text-align: center;
+  color: var(--fg-dim);
+  padding: 2rem;
+  max-width: 28rem;
+}
+.sindri-code-scaffold p {
+  margin: 0;
+  color: var(--fg);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.sindri-code-drop {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.7rem 1rem;
+  border: 1px dashed var(--border-strong, var(--border));
+  border-radius: 10px;
+  color: var(--fg-dim);
+  font-size: 0.8rem;
+}
+.sindri-code-drop em {
+  opacity: 0.65;
+  font-style: normal;
+}
+.sindri-code-drop svg {
+  color: var(--primary);
+  opacity: 0.8;
 }
 .sindri-preview-stage {
   flex: 1;

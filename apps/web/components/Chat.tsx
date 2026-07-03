@@ -41,6 +41,9 @@ import {
   Smartphone,
   RotateCw,
   Database,
+  Eye,
+  Code2,
+  Upload,
   ExternalLink,
   PanelRightClose,
   PanelRightOpen,
@@ -753,7 +756,7 @@ function SindriPreview({
   const [err, setErr] = useState("");
   const [iframeKey, setIframeKey] = useState(0);
   // The stage shows either the live preview iframe or the read-only DB Studio.
-  const [view, setView] = useState<"preview" | "database">("preview");
+  const [view, setView] = useState<"preview" | "code" | "database">("preview");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageW, setStageW] = useState(0);
   const autoTried = useRef(""); // sessionId we've already auto-booted for
@@ -863,6 +866,51 @@ function SindriPreview({
   return (
     <section className="sindri-preview">
       <div className="sindri-preview-bar">
+        {/* far left: collapse/expand-chat toggles, then the view switcher */}
+        <button
+          type="button"
+          className="sindri-preview-icon"
+          title="Ocultar preview (chat inteiro)"
+          onClick={onHide}
+        >
+          <PanelRightClose size={15} />
+        </button>
+        <button
+          type="button"
+          className={`sindri-preview-icon ${zen ? "is-on" : ""}`}
+          title={zen ? "Restaurar o chat" : "Foco: preview em tela cheia"}
+          onClick={onToggleZen}
+        >
+          {zen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+        </button>
+        <span className="sindri-preview-sep" />
+        <div className="sindri-viewswitch" role="tablist" aria-label="Modo de visualização">
+          <button
+            type="button"
+            className={`sindri-preview-icon ${view === "preview" ? "is-on" : ""}`}
+            title="Preview do site"
+            onClick={() => setView("preview")}
+          >
+            <Eye size={15} />
+          </button>
+          <button
+            type="button"
+            className={`sindri-preview-icon ${view === "code" ? "is-on" : ""}`}
+            title="Código em desenvolvimento"
+            onClick={() => setView("code")}
+          >
+            <Code2 size={15} />
+          </button>
+          <button
+            type="button"
+            className={`sindri-preview-icon ${view === "database" ? "is-on" : ""}`}
+            title="Banco de dados"
+            onClick={() => setView("database")}
+          >
+            <Database size={15} />
+          </button>
+        </div>
+        <span className="sindri-preview-sep" />
         <span className="sindri-preview-statuschip">
           <span className="sindri-preview-dot" style={{ background: statusColor }} />
           {statusLabel}
@@ -916,36 +964,25 @@ function SindriPreview({
           >
             <ExternalLink size={15} />
           </a>
-          <span className="sindri-preview-sep" />
-          <button
-            type="button"
-            className={`sindri-preview-icon ${view === "database" ? "is-on" : ""}`}
-            title={view === "database" ? "Voltar ao preview" : "Banco de dados"}
-            onClick={() => setView((v) => (v === "database" ? "preview" : "database"))}
-          >
-            <Database size={15} />
-          </button>
-          <button
-            type="button"
-            className="sindri-preview-icon"
-            title="Ocultar preview (chat inteiro)"
-            onClick={onHide}
-          >
-            <PanelRightClose size={15} />
-          </button>
-          <button
-            type="button"
-            className={`sindri-preview-icon ${zen ? "is-on" : ""}`}
-            title={zen ? "Restaurar o chat" : "Foco: preview em tela cheia"}
-            onClick={onToggleZen}
-          >
-            {zen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-          </button>
         </div>
       </div>
 
       <div className="sindri-preview-stage" ref={stageRef}>
-        {view === "database" ? (
+        {view === "code" ? (
+          <div className="sindri-code-scaffold">
+            <div className="sindri-preview-mark">
+              <Code2 size={26} strokeWidth={1.4} />
+            </div>
+            <p>Código em desenvolvimento</p>
+            <span className="sindri-preview-sub">
+              Em construção: os arquivos que o Sindri está editando vão aparecer aqui com
+              syntax highlight — e você vai poder arrastar arquivos direto pro worktree.
+            </span>
+            <div className="sindri-code-drop" aria-disabled="true">
+              <Upload size={18} /> Arraste arquivos aqui <em>(em breve)</em>
+            </div>
+          </div>
+        ) : view === "database" ? (
           <StudioPanel previewId={preview?.id ?? null} />
         ) : live && preview ? (
           <div className={`sindri-preview-frame is-${device}`}>
