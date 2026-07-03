@@ -1,0 +1,36 @@
+# brokk egress jail — isolation Nível 3 (network).
+#
+# The bash hand runs as uid 1002 (see brokk-sandbox --uid); the node worker runs as
+# 1001. Both share the container's netns, so a uid is the only discriminator
+# netfilter can key on (no /dev/kvm for a microVM, no nested userns for a private
+# netns on this host). This ruleset drops, for the bash uid ONLY, every connection
+# to RFC1918 + link-local space — i.e. the whole fleet's internal services on the
+# `coolify`/`litellm`/brokk-default docker networks and the WG control plane.
+#
+# What the shell KEEPS: the public internet (npm/GitHub/pip over their public IPs),
+# loopback (127/8 — Docker's embedded DNS lives at 127.0.0.11, and a test's own
+# `curl localhost:PORT` devserver), and IPv6 public egress. What it LOSES: any
+# lateral hop to a sibling container or an internal service by private IP.
+#
+# The node worker (uid 1001) is untouched: it still reaches litellm:4000,
+# brokk-api:8789 and hauldr-db:5434 as before. Installed once at container boot by
+# the root entrypoint (needs CAP_NET_ADMIN); the app then drops to 1001 and can no
+# longer edit these rules.
+
+define BASH_UID = 1002
+
+table inet brokk_egress {
+	chain output {
+		type filter hook output priority filter; policy accept;
+
+		# Loopback is always fine (embedded DNS + local devservers a test spins up).
+		oifname "lo" accept
+		ip daddr 127.0.0.0/8 accept
+		ip6 daddr ::1 accept
+
+		# The bash uid may not reach any private/internal address. Everything else
+		# (public v4/v6) falls through to the accept policy.
+		meta skuid $BASH_UID ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } drop
+		meta skuid $BASH_UID ip6 daddr { fc00::/7, fe80::/10 } drop
+	}
+}

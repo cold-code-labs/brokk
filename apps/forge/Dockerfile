@@ -45,12 +45,31 @@ ENV NODE_ENV=production
 # scripts), not an MCP server. On Alpine/musl, Playwright's own browser download
 # won't run, so install the system chromium and point Playwright at it via
 # PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH. Inert unless the browser lane is enabled.
-RUN apk add --no-cache git github-cli openssh-client \
+#
+# nftables + su-exec power the Nível 3 egress jail: the root entrypoint installs the
+# ruleset (CAP_NET_ADMIN) then su-execs down to the worker uid. See tools/brokk-egress.
+RUN apk add --no-cache git github-cli openssh-client nftables su-exec \
       chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-emoji
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# Isolation Nível 3 (egress uid-split). A second unprivileged uid (1002, same gid as
+# the worker's 1001) that the bash hand drops to; the nft ruleset firewalls it off
+# RFC1918. HOME is shared + group-writable (setgid dir) so both uids write the
+# caches; git safe.directory='*' so the shell, as 1002, can operate 1001-owned repos.
+RUN addgroup -g 1001 brokk 2>/dev/null || true \
+ && adduser -D -H -u 1002 -G brokk -h /home/brokk brokk-bash 2>/dev/null || true \
+ && mkdir -p /home/brokk && chown 1001:1001 /home/brokk && chmod 2775 /home/brokk \
+ && git config --system --add safe.directory '*'
+# brokk-sandbox ships SETUID to uid 1002 (owner-exec setuid; no root needed at run):
+# node (1001, in group 1001) execs it → euid 1002 → it drops fully, then Landlock+exec.
 COPY --from=sandbox /brokk-sandbox /usr/local/bin/brokk-sandbox
+RUN chown 1002:1001 /usr/local/bin/brokk-sandbox && chmod 4750 /usr/local/bin/brokk-sandbox
+COPY tools/brokk-egress/egress.nft /etc/brokk/egress.nft
+COPY tools/brokk-egress/entrypoint.sh /usr/local/bin/brokk-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/brokk-entrypoint.sh
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/apps/forge/dist ./dist
 COPY --from=build /repo/apps/forge/package.json ./package.json
+ENTRYPOINT ["/usr/local/bin/brokk-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

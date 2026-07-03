@@ -103,13 +103,29 @@ const sandboxBinPath: string | null = (() => {
   return null;
 })();
 
+/** The egress uid/gid the sandbox drops the bash hand to (isolation Nível 3). A uid
+ *  distinct from the node worker's (1001) is the discriminator the container's nft
+ *  ruleset keys on to firewall the shell off the fleet's internal subnets. The
+ *  drop is best-effort: only takes effect where brokk-sandbox ships setuid to this
+ *  uid (the containers); a bare binary (dev/local) warns and runs as-is. Set
+ *  BROKK_BASH_UID=0 (or empty) to disable passing the flags entirely. gid defaults
+ *  to the worker's gid so the shell shares the group and can write the checkout. */
+const bashUid: number | null = (() => {
+  const raw = process.env.BROKK_BASH_UID;
+  if (raw === "" || raw === "0") return null;
+  const n = Number(raw ?? 1002);
+  return Number.isInteger(n) && n > 0 ? n : 1002;
+})();
+const bashGid = Number(process.env.BROKK_BASH_GID ?? 1001);
+
 /** The Landlock ruleset for a checkout, expressed as brokk-sandbox flags.
  *  RW = the checkout + the caches npm/pnpm/yarn/bun + the reviewer's scanners write;
  *  RO = the system toolchain + the two credential files a build reads; ~/.config/gh
  *  is granted only when the caller pushes (gh) — a read-only consumer (reviewer,
  *  discovery) can't read the GitHub token off disk. gitCommonDir is a worktree's
  *  shared git dir, which lives OUTSIDE the checkout (forge/reviewer use worktrees) —
- *  granted RW so commit/log/push work; omitted for chat's self-contained clones. */
+ *  granted RW so commit/log/push work; omitted for chat's self-contained clones.
+ *  --uid/--gid make the shell drop to the egress uid before Landlock + exec. */
 function sandboxArgs(cwd: string, gh: boolean, gitCommonDir?: string): string[] {
   const home = process.env.HOME || "/home/brokk";
   // /proc & /sys read-only: build tools read them for cpu/mem sizing (os.cpus,
@@ -132,6 +148,7 @@ function sandboxArgs(cwd: string, gh: boolean, gitCommonDir?: string): string[] 
   if (gh) rw.push(`${home}/.config/gh`);
   if (gitCommonDir && !gitCommonDir.startsWith(cwd)) rw.push(gitCommonDir);
   const args: string[] = [];
+  if (bashUid !== null) args.push("--uid", String(bashUid), "--gid", String(bashGid));
   for (const d of ro) args.push("--ro", d);
   for (const d of rw) args.push("--rw", d);
   for (const f of roFile) args.push("--ro-file", f);

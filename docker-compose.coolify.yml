@@ -143,9 +143,12 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-forge:coolify
-    user: "1001:1001"
+    # No `user:` — the entrypoint starts as root to install the Nível 3 egress jail
+    # (needs CAP_NET_ADMIN) then drops to 1001:1001 before exec. cap dropped with it.
+    cap_add: [NET_ADMIN]
     environment:
       <<: *worker-env
+      BROKK_EGRESS: "1"
       BROKK_PREVIEW_SECRETS_DIR: ${BROKK_PREVIEW_SECRETS_DIR:-/home/brokk/preview-secrets}
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
@@ -166,9 +169,11 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-reviewer:coolify
-    user: "1001:1001"
+    # No `user:` — entrypoint boots as root for the egress jail, then drops to 1001.
+    cap_add: [NET_ADMIN]
     environment:
       <<: *worker-env
+      BROKK_EGRESS: "1"
       EITRI_APP_ID: ${EITRI_APP_ID:-}
       EITRI_APP_PRIVATE_KEY_FILE: ${EITRI_APP_PRIVATE_KEY_FILE:-/home/brokk/eitri-app.pem}
       EITRI_PROMOTE: ${EITRI_PROMOTE:-}
@@ -214,9 +219,11 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-chat:coolify
-    user: "1001:1001"
+    # No `user:` — entrypoint boots as root for the egress jail, then drops to 1001.
+    cap_add: [NET_ADMIN]
     environment:
       <<: *worker-env
+      BROKK_EGRESS: "1"
       SINDRI_PORT: "8795"
       SINDRI_WORKDIR: ${SINDRI_WORKDIR:-/home/brokk/work/sindri}
       BROKK_EMBED_BASE_URL: ${BROKK_EMBED_BASE_URL:-}
