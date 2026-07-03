@@ -38,6 +38,9 @@ RUN apt-get update \
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/apps/enclave-manager/dist ./dist
 COPY --from=build /repo/apps/enclave-manager/package.json ./package.json
+# The default enclave runtime image's Dockerfile — the manager builds it on the host
+# (via the socket) if absent, so the base image is reproducible + self-healing.
+COPY --from=build /repo/apps/enclave-manager/enclave-base ./enclave-base
 # Runs as root: it needs the Docker socket (root:docker). It is the trusted,
 # privileged broker by design — the untrusted code lives in the enclaves it spawns.
 CMD ["node", "dist/index.js"]

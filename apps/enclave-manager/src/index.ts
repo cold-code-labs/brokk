@@ -15,14 +15,42 @@
  * docker CLI, present in this image), memoised one-per-project so the enclave stays
  * warm across calls.
  */
+import { execFile } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { promisify } from "node:util";
 import { RunscEnclave } from "@brokk/afl";
+
+const execFileAsync = promisify(execFile);
 
 const PORT = Number(process.env.PORT || 8795);
 const TOKEN = process.env.BROKK_ENCLAVE_MANAGER_TOKEN || "";
 if (!TOKEN) {
   console.error("[enclave-manager] refusing to start: BROKK_ENCLAVE_MANAGER_TOKEN unset");
   process.exit(1);
+}
+
+// The default runtime image ships as a Dockerfile in this image (./enclave-base).
+// Build it on the host if absent, so a fresh host self-heals with no manual step
+// (ADR 0010). Only touches the tag we own; a project overriding BROKK_ENCLAVE_IMAGE
+// to something else is left alone. Best-effort — a build hiccup never blocks serving
+// (the image may already exist, or a request can surface the error).
+const BASE_IMAGE = "brokk-enclave-base:latest";
+const BASE_DOCKERFILE_DIR = "/app/enclave-base";
+async function ensureBaseImage(): Promise<void> {
+  if ((process.env.BROKK_ENCLAVE_IMAGE || BASE_IMAGE) !== BASE_IMAGE) return;
+  try {
+    await execFileAsync("docker", ["image", "inspect", BASE_IMAGE], { timeout: 15_000 });
+    return; // already present
+  } catch {
+    /* absent — build it */
+  }
+  try {
+    console.log(`[enclave-manager] building ${BASE_IMAGE} (absent on host)…`);
+    await execFileAsync("docker", ["build", "-t", BASE_IMAGE, BASE_DOCKERFILE_DIR], { timeout: 300_000 });
+    console.log(`[enclave-manager] ${BASE_IMAGE} built`);
+  } catch (e: any) {
+    console.error(`[enclave-manager] base image build failed (best-effort): ${e?.message ?? e}`);
+  }
 }
 
 // One warm RunscEnclave per project key. RunscEnclave reads image/dns/home-volume
@@ -99,3 +127,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => console.log(`[enclave-manager] listening on :${PORT}`));
+// Ensure the default runtime image exists (best-effort, non-blocking).
+void ensureBaseImage();
