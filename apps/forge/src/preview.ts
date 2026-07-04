@@ -421,10 +421,19 @@ export class PreviewSupervisor {
       );
     }
 
+    // pnpm shells out to corepack to provision the repo-pinned pnpm, and corepack
+    // needs a WRITABLE HOME for its download cache. The forge's runtime env can
+    // arrive without HOME (Coolify injects a curated env), so corepack falls back
+    // to `/.cache` → `EACCES: mkdir '/.cache/node/corepack'` and the build dies
+    // "before serving". Pin HOME (and the corepack cache) to a writable dir so
+    // `pnpm install` can always provision its package manager.
+    const home = process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...hauldrEnv,
       ...appSecrets,
+      HOME: home,
+      COREPACK_HOME: `${home}/.cache/corepack`,
       PORT: String(port),
       // Dev previews need development mode for HMR; build previews default to
       // production so apps skip dev-only overhead.
@@ -463,11 +472,23 @@ export class PreviewSupervisor {
 
     const outcome = await this.waitHealthy(preview, proc, port, spec.health ?? "/");
     if (outcome === "exited") {
-      // Process died during startup (e.g. install/build error). The exit handler
-      // below marks the row stopped + reaps — nothing more to do here.
+      // Process died during startup (install/build error). We return here BEFORE
+      // the success-path `proc.on("exit")` handler is wired, so clean up + mark
+      // 'failed' ourselves — otherwise the dead proc leaks in `this.live` (its
+      // port too) and the row is stranded in 'starting' forever, which the fleet
+      // view then mirrors as a perpetual "Starting" for a preview that never came
+      // up. 'failed' is honest and still re-triggerable by a push.
       console.log(
         `[preview-supervisor] ${preview.subdomain}: exited before serving`,
       );
+      const lp = this.live.get(preview.id);
+      if (lp && lp.proc === proc) this.killAndClean(preview.id, lp);
+      await this.controlPatch(`/previews/${preview.id}`, {
+        status: "failed",
+        detail: "Build/start falhou antes de servir — ver os logs do preview.",
+        pid: null,
+        port: null,
+      }).catch(() => {});
       return;
     }
 
