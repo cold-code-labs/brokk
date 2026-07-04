@@ -32,6 +32,7 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
   const [list, setList] = useState<FsList | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [file, setFile] = useState<FsFile | null>(null);
+  const [html, setHtml] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fileBusy, setFileBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -84,6 +85,26 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
       cancelled = true;
     };
   }, [sessionId, selected]);
+
+  // Syntax-highlight the loaded text file. Shiki is dynamic-imported here, so it
+  // (and its grammars) only load the first time a file is opened. Falls back to a
+  // plain <pre> for binaries and unknown languages.
+  useEffect(() => {
+    if (!file || file.binary) {
+      setHtml(null);
+      return;
+    }
+    let cancelled = false;
+    import("../lib/highlighter")
+      .then((m) => m.highlight(file.content, file.path))
+      .then(
+        (h) => !cancelled && setHtml(h),
+        () => !cancelled && setHtml(null),
+      );
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
 
   const openEntry = (name: string, type: "dir" | "file") => {
     if (type === "dir") {
@@ -275,7 +296,13 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
                   </div>
                 ) : (
                   <div className="fv-code-scroll">
-                    <pre className="fv-code">{file.content}</pre>
+                    {html ? (
+                      // biome-ignore lint/security/noDangerouslySetInnerHtml: Shiki
+                      // escapes the source; output is trusted highlighter markup.
+                      <div className="fv-hl" dangerouslySetInnerHTML={{ __html: html }} />
+                    ) : (
+                      <pre className="fv-code">{file.content}</pre>
+                    )}
                     {file.truncated ? (
                       <div className="fv-trunc">Arquivo grande — mostrando os primeiros 512 KB.</div>
                     ) : null}

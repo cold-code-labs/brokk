@@ -1206,7 +1206,10 @@ function ToolCall({
 // code fences, half-typed links) and ships GFM tables, Shiki syntax highlighting,
 // HTML sanitization and a built-in copy button on code blocks. We only restyle it
 // with our design tokens — light/dark shiki themes track the forge theme.
-const SHIKI_THEME: [string, string] = ["github-light", "github-dark"];
+const SHIKI_THEME: NonNullable<React.ComponentProps<typeof Streamdown>["shikiTheme"]> = [
+  "github-light",
+  "github-dark",
+];
 
 function Response({ text }: { text: string }) {
   return (

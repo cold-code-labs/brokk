@@ -1548,6 +1548,46 @@ body:has(.sindri) {
   font-size: 11px;
   border-top: 1px solid var(--line);
 }
+/* Shiki highlighted output (read-only). defaultColor:false emits both themes as
+   CSS vars (--shiki / --shiki-dark) so we flip on next-themes' html.dark. */
+.fv-hl .shiki {
+  margin: 0;
+  padding: 12px 14px 12px 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  line-height: 1.55;
+  tab-size: 2;
+  background: var(--shiki-light-bg);
+  color: var(--shiki-light);
+}
+.fv-hl .shiki span {
+  color: var(--shiki-light);
+}
+html.dark .fv-hl .shiki {
+  background: var(--shiki-dark-bg);
+  color: var(--shiki-dark);
+}
+html.dark .fv-hl .shiki span {
+  color: var(--shiki-dark);
+}
+/* Line-number gutter via a CSS counter on Shiki's per-line spans. */
+.fv-hl .shiki code {
+  counter-reset: fvline;
+  display: inline-block;
+  min-width: 100%;
+}
+.fv-hl .shiki .line {
+  counter-increment: fvline;
+}
+.fv-hl .shiki .line::before {
+  content: counter(fvline);
+  display: inline-block;
+  width: 4ch;
+  margin-right: 16px;
+  text-align: right;
+  color: color-mix(in srgb, currentColor 35%, transparent);
+  user-select: none;
+}
 .fv-hero {
   flex: 1 1 auto;
   display: flex;
