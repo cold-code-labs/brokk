@@ -43,7 +43,6 @@ import {
   Database,
   Eye,
   Code2,
-  Upload,
   ExternalLink,
   PanelRightClose,
   PanelRightOpen,
@@ -63,6 +62,7 @@ import {
 } from "../lib/chat";
 import { STATUS_COLOR, t as theme } from "../lib/theme";
 import { StudioPanel } from "./StudioPanel";
+import { FileViewer } from "./FileViewer";
 
 // Full model choice. The subscription-seat gate that used to 429 Sonnet/Opus is
 // fixed at the gateway (Ratatoskr shapes the Claude Code system marker so the
@@ -969,19 +969,7 @@ function SindriPreview({
 
       <div className="sindri-preview-stage" ref={stageRef}>
         {view === "code" ? (
-          <div className="sindri-code-scaffold">
-            <div className="sindri-preview-mark">
-              <Code2 size={26} strokeWidth={1.4} />
-            </div>
-            <p>Código em desenvolvimento</p>
-            <span className="sindri-preview-sub">
-              Em construção: os arquivos que o Sindri está editando vão aparecer aqui com
-              syntax highlight — e você vai poder arrastar arquivos direto pro worktree.
-            </span>
-            <div className="sindri-code-drop" aria-disabled="true">
-              <Upload size={18} /> Arraste arquivos aqui <em>(em breve)</em>
-            </div>
-          </div>
+          <FileViewer sessionId={sessionId} />
         ) : view === "database" ? (
           <StudioPanel previewId={preview?.id ?? null} />
         ) : live && preview ? (

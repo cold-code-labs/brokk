@@ -15,6 +15,7 @@ import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { CheckoutManager } from "./checkout.js";
+import { fsRoutes } from "./fs-routes.js";
 import { TurnManager } from "./turns.js";
 
 export interface SindriDeps {
@@ -79,6 +80,11 @@ export function buildSindri(deps: SindriDeps): Hono {
     if (c.req.header("authorization") === `Bearer ${deps.runnerSecret}`) return next();
     return c.json({ error: "unauthorized" }, 401);
   });
+
+  // ── File viewer (the right-pane "code" tab) ──────────────────────────────────
+  // Reads/writes the session's working checkout on disk. Mounted before the
+  // session routes below; guarded by the same shared-secret middleware above.
+  app.route("/", fsRoutes(deps.checkouts));
 
   // ── Sessions ────────────────────────────────────────────────────────────────
 

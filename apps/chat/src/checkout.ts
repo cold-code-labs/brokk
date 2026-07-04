@@ -40,6 +40,15 @@ export class CheckoutManager {
     return join(this.workDir, "checkouts", sessionId);
   }
 
+  /** The path of an EXISTING session checkout (a materialised git work tree), or
+   *  null. Unlike ensure(), never clones/creates — the Studio file viewer only
+   *  reads what a turn or preview already put on disk. `.git` (a file in a
+   *  worktree) is the "this is a real checkout, not a stale empty dir" signal. */
+  existing(sessionId: string): string | null {
+    const path = this.checkoutDir(sessionId);
+    return existsSync(join(path, ".git")) ? path : null;
+  }
+
   private refExists(bare: string, ref: string): Promise<boolean> {
     return git(bare, ["rev-parse", "--verify", ref]).then(() => true).catch(() => false);
   }
