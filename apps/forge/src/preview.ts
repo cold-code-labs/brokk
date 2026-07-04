@@ -239,7 +239,28 @@ export class PreviewSupervisor {
       `/repositories/${project.repositoryId}`,
     );
 
+    // Dev previews boot in the Sindri session's live checkout, which the chat
+    // service clones in the BACKGROUND after writing this row. If it isn't on
+    // disk yet, don't fail (and don't provision the DB yet) — leave the row
+    // 'starting' with a phase and let the next tick retry once the worktree
+    // lands. (Guard early, before the ~3min Hauldr provisioning, so a wait
+    // never re-provisions the DB on every tick.)
+    if (preview.mode === "dev") {
+      const ready = preview.workDir && existsSync(join(preview.workDir, "package.json"));
+      if (!ready) {
+        if (preview.detail !== "Preparando o código…") {
+          await this.controlPatch(`/previews/${preview.id}`, {
+            detail: "Preparando o código…",
+          }).catch(() => {});
+        }
+        return; // retried next tick; status stays 'starting'
+      }
+    }
+
     // Provision (or fetch) the Hauldr dev-DB for this preview
+    await this.controlPatch(`/previews/${preview.id}`, {
+      detail: "Provisionando banco de dados…",
+    }).catch(() => {});
     let hauldrEnv: Record<string, string> = {};
     let migrateToken = "";
     if (this.hauldr) {
@@ -319,6 +340,9 @@ export class PreviewSupervisor {
         );
       }
     } else {
+      await this.controlPatch(`/previews/${preview.id}`, {
+        detail: "Preparando o código…",
+      }).catch(() => {});
       ({ path: wtPath } = await this.git.persistentCheckout({
         repo,
         branch: preview.branch,
@@ -345,6 +369,9 @@ export class PreviewSupervisor {
     // where prod aborts: a broken migration surfaces in the preview, not silently.
     const migrateScript = join(wtPath, "scripts/hauldr-migrate.mjs");
     if (migrateToken && this.cfg.hauldrControlUrl && existsSync(migrateScript)) {
+      await this.controlPatch(`/previews/${preview.id}`, {
+        detail: "Aplicando migrações do banco…",
+      }).catch(() => {});
       try {
         const { stdout } = await promisify(execFile)(
           "node",
@@ -424,10 +451,31 @@ export class PreviewSupervisor {
     // double-boot (the `this.live` check in tick() gates further starts).
     this.live.set(preview.id, { proc, port });
 
+    // Don't flip to 'live' the instant the process spawns — that's why the iframe
+    // used to render a broken page while `pnpm install` + the first compile were
+    // still running (status was 'live' but nothing was listening yet). Hold
+    // 'starting' with a phase until the server actually answers, so the pane
+    // shows the spinner through install/compile and the iframe only appears when
+    // there's really something to render.
+    await this.controlPatch(`/previews/${preview.id}`, {
+      detail: "Instalando dependências e compilando…",
+    }).catch(() => {});
+
+    const outcome = await this.waitHealthy(preview, proc, port, spec.health ?? "/");
+    if (outcome === "exited") {
+      // Process died during startup (e.g. install/build error). The exit handler
+      // below marks the row stopped + reaps — nothing more to do here.
+      console.log(
+        `[preview-supervisor] ${preview.subdomain}: exited before serving`,
+      );
+      return;
+    }
+
     // Update the control plane: live + pid + port + expiresAt (runner-defined TTL)
     const expiresAt = new Date(Date.now() + this.cfg.previewTtlMs).toISOString();
     await this.controlPatch(`/previews/${preview.id}`, {
       status: "live",
+      detail: null,
       pid: proc.pid ?? null,
       port,
       expiresAt,
@@ -435,7 +483,7 @@ export class PreviewSupervisor {
 
     console.log(
       `[preview-supervisor] ${preview.subdomain} live on :${port}` +
-        ` (pid=${proc.pid}, expires=${expiresAt})`,
+        ` (pid=${proc.pid}, expires=${expiresAt}, health=${outcome})`,
     );
 
     // Auto-stop when the process exits unexpectedly
@@ -461,6 +509,39 @@ export class PreviewSupervisor {
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  /** Poll a freshly-spawned preview until it answers on its health path (any HTTP
+   *  status = the port is bound and serving), the process exits, or the budget
+   *  runs out. Returns 'ready' | 'exited' | 'timeout'. A timeout still boots the
+   *  preview (degraded) rather than stranding it in 'starting' forever — a slow
+   *  first compile shouldn't read as a failure. */
+  private async waitHealthy(
+    preview: Preview,
+    proc: ChildProcess,
+    port: number,
+    healthPath: string,
+  ): Promise<"ready" | "exited" | "timeout"> {
+    const path = healthPath.startsWith("/") ? healthPath : `/${healthPath}`;
+    const url = `http://127.0.0.1:${port}${path}`;
+    const deadline = Date.now() + this.cfg.previewHealthTimeoutMs;
+    while (Date.now() < deadline) {
+      if (proc.exitCode !== null || proc.killed) return "exited";
+      try {
+        const ac = new AbortController();
+        const t = setTimeout(() => ac.abort(), 3000);
+        const res = await fetch(url, { signal: ac.signal, redirect: "manual" });
+        clearTimeout(t);
+        if (res.status > 0) return "ready"; // any response = listening
+      } catch {
+        /* not up yet — the dev server hasn't bound the port */
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    console.log(
+      `[preview-supervisor] ${preview.subdomain}: health timeout, booting degraded`,
+    );
+    return "timeout";
+  }
 
   /** Substitute $PORT / ${PORT} in the preview command. */
   private expandCmd(cmd: string, port: number): string {

@@ -11,6 +11,7 @@ import {
   EmptyState,
 } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
+import { useProject } from "../lib/project-context";
 
 /** gh-backed importer: list the org's repos, pick the ones to forge in, connect
  *  them in one shot (each gets a default project). */
@@ -23,6 +24,7 @@ export default function ConnectRepos() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<number | null>(null);
+  const { refresh, setCurrentId } = useProject();
 
   async function load() {
     setLoading(true);
@@ -60,6 +62,17 @@ export default function ConnectRepos() {
       const out = await brokk.importRepositories({ repos, createProject: true });
       setDone(out.length);
       setPicked(new Set());
+      // Surface the new project in the global switcher immediately (no hard
+      // reload) and select the one we just connected, so the operator lands
+      // straight in its environment instead of dropping to "no env selected".
+      refresh();
+      try {
+        const repoIds = new Set(out.map((r) => r.id));
+        const proj = (await brokk.listProjects()).find((p) => repoIds.has(p.repositoryId));
+        if (proj) setCurrentId(proj.id);
+      } catch {
+        /* best-effort: the switcher still refreshed above */
+      }
       await load();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));

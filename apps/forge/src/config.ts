@@ -56,6 +56,11 @@ export interface RunnerConfig {
   /** How long a preview lives without a touch before the reaper kills it (ms).
    *  Configurable via BROKK_PREVIEW_TTL_MS. Default: 45 minutes. */
   previewTtlMs: number;
+  /** How long (ms) the supervisor waits for a freshly-spawned preview to answer
+   *  its health path before flipping it 'live' anyway (degraded). Covers the
+   *  `pnpm install` + first compile so the pane shows a spinner, not a broken
+   *  iframe. Configurable via BROKK_PREVIEW_HEALTH_TIMEOUT_MS. Default: 2 min. */
+  previewHealthTimeoutMs: number;
   /** Lowest port the supervisor may allocate for preview processes. */
   previewPortMin: number;
   /** Highest port (inclusive) the supervisor may allocate for preview processes. */
@@ -108,6 +113,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
       // leaks the `--` into next's argv). Verified e2e on the dev lane.
       "pnpm install --no-frozen-lockfile --prod=false && pnpm exec next dev -p $PORT -H 0.0.0.0",
     previewTtlMs: Number(env.BROKK_PREVIEW_TTL_MS ?? 45 * 60 * 1000),
+    previewHealthTimeoutMs: Number(env.BROKK_PREVIEW_HEALTH_TIMEOUT_MS ?? 2 * 60 * 1000),
     previewPortMin: Number(env.BROKK_PREVIEW_PORT_MIN ?? 4100),
     previewPortMax: Number(env.BROKK_PREVIEW_PORT_MAX ?? 4199),
     previewEphemeral: (env.BROKK_PREVIEW_EPHEMERAL ?? "true") !== "false",

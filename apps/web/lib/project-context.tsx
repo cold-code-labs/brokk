@@ -54,6 +54,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         // Keep the current pick if still valid; else fall back to stored, else first.
         setId((cur) => {
           if (cur && p.some((x) => x.id === cur)) return cur;
+          // Never strand a valid pick behind a transient/empty list (e.g. a just-
+          // connected project the backend hasn't surfaced yet): keep the current
+          // choice and let the next successful load reconcile it, instead of
+          // wiping the selection to "" and dropping the user out of their env.
+          if (p.length === 0) return cur;
           let stored = "";
           try {
             stored = localStorage.getItem(KEY) ?? "";
@@ -69,6 +74,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     load();
+    // Revalidate when the operator returns to the tab so a project connected in
+    // another view (or reaped/renamed) shows up without a hard reload.
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   const current = useMemo(() => projects.find((p) => p.id === currentId) ?? null, [projects, currentId]);

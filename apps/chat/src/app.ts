@@ -176,13 +176,13 @@ export function buildSindri(deps: SindriDeps): Hono {
     if (!project || !repo) return c.json({ error: "project not found" }, 404);
 
     const branch = session.branch ?? `sindri/${session.id.slice(0, 8)}`;
-    // Materialise the checkout NOW so the dev server has files to watch on boot.
-    const { path } = await deps.checkouts.ensure({
-      sessionId: session.id,
-      branch,
-      repo: repo as Repository,
-      baseBranch: project.baseBranch,
-    });
+    // The checkout path is deterministic, so we can write the preview row and
+    // return NOW — then materialise the worktree in the background. This keeps
+    // the request from blocking on a 30–120s first clone (which would spin the
+    // button blindly and risk a proxy timeout → false "falhou"). The supervisor
+    // waits for the worktree to exist before it boots (guarded), and the phase
+    // shows up live via `detail` while the clone runs.
+    const path = deps.checkouts.plannedPath(session.id);
 
     const { subdomain, url, hauldrProject } = previewIdentity(repo.name);
     const { preview, created } = await deps.store.ensureActivePreview({
@@ -192,10 +192,32 @@ export function buildSindri(deps: SindriDeps): Hono {
       url,
       hauldrProject,
       status: "starting",
+      detail: "Preparando o código…",
       mode: "dev",
       sessionId: session.id,
       workDir: path,
     });
+
+    // Only (re)materialise the checkout when the preview isn't already live —
+    // clicking "Subir preview" on a live env must not re-clone or reset it.
+    // Detached: clone + worktree. On success clear the phase so the supervisor's
+    // own phases take over; on failure surface a clean reason on the row. A
+    // reactivated slot (stopped→starting) doesn't carry a phase yet, so set it.
+    if (preview.status !== "live") {
+      void deps.store.patchPreview(preview.id, { detail: "Preparando o código…" }).catch(() => {});
+      void deps.checkouts
+        .ensure({ sessionId: session.id, branch, repo: repo as Repository, baseBranch: project.baseBranch })
+        .then(() => deps.store.patchPreview(preview.id, { detail: "Código pronto, subindo o ambiente…" }))
+        .catch((err) =>
+          deps.store
+            .patchPreview(preview.id, {
+              status: "failed",
+              detail: `Falha ao preparar o código: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
+            })
+            .catch(() => {}),
+        );
+    }
+
     return c.json({ preview }, created ? 201 : 200);
   });
 
@@ -208,6 +230,21 @@ export function buildSindri(deps: SindriDeps): Hono {
     if (!repo) return c.json({ preview: null });
     const { subdomain } = previewIdentity(repo.name);
     const preview = await deps.store.getPreviewBySubdomain(subdomain).catch(() => null);
+    // Keep-alive: while its tab is open AND visible, Sindri polls this every 12s
+    // with ?touch=1. Slide a live preview's TTL forward on each touch so it never
+    // reaps mid-session; when the tab closes or is hidden the polling (and the
+    // bump) stops, so it reaps on its own a few minutes later — "up while you're
+    // working, gone when you walk away". The window is short on purpose; the
+    // gateway independently re-bumps on real traffic, so a direct-URL demo that
+    // isn't going through Sindri still stays warm.
+    if (preview && preview.status === "live" && c.req.query("touch") === "1") {
+      void deps.store
+        .patchPreview(preview.id, {
+          expiresAt: new Date(Date.now() + 12 * 60 * 1000),
+          lastSeenAt: new Date(),
+        })
+        .catch(() => {});
+    }
     return c.json({ preview });
   });
 

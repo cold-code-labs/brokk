@@ -821,7 +821,18 @@ function SindriPreview({
     const status = preview?.status;
     if (status !== "starting" && status !== "live" && status !== "stopped") return;
     const id = setInterval(
-      () => chat.getPreview(sessionId).then(setPreview, () => {}),
+      () =>
+        chat
+          // Keep-alive touch only while live AND the tab is visible: an open,
+          // watched session keeps its preview warm; a hidden/closed one lets it
+          // reap on its own.
+          .getPreview(
+            sessionId,
+            status === "live" &&
+              typeof document !== "undefined" &&
+              document.visibilityState === "visible",
+          )
+          .then(setPreview, () => {}),
       status === "starting" ? 4000 : 12000,
     );
     return () => clearInterval(id);
@@ -1001,7 +1012,12 @@ function SindriPreview({
                 <div className="sindri-preview-msg">
                   <span className="sindri-spinner" />
                   <p>Subindo o ambiente de preview…</p>
-                  <span className="sindri-preview-sub">A primeira subida pode levar ~1 min.</span>
+                  {/* Live phase from the supervisor (preparando código →
+                      provisionando banco → migrações → instalando/compilando),
+                      falling back to the generic hint before the first phase lands. */}
+                  <span className="sindri-preview-sub">
+                    {preview?.detail || "A primeira subida pode levar ~1 min."}
+                  </span>
                 </div>
               ) : status === "failed" ? (
                 <div className="sindri-preview-msg">

@@ -6,7 +6,60 @@ import { Flame, FolderGit2 } from "lucide-react";
 import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
 import { STATUS_COLOR } from "../lib/theme";
 import { PreviewChip } from "./PreviewChip";
+import { discovery, type BriefStatus } from "../lib/chat";
 import type { Preview, Project, Repository, Task } from "@brokk/sdk";
+
+/** A per-project "environment is being prepared" chip. Right after a repo is
+ *  connected, Huginn clones it and detects its runtime (the discovery brief:
+ *  pending → ready/failed). This surfaces that prep on the card so a just-
+ *  connected project reads as "carregando", not "idle and empty". Self-contained:
+ *  fetches its own brief and polls only while still preparing (so it costs
+ *  nothing once the fleet is warm). Renders nothing when ready. */
+function EnvPrepBadge({ projectId }: { projectId: string }) {
+  const [status, setStatus] = useState<BriefStatus | null>(null);
+  const [running, setRunning] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let tries = 0;
+    const tick = async () => {
+      try {
+        const res = await discovery.get(projectId);
+        if (!alive) return;
+        setRunning(res.running);
+        setStatus(res.brief?.status ?? null);
+        tries += 1;
+        // Keep polling while a scout is in flight or the brief is still pending;
+        // give a brand-new project a few tries to move none → pending before we
+        // stop (legacy projects with no brief settle to "no badge" quickly).
+        const keep =
+          res.running || res.brief?.status === "pending" || (!res.brief && tries < 4);
+        if (keep) timer = setTimeout(tick, 5000);
+      } catch {
+        /* ignore — the badge just won't show */
+      }
+    };
+    void tick();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [projectId]);
+
+  if (running || status === "pending")
+    return (
+      <span className="ygg-badge" data-tone="info">
+        <span className="fleet-run-dot" /> preparando ambiente…
+      </span>
+    );
+  if (status === "failed")
+    return (
+      <span className="ygg-badge" data-tone="err">
+        ambiente falhou
+      </span>
+    );
+  return null;
+}
 
 /** Count a number up on change (a tiny native number-ticker, no deps). Respects
  *  prefers-reduced-motion — jumps straight to the value. */
@@ -100,6 +153,7 @@ function ProjectCard({
         <p className="fleet-card-repo">{repo ? `${repo.fullName} · ${project.baseBranch}` : "—"}</p>
       </Link>
       <div className="fleet-card-badges">
+        <EnvPrepBadge projectId={project.id} />
         <span className="ygg-badge">{counts("backlog")} backlog</span>
         <span className="ygg-badge" data-tone={counts("queued") ? "warn" : undefined}>{counts("queued")} queued</span>
         <span className="ygg-badge" data-tone={counts("review") ? "info" : undefined}>{counts("review")} PR</span>
