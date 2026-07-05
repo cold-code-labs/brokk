@@ -45,22 +45,27 @@ const PatchSession = z.object({
 const SendMessage = z.object({ text: z.string().min(1) });
 
 /** Derive the canonical Sindri preview identity (subdomain / url / Hauldr project)
- *  for an app — ONE stable slot per app, not one per session. Every Sindri session
- *  on `<app>` lands on `<app>-sindri.preview.coldcodelabs.com` against the shared
- *  `<app>_dev` Hauldr DB. The session's code stays isolated on disk (its own
- *  `sindri/<id8>` checkout); only the preview URL + data layer are shared, so
- *  iterating never mints a fresh subdomain/DB (no `<app>_sindri_<hash>` sprawl).
- *  Dedicated `-sindri` slot (not the bare `<app>.preview`) so it never collides
- *  with the Fleet build-mode dev preview that already owns `<app>.preview`.
- *  ponytail: assumes ~1 active session per app. Two sessions on the same app at
- *  once share this slot (live = first-wins via ensureActivePreview); add a takeover
- *  guard in POST /preview if real concurrency shows up. */
-function previewIdentity(appName: string): {
+ *  for a session — ONE live preview slot PER SESSION. Each Sindri session on
+ *  `<app>` lands on its own `<app>-sindri-<id8>.preview.coldcodelabs.com`, so N
+ *  concurrent chats on the same app each get an isolated preview URL + dev-server
+ *  process (the downstream supervisor/gateway/port-range already handle N previews;
+ *  the per-session subdomain is what unlocks them). The session's code is likewise
+ *  isolated on disk (its own `sindri/<id8>` checkout).
+ *  The Hauldr DATA layer stays SHARED per app (`<app>_dev`): all sessions point at
+ *  one dev DB — cheap, no per-session GoTrue/PostgREST sprawl, and correct for QA of
+ *  UI/logic changes. Because sessions share `<app>_dev`, it must be PINNED
+ *  (BROKK_PREVIEW_PINNED) so one session's reaper never deprovisions the compute the
+ *  others depend on. (Schema-diverging changes want isolated DBs — session-suffix
+ *  hauldrProject + drop the pin; deferred until a test needs it.)
+ *  Dedicated `-sindri-<id8>` slot (not the bare `<app>.preview`) so it never collides
+ *  with the Fleet build-mode dev preview that owns `<app>.preview`. */
+function previewIdentity(appName: string, sessionId: string): {
   subdomain: string;
   url: string;
   hauldrProject: string;
 } {
-  const subdomain = `${appName}-sindri`.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/(^-|-$)/g, "");
+  const id8 = sessionId.slice(0, 8);
+  const subdomain = `${appName}-sindri-${id8}`.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/(^-|-$)/g, "");
   const url = `https://${subdomain}.preview.coldcodelabs.com`;
   const hauldrProject = `${appName}_dev`.toLowerCase().replace(/[^a-z0-9_]/g, "_");
   return { subdomain, url, hauldrProject };
@@ -148,7 +153,7 @@ export function buildSindri(deps: SindriDeps): Hono {
       // Stop the session's live preview (if any) so the supervisor reaps the dev
       // server + deprovisions its Hauldr compute on the next tick.
       if (repo && session.branch) {
-        const { subdomain } = previewIdentity(repo.name);
+        const { subdomain } = previewIdentity(repo.name, session.id);
         const preview = await deps.store.getPreviewBySubdomain(subdomain).catch(() => null);
         if (preview && (preview.status === "live" || preview.status === "starting")) {
           await deps.store.stopPreview(preview.id).catch(() => {});
@@ -184,7 +189,7 @@ export function buildSindri(deps: SindriDeps): Hono {
     // shows up live via `detail` while the clone runs.
     const path = deps.checkouts.plannedPath(session.id);
 
-    const { subdomain, url, hauldrProject } = previewIdentity(repo.name);
+    const { subdomain, url, hauldrProject } = previewIdentity(repo.name, session.id);
     const { preview, created } = await deps.store.ensureActivePreview({
       projectId: project.id,
       branch,
@@ -228,7 +233,7 @@ export function buildSindri(deps: SindriDeps): Hono {
     const project = await deps.store.getProject(session.projectId);
     const repo = project ? await deps.store.getRepository(project.repositoryId) : null;
     if (!repo) return c.json({ preview: null });
-    const { subdomain } = previewIdentity(repo.name);
+    const { subdomain } = previewIdentity(repo.name, session.id);
     const preview = await deps.store.getPreviewBySubdomain(subdomain).catch(() => null);
     // Keep-alive: while its tab is open AND visible, Sindri polls this every 12s
     // with ?touch=1. Slide a live preview's TTL forward on each touch so it never
