@@ -18,7 +18,7 @@ import { GhProvider } from "./git.js";
 import { ForgeEngine } from "@brokk/forge";
 import { HauldrClient } from "./hauldr.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
-import { CheckoutLocks, PreviewSupervisor, loadAppSecrets } from "./preview.js";
+import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
 import { buildRepoMap } from "./repomap.js";
 import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
 
@@ -69,10 +69,7 @@ async function main() {
       "[forge] HAULDR_CONTROL_URL not set — preview Hauldr provisioning disabled",
     );
   }
-  // Shared checkout locks (ADR 0017): the card runner takes an app's lock while it
-  // forges in the shared dev checkout, so the preview supervisor won't reset over it.
-  const locks = new CheckoutLocks();
-  const supervisor = new PreviewSupervisor(cfg, git, hauldr, locks);
+  const supervisor = new PreviewSupervisor(cfg, git, hauldr);
   const supervisorDone = supervisor.run(() => stopping);
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -97,7 +94,7 @@ async function main() {
     // any app not in BROKK_DEVLANE_APPS, keep the PR flow.
     const run =
       isDevLaneCard(cfg, claimed)
-        ? runDevLane(cfg, git, engine, locks, supervisor, claimed)
+        ? runDevLane(cfg, git, engine, claimed)
         : handleRun(cfg, git, engine, claimed);
     await run.catch((err) =>
       console.error(`[forge] run ${claimed?.run.id} crashed:`, err),
@@ -341,36 +338,33 @@ function devCheckoutSlug(appName: string): string {
   return `${appName}_dev`.toLowerCase().replace(/[^a-z0-9_]/g, "_");
 }
 
-/** Forge a dev-lane card: run the agent in the app's shared persistent `dev` checkout
- *  (the same worktree the HMR preview serves → edits show live), gate on verify, then
- *  commit+push straight to `dev` — no per-card PR. The Coolify dev-build is the hard
- *  gate downstream (Fase 3d). The checkout lock keeps the preview supervisor from
- *  resetting over the agent's live work; the app lease keeps it serial per app. */
+/** Forge a dev-lane card: run the agent in a PRIVATE per-app `dev` checkout, gate on
+ *  verify, then commit+push straight to `dev` — no per-card PR. The Coolify dev-build
+ *  is the hard gate downstream (Fase 3d). Decoupled from the HMR preview by design
+ *  (ADR 0017 revisto): the card's checkout (`devlane_<app>`) is SEPARATE from the
+ *  preview's (`<app>_dev`), so a running `next dev` never races the card's git/pnpm —
+ *  the preview reflects the change once it lands on dev (refresh), not mid-forge. The
+ *  app lease (claimNext) keeps it serial per app, so this private checkout is never
+ *  touched by two cards at once. */
 async function runDevLane(
   cfg: RunnerConfig,
   git: GhProvider,
   engine: ForgeEngine,
-  locks: CheckoutLocks,
-  supervisor: PreviewSupervisor,
   { task, run, repository, auth, memory }: Claimed,
 ): Promise<void> {
   const repo = repository!; // isDevLaneCard guarantees a resolved repository
-  const slug = devCheckoutSlug(repo.name);
+  // Private card checkout — deliberately NOT the preview's `<app>_dev` worktree.
+  const workName = `devlane_${devCheckoutSlug(repo.name)}`;
   console.log(
-    `[forge] dev-lane: "${task.title}" (run ${run.id}) → ${repo.name} @ dev [${slug}]`,
+    `[forge] dev-lane: "${task.title}" (run ${run.id}) → ${repo.name} @ dev [${workName}]`,
   );
   const buffer = new EventBuffer(cfg, run.id);
   const model = run.model ?? process.env.BROKK_DEFAULT_MODEL ?? "sonnet";
   let trace: ForgeTrace | null = null;
-  locks.acquire(slug);
   try {
-    // Free the shared checkout: stop the live HMR preview so `next dev` releases the
-    // worktree before we git-refresh + pnpm-install in it. The lock (held above) keeps
-    // the supervisor from rebooting it until we release (ADR 0017 coordination).
-    await supervisor.quiesce(slug).catch(() => {});
-    // Refresh the shared dev checkout to the branch tip (the same worktree HMR serves).
+    // Refresh the private card checkout to the dev tip.
     buffer.emit({ type: "status", payload: { phase: "worktree", branch: "dev", baseBranch: "dev" } });
-    const wt = await git.persistentCheckout({ repo, branch: "dev", name: slug });
+    const wt = await git.persistentCheckout({ repo, branch: "dev", name: workName });
 
     trace = startForgeTrace({
       title: task.title,
@@ -460,9 +454,8 @@ async function runDevLane(
       error: String(err),
     }).catch(() => {});
   } finally {
-    locks.release(slug);
     await flushTraces();
-    // NEVER cleanup — the dev checkout is persistent and shared with the HMR preview.
+    // NEVER cleanup — the private card checkout is persistent (node_modules survive).
   }
 }
 

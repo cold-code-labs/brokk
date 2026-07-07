@@ -75,27 +75,6 @@ export function loadAppSecrets(dir: string, project: string): Record<string, str
   return out;
 }
 
-/**
- * In-process coordination over the shared per-app dev checkout (ADR 0017 Fase 3).
- * The card runner (handleRun's dev-lane path) and the PreviewSupervisor both live
- * in the forge process and share `preview-worktrees/<app>_dev`. While a card holds
- * an app's lock, the supervisor must NOT git-refresh (`reset --hard`) that checkout
- * — it would wipe the agent's uncommitted edits, which the HMR preview is serving
- * live (the "QA no HMR" loop). Keyed by the Hauldr project slug (= the checkout name).
- */
-export class CheckoutLocks {
-  private readonly held = new Set<string>();
-  acquire(slug: string): void {
-    this.held.add(slug);
-  }
-  release(slug: string): void {
-    this.held.delete(slug);
-  }
-  isLocked(slug: string): boolean {
-    return this.held.has(slug);
-  }
-}
-
 export class PreviewSupervisor {
   /** Locally-managed running preview processes keyed by preview id. */
   private readonly live = new Map<string, LivePreview>();
@@ -109,9 +88,6 @@ export class PreviewSupervisor {
     private readonly git: GhProvider,
     /** Null when HAULDR_CONTROL_URL is not set — Hauldr provisioning is skipped. */
     private readonly hauldr: HauldrClient | null,
-    /** Shared with the card runner so a booting preview never resets a checkout a
-     *  card is actively editing (ADR 0017). */
-    private readonly locks: CheckoutLocks,
   ) {}
 
   // ── Main loop ───────────────────────────────────────────────────────────────
@@ -265,37 +241,9 @@ export class PreviewSupervisor {
     }
   }
 
-  /** ADR 0017: a card runner is forging in this app's shared dev checkout — kill the
-   *  live HMR process so `next dev` releases the worktree (concurrent `next dev` + the
-   *  card's git reset / pnpm install corrupts both: Turbopack panics + "worktree already
-   *  exists"). Leaves the row 'starting' (NOT 'stopped', which would reap the Hauldr
-   *  compute); boot() then skips it while the lock is held and resumes on release. */
-  async quiesce(hauldrProject: string): Promise<void> {
-    const previews = await this.controlGet<Preview[]>("/previews").catch(() => [] as Preview[]);
-    for (const p of previews) {
-      if (p.hauldrProject !== hauldrProject) continue;
-      const lp = this.live.get(p.id);
-      if (!lp) continue;
-      console.log(
-        `[preview-supervisor] quiesce ${p.subdomain} — a card holds ${hauldrProject}`,
-      );
-      this.killAndClean(p.id, lp);
-      await this.controlPatch(`/previews/${p.id}`, {
-        status: "starting",
-        detail: "Pausado para uma tarefa do agente…",
-        pid: null,
-        port: null,
-      }).catch(() => {});
-    }
-  }
-
   // ── Boot ────────────────────────────────────────────────────────────────────
 
   private async boot(preview: Preview): Promise<void> {
-    // Don't boot `next dev` into a checkout a card is actively forging in — the
-    // card runner quiesced it and holds the lock. Leave the row 'starting'; a later
-    // tick boots once the card releases (ADR 0017 shared-checkout coordination).
-    if (this.locks.isLocked(preview.hauldrProject)) return;
     console.log(
       `[preview-supervisor] booting ${preview.subdomain} (${preview.id})`,
     );
@@ -422,9 +370,6 @@ export class PreviewSupervisor {
         repo,
         branch: preview.branch,
         name: preview.hauldrProject,
-        // A card editing this app's dev checkout holds the lock — don't reset over
-        // its live, uncommitted work (HMR is serving it).
-        noRefresh: this.locks.isLocked(preview.hauldrProject),
       }));
     }
 
