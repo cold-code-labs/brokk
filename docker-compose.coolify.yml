@@ -71,6 +71,10 @@ x-worker-env: &worker-env
   BROKK_ENCLAVE_BACKEND: ${BROKK_ENCLAVE_BACKEND:-local}
   BROKK_ENCLAVE_MANAGER_URL: ${BROKK_ENCLAVE_MANAGER_URL:-http://enclave-manager:8795}
   BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
+  # Sindri's scoped bridge to Heimdall's Agent API (set_env/redeploy/route/job).
+  # Unset → the infra tools feature-flag themselves off ("not available").
+  HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
+  HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
 
 services:
   brokk-api:
