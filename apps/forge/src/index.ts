@@ -94,7 +94,7 @@ async function main() {
     // any app not in BROKK_DEVLANE_APPS, keep the PR flow.
     const run =
       isDevLaneCard(cfg, claimed)
-        ? runDevLane(cfg, git, engine, claimed)
+        ? runDevLane(cfg, git, engine, supervisor, claimed)
         : handleRun(cfg, git, engine, claimed);
     await run.catch((err) =>
       console.error(`[forge] run ${claimed?.run.id} crashed:`, err),
@@ -350,6 +350,7 @@ async function runDevLane(
   cfg: RunnerConfig,
   git: GhProvider,
   engine: ForgeEngine,
+  supervisor: PreviewSupervisor,
   { task, run, repository, auth, memory }: Claimed,
 ): Promise<void> {
   const repo = repository!; // isDevLaneCard guarantees a resolved repository
@@ -448,6 +449,13 @@ async function runDevLane(
         (verify ? " · verify ✓" : "") +
         (result.healAttempts ? ` · healed ×${result.healAttempts}` : ""),
     );
+
+    // Refresh the app's `<app>_dev` HMR singleton so the running `next dev` reflects
+    // the just-landed commit (replaces the deleted respin Heimdall used to trigger).
+    // Only when a real push happened; best-effort so it never fails the card.
+    if (sha) {
+      await supervisor.refreshCheckout(devCheckoutSlug(repo.name), "dev").catch(() => {});
+    }
 
     // Warm the repo map (best-effort), same as the PR flow.
     if (repo.id !== "env") {

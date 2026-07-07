@@ -10,12 +10,10 @@
  * preview worktrees are KEPT between restarts and refreshed (fetch + reset) so
  * node_modules / build caches survive — keeping cold-start time low.
  *
- * Reaper: every poll tick the supervisor kills processes whose expiresAt has
- * passed.  A manual DELETE /previews/:id marks the row 'stopped'; the next
- * tick kills the local process immediately.
- *
- * TTL: set by BROKK_PREVIEW_TTL_MS (default 45 min) — stored in expiresAt on
- * each start.  The supervisor never depends on the db's hardcoded 24 h touch.
+ * Lifecycle: previews are persistent singletons — one `<app>-dev` per app. A
+ * manual DELETE /previews/:id marks the row 'stopped'; the next tick kills the
+ * local process. A dev-lane push refreshes the worktree in place via
+ * refreshCheckout() (HMR reflects it) instead of restarting the server.
  */
 import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
@@ -117,6 +115,39 @@ export class PreviewSupervisor {
     console.log("[preview-supervisor] stopped");
   }
 
+  // ── Refresh-on-land ─────────────────────────────────────────────────────────
+
+  /** ADR 0017: refresh the persistent `<app>_dev` worktree to the branch tip so the
+   *  live `next dev` HMR picks up what a dev-lane card just pushed (replaces the old
+   *  respin). Deliberately a LIGHT fetch + `git reset --hard` on the EXISTING
+   *  worktree — NOT persistentCheckout, whose worktree-add would race the running
+   *  dev server. No-op when the worktree doesn't exist yet (its next boot creates it
+   *  fresh at the tip). Best-effort: never throws, and never kills the dev-server
+   *  process (HMR reacts to the changed files on its own). */
+  async refreshCheckout(hauldrProject: string, branch: string): Promise<void> {
+    // Same path convention as GhProvider.persistentCheckout(name=<hauldrProject>):
+    // <workDir>/preview-worktrees/<name>.
+    const path = join(this.cfg.workDir, "preview-worktrees", hauldrProject);
+    if (!existsSync(path)) return; // no live singleton to refresh
+    const run = promisify(execFile);
+    try {
+      // Fetch the branch to FETCH_HEAD only — never into refs/heads/<branch>, which
+      // is checked out in this worktree (git refuses to fetch into a checked-out
+      // branch). Then hard-reset the worktree onto it. Mirrors persistentCheckout's
+      // refresh, minus the racy worktree-add.
+      await run("git", ["fetch", "origin", `refs/heads/${branch}`], { cwd: path });
+      await run("git", ["reset", "--hard", "FETCH_HEAD"], { cwd: path });
+      console.log(
+        `[preview-supervisor] refreshed ${hauldrProject} worktree → ${branch} tip`,
+      );
+    } catch (err) {
+      console.warn(
+        `[preview-supervisor] refreshCheckout ${hauldrProject} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   // ── Startup reconciliation ──────────────────────────────────────────────────
 
   /** On restart, mark live/starting previews whose PID is no longer alive as
@@ -206,20 +237,6 @@ export class PreviewSupervisor {
               pid: null,
               port: null,
             }).catch(() => {});
-            await this.reapBackend(p);
-            break;
-          }
-
-          // TTL expired
-          if (p.expiresAt && new Date(p.expiresAt) < new Date()) {
-            console.log(`[preview-supervisor] ${p.subdomain} TTL expired, stopping`);
-            this.killAndClean(p.id, lp);
-            await this.controlPatch(`/previews/${p.id}`, {
-              status: "stopped",
-              pid: null,
-              port: null,
-            }).catch(() => {});
-            await this.reapBackend(p);
           }
           break;
         }
@@ -233,7 +250,6 @@ export class PreviewSupervisor {
               `[preview-supervisor] ${p.subdomain} marked ${p.status}, killing`,
             );
             this.killAndClean(p.id, lp);
-            await this.reapBackend(p);
           }
           break;
         }
@@ -259,24 +275,6 @@ export class PreviewSupervisor {
     const repo = await this.controlGet<Repository>(
       `/repositories/${project.repositoryId}`,
     );
-
-    // Dev previews boot in the Sindri session's live checkout, which the chat
-    // service clones in the BACKGROUND after writing this row. If it isn't on
-    // disk yet, don't fail (and don't provision the DB yet) — leave the row
-    // 'starting' with a phase and let the next tick retry once the worktree
-    // lands. (Guard early, before the ~3min Hauldr provisioning, so a wait
-    // never re-provisions the DB on every tick.)
-    if (preview.mode === "dev") {
-      const ready = preview.workDir && existsSync(join(preview.workDir, "package.json"));
-      if (!ready) {
-        if (preview.detail !== "Preparando o código…") {
-          await this.controlPatch(`/previews/${preview.id}`, {
-            detail: "Preparando o código…",
-          }).catch(() => {});
-        }
-        return; // retried next tick; status stays 'starting'
-      }
-    }
 
     // Provision (or fetch) the Hauldr dev-DB for this preview
     await this.controlPatch(`/previews/${preview.id}`, {
@@ -341,37 +339,19 @@ export class PreviewSupervisor {
       }
     }
 
-    // Resolve the working directory. Both paths now run `next dev` (HMR) — ADR 0017
-    // moved the real `next build` to the Coolify dev-build; the forge preview is the
-    // fast HMR loop only. What differs is the checkout the HMR server watches:
-    //   • Sindri session (mode='dev'): run straight in the session's live checkout —
-    //     the SAME worktree the chat agent edits. We must NOT git-refresh/reset it
-    //     (that would clobber the agent's uncommitted work); Sindri owns its lifecycle.
-    //   • App singleton (mode='build'): refresh (or create) the persistent worktree,
-    //     one per app keyed by the <app>_dev slug, tracking the branch tip so
-    //     node_modules / .next cache survive restarts.
-    const sessionCheckout = preview.mode === "dev";
-    let wtPath: string;
-    if (sessionCheckout) {
-      if (!preview.workDir) {
-        throw new Error(`dev preview ${preview.subdomain}: workDir is unset`);
-      }
-      wtPath = preview.workDir;
-      if (!existsSync(join(wtPath, "package.json"))) {
-        throw new Error(
-          `dev preview ${preview.subdomain}: no package.json at ${wtPath} (session checkout missing)`,
-        );
-      }
-    } else {
-      await this.controlPatch(`/previews/${preview.id}`, {
-        detail: "Preparando o código…",
-      }).catch(() => {});
-      ({ path: wtPath } = await this.git.persistentCheckout({
-        repo,
-        branch: preview.branch,
-        name: preview.hauldrProject,
-      }));
-    }
+    // Resolve the working directory. The forge preview runs `next dev` (HMR) — ADR
+    // 0017 moved the real `next build` to the Coolify dev-build; the forge preview is
+    // the fast HMR loop only. Every preview is the app singleton: refresh (or create)
+    // the persistent worktree, one per app keyed by the <app>_dev slug, tracking the
+    // branch tip so node_modules / .next cache survive restarts.
+    await this.controlPatch(`/previews/${preview.id}`, {
+      detail: "Preparando o código…",
+    }).catch(() => {});
+    const { path: wtPath } = await this.git.persistentCheckout({
+      repo,
+      branch: preview.branch,
+      name: preview.hauldrProject,
+    });
 
     // Stamp the sha this boot serves (the checkout's HEAD) — it's what turns
     // this row into a *deploy* for Heimdall's fleet view (which drops commitless
@@ -564,7 +544,6 @@ export class PreviewSupervisor {
             pid: null,
             port: null,
           }).catch(() => {});
-          void this.reapBackend(preview).catch(() => {});
         }
       }
     });
@@ -632,35 +611,6 @@ export class PreviewSupervisor {
       lp.proc.kill("SIGTERM");
     } catch {
       /* already dead */
-    }
-  }
-
-  /** Tear down a stopped preview's Hauldr compute (auth + rest), keeping the
-   *  database, so an idle backend costs ~MB of DB and zero containers. No-op
-   *  when ephemeral mode is off, Hauldr is unconfigured, or the project is
-   *  pinned (a standing env that happens to share the slug). Called on TTL
-   *  expiry / manual stop / unexpected exit — NEVER on graceful shutdown, where
-   *  previews are meant to resume after the runner restarts. */
-  private async reapBackend(preview: Preview): Promise<void> {
-    if (!this.cfg.previewEphemeral || !this.hauldr) return;
-    const project = preview.hauldrProject;
-    if (!project) return;
-    if (this.cfg.previewPinned.has(project)) {
-      console.log(
-        `[preview-supervisor] ${preview.subdomain}: ${project} pinned — keeping compute`,
-      );
-      return;
-    }
-    try {
-      await this.hauldr.deprovisionCompute(project);
-      console.log(
-        `[preview-supervisor] ${preview.subdomain}: deprovisioned compute for ${project} (DB kept)`,
-      );
-    } catch (err) {
-      console.warn(
-        `[preview-supervisor] ${preview.subdomain}: deprovision failed for ${project}:`,
-        err,
-      );
     }
   }
 

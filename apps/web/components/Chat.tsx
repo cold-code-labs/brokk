@@ -50,6 +50,7 @@ import {
   Minimize2,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
+import { brokk } from "../lib/api";
 import {
   attach,
   chat,
@@ -707,6 +708,7 @@ export default function Chat() {
           {previewOpen ? (
             <SindriPreview
               sessionId={sessionId}
+              projectId={projectId}
               branch={currentSession?.branch ?? null}
               sawEdit={sawEdit}
               zen={chatCollapsed}
@@ -725,11 +727,13 @@ export default function Chat() {
 }
 
 // ── live preview pane (the right-pane sandbox) ────────────────────────────────
-// A `next dev` (HMR) server runs in THIS session's checkout, so Sindri's edits
-// hot-reload here and on the public preview URL — one server serving both. Lazy:
-// auto-boots on the first file edit (sawEdit), or on the "Subir preview" button.
+// The project's `<app>-dev` singleton: one persistent `next dev` (HMR) server per
+// app, on <app>-dev.preview.coldcodelabs.com. Sindri's edits land on `dev` and the
+// forge refreshes the singleton's checkout, so HMR reflects them. Lazy: auto-boots
+// on the first file edit (sawEdit), or on the "Subir preview" button.
 function SindriPreview({
   sessionId,
+  projectId,
   branch,
   sawEdit,
   zen,
@@ -741,6 +745,7 @@ function SindriPreview({
   tokensOut,
 }: {
   sessionId: string;
+  projectId: string;
   branch: string | null;
   sawEdit: boolean;
   zen: boolean;
@@ -759,84 +764,76 @@ function SindriPreview({
   const [view, setView] = useState<"preview" | "code" | "database">("preview");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageW, setStageW] = useState(0);
-  const autoTried = useRef(""); // sessionId we've already auto-booted for
-  const wokeFor = useRef(""); // sessionId we've already auto-woken a reaped preview for
+  const autoTried = useRef(""); // projectId we've already auto-booted for
+  const wokeFor = useRef(""); // projectId we've already auto-woken a stopped singleton for
 
+  // Ensure (or reuse) the project's `<app>-dev` singleton preview.
   const ensure = useCallback(async () => {
+    if (!projectId) return;
     setBusy(true);
     setErr("");
     try {
-      setPreview(await chat.ensurePreview(sessionId));
+      setPreview(await brokk.createPreview({ projectId }));
     } catch (e) {
       setErr(String(e));
     } finally {
       setBusy(false);
     }
-  }, [sessionId]);
+  }, [projectId]);
 
-  // On session change: reset + load any existing preview for it.
+  // On project change: reset + load the project's active singleton preview (the
+  // one shared by every chat session of this app), if it's already up.
   useEffect(() => {
     setPreview(null);
     setErr("");
     setDevice("desktop");
     autoTried.current = "";
     wokeFor.current = "";
+    if (!projectId) return;
     let cancelled = false;
-    chat.getPreview(sessionId).then(
-      (pv) => !cancelled && setPreview(pv),
+    brokk.listPreviews(projectId).then(
+      (ps) => {
+        if (cancelled) return;
+        setPreview(ps.find((x) => x.status === "starting" || x.status === "live") ?? null);
+      },
       () => {},
     );
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [projectId, setDevice]);
 
-  // Lazy auto-start: once Sindri makes its first file edit, boot the preview
-  // (once per session). The manual button covers every other case.
+  // Lazy auto-start: once Sindri makes its first file edit, ensure the singleton
+  // is up (once per project). The manual button covers every other case.
   useEffect(() => {
-    if (sawEdit && !preview && !busy && autoTried.current !== sessionId) {
-      autoTried.current = sessionId;
+    if (sawEdit && !preview && !busy && projectId && autoTried.current !== projectId) {
+      autoTried.current = projectId;
       void ensure();
     }
-  }, [sawEdit, preview, busy, sessionId, ensure]);
+  }, [sawEdit, preview, busy, projectId, ensure]);
 
-  // A reaped/idle preview (status 'stopped') for the session we're looking at:
-  // wake it automatically so the pane reflects reality instead of a stale
-  // "parado" dead-end. The gateway already wakes a preview when its URL is hit
-  // directly — this does the same the moment the session is open, so the user
-  // sees "subindo… → ao vivo" rather than having to click "Subir preview".
-  // Only resumes a preview that ALREADY existed (was booted before); a session
-  // that never had one keeps the lazy/manual flow.
+  // A stopped singleton (process exit / manual stop): wake it automatically so the
+  // pane reflects reality instead of a stale "parado" dead-end. Once per project.
   useEffect(() => {
-    if (preview?.status === "stopped" && !busy && wokeFor.current !== sessionId) {
-      wokeFor.current = sessionId;
+    if (preview?.status === "stopped" && !busy && projectId && wokeFor.current !== projectId) {
+      wokeFor.current = projectId;
       void ensure();
     }
-  }, [preview?.status, busy, sessionId, ensure]);
+  }, [preview?.status, busy, projectId, ensure]);
 
   // Poll status while starting (4s); slow-poll while live/stopped (12s) so the
-  // pane catches both a reap (live→stopped) and an external wake (stopped→live,
+  // pane catches both a stop (live→stopped) and an external wake (stopped→live,
   // e.g. someone opened the preview URL directly) without a manual refresh.
   useEffect(() => {
     const status = preview?.status;
-    if (status !== "starting" && status !== "live" && status !== "stopped") return;
-    const id = setInterval(
-      () =>
-        chat
-          // Keep-alive touch only while live AND the tab is visible: an open,
-          // watched session keeps its preview warm; a hidden/closed one lets it
-          // reap on its own.
-          .getPreview(
-            sessionId,
-            status === "live" &&
-              typeof document !== "undefined" &&
-              document.visibilityState === "visible",
-          )
-          .then(setPreview, () => {}),
+    const id = preview?.id;
+    if (!id || (status !== "starting" && status !== "live" && status !== "stopped")) return;
+    const iv = setInterval(
+      () => brokk.getPreview(id).then(setPreview, () => {}),
       status === "starting" ? 4000 : 12000,
     );
-    return () => clearInterval(id);
-  }, [preview?.status, sessionId]);
+    return () => clearInterval(iv);
+  }, [preview?.status, preview?.id]);
 
   // Measure the actual rendered viewport so the toolbar shows a real px readout
   // (like devtools) — it updates live as the gutter re-balances the panes.

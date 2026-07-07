@@ -45,33 +45,6 @@ const PatchSession = z.object({
 
 const SendMessage = z.object({ text: z.string().min(1) });
 
-/** Derive the canonical Sindri preview identity (subdomain / url / Hauldr project)
- *  for a session — ONE live preview slot PER SESSION. Each Sindri session on
- *  `<app>` lands on its own `<app>-sindri-<id8>.preview.coldcodelabs.com`, so N
- *  concurrent chats on the same app each get an isolated preview URL + dev-server
- *  process (the downstream supervisor/gateway/port-range already handle N previews;
- *  the per-session subdomain is what unlocks them). The session's code is likewise
- *  isolated on disk (its own `sindri/<id8>` checkout).
- *  The Hauldr DATA layer stays SHARED per app (`<app>_dev`): all sessions point at
- *  one dev DB — cheap, no per-session GoTrue/PostgREST sprawl, and correct for QA of
- *  UI/logic changes. Because sessions share `<app>_dev`, it must be PINNED
- *  (BROKK_PREVIEW_PINNED) so one session's reaper never deprovisions the compute the
- *  others depend on. (Schema-diverging changes want isolated DBs — session-suffix
- *  hauldrProject + drop the pin; deferred until a test needs it.)
- *  Dedicated `-sindri-<id8>` slot (not the bare `<app>.preview`) so it never collides
- *  with the Fleet build-mode dev preview that owns `<app>.preview`. */
-function previewIdentity(appName: string, sessionId: string): {
-  subdomain: string;
-  url: string;
-  hauldrProject: string;
-} {
-  const id8 = sessionId.slice(0, 8);
-  const subdomain = `${appName}-sindri-${id8}`.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/(^-|-$)/g, "");
-  const url = `https://${subdomain}.preview.coldcodelabs.com`;
-  const hauldrProject = `${appName}_dev`.toLowerCase().replace(/[^a-z0-9_]/g, "_");
-  return { subdomain, url, hauldrProject };
-}
-
 export function buildSindri(deps: SindriDeps): Hono {
   const app = new Hono();
   app.use("*", cors());
@@ -151,107 +124,10 @@ export function buildSindri(deps: SindriDeps): Hono {
       deps.turns.stop(id);
       const project = await deps.store.getProject(session.projectId);
       const repo = project ? await deps.store.getRepository(project.repositoryId) : null;
-      // Stop the session's live preview (if any) so the supervisor reaps the dev
-      // server + deprovisions its Hauldr compute on the next tick.
-      if (repo && session.branch) {
-        const { subdomain } = previewIdentity(repo.name, session.id);
-        const preview = await deps.store.getPreviewBySubdomain(subdomain).catch(() => null);
-        if (preview && (preview.status === "live" || preview.status === "starting")) {
-          await deps.store.stopPreview(preview.id).catch(() => {});
-        }
-      }
       if (repo) await deps.checkouts.remove({ sessionId: id, repo }).catch(() => {});
       await deps.store.deleteChatSession(id);
     }
     return c.json({ ok: true });
-  });
-
-  // ── Live preview (the right-pane sandbox) ─────────────────────────────────────
-  // A per-session dev preview: `next dev` with HMR, run by the forge preview
-  // supervisor straight in THIS session's checkout, so the agent's edits hot-reload
-  // in the iframe and on <app>-sindri.preview.coldcodelabs.com. POST ensures
-  // the checkout exists + writes a 'starting' dev preview row (the supervisor boots
-  // it); GET reports status for the UI to poll. Lazy: the UI only POSTs once the
-  // app has a renderable change (or the user clicks "Subir preview").
-
-  app.post("/sessions/:id/preview", async (c) => {
-    const session = await deps.store.getChatSession(c.req.param("id"));
-    if (!session) return c.json({ error: "not found" }, 404);
-    const project = await deps.store.getProject(session.projectId);
-    const repo = project ? await deps.store.getRepository(project.repositoryId) : null;
-    if (!project || !repo) return c.json({ error: "project not found" }, 404);
-
-    const branch = session.branch ?? `sindri/${session.id.slice(0, 8)}`;
-    // The checkout path is deterministic, so we can write the preview row and
-    // return NOW — then materialise the worktree in the background. This keeps
-    // the request from blocking on a 30–120s first clone (which would spin the
-    // button blindly and risk a proxy timeout → false "falhou"). The supervisor
-    // waits for the worktree to exist before it boots (guarded), and the phase
-    // shows up live via `detail` while the clone runs.
-    const path = deps.checkouts.plannedPath(session.id);
-
-    const { subdomain, url, hauldrProject } = previewIdentity(repo.name, session.id);
-    const { preview, created } = await deps.store.ensureActivePreview({
-      projectId: project.id,
-      branch,
-      subdomain,
-      url,
-      hauldrProject,
-      status: "starting",
-      detail: "Preparando o código…",
-      mode: "dev",
-      sessionId: session.id,
-      workDir: path,
-    });
-
-    // Only (re)materialise the checkout when the preview isn't already live —
-    // clicking "Subir preview" on a live env must not re-clone or reset it.
-    // Detached: clone + worktree. On success clear the phase so the supervisor's
-    // own phases take over; on failure surface a clean reason on the row. A
-    // reactivated slot (stopped→starting) doesn't carry a phase yet, so set it.
-    if (preview.status !== "live") {
-      void deps.store.patchPreview(preview.id, { detail: "Preparando o código…" }).catch(() => {});
-      void deps.checkouts
-        .ensure({ sessionId: session.id, branch, repo: repo as Repository, baseBranch: project.baseBranch })
-        .then(() => deps.store.patchPreview(preview.id, { detail: "Código pronto, subindo o ambiente…" }))
-        .catch((err) =>
-          deps.store
-            .patchPreview(preview.id, {
-              status: "failed",
-              detail: `Falha ao preparar o código: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
-            })
-            .catch(() => {}),
-        );
-    }
-
-    return c.json({ preview }, created ? 201 : 200);
-  });
-
-  app.get("/sessions/:id/preview", async (c) => {
-    const session = await deps.store.getChatSession(c.req.param("id"));
-    if (!session) return c.json({ error: "not found" }, 404);
-    if (!session.branch) return c.json({ preview: null });
-    const project = await deps.store.getProject(session.projectId);
-    const repo = project ? await deps.store.getRepository(project.repositoryId) : null;
-    if (!repo) return c.json({ preview: null });
-    const { subdomain } = previewIdentity(repo.name, session.id);
-    const preview = await deps.store.getPreviewBySubdomain(subdomain).catch(() => null);
-    // Keep-alive: while its tab is open AND visible, Sindri polls this every 12s
-    // with ?touch=1. Slide a live preview's TTL forward on each touch so it never
-    // reaps mid-session; when the tab closes or is hidden the polling (and the
-    // bump) stops, so it reaps on its own a few minutes later — "up while you're
-    // working, gone when you walk away". The window is short on purpose; the
-    // gateway independently re-bumps on real traffic, so a direct-URL demo that
-    // isn't going through Sindri still stays warm.
-    if (preview && preview.status === "live" && c.req.query("touch") === "1") {
-      void deps.store
-        .patchPreview(preview.id, {
-          expiresAt: new Date(Date.now() + 12 * 60 * 1000),
-          lastSeenAt: new Date(),
-        })
-        .catch(() => {});
-    }
-    return c.json({ preview });
   });
 
   // Transcript (incremental via ?afterSeq=).

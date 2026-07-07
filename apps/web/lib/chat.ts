@@ -87,18 +87,6 @@ export const chat = {
     j<{ session: ChatSession }>("PATCH", `/sessions/${id}`, patch).then((r) => r.session),
   deleteSession: (id: string) => j<{ ok: true }>("DELETE", `/sessions/${id}`),
   stop: (id: string) => j<{ stopped: boolean }>("POST", `/sessions/${id}/stop`),
-  // Live preview (the right-pane sandbox). ensurePreview spins up (or reuses) the
-  // session's `next dev` HMR preview; getPreview polls its status for the UI.
-  ensurePreview: (id: string) =>
-    j<{ preview: Preview }>("POST", `/sessions/${id}/preview`).then((r) => r.preview),
-  // `touch` slides the preview's TTL forward (keep-alive) — the UI passes it only
-  // while the tab is visible, so an open session keeps its preview warm and a
-  // closed/hidden one reaps on its own.
-  getPreview: (id: string, touch = false) =>
-    j<{ preview: Preview | null }>(
-      "GET",
-      `/sessions/${id}/preview${touch ? "?touch=1" : ""}`,
-    ).then((r) => r.preview),
 };
 
 export type { Preview };
