@@ -16,6 +16,7 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { CheckoutManager } from "./checkout.js";
 import { fsRoutes } from "./fs-routes.js";
+import { HeimdallAgentClient } from "./heimdall.js";
 import { TurnManager } from "./turns.js";
 
 export interface SindriDeps {
@@ -595,6 +596,10 @@ async function runSessionTurn(
       emit({ type: "status", phase: "planejando" });
       return runPlan(deps, project, intent);
     },
+    // Infra-intent bridges (set_env / redeploy_app / register_route /
+    // register_job) → Heimdall's scoped Agent API. Present only when the agent
+    // token is configured; the tools are confirmation-gated in makeDomainExecutor.
+    infra: heimdallInfra(emit),
   };
   const system = await buildSystemPrompt({
     cwd: path,
@@ -634,6 +639,37 @@ function plannerConfig(): MimirConfig | null {
     oauthToken: "",
     authToken: "",
     anthropicBaseUrl: "",
+  };
+}
+
+/** Build Sindri's infra-intent bridge over Heimdall's SCOPED Agent API. Returns
+ *  undefined when HEIMDALL_AGENT_URL/_TOKEN are unset, which disables the infra
+ *  tools for the session (they report "not available"). Reads process.env
+ *  directly, the same idiom as plannerConfig above. Emits a status per call so
+ *  the chat surfaces the mutation as it runs. */
+function heimdallInfra(emit: (e: AgentEvent) => void): ToolContext["infra"] {
+  const baseUrl = (process.env.HEIMDALL_AGENT_URL || "").replace(/\/$/, "");
+  const token = process.env.HEIMDALL_AGENT_TOKEN || "";
+  if (!baseUrl || !token) return undefined;
+  const client = new HeimdallAgentClient(baseUrl, token);
+  const status = (phase: string) => emit({ type: "status", phase });
+  return {
+    setEnv: (app, key, value, opts) => {
+      status("infra: set_env");
+      return client.setEnv(app, key, value, opts);
+    },
+    redeploy: (app) => {
+      status("infra: redeploy");
+      return client.redeploy(app);
+    },
+    registerRoute: (input) => {
+      status("infra: register_route");
+      return client.registerRoute(input);
+    },
+    registerJob: (input) => {
+      status("infra: register_job");
+      return client.registerJob(input);
+    },
   };
 }
 
