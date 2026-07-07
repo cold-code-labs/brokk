@@ -33,15 +33,17 @@ export function previewsRoutes(deps: AppDeps): Hono {
     const repo = await deps.store.getRepository(project.repositoryId);
     if (!repo) return c.json({ error: "repository not found" }, 404);
 
-    // The ".preview." zone already implies a dev environment, so the default/dev
-    // branch gets the bare app name → <app>.preview.coldcodelabs.com. Non-default
-    // branches keep an "<app>-<branch>" slug so feature-branch previews don't collide.
-    // The Hauldr DB is ALWAYS a distinct "<app>-dev" project — never the app's prod
-    // Hauldr project — so a preview can never touch production data.
+    // ADR 0017: the dev-lane HMR singleton lives at <app>-dev.preview.coldcodelabs.com,
+    // matching its sibling Coolify dev-build at <app>-dev.coldcodelabs.com (both on the
+    // shared <app>_dev Hauldr project). The explicit "-dev" reads as an environment, not
+    // a bare app clone. Non-default branches keep an "<app>-<branch>" slug so
+    // feature-branch previews don't collide. The Hauldr DB is ALWAYS a distinct
+    // "<app>-dev" project — never the app's prod Hauldr project — so a preview can
+    // never touch production data.
     const app = repo.name;
     const branchSlug = branch.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "dev";
     const isDevBranch = branchSlug === "dev" || branch === project.baseBranch;
-    const subdomain = isDevBranch ? app : `${app}-${branchSlug}`;
+    const subdomain = isDevBranch ? `${app}-dev` : `${app}-${branchSlug}`;
     const url = `https://${subdomain}.preview.coldcodelabs.com`;
     // Hauldr project names allow only [a-z0-9_] and must start with a letter, so
     // sanitize hyphens → underscores (the DNS subdomain keeps its hyphens).

@@ -341,16 +341,18 @@ export class PreviewSupervisor {
       }
     }
 
-    // Resolve the working directory.
-    //   • dev mode (a Sindri session): run straight in the session's live
-    //     checkout — the SAME worktree the chat agent edits. We must NOT
-    //     git-refresh/reset it (that would clobber the agent's uncommitted work);
-    //     Sindri owns its lifecycle. `next dev` then hot-reloads on every edit.
-    //   • build mode (Fleet preview): refresh (or create) the persistent worktree,
-    //     reused by hauldrProject slug so node_modules survive restarts.
-    const isDev = preview.mode === "dev";
+    // Resolve the working directory. Both paths now run `next dev` (HMR) — ADR 0017
+    // moved the real `next build` to the Coolify dev-build; the forge preview is the
+    // fast HMR loop only. What differs is the checkout the HMR server watches:
+    //   • Sindri session (mode='dev'): run straight in the session's live checkout —
+    //     the SAME worktree the chat agent edits. We must NOT git-refresh/reset it
+    //     (that would clobber the agent's uncommitted work); Sindri owns its lifecycle.
+    //   • App singleton (mode='build'): refresh (or create) the persistent worktree,
+    //     one per app keyed by the <app>_dev slug, tracking the branch tip so
+    //     node_modules / .next cache survive restarts.
+    const sessionCheckout = preview.mode === "dev";
     let wtPath: string;
-    if (isDev) {
+    if (sessionCheckout) {
       if (!preview.workDir) {
         throw new Error(`dev preview ${preview.subdomain}: workDir is unset`);
       }
@@ -433,13 +435,13 @@ export class PreviewSupervisor {
     }
 
     const port = this.allocatePort();
-    // The command comes from the resolved RuntimeSpec (Sleipnir). The legacy
-    // BROKK_PREVIEW_(DEV_)CMD env vars stay as an explicit ops override — when set
-    // they win; otherwise the spec is the law. The Next preset is byte-identical to
-    // the old dev default, so the dev lane is unchanged.
-    const override = isDev ? process.env.BROKK_PREVIEW_DEV_CMD : process.env.BROKK_PREVIEW_CMD;
+    // ADR 0017: the forge preview is always the HMR loop (`next dev`) — the real
+    // `next build` gate now lives in the Coolify dev-build. Command comes from the
+    // resolved RuntimeSpec's "dev" preset (Sleipnir); BROKK_PREVIEW_DEV_CMD stays as
+    // an explicit ops override when set.
+    const override = process.env.BROKK_PREVIEW_DEV_CMD;
     const baseCmd =
-      override && override.trim() ? override : composeCommand(spec, isDev ? "dev" : "build");
+      override && override.trim() ? override : composeCommand(spec, "dev");
     const cmd = this.expandCmd(baseCmd, port);
     console.log(
       `[preview-supervisor] ${preview.subdomain}: runtime=${spec.label} (${spec.source})`,
@@ -470,9 +472,9 @@ export class PreviewSupervisor {
       HOME: home,
       COREPACK_HOME: `${home}/.cache/corepack`,
       PORT: String(port),
-      // Dev previews need development mode for HMR; build previews default to
-      // production so apps skip dev-only overhead.
-      NODE_ENV: isDev ? "development" : (process.env.NODE_ENV ?? "production"),
+      // The forge preview always runs `next dev` (HMR), so development mode across
+      // the board (ADR 0017 — the production build lives in the Coolify dev-build).
+      NODE_ENV: "development",
     };
 
     console.log(
