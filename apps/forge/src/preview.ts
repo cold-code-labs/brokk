@@ -75,6 +75,27 @@ export function loadAppSecrets(dir: string, project: string): Record<string, str
   return out;
 }
 
+/**
+ * In-process coordination over the shared per-app dev checkout (ADR 0017 Fase 3).
+ * The card runner (handleRun's dev-lane path) and the PreviewSupervisor both live
+ * in the forge process and share `preview-worktrees/<app>_dev`. While a card holds
+ * an app's lock, the supervisor must NOT git-refresh (`reset --hard`) that checkout
+ * — it would wipe the agent's uncommitted edits, which the HMR preview is serving
+ * live (the "QA no HMR" loop). Keyed by the Hauldr project slug (= the checkout name).
+ */
+export class CheckoutLocks {
+  private readonly held = new Set<string>();
+  acquire(slug: string): void {
+    this.held.add(slug);
+  }
+  release(slug: string): void {
+    this.held.delete(slug);
+  }
+  isLocked(slug: string): boolean {
+    return this.held.has(slug);
+  }
+}
+
 export class PreviewSupervisor {
   /** Locally-managed running preview processes keyed by preview id. */
   private readonly live = new Map<string, LivePreview>();
@@ -88,6 +109,9 @@ export class PreviewSupervisor {
     private readonly git: GhProvider,
     /** Null when HAULDR_CONTROL_URL is not set — Hauldr provisioning is skipped. */
     private readonly hauldr: HauldrClient | null,
+    /** Shared with the card runner so a booting preview never resets a checkout a
+     *  card is actively editing (ADR 0017). */
+    private readonly locks: CheckoutLocks,
   ) {}
 
   // ── Main loop ───────────────────────────────────────────────────────────────
@@ -370,6 +394,9 @@ export class PreviewSupervisor {
         repo,
         branch: preview.branch,
         name: preview.hauldrProject,
+        // A card editing this app's dev checkout holds the lock — don't reset over
+        // its live, uncommitted work (HMR is serving it).
+        noRefresh: this.locks.isLocked(preview.hauldrProject),
       }));
     }
 

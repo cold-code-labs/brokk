@@ -29,6 +29,9 @@ const CompleteBody = z.object({
       headroomSaved: z.number().int().default(0),
     })
     .optional(),
+  /** ADR 0017 dev-lane: the run pushed straight to `dev` (no PR). A succeeded
+   *  landed run closes the card → `done` (not `review`, which awaits a PR merge). */
+  landed: z.boolean().optional(),
 });
 
 // The orchestrator facade. Collapses the connect-repo → ensure-project →
@@ -189,7 +192,7 @@ export function runsRoutes(deps: AppDeps): Hono {
     const id = c.req.param("id");
     const parsed = CompleteBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const { status, prUrl, prNumber, error, usage } = parsed.data;
+    const { status, prUrl, prNumber, error, usage, landed } = parsed.data;
 
     const run = await deps.store.updateRun(id, {
       status,
@@ -209,15 +212,24 @@ export function runsRoutes(deps: AppDeps): Hono {
     // for that app can claim. Idempotent (no-op if already reassigned/expired).
     await deps.store.releaseLease(id).catch(() => {});
 
-    // Map run outcome → task column. PR open → review; merge (webhook) → done.
+    // Map run outcome → task column. Dev-lane (landed) pushes straight to dev → the
+    // card is done. PR flow: open → review; merge (webhook) → done.
     const taskStatus =
-      status === "succeeded" ? "review" : status === "failed" ? "failed" : "cancelled";
+      status === "succeeded"
+        ? landed
+          ? "done"
+          : "review"
+        : status === "failed"
+          ? "failed"
+          : "cancelled";
     const resolvedPrNumber = prNumber ?? (prUrl ? prNumberFromUrl(prUrl) : null);
     const task = await deps.store.transitionTask(run.taskId, taskStatus, {
       actor: "forge",
       reason:
         status === "succeeded"
-          ? "PR opened"
+          ? landed
+            ? "pushed to dev"
+            : "PR opened"
           : status === "failed"
             ? error
               ? firstLine(error)

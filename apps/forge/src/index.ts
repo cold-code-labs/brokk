@@ -18,7 +18,7 @@ import { GhProvider } from "./git.js";
 import { ForgeEngine } from "@brokk/forge";
 import { HauldrClient } from "./hauldr.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
-import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
+import { CheckoutLocks, PreviewSupervisor, loadAppSecrets } from "./preview.js";
 import { buildRepoMap } from "./repomap.js";
 import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
 
@@ -69,7 +69,10 @@ async function main() {
       "[forge] HAULDR_CONTROL_URL not set — preview Hauldr provisioning disabled",
     );
   }
-  const supervisor = new PreviewSupervisor(cfg, git, hauldr);
+  // Shared checkout locks (ADR 0017): the card runner takes an app's lock while it
+  // forges in the shared dev checkout, so the preview supervisor won't reset over it.
+  const locks = new CheckoutLocks();
+  const supervisor = new PreviewSupervisor(cfg, git, hauldr, locks);
   const supervisorDone = supervisor.run(() => stopping);
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -89,7 +92,14 @@ async function main() {
       await sleep(cfg.pollIntervalMs);
       continue;
     }
-    await handleRun(cfg, git, engine, claimed).catch((err) =>
+    // ADR 0017 Fase 3b: a standalone implement card for a dev-lane app forges in the
+    // shared dev checkout and commits straight to `dev` (no PR). Plans/revise, and
+    // any app not in BROKK_DEVLANE_APPS, keep the PR flow.
+    const run =
+      isDevLaneCard(cfg, claimed)
+        ? runDevLane(cfg, git, engine, locks, claimed)
+        : handleRun(cfg, git, engine, claimed);
+    await run.catch((err) =>
       console.error(`[forge] run ${claimed?.run.id} crashed:`, err),
     );
   }
@@ -311,6 +321,144 @@ async function handleRun(
 
   await flushTraces();
   if (worktreePath) await git.cleanup({ path: worktreePath }).catch(() => {});
+}
+
+/** ADR 0017 Fase 3b: is this claim a dev-lane card (forge in the shared dev checkout
+ *  + commit straight to `dev`)? Only standalone `implement` cards for an app in
+ *  BROKK_DEVLANE_APPS — plans (shared feature PR) and revise (update a PR) stay on
+ *  the PR path, as does every app not opted in. */
+function isDevLaneCard(cfg: RunnerConfig, { task, repository, project, plan }: Claimed): boolean {
+  if (plan) return false;
+  if (task.kind === "revise" && task.branch) return false;
+  if (!repository || !project) return false;
+  return cfg.devLaneApps.has(repository.name);
+}
+
+/** The shared dev checkout / Hauldr project slug for an app — MUST match the preview
+ *  supervisor's `<app>_dev` (previews.ts) so the card and the HMR preview share one
+ *  worktree and the CheckoutLocks key lines up. */
+function devCheckoutSlug(appName: string): string {
+  return `${appName}_dev`.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+}
+
+/** Forge a dev-lane card: run the agent in the app's shared persistent `dev` checkout
+ *  (the same worktree the HMR preview serves → edits show live), gate on verify, then
+ *  commit+push straight to `dev` — no per-card PR. The Coolify dev-build is the hard
+ *  gate downstream (Fase 3d). The checkout lock keeps the preview supervisor from
+ *  resetting over the agent's live work; the app lease keeps it serial per app. */
+async function runDevLane(
+  cfg: RunnerConfig,
+  git: GhProvider,
+  engine: ForgeEngine,
+  locks: CheckoutLocks,
+  { task, run, repository, auth, memory }: Claimed,
+): Promise<void> {
+  const repo = repository!; // isDevLaneCard guarantees a resolved repository
+  const slug = devCheckoutSlug(repo.name);
+  console.log(
+    `[forge] dev-lane: "${task.title}" (run ${run.id}) → ${repo.name} @ dev [${slug}]`,
+  );
+  const buffer = new EventBuffer(cfg, run.id);
+  const model = run.model ?? process.env.BROKK_DEFAULT_MODEL ?? "sonnet";
+  let trace: ForgeTrace | null = null;
+  locks.acquire(slug);
+  try {
+    // Refresh the shared dev checkout to the branch tip (the same worktree HMR serves).
+    buffer.emit({ type: "status", payload: { phase: "worktree", branch: "dev", baseBranch: "dev" } });
+    const wt = await git.persistentCheckout({ repo, branch: "dev", name: slug });
+
+    trace = startForgeTrace({
+      title: task.title,
+      body: task.body,
+      model,
+      metadata: {
+        runId: run.id,
+        cardId: task.id,
+        repo: repo.fullName,
+        branch: "dev",
+        baseBranch: "dev",
+        kind: task.kind,
+        planId: null,
+        planKey: null,
+      },
+    });
+
+    const result: RunResult = await engine.run({
+      task: {
+        id: task.id,
+        title: task.title,
+        body: task.body,
+        labels: task.labels,
+        acceptance: task.acceptance,
+      },
+      run: { id: run.id, branch: "dev", model: run.model, authMode: run.authMode },
+      cwd: wt.path,
+      model,
+      authMode: run.authMode ?? "subscription",
+      authToken: auth?.token ?? undefined,
+      allowedTools: [],
+      memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
+      verify: cfg.verifyCmd ? () => runVerify(cfg.verifyCmd, wt.path) : undefined,
+      maxHealAttempts: cfg.healAttempts,
+      emit: (e) => {
+        buffer.emit(e);
+        trace?.onEvent(e);
+      },
+    });
+    const verify = result.verify;
+    const usage = result.usage;
+
+    // Gate: a red verify must NOT land on dev. Fail the card — the agent's edits stay
+    // in the checkout (HMR still shows them), but nothing is pushed.
+    if (verify && !verify.ok) {
+      trace?.complete({ verify, healAttempts: result.healAttempts, usage, prUrl: "" });
+      await buffer.flush();
+      await api(cfg, "POST", `/runs/${run.id}/complete`, {
+        status: "failed",
+        error: `verify failed:\n${verify.output.slice(-1500)}`,
+        usage,
+      });
+      console.log(`[forge] dev-lane run ${run.id} → verify ✗ (not landed)`);
+      return;
+    }
+
+    buffer.emit({ type: "status", payload: { phase: "push", branch: "dev" } });
+    const sha = await git.commitPushIfChanged({
+      cwd: wt.path,
+      branch: "dev",
+      message: `brokk: ${task.title}`,
+    });
+    trace?.complete({ verify, healAttempts: result.healAttempts, usage, prUrl: "" });
+    await buffer.flush();
+    await api(cfg, "POST", `/runs/${run.id}/complete`, { status: "succeeded", landed: true, usage });
+    console.log(
+      `[forge] dev-lane run ${run.id} → ${sha ? `pushed ${sha.slice(0, 8)} to dev` : "no changes"}` +
+        (verify ? " · verify ✓" : "") +
+        (result.healAttempts ? ` · healed ×${result.healAttempts}` : ""),
+    );
+
+    // Warm the repo map (best-effort), same as the PR flow.
+    if (repo.id !== "env") {
+      try {
+        const map = await buildRepoMap(wt.path);
+        if (map) await api(cfg, "POST", `/runner/repos/${repo.id}/map`, { map });
+      } catch (e) {
+        console.error(`[forge] repo map refresh failed for ${repo.fullName}:`, e);
+      }
+    }
+  } catch (err) {
+    buffer.emit({ type: "log", payload: { level: "error", error: String(err) } });
+    trace?.fail(err);
+    await buffer.flush().catch(() => {});
+    await api(cfg, "POST", `/runs/${run.id}/complete`, {
+      status: "failed",
+      error: String(err),
+    }).catch(() => {});
+  } finally {
+    locks.release(slug);
+    await flushTraces();
+    // NEVER cleanup — the dev checkout is persistent and shared with the HMR preview.
+  }
 }
 
 /** Batches events and flushes them to /runs/:id/events to avoid chatty POSTs. */

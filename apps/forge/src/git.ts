@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -156,6 +157,26 @@ export class GhProvider implements GitProvider {
     await git(opts.cwd, ["push", "-u", "origin", opts.branch]);
   }
 
+  /** ADR 0017 dev-lane: stage the agent's edits and commit+push them straight to
+   *  `branch` (dev), but ONLY if there's something to commit — no empty commits
+   *  polluting dev history when a card lands a no-op. Returns the pushed sha, or
+   *  null if the working tree was clean. Fast-forwards origin/<branch>. */
+  async commitPushIfChanged(opts: {
+    cwd: string;
+    branch: string;
+    message: string;
+  }): Promise<string | null> {
+    const name = process.env.BROKK_GIT_NAME ?? "Brokk";
+    const email = process.env.BROKK_GIT_EMAIL ?? "brokk@coldcodelabs.com";
+    const ident = ["-c", `user.name=${name}`, "-c", `user.email=${email}`];
+    await git(opts.cwd, ["add", "-A"]);
+    const staged = await git(opts.cwd, ["diff", "--cached", "--name-only"]);
+    if (!staged.trim()) return null; // nothing changed → nothing to land
+    await git(opts.cwd, [...ident, "commit", "-m", opts.message]);
+    await git(opts.cwd, ["push", "origin", opts.branch]);
+    return git(opts.cwd, ["rev-parse", "HEAD"]);
+  }
+
   async openPr(opts: {
     cwd: string;
     repo: Repository;
@@ -205,8 +226,15 @@ export class GhProvider implements GitProvider {
     repo: Repository;
     branch: string;
     name: string;
+    /** ADR 0017: a card holds this checkout's lease — serve the working tree as-is
+     *  (skip fetch + `reset --hard`, which would clobber the agent's uncommitted
+     *  edits that HMR is showing live). Only honoured when the worktree already
+     *  exists; a missing one is still created. */
+    noRefresh?: boolean;
   }): Promise<{ path: string; branch: string }> {
-    const { repo, branch, name } = opts;
+    const { repo, branch, name, noRefresh } = opts;
+    const path = join(this.opts.workDir, "preview-worktrees", name);
+    if (noRefresh && existsSync(path)) return { path, branch };
     const bare = this.bareDir(repo);
     await mkdir(join(this.opts.workDir, "repos"), { recursive: true });
 
@@ -222,9 +250,7 @@ export class GhProvider implements GitProvider {
     await git(bare, ["fetch", "origin", `refs/heads/${branch}`]);
     await git(bare, ["worktree", "prune"]).catch(() => {});
 
-    const parentDir = join(this.opts.workDir, "preview-worktrees");
-    const path = join(parentDir, name);
-    await mkdir(parentDir, { recursive: true });
+    await mkdir(join(this.opts.workDir, "preview-worktrees"), { recursive: true });
 
     // Try to refresh an existing worktree (the "reuse" path — no teardown):
     // reset onto the freshly fetched tip.
