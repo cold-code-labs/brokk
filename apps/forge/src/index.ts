@@ -536,12 +536,23 @@ async function runVerify(cmd: string, cwd: string): Promise<VerifyResult> {
     // worktree's *dev* toolchain (tsc, eslint, types) — `pnpm install` under
     // production omits devDependencies, which makes `pnpm typecheck` fail with
     // "tsc: not found". Force a dev env for the verify subprocess only.
+    // pnpm shells out to corepack, which needs a WRITABLE cache home. The forge's
+    // curated env sets HOME=/home/brokk but NOT COREPACK_HOME, so corepack falls back
+    // to `/.cache/node/corepack` → EACCES on the read-only root (the same failure the
+    // preview spawn fixes in preview.ts). Pin HOME + COREPACK_HOME to a writable dir.
+    const home = process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
     const { stdout, stderr } = await execAsync(cmd, {
       cwd,
       // CI=true makes pnpm non-interactive: without a TTY it otherwise aborts
       // (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY) when it wants to purge a
       // node_modules built with different settings, instead of just doing it.
-      env: { ...process.env, NODE_ENV: "development", CI: "true" },
+      env: {
+        ...process.env,
+        NODE_ENV: "development",
+        CI: "true",
+        HOME: home,
+        COREPACK_HOME: `${home}/.cache/corepack`,
+      },
       maxBuffer: 1024 * 1024 * 64,
       timeout: 8 * 60 * 1000,
     });
