@@ -365,6 +365,9 @@ export interface Preview {
   /** When status='unsupported' (or 'failed'): the human-readable reason — Huginn's
    *  explanation of why there's no runtime to boot. Null otherwise. */
   detail: string | null;
+  /** Sha of the commit this preview last built/served (the branch tip checked
+   *  out at boot), else null. Stamped by the supervisor after checkout. */
+  commitSha: string | null;
   /** OS PID of the preview process on the runner host, if running. */
   pid: number | null;
   lastSeenAt: string | null;

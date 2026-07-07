@@ -32,6 +32,9 @@ import type { HauldrClient } from "./hauldr.js";
 interface LivePreview {
   proc: ChildProcess;
   port: number;
+  /** When the process was spawned — lets the tick tell a fresh boot settling
+   *  into 'live' apart from a stale process whose row was respun to 'starting'. */
+  startedAt: number;
 }
 
 /**
@@ -155,12 +158,30 @@ export class PreviewSupervisor {
     for (const p of previews) {
       switch (p.status) {
         case "starting": {
-          if (this.live.has(p.id) || this.booting.has(p.id)) break;
+          if (this.booting.has(p.id)) break;
+          const stale = this.live.get(p.id);
+          if (stale) {
+            // A 'starting' row with a registered process = a respin (push
+            // rebuild / external stop→start) landed between ticks. Retire the
+            // old process and fall through to a fresh boot — breaking here
+            // wedged the slot forever ('starting' + old proc serving). Guard:
+            // a just-spawned proc (<60s) is a fresh boot whose 'live' patch
+            // simply hasn't landed in this tick's snapshot yet — leave it.
+            if (Date.now() - stale.startedAt < 60_000) break;
+            console.log(
+              `[preview-supervisor] ${p.subdomain}: respin — retiring the old process (pid=${stale.proc.pid})`,
+            );
+            this.killAndClean(p.id, stale);
+          }
           this.booting.add(p.id);
           void this.boot(p)
             .catch((err) => {
               console.error(`[preview-supervisor] boot ${p.id} error:`, err);
-              void this.controlPatch(`/previews/${p.id}`, { status: "failed" }).catch(
+              // Keep the reason on the row: a permanent cause (e.g. the branch
+              // was deleted — "couldn't find remote ref") must read as a hard
+              // 'failed', not silently retry forever.
+              const detail = (err instanceof Error ? err.message : String(err)).slice(0, 300);
+              void this.controlPatch(`/previews/${p.id}`, { status: "failed", detail }).catch(
                 () => {},
               );
             })
@@ -350,6 +371,17 @@ export class PreviewSupervisor {
       }));
     }
 
+    // Stamp the sha this boot serves (the checkout's HEAD) — it's what turns
+    // this row into a *deploy* for Heimdall's fleet view (which drops commitless
+    // previews as provisioning noise). Best-effort: a dev-mode workDir mid-setup
+    // just skips the stamp until its next boot.
+    const commitSha = await promisify(execFile)("git", ["rev-parse", "HEAD"], { cwd: wtPath })
+      .then((r) => r.stdout.trim())
+      .catch(() => null);
+    if (commitSha) {
+      await this.controlPatch(`/previews/${preview.id}`, { commitSha }).catch(() => {});
+    }
+
     // Sleipnir: resolve HOW to run this checkout. Pinned spec (decided at connect
     // by Huginn) → canonical Next fast-path → unsupported. No LLM at boot — the
     // decision was made once at connect. A non-supported runtime is a CLEAN stop
@@ -458,7 +490,7 @@ export class PreviewSupervisor {
 
     // Register locally BEFORE the first await so concurrent ticks don't
     // double-boot (the `this.live` check in tick() gates further starts).
-    this.live.set(preview.id, { proc, port });
+    this.live.set(preview.id, { proc, port, startedAt: Date.now() });
 
     // Don't flip to 'live' the instant the process spawns — that's why the iframe
     // used to render a broken page while `pnpm install` + the first compile were

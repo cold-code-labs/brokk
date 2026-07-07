@@ -6,6 +6,12 @@ import { requireRunnerSecret } from "./runner.js";
 const CreatePreviewBody = z.object({
   projectId: z.string().uuid(),
   branch: z.string().default("dev"),
+  /** Push-triggered rebuild semantics: when the slot is already LIVE, retire it
+   *  and boot fresh from the branch tip (a live preview would otherwise keep
+   *  serving the old commit — ensure alone is a no-op on live). Only build-mode
+   *  slots respin; a Sindri dev-mode session's server is never restarted from
+   *  here. A slot mid-'starting' is left alone (a build is already running). */
+  respin: z.boolean().default(false),
 });
 
 export function previewsRoutes(deps: AppDeps): Hono {
@@ -20,7 +26,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
     const parsed = CreatePreviewBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-    const { projectId, branch } = parsed.data;
+    const { projectId, branch, respin } = parsed.data;
 
     const project = await deps.store.getProject(projectId);
     if (!project) return c.json({ error: "project not found" }, 404);
@@ -52,6 +58,22 @@ export function previewsRoutes(deps: AppDeps): Hono {
       status: "starting",
     });
 
+    if (!created && respin && preview.status === "live" && preview.mode === "build") {
+      // Force-refresh: flip the live slot back to 'starting'. The supervisor's
+      // next tick retires the old process (it sees a starting row with a stale
+      // live registration) and boots a fresh checkout of the branch tip.
+      await deps.store.stopPreview(preview.id);
+      const { preview: respun } = await deps.store.ensureActivePreview({
+        projectId,
+        branch,
+        subdomain,
+        url,
+        hauldrProject,
+        status: "starting",
+      });
+      return c.json(respun, 200);
+    }
+
     return c.json(preview, created ? 201 : 200);
   });
 
@@ -75,6 +97,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
     const PatchBody = z.object({
       status: z.enum(["starting", "live", "stopped", "failed", "unsupported"]).optional(),
       detail: z.string().nullable().optional(),
+      commitSha: z.string().nullable().optional(),
       pid: z.number().int().nullable().optional(),
       port: z.number().int().nullable().optional(),
       expiresAt: z.string().datetime().nullable().optional(),
@@ -83,10 +106,11 @@ export function previewsRoutes(deps: AppDeps): Hono {
     const parsed = PatchBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-    const { status, detail, pid, port, expiresAt, lastSeenAt } = parsed.data;
+    const { status, detail, commitSha, pid, port, expiresAt, lastSeenAt } = parsed.data;
     const patch = {
       ...(status !== undefined ? { status } : {}),
       ...(detail !== undefined ? { detail } : {}),
+      ...(commitSha !== undefined ? { commitSha } : {}),
       ...(pid !== undefined ? { pid } : {}),
       ...(port !== undefined ? { port } : {}),
       ...(expiresAt !== undefined

@@ -394,6 +394,11 @@ export const previews = pgTable(
     /** When status='unsupported'/'failed': the human-readable reason (Huginn's
      *  explanation / the validation failure). Null otherwise. */
     detail: text("detail"),
+    /** Sha the preview last checked out to build/serve (the branch tip at boot).
+     *  This is what makes a preview row a *deploy* to the fleet view — Heimdall
+     *  drops commitless previews as provisioning noise. Cleared when a slot
+     *  reactivates; re-stamped by the supervisor right after checkout. */
+    commitSha: text("commit_sha"),
     pid: integer("pid"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),

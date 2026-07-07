@@ -198,8 +198,11 @@ let cache: Map<string, CacheEntry> = new Map();
 let cacheTs = 0; // epoch ms of last successful refresh
 
 /** Every known preview (any status) by subdomain → how to wake it. Lets the
- *  gateway auto-fire a reaped preview when a visitor lands on its URL. */
-let wakeable: Map<string, { projectId: string; branch: string; cp: CpBase }> = new Map();
+ *  gateway auto-fire a reaped preview when a visitor lands on its URL. The
+ *  status rides along so terminal previews (failed/unsupported) are NEVER
+ *  auto-woken by traffic — a dead branch would otherwise boot-loop on every
+ *  visit (each wake re-fails, the holding page refreshes, wakes again…). */
+let wakeable: Map<string, { projectId: string; branch: string; status: string; cp: CpBase }> = new Map();
 
 /**
  * Return the current cache map, refreshing it from the control plane if stale.
@@ -213,7 +216,7 @@ async function resolveCache(): Promise<Map<string, CacheEntry>> {
   try {
     const previews = await fetchAllPreviews();
     const next = new Map<string, CacheEntry>();
-    const nextWake = new Map<string, { projectId: string; branch: string; cp: CpBase }>();
+    const nextWake = new Map<string, { projectId: string; branch: string; status: string; cp: CpBase }>();
     for (const { row: p, cp } of previews) {
       if (!("subdomain" in p) || typeof p.subdomain !== "string") continue;
       const subdomain = p.subdomain;
@@ -226,7 +229,8 @@ async function resolveCache(): Promise<Map<string, CacheEntry>> {
         "branch" in p &&
         typeof p.branch === "string"
       ) {
-        nextWake.set(subdomain, { projectId: p.projectId, branch: p.branch, cp });
+        const status = "status" in p && typeof p.status === "string" ? p.status : "";
+        nextWake.set(subdomain, { projectId: p.projectId, branch: p.branch, status, cp });
       }
       if (
         !next.has(subdomain) &&
@@ -380,6 +384,55 @@ function html404(host: string): string {
 </html>`;
 }
 
+// Terminal-preview page (failed/unsupported): same deep-freeze theme as the 404,
+// but honest about the state — and deliberately NOT auto-refreshing, since a
+// refresh must not (and will not) re-trigger a boot of a broken preview.
+function htmlFailed(host: string): string {
+  const safe = escapeHtml(host && host.length > 0 ? host : "este preview");
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview falhou</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; margin:0;
+    min-height:100vh; display:flex; align-items:center; justify-content:center; overflow:hidden;
+    background: radial-gradient(120% 120% at 50% -10%, #14395d 0%, #0c2740 45%, #071a2c 100%);
+    color:#eaf3fc; }
+  .flk { position:fixed; top:-6%; color:#cfe4fa; pointer-events:none; user-select:none;
+    animation-name: fall; animation-timing-function: linear; animation-iteration-count: infinite; }
+  @keyframes fall { to { transform: translateY(112vh) rotate(360deg); } }
+  .card { position:relative; z-index:1; text-align:center; padding:3rem 2.6rem; max-width:480px; }
+  .ico { font-size:4.2rem; line-height:1; margin-bottom:1.2rem; display:inline-block;
+    filter: drop-shadow(0 6px 18px rgba(0,0,0,.45)); }
+  .tag { display:inline-block; font-size:.72rem; letter-spacing:.18em; text-transform:uppercase;
+    color:#e3a97f; border:1px solid rgba(227,169,127,.4); border-radius:999px; padding:.28rem .8rem; margin-bottom:1.2rem; }
+  h1 { font-size:1.55rem; font-weight:600; margin:0 0 .7rem; }
+  p  { color:#b9d2ec; margin:0 0 .5rem; line-height:1.6; font-size:1.04rem; }
+  code { display:inline-block; margin-top:.35rem; font-size:.96rem; color:#eaf3fc;
+    background: rgba(255,255,255,.07); border:1px solid rgba(180,210,240,.22);
+    border-radius:8px; padding:.4rem .7rem; word-break:break-all; }
+  .hint { margin-top:1.5rem; font-size:.94rem; color:#86a6c6; }
+</style>
+</head>
+<body>
+  ${SNOW}
+  <div class="card">
+    <div class="ico">🧊</div>
+    <span class="tag">preview congelado no gelo</span>
+    <h1>O último build deste preview falhou</h1>
+    <p><code>${safe}</code></p>
+    <p class="hint">Recarregar a página não vai reconstruí-lo — um push novo na branch
+       (ou reiniciar pelo board do Brokk) descongela. Se a branch foi deletada,
+       este preview chegou ao fim da sua era glacial. ❄️</p>
+  </div>
+</body>
+</html>`;
+}
+
 const HTML_502 = `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Preview starting…</title>
@@ -528,6 +581,13 @@ async function handleRequest(
     // we've never seen falls through to the real not-found page.
     const wake = wakeable.get(subdomain);
     if (wake) {
+      if (wake.status === "failed" || wake.status === "unsupported") {
+        // Terminal preview: traffic must NOT resurrect it (a dead branch would
+        // boot-fail on every visit, forever). A push/explicit restart flips it
+        // back to 'starting' and the cache picks the new status up on refresh.
+        respondHtml(res, 200, htmlFailed(req.headers.host ?? ""));
+        return;
+      }
       maybeWake(subdomain, wake.projectId, wake.branch, wake.cp);
       respondHtml(res, 200, HTML_THAWING);
       return;
@@ -570,7 +630,9 @@ async function handleRequest(
     // visitor. Nudge the wake in case the process is gone, and let the page
     // self-recover on its next refresh once the app answers.
     const w = wakeable.get(subdomain);
-    if (w) maybeWake(subdomain, w.projectId, w.branch, w.cp);
+    if (w && w.status !== "failed" && w.status !== "unsupported") {
+      maybeWake(subdomain, w.projectId, w.branch, w.cp);
+    }
     respondHtml(res, 200, HTML_THAWING);
   });
   req.pipe(proxyReq, { end: true });
