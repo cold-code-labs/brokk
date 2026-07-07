@@ -42,6 +42,9 @@ export function runnerRoutes(deps: AppDeps): Hono {
     const body = await c.req.json().catch(() => ({}));
     if (typeof body?.runnerId === "string") {
       await deps.store.touchAgent(body.runnerId).catch(() => {});
+      // ADR 0017: renew the app leases this runner's live runs hold, so a long run
+      // keeps its dev-checkout lock (the crash backstop only bites once heartbeats stop).
+      await deps.store.renewLeases(body.runnerId).catch(() => {});
     }
     return c.json({ ok: true });
   });

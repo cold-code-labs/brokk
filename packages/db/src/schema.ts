@@ -149,6 +149,13 @@ export const projects = pgTable("projects", {
   // checkout. Decided once at connect (Huginn skill / fast-path), reused per boot.
   // Null = resolve each boot (legacy projects fall through to the Next fast-path).
   runtime: jsonb("runtime").$type<import("@brokk/core").RuntimeSpec>(),
+  // ADR 0017 lane lease: the run currently holding this app's dev-checkout lease.
+  // Serial per-app — claimNext skips a project whose lease is live, so one card at
+  // a time mutates the shared dev checkout (different apps still run in parallel).
+  // Renewed by the runner's heartbeat, cleared on run complete; lease_expires_at is
+  // the crash backstop (a dead runner's lease lapses → the app is reclaimable).
+  leaseRunId: uuid("lease_run_id"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

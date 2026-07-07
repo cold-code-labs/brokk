@@ -205,6 +205,10 @@ export function runsRoutes(deps: AppDeps): Hono {
         : {}),
     });
 
+    // ADR 0017: free the app's dev-checkout lease this run held, so the next card
+    // for that app can claim. Idempotent (no-op if already reassigned/expired).
+    await deps.store.releaseLease(id).catch(() => {});
+
     // Map run outcome → task column. PR open → review; merge (webhook) → done.
     const taskStatus =
       status === "succeeded" ? "review" : status === "failed" ? "failed" : "cancelled";

@@ -446,6 +446,11 @@ const execRows = (res: unknown): Record<string, unknown>[] =>
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
+/** ADR 0017 lane-lease TTL. Short on purpose — a live run renews it every
+ *  heartbeat (renewLeases), so this only bounds how long a *crashed* runner
+ *  keeps an app locked before claimNext may reclaim it. */
+const LEASE_TTL_MS = 10 * 60 * 1000;
+
 /** What a runner gets when it claims a card: the task + its run + the resolved
  *  repository/project (the footgun fix — no more BROKK_DEFAULT_REPO), the plan it
  *  composes into (if any), and the seat's sealed token. */
@@ -565,6 +570,12 @@ export interface Store {
    *  running, resolves repo/project, and assigns the least-recently-used active
    *  seat (round-robin). Returns null when nothing is ready. */
   claimNext(runnerId: string): Promise<ClaimResult | null>;
+  /** ADR 0017: slide every live lease held by this runner's running runs forward
+   *  (called on heartbeat) so a long-but-alive run never has its app reclaimed. */
+  renewLeases(runnerId: string): Promise<void>;
+  /** ADR 0017: release the app lease a finished run held (no-op if already freed
+   *  or reassigned). Called from completeRun. */
+  releaseLease(runId: string): Promise<void>;
 
   // plans (Mímir planner → cards → one PR)
   insertPlan(values: typeof plans.$inferInsert): Promise<Plan>;
@@ -1132,8 +1143,17 @@ export function createStore(db: Db): Store {
         const candidates = await tx
           .select()
           .from(tasks)
-          // owner='human' cards are pulled out for a person — the forge skips them.
-          .where(and(eq(tasks.status, "queued"), eq(tasks.owner, "brokk")))
+          .where(
+            and(
+              eq(tasks.status, "queued"),
+              // owner='human' cards are pulled out for a person — the forge skips them.
+              eq(tasks.owner, "brokk"),
+              // ADR 0017 serial-per-app: skip cards whose app holds a LIVE dev-checkout
+              // lease (another card is mutating that app's dev checkout right now). An
+              // expired lease (dead runner) doesn't count → the app is reclaimable.
+              sql`not exists (select 1 from ${projects} p where p.id = ${tasks.projectId} and p.lease_run_id is not null and p.lease_expires_at > now())`,
+            ),
+          )
           .orderBy(sql`${tasks.priority} desc`, asc(tasks.createdAt))
           .limit(10)
           .for("update", { skipLocked: true });
@@ -1228,6 +1248,19 @@ export function createStore(db: Db): Store {
           })
           .returning();
 
+        // ADR 0017: acquire the app's dev-checkout lease for this run. Held serial —
+        // the candidate filter above excludes leased apps. Renewed by the runner's
+        // heartbeat (renewLeases) and released on completeRun; lease_expires_at is the
+        // crash backstop. TTL is short (10 min) because a live run keeps renewing it.
+        await tx
+          .update(projects)
+          .set({
+            leaseRunId: runRows[0]!.id,
+            leaseExpiresAt: new Date(Date.now() + LEASE_TTL_MS),
+            updatedAt: new Date(),
+          })
+          .where(eq(projects.id, projRow.id));
+
         return {
           task: rowToTask(updatedTask[0]!),
           run: rowToRun(runRows[0]!),
@@ -1238,6 +1271,22 @@ export function createStore(db: Db): Store {
           memory: memoryRows.map(rowToRepoMemory),
         };
       });
+    },
+
+    async renewLeases(runnerId) {
+      // Extend leases whose holder is a still-running run on this runner. Idempotent;
+      // touches nothing once a run completes (completeRun nulls lease_run_id).
+      await db.execute(sql`
+        update ${projects} set lease_expires_at = now() + interval '${sql.raw(String(LEASE_TTL_MS))} milliseconds'
+        where lease_run_id in (
+          select ${runs.id} from ${runs} where ${runs.runnerId} = ${runnerId} and ${runs.status} = 'running'
+        )`);
+    },
+    async releaseLease(runId) {
+      await db
+        .update(projects)
+        .set({ leaseRunId: null, leaseExpiresAt: null, updatedAt: new Date() })
+        .where(eq(projects.leaseRunId, runId));
     },
 
     async insertPlan(values) {
@@ -1991,6 +2040,10 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS commit_sha text;`);
     await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS built_at timestamptz;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS runtime jsonb;`);
+    // ADR 0017 lane lease (serial per-app dev-checkout). Self-healed so it lands
+    // without a push (which hangs on db_brokk).
+    await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS lease_run_id uuid;`);
+    await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz;`);
     // Add the 'unsupported' preview status. ADD VALUE can't run inside a txn block,
     // so it's its own statement; IF NOT EXISTS makes it idempotent on reboot.
     await db.execute(sql`ALTER TYPE preview_status ADD VALUE IF NOT EXISTS 'unsupported';`);
