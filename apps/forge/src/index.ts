@@ -362,9 +362,10 @@ async function runDevLane(
   const model = run.model ?? process.env.BROKK_DEFAULT_MODEL ?? "sonnet";
   let trace: ForgeTrace | null = null;
   try {
-    // Refresh the private card checkout to the dev tip.
+    // Refresh the private card checkout to the dev tip — DETACHED so it never collides
+    // with the preview's `dev` worktree (a local branch lives in only one worktree).
     buffer.emit({ type: "status", payload: { phase: "worktree", branch: "dev", baseBranch: "dev" } });
-    const wt = await git.persistentCheckout({ repo, branch: "dev", name: workName });
+    const wt = await git.persistentCheckout({ repo, branch: "dev", name: workName, detach: true });
 
     trace = startForgeTrace({
       title: task.title,

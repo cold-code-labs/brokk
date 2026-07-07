@@ -173,7 +173,9 @@ export class GhProvider implements GitProvider {
     const staged = await git(opts.cwd, ["diff", "--cached", "--name-only"]);
     if (!staged.trim()) return null; // nothing changed → nothing to land
     await git(opts.cwd, [...ident, "commit", "-m", opts.message]);
-    await git(opts.cwd, ["push", "origin", opts.branch]);
+    // HEAD:<branch> fast-forwards origin/<branch> whether the worktree is on a local
+    // branch or (dev-lane) a detached HEAD.
+    await git(opts.cwd, ["push", "origin", `HEAD:${opts.branch}`]);
     return git(opts.cwd, ["rev-parse", "HEAD"]);
   }
 
@@ -231,8 +233,15 @@ export class GhProvider implements GitProvider {
      *  edits that HMR is showing live). Only honoured when the worktree already
      *  exists; a missing one is still created. */
     noRefresh?: boolean;
+    /** ADR 0017 dev-lane: check out a DETACHED HEAD at the branch tip instead of a
+     *  local `<branch>` ref. A local branch can only be checked out in ONE worktree,
+     *  and the preview already owns `dev` in its own worktree — the card's private
+     *  checkout would collide ("cannot force update the branch 'dev' used by worktree
+     *  …"). Detached lets the card land commits on origin/<branch> (push HEAD:<branch>)
+     *  without owning the local branch. */
+    detach?: boolean;
   }): Promise<{ path: string; branch: string }> {
-    const { repo, branch, name, noRefresh } = opts;
+    const { repo, branch, name, noRefresh, detach } = opts;
     const path = join(this.opts.workDir, "preview-worktrees", name);
     if (noRefresh && existsSync(path)) return { path, branch };
     const bare = this.bareDir(repo);
@@ -266,7 +275,14 @@ export class GhProvider implements GitProvider {
     // stale-worktree boot failure).
     await rm(path, { recursive: true, force: true }).catch(() => {});
     await git(bare, ["worktree", "prune"]).catch(() => {});
-    await git(bare, ["worktree", "add", "--force", "-B", branch, path, "FETCH_HEAD"]);
+    // Detached (dev-lane card): no local branch, so it never collides with the
+    // preview's `<branch>` worktree. Otherwise bind the local branch (preview path).
+    await git(
+      bare,
+      detach
+        ? ["worktree", "add", "--detach", "--force", path, "FETCH_HEAD"]
+        : ["worktree", "add", "--force", "-B", branch, path, "FETCH_HEAD"],
+    );
     return { path, branch };
   }
 }
