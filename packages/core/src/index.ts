@@ -368,6 +368,9 @@ export interface Preview {
   /** Sha of the commit this preview last built/served (the branch tip checked
    *  out at boot), else null. Stamped by the supervisor after checkout. */
   commitSha: string | null;
+  /** When the preview last checked out/built (ISO, stamped with commitSha) —
+   *  the deploy's chronological anchor in the fleet feed. Null = never built. */
+  builtAt: string | null;
   /** OS PID of the preview process on the runner host, if running. */
   pid: number | null;
   lastSeenAt: string | null;

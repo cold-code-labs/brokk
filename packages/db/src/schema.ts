@@ -396,9 +396,14 @@ export const previews = pgTable(
     detail: text("detail"),
     /** Sha the preview last checked out to build/serve (the branch tip at boot).
      *  This is what makes a preview row a *deploy* to the fleet view — Heimdall
-     *  drops commitless previews as provisioning noise. Cleared when a slot
-     *  reactivates; re-stamped by the supervisor right after checkout. */
+     *  drops commitless previews as provisioning noise. Survives a slot
+     *  reactivation (the row keeps its place in the feed while "Starting");
+     *  the supervisor overwrites it right after the fresh checkout. */
     commitSha: text("commit_sha"),
+    /** When the preview last checked out/built (stamped with commitSha) — the
+     *  deploy's chronological anchor in the fleet feed. Without it a preview
+     *  would sort by the SLOT's created_at (ancient) instead of the build. */
+    builtAt: timestamp("built_at", { withTimezone: true }),
     pid: integer("pid"),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),

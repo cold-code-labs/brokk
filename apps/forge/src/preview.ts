@@ -379,7 +379,10 @@ export class PreviewSupervisor {
       .then((r) => r.stdout.trim())
       .catch(() => null);
     if (commitSha) {
-      await this.controlPatch(`/previews/${preview.id}`, { commitSha }).catch(() => {});
+      await this.controlPatch(`/previews/${preview.id}`, {
+        commitSha,
+        builtAt: new Date().toISOString(),
+      }).catch(() => {});
     }
 
     // Sleipnir: resolve HOW to run this checkout. Pinned spec (decided at connect

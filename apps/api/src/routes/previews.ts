@@ -98,6 +98,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
       status: z.enum(["starting", "live", "stopped", "failed", "unsupported"]).optional(),
       detail: z.string().nullable().optional(),
       commitSha: z.string().nullable().optional(),
+      builtAt: z.string().datetime().nullable().optional(),
       pid: z.number().int().nullable().optional(),
       port: z.number().int().nullable().optional(),
       expiresAt: z.string().datetime().nullable().optional(),
@@ -106,11 +107,12 @@ export function previewsRoutes(deps: AppDeps): Hono {
     const parsed = PatchBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-    const { status, detail, commitSha, pid, port, expiresAt, lastSeenAt } = parsed.data;
+    const { status, detail, commitSha, builtAt, pid, port, expiresAt, lastSeenAt } = parsed.data;
     const patch = {
       ...(status !== undefined ? { status } : {}),
       ...(detail !== undefined ? { detail } : {}),
       ...(commitSha !== undefined ? { commitSha } : {}),
+      ...(builtAt !== undefined ? { builtAt: builtAt ? new Date(builtAt) : null } : {}),
       ...(pid !== undefined ? { pid } : {}),
       ...(port !== undefined ? { port } : {}),
       ...(expiresAt !== undefined

@@ -368,6 +368,7 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
     status: row.status as PreviewStatus,
     detail: row.detail ?? null,
     commitSha: row.commitSha ?? null,
+    builtAt: iso(row.builtAt),
     pid: row.pid,
     lastSeenAt: iso(row.lastSeenAt),
     expiresAt: iso(row.expiresAt),
@@ -628,6 +629,7 @@ export interface Store {
       status?: PreviewStatus;
       detail?: string | null;
       commitSha?: string | null;
+      builtAt?: Date | null;
       pid?: number | null;
       port?: number | null;
       expiresAt?: Date | null;
@@ -1512,10 +1514,10 @@ export function createStore(db: Db): Store {
           .set({
             status: "starting",
             updatedAt: new Date(),
-            // The recorded sha belongs to the PREVIOUS build — clear it so the
-            // fleet view never shows a stale commit while the new boot runs;
-            // the supervisor re-stamps it right after checkout.
-            commitSha: null,
+            // commitSha/builtAt are deliberately KEPT: the fleet feed shows the
+            // slot in place ("Starting" over the previous build) instead of the
+            // row vanishing; the supervisor overwrites both right after the
+            // fresh checkout.
             // Refresh dev-mode metadata so a reused slot tracks the current
             // session checkout (no-op for build-mode previews).
             ...(values.mode !== undefined ? { mode: values.mode } : {}),
@@ -1559,6 +1561,7 @@ export function createStore(db: Db): Store {
       if (patch.status !== undefined) set.status = patch.status;
       if (patch.detail !== undefined) set.detail = patch.detail ?? null;
       if (patch.commitSha !== undefined) set.commitSha = patch.commitSha ?? null;
+      if (patch.builtAt !== undefined) set.builtAt = patch.builtAt ?? null;
       if (patch.pid !== undefined) set.pid = patch.pid;
       if (patch.port !== undefined) set.port = patch.port;
       if (patch.expiresAt !== undefined) set.expiresAt = patch.expiresAt ?? undefined;
@@ -1983,6 +1986,7 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     // The sha a preview last built/served — what promotes a preview row to a
     // "deploy" in Heimdall's fleet view (commitless previews are dropped there).
     await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS commit_sha text;`);
+    await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS built_at timestamptz;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS runtime jsonb;`);
     // Add the 'unsupported' preview status. ADD VALUE can't run inside a txn block,
     // so it's its own statement; IF NOT EXISTS makes it idempotent on reboot.
