@@ -97,7 +97,7 @@ async function main() {
     // any app not in BROKK_DEVLANE_APPS, keep the PR flow.
     const run =
       isDevLaneCard(cfg, claimed)
-        ? runDevLane(cfg, git, engine, locks, claimed)
+        ? runDevLane(cfg, git, engine, locks, supervisor, claimed)
         : handleRun(cfg, git, engine, claimed);
     await run.catch((err) =>
       console.error(`[forge] run ${claimed?.run.id} crashed:`, err),
@@ -351,6 +351,7 @@ async function runDevLane(
   git: GhProvider,
   engine: ForgeEngine,
   locks: CheckoutLocks,
+  supervisor: PreviewSupervisor,
   { task, run, repository, auth, memory }: Claimed,
 ): Promise<void> {
   const repo = repository!; // isDevLaneCard guarantees a resolved repository
@@ -363,6 +364,10 @@ async function runDevLane(
   let trace: ForgeTrace | null = null;
   locks.acquire(slug);
   try {
+    // Free the shared checkout: stop the live HMR preview so `next dev` releases the
+    // worktree before we git-refresh + pnpm-install in it. The lock (held above) keeps
+    // the supervisor from rebooting it until we release (ADR 0017 coordination).
+    await supervisor.quiesce(slug).catch(() => {});
     // Refresh the shared dev checkout to the branch tip (the same worktree HMR serves).
     buffer.emit({ type: "status", payload: { phase: "worktree", branch: "dev", baseBranch: "dev" } });
     const wt = await git.persistentCheckout({ repo, branch: "dev", name: slug });
