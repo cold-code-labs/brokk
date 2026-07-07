@@ -371,6 +371,9 @@ export interface Preview {
   /** When the preview last checked out/built (ISO, stamped with commitSha) —
    *  the deploy's chronological anchor in the fleet feed. Null = never built. */
   builtAt: string | null;
+  /** When the preview finished building and went live (ISO). With builtAt this
+   *  gives the build duration the fleet feed shows. Null until it goes live. */
+  readyAt: string | null;
   /** OS PID of the preview process on the runner host, if running. */
   pid: number | null;
   lastSeenAt: string | null;

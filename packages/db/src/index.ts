@@ -369,6 +369,7 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
     detail: row.detail ?? null,
     commitSha: row.commitSha ?? null,
     builtAt: iso(row.builtAt),
+    readyAt: iso(row.readyAt),
     pid: row.pid,
     lastSeenAt: iso(row.lastSeenAt),
     expiresAt: iso(row.expiresAt),
@@ -630,6 +631,7 @@ export interface Store {
       detail?: string | null;
       commitSha?: string | null;
       builtAt?: Date | null;
+      readyAt?: Date | null;
       pid?: number | null;
       port?: number | null;
       expiresAt?: Date | null;
@@ -1562,6 +1564,7 @@ export function createStore(db: Db): Store {
       if (patch.detail !== undefined) set.detail = patch.detail ?? null;
       if (patch.commitSha !== undefined) set.commitSha = patch.commitSha ?? null;
       if (patch.builtAt !== undefined) set.builtAt = patch.builtAt ?? null;
+      if (patch.readyAt !== undefined) set.readyAt = patch.readyAt ?? null;
       if (patch.pid !== undefined) set.pid = patch.pid;
       if (patch.port !== undefined) set.port = patch.port;
       if (patch.expiresAt !== undefined) set.expiresAt = patch.expiresAt ?? undefined;
