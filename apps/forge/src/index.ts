@@ -400,6 +400,18 @@ async function runDevLane(
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
       verify: cfg.verifyCmd ? () => runVerify(cfg.verifyCmd, wt.path) : undefined,
       maxHealAttempts: cfg.healAttempts,
+      // Dev-lane schema capability (ADR 0017 §6b): unlock apply_migration against
+      // this app's `<app>_dev` DB when the control plane is configured. Same project
+      // + endpoint the deploy migrates through → the file the agent writes and the
+      // live schema stay identical, and the dev-build skips what's already applied.
+      migration:
+        cfg.hauldrControlUrl && cfg.hauldrToken
+          ? {
+              controlUrl: cfg.hauldrControlUrl,
+              token: cfg.hauldrToken,
+              project: devCheckoutSlug(repo.name),
+            }
+          : undefined,
       emit: (e) => {
         buffer.emit(e);
         trace?.onEvent(e);

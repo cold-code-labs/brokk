@@ -81,12 +81,33 @@ export function buildPrompt(ctx: AgentRunContext, browser?: boolean): string {
           ...ctx.memory.map((m) => `- ${m}`),
         ].join("\n")
       : "";
+  // Dev-lane doctrine (ADR 0017 §6b): a `migration` context means this app has a
+  // shared dev database and the `apply_migration` tool. Schema changes go through
+  // it — never raw DDL, never a hand-written migration file — so the files and the
+  // live DB can't drift and the deploy skips what's already applied.
+  const migrationHint = ctx.migration
+    ? [
+        "",
+        "## Database schema — migrations only (never raw DDL)",
+        "This app's schema is code in `db/migrations/*.sql`, applied to a shared dev database.",
+        "To change the schema (create/alter/drop a table, column, index, view, function, RLS",
+        "policy, trigger, grant): call the `apply_migration` tool with a short `name` and the",
+        "`sql`. It writes the migration file AND applies it to the dev DB now, so the preview",
+        "reflects it immediately.",
+        "- NEVER run DDL by hand (psql/bash, a DB client) and NEVER create or edit files under",
+        "  `db/migrations/` with write_file/edit_file — `apply_migration` owns that path.",
+        "- Prefer ADDITIVE changes (`create table if not exists`, add a column). A destructive",
+        "  change (drop/rename) can break the running dev-build that shares this database.",
+        "- One migration per schema change. Already-applied migrations are skipped on deploy.",
+      ].join("\n")
+    : "";
   return [
     `# Task: ${ctx.task.title}`,
     ctx.task.body || "(no description)",
     labels,
     acceptance,
     memory,
+    migrationHint,
     browserHint,
     "",
     "When done, ensure changes are committed-ready (Brokk will commit, push, and open the PR).",

@@ -9,3 +9,4 @@
 
 export { ForgeEngine, type ForgeEngineOptions } from "./engine.js";
 export { buildHealPrompt, buildPrompt, DEFAULT_SYSTEM_PROMPT } from "./prompts.js";
+export { MIGRATION_TOOL_DEF, makeMigrationExecutor, type MigrationToolContext } from "./tools.js";

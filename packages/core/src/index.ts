@@ -444,6 +444,22 @@ export interface AgentRunContext {
   /** Max self-heal iterations after a failed verify (#1). 0 = verify once, no
    *  heal. Ignored when `verify` is undefined. */
   maxHealAttempts?: number;
+  /** Dev-lane schema capability (ADR 0017 §6b). Present only when the run has a
+   *  `<app>_dev` database to migrate against (the dev lane), which unlocks the
+   *  agent's `apply_migration` tool: write db/migrations/NNNN.sql AND apply it to
+   *  this project's dev DB through the control-plane migrate endpoint — the same
+   *  endpoint + name the deploy uses, so the schema never drifts from the files
+   *  and the deploy skips what's already applied. Absent on the PR path (no dev
+   *  DB, no tool). */
+  migration?: {
+    /** Hauldr control-plane base url (HAULDR_CONTROL_URL). */
+    controlUrl: string;
+    /** Bearer for POST /v1/projects/:name/migrate (fleet management key or a
+     *  per-project migrate token). */
+    token: string;
+    /** The project whose dev DB receives the DDL, e.g. `logcheck_dev`. */
+    project: string;
+  };
   /** Emit one event into the run stream (forwarded to the control plane). */
   emit: (event: Omit<RunEvent, "id" | "runId" | "seq" | "at">) => void;
 }

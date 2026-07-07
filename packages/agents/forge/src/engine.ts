@@ -35,6 +35,7 @@ import {
 } from "@brokk/afl";
 import type { AgentEngine, AgentRunContext, RunResult, RunUsage, VerifyOutcome } from "@brokk/core";
 import { buildHealPrompt, buildPrompt, DEFAULT_SYSTEM_PROMPT } from "./prompts.js";
+import { MIGRATION_TOOL_DEF, makeMigrationExecutor } from "./tools.js";
 
 export interface ForgeEngineOptions {
   /** Gateway base url (ANTHROPIC_BASE_URL) — LiteLLM → Ratatoskr. */
@@ -83,9 +84,14 @@ export class ForgeEngine implements AgentEngine {
     // unknown-tool fallback to satisfy the loop's full ToolExecutor.
     // Route bash through the environment's enclave (gVisor when N4 is wired, else
     // local). Per-checkout, so the forge task's worktree is the sandbox boundary.
+    // Dev-lane runs carry a `migration` context (a `<app>_dev` DB); those get the
+    // apply_migration hand on top of the generic ones (ADR 0017 §6b). The PR path
+    // has no dev DB → no migration tool, no doctrine.
     const exec = composeExecutors(
       makeFsExecutor({ cwd: ctx.cwd, enclave: resolveEnclave({ checkoutRoot: ctx.cwd }) }),
+      ...(ctx.migration ? [makeMigrationExecutor({ cwd: ctx.cwd, ...ctx.migration })] : []),
     );
+    const tools = ctx.migration ? [...FS_TOOL_DEFS, MIGRATION_TOOL_DEF] : FS_TOOL_DEFS;
     const usage: RunUsage = { tokensIn: 0, tokensOut: 0, headroomSaved: 0 };
     const hooks = this.forgeHooks(ctx, usage);
 
@@ -101,7 +107,7 @@ export class ForgeEngine implements AgentEngine {
         model,
         system,
         messages,
-        tools: FS_TOOL_DEFS,
+        tools,
         exec,
         maxTokens: this.cfg.maxTokens,
         maxRounds: this.cfg.maxRounds,
