@@ -1642,24 +1642,27 @@ html.dark .fv-hl .shiki span {
   font-size: 12px;
 }
 
-/* ══════════════════════════════════════════════════════════════════════
-   Landing (public `/`) — the marketing face of Brokk. Fully token-driven so
-   it renders in both dark-native and cold-paper light themes. Same vocabulary
-   as the Fleet ("The Forge at Night"): cold aurora, lit cards, the mascot
-   standing on its own.
-   ══════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   Landing (public `/`) — "The Forge at Night"
+   Carries the app's own Fleet aesthetic (app/fleet.css) out to the front door:
+   cold sky-blue steel for structure, a faint dot-grid, and ONE warm ember
+   reserved for live/forging work + the "light the forge" action. Restrained,
+   not gaudy. Fully token-driven, flips light/dark for free.
+   ══════════════════════════════════════════════════════════════════════════ */
 .lp {
-  --lp-max: 1140px;
+  --lp-max: 1160px;
+  --ember: #ff7a45;
+  --ember-2: #ff9c39;
+  --ember-soft: color-mix(in srgb, var(--ember) 16%, transparent);
+  --ember-ink: #1c0d04;
   color: var(--fg);
   background: var(--bg);
   overflow-x: clip;
 }
-.lp-shell {
-  width: 100%;
-  max-width: var(--lp-max);
-  margin: 0 auto;
-  padding: 0 1.5rem;
-}
+:root.light .lp { --ember: #e0571f; --ember-2: #d1691a; --ember-ink: #fff6ef; }
+.lp a { text-decoration: none; color: inherit; }
+.lp-shell { width: 100%; max-width: var(--lp-max); margin: 0 auto; padding: 0 1.5rem; }
+.lp-hot { color: var(--ember); }
 
 /* ── Buttons ── */
 .lp-btn {
@@ -1674,37 +1677,32 @@ html.dark .fv-hl .shiki span {
   line-height: 1;
   color: var(--fg);
   background: var(--panel);
-  transition: transform 0.12s ease, box-shadow 0.16s ease, background 0.12s,
-    border-color 0.12s, opacity 0.12s;
+  transition: transform 0.12s ease, box-shadow 0.16s ease, background 0.12s, border-color 0.12s;
   white-space: nowrap;
-  text-decoration: none;
 }
 .lp-btn:hover { transform: translateY(-1px); }
-.lp-btn-lg { padding: 0.8rem 1.35rem; font-size: 1rem; border-radius: 0.8rem; }
+.lp-btn-lg { padding: 0.82rem 1.4rem; font-size: 1rem; border-radius: 0.8rem; }
 .lp-btn .lp-ico { width: 1.05em; height: 1.05em; }
+/* Primary = the ember. The one bold warm beat: "light the forge". */
 .lp-btn-primary {
-  color: var(--primary-foreground);
-  background: linear-gradient(180deg,
-    color-mix(in srgb, var(--accent) 92%, white), var(--accent));
-  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
-  box-shadow: var(--glow-accent);
+  color: var(--ember-ink);
+  background: linear-gradient(180deg, var(--ember-2), var(--ember));
+  border-color: color-mix(in srgb, var(--ember) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ember) 40%, transparent),
+    0 10px 30px -12px color-mix(in srgb, var(--ember) 75%, transparent);
 }
 .lp-btn-primary:hover {
-  box-shadow: var(--glow-accent), 0 10px 30px -14px var(--accent);
-  background: linear-gradient(180deg,
-    color-mix(in srgb, var(--accent) 98%, white), var(--accent-dim));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ember) 60%, transparent),
+    0 14px 40px -12px color-mix(in srgb, var(--ember) 90%, transparent);
+  filter: saturate(1.08) brightness(1.03);
 }
 .lp-btn-ghost { background: color-mix(in srgb, var(--panel) 55%, transparent); }
 .lp-btn-ghost:hover { background: var(--panel); border-color: var(--accent); }
 
-/* ── Brand — the mascot stands on its own, no box (matches the sidebar). ── */
-.lp-brand { display: inline-flex; align-items: center; gap: 0.6rem; text-decoration: none; color: var(--fg); }
-.lp-brand-mark {
-  height: 2.4rem;
-  display: grid;
-  place-items: center;
-}
-.lp-brand-mark-sm { height: 1.35rem; }
+/* ── Brand — the smith stands on his own, no box (matches the sidebar). ── */
+.lp-brand { display: inline-flex; align-items: center; gap: 0.55rem; }
+.lp-brand-mark { height: 2.4rem; display: grid; place-items: center; }
+.lp-brand-mark-sm { height: 1.4rem; }
 .lp-brand-mark img { height: 100%; width: auto; display: block; }
 .lp-brand-name { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; }
 
@@ -1714,54 +1712,63 @@ html.dark .fv-hl .shiki span {
   top: 0;
   z-index: 50;
   backdrop-filter: saturate(1.4) blur(14px);
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
   border-bottom: 1px solid var(--line-soft);
 }
-.lp-nav-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 4.1rem;
-  gap: 1rem;
-}
+.lp-nav-inner { display: flex; align-items: center; justify-content: space-between; height: 4.1rem; gap: 1rem; }
 .lp-nav-links { display: flex; gap: 1.6rem; font-size: 0.92rem; color: var(--fg-soft); }
-.lp-nav-links a { transition: color 0.12s; text-decoration: none; color: inherit; }
 .lp-nav-links a:hover { color: var(--fg); }
 .lp-nav-cta { display: flex; align-items: center; gap: 0.7rem; }
 
-/* ── Aurora + grid backdrops ── */
+/* ── Hero ── */
+.lp-hero { position: relative; overflow: hidden; padding: 4.8rem 0 4rem; }
+/* Aurora over the peak (cool) + ember bloom from the forge (warm, low-right). */
 .lp-aurora {
   position: absolute;
   inset: -30% -10% auto -10%;
-  height: 720px;
+  height: 780px;
   pointer-events: none;
   background:
-    radial-gradient(60% 55% at 22% 12%, color-mix(in srgb, var(--accent) 34%, transparent), transparent 70%),
-    radial-gradient(48% 50% at 82% 8%, color-mix(in srgb, #8b5cf6 26%, transparent), transparent 70%),
-    radial-gradient(46% 60% at 60% 30%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 72%);
-  filter: blur(18px);
-  opacity: 0.9;
+    radial-gradient(58% 55% at 18% 8%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 68%),
+    radial-gradient(50% 55% at 62% 4%, color-mix(in srgb, #7c5cff 18%, transparent), transparent 70%),
+    radial-gradient(60% 70% at 92% 78%, var(--ember-soft), transparent 62%);
+  filter: blur(14px);
+  opacity: 0.95;
 }
-.lp-aurora-soft { opacity: 0.6; height: 460px; inset: -40% -10% auto -10%; }
-.lp-grid-overlay {
+.lp-dotgrid {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background-image:
-    linear-gradient(var(--line-soft) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
-  background-size: 46px 46px;
-  mask-image: radial-gradient(80% 60% at 50% 0%, #000 20%, transparent 75%);
-  opacity: 0.5;
+  background-image: radial-gradient(circle at center, color-mix(in srgb, var(--fg) 13%, transparent) 1px, transparent 1.4px);
+  background-size: 26px 26px;
+  mask-image: radial-gradient(120% 100% at 30% -10%, #000 0%, transparent 62%);
+  -webkit-mask-image: radial-gradient(120% 100% at 30% -10%, #000 0%, transparent 62%);
+  opacity: 0.6;
 }
-
-/* ── Hero ── */
-.lp-hero { position: relative; overflow: hidden; padding: 4.5rem 0 3.5rem; }
+/* Sparks drifting up from the forge. */
+.lp-sparks { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.lp-sparks span {
+  position: absolute;
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: var(--ember);
+  box-shadow: 0 0 6px 1px var(--ember);
+  opacity: 0;
+  animation-name: lp-spark-rise;
+  animation-timing-function: ease-out;
+  animation-iteration-count: infinite;
+}
+@keyframes lp-spark-rise {
+  0% { transform: translateY(0) scale(1); opacity: 0; }
+  12% { opacity: 0.9; }
+  70% { opacity: 0.7; }
+  100% { transform: translateY(-220px) scale(0.3); opacity: 0; }
+}
 .lp-hero-inner {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
   gap: 3rem;
   align-items: center;
 }
@@ -1769,111 +1776,108 @@ html.dark .fv-hl .shiki span {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.35rem 0.8rem;
+  padding: 0.35rem 0.85rem;
   border-radius: 999px;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--ember) 30%, var(--line));
   background: color-mix(in srgb, var(--panel) 70%, transparent);
   font-size: 0.78rem;
   color: var(--fg-soft);
   font-weight: 500;
 }
-.lp-eyebrow .lp-dot {
-  width: 0.5rem; height: 0.5rem; border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
-}
-.lp-title {
-  margin: 1.15rem 0 0;
-  font-size: clamp(2.5rem, 5.4vw, 4rem);
-  line-height: 1.02;
-  letter-spacing: -0.035em;
-  font-weight: 720;
-}
-.lp-lede {
-  margin: 1.2rem 0 0;
-  max-width: 34rem;
-  font-size: 1.1rem;
-  line-height: 1.65;
-  color: var(--fg-soft);
-}
+.lp-eyebrow svg { width: 0.95rem; height: 0.95rem; color: var(--ember); }
+.lp-title { margin: 1.2rem 0 0; font-size: clamp(2.6rem, 5.6vw, 4.15rem); line-height: 1.01; letter-spacing: -0.038em; font-weight: 730; }
+.lp-lede { margin: 1.25rem 0 0; max-width: 34rem; font-size: 1.1rem; line-height: 1.65; color: var(--fg-soft); }
 .lp-lede strong { color: var(--fg); font-weight: 640; }
-.lp-hero-actions { display: flex; flex-wrap: wrap; gap: 0.8rem; margin-top: 1.8rem; }
-.lp-hero-meta { margin: 1.15rem 0 0; font-size: 0.82rem; color: var(--fg-dim); }
+.lp-hero-actions { display: flex; flex-wrap: wrap; gap: 0.8rem; margin-top: 1.9rem; }
+.lp-hero-meta { margin: 1.2rem 0 0; font-size: 0.82rem; color: var(--fg-dim); }
 
-/* ── Board vignette ── */
-.lp-console {
+/* ── The forge scene (smith + live anvil) ── */
+.lp-scene { position: relative; display: grid; grid-template-columns: auto 1fr; align-items: end; gap: 0.5rem; }
+.lp-smith {
   position: relative;
+  z-index: 1;
+  width: clamp(88px, 12vw, 132px);
+  filter: drop-shadow(0 18px 30px color-mix(in srgb, var(--ember) 30%, transparent));
+}
+.lp-smith img { width: 100%; height: auto; display: block; }
+.lp-anvil {
+  position: relative;
+  margin-left: -0.9rem;
   border-radius: 1rem;
   border: 1px solid var(--line);
   background: linear-gradient(180deg, var(--panel-2), var(--panel));
-  box-shadow: 0 30px 80px -40px color-mix(in srgb, var(--accent) 60%, black),
-    var(--shadow-1);
+  box-shadow: 0 34px 90px -46px color-mix(in srgb, var(--ember) 55%, black), var(--shadow-1);
   overflow: hidden;
 }
-.lp-console-bar {
-  display: flex; align-items: center; gap: 0.8rem;
+.lp-anvil-bar {
+  display: flex; align-items: center; gap: 0.6rem;
   padding: 0.7rem 0.9rem;
   border-bottom: 1px solid var(--line-soft);
   background: color-mix(in srgb, var(--panel) 60%, transparent);
 }
-.lp-console-dots { display: inline-flex; gap: 0.35rem; }
-.lp-console-dots i { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--line); }
-.lp-console-title { font-family: var(--font-mono); font-size: 0.76rem; color: var(--fg-dim); }
-.lp-console-body { padding: 1.1rem; }
-.lp-console-stats { display: flex; gap: 0.7rem; margin-bottom: 1rem; }
-.lp-console-stats > div {
-  flex: 1;
-  padding: 0.7rem 0.8rem;
-  border-radius: 0.65rem;
-  border: 1px solid var(--line-soft);
-  background: color-mix(in srgb, var(--bg) 40%, transparent);
+.lp-anvil-title { font-family: var(--font-mono); font-size: 0.74rem; color: var(--fg-dim); letter-spacing: 0.02em; }
+.lp-run-dot {
+  width: 0.55rem; height: 0.55rem; border-radius: 50%;
+  background: var(--ember);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ember) 70%, transparent);
+  animation: lp-ember-pulse 1.7s ease-out infinite;
 }
-.lp-console-stats b { display: block; font-size: 1.5rem; letter-spacing: -0.02em; }
-.lp-console-stats span { font-size: 0.72rem; color: var(--fg-dim); }
-.lp-console-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
-.lp-console-list li {
+@keyframes lp-ember-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ember) 65%, transparent); }
+  70% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--ember) 0%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ember) 0%, transparent); }
+}
+.lp-anvil-body { padding: 0.7rem; }
+.lp-queue { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.lp-queue li {
   display: grid;
   grid-template-columns: auto 1fr auto auto;
   align-items: center;
-  gap: 0.7rem;
+  gap: 0.65rem;
   padding: 0.5rem 0.6rem;
   border-radius: 0.55rem;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
+  position: relative;
 }
-.lp-console-list li:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.lp-console-app { font-weight: 600; }
-.lp-console-node { font-size: 0.74rem; color: var(--fg-dim); font-family: var(--font-mono); }
-.lp-console-state { font-size: 0.72rem; color: var(--fg-soft); text-transform: uppercase; letter-spacing: 0.04em; }
-.lp-status { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--fg-dim); }
-.lp-status-merged { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
-.lp-status-forging { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 20%, transparent); }
-.lp-status-review { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+.lp-queue li.is-live { background: color-mix(in srgb, var(--ember) 7%, transparent); }
+.lp-queue li.is-live::before {
+  content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px;
+  background: var(--ember);
+}
+.lp-billet { width: 0.5rem; height: 0.5rem; border-radius: 2px; background: var(--fg-dim); transform: rotate(45deg); }
+.lp-billet.lit { background: var(--ember); box-shadow: 0 0 8px 1px color-mix(in srgb, var(--ember) 80%, transparent); }
+.lp-q-task { font-weight: 600; }
+.lp-q-who { font-size: 0.72rem; color: var(--fg-dim); font-family: var(--font-mono); }
+.lp-q-state { font-size: 0.68rem; color: var(--fg-soft); text-transform: uppercase; letter-spacing: 0.05em; }
+.lp-queue li.is-live .lp-q-state { color: var(--ember); }
+.lp-anvil-foot {
+  margin-top: 0.5rem; padding: 0.6rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: 0.76rem; color: var(--fg-dim);
+}
+.lp-anvil-foot b { color: var(--fg); font-variant-numeric: tabular-nums; }
 
-/* ── Value strip ── */
+/* ── Forge cycle (ember strip) ── */
 .lp-strip { border-block: 1px solid var(--line-soft); background: var(--bg-soft); }
-.lp-strip-inner {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-}
-.lp-strip-cell { padding: 1.4rem 0.5rem; text-align: center; }
-.lp-strip-cell b { display: block; font-size: 1.05rem; letter-spacing: -0.01em; }
-.lp-strip-cell span { font-size: 0.85rem; color: var(--fg-dim); }
+.lp-strip-inner { display: grid; grid-template-columns: repeat(4, 1fr); }
+.lp-strip-cell { padding: 1.5rem 1.2rem; border-left: 1px solid var(--line-soft); }
+.lp-strip-cell:first-child { border-left: 0; }
+.lp-strip-num { font-family: var(--font-mono); font-size: 0.72rem; color: var(--ember); font-weight: 700; }
+.lp-strip-cell b { display: block; font-size: 1.05rem; letter-spacing: -0.01em; margin-top: 0.3rem; }
+.lp-strip-note { font-size: 0.84rem; color: var(--fg-dim); }
 
 /* ── Sections ── */
-.lp-section { padding: 5rem 0; }
+.lp-section { padding: 5.2rem 0; }
 .lp-section-alt { background: var(--bg-soft); border-block: 1px solid var(--line-soft); }
-.lp-section-head { max-width: 40rem; margin: 0 auto 2.8rem; text-align: center; }
+.lp-section-head { max-width: 42rem; margin: 0 auto 2.9rem; text-align: center; }
 .lp-kicker {
   display: inline-block;
-  font-size: 0.76rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--accent);
+  font-size: 0.75rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em;
+  color: var(--ember);
   margin-bottom: 0.7rem;
 }
-.lp-section-head h2 { font-size: clamp(1.9rem, 3.5vw, 2.6rem); letter-spacing: -0.03em; }
+.lp-section-head h2 { font-size: clamp(1.95rem, 3.6vw, 2.65rem); letter-spacing: -0.03em; }
 .lp-section-head p { margin: 0.9rem 0 0; color: var(--fg-soft); font-size: 1.05rem; line-height: 1.6; }
 .lp-section-head p strong { color: var(--fg); }
 
@@ -1888,89 +1892,95 @@ html.dark .fv-hl .shiki span {
 }
 .lp-card:hover {
   transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
-  box-shadow: 0 18px 40px -26px color-mix(in srgb, var(--accent) 70%, black);
+  border-color: color-mix(in srgb, var(--ember) 45%, var(--line));
+  box-shadow: 0 18px 44px -26px color-mix(in srgb, var(--ember) 60%, black);
 }
 .lp-card-icon {
   display: grid; place-items: center;
-  width: 2.6rem; height: 2.6rem;
+  width: 2.7rem; height: 2.7rem;
   border-radius: 0.65rem;
   margin-bottom: 1rem;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--ember);
+  background: color-mix(in srgb, var(--ember) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ember) 26%, transparent);
 }
-.lp-card-icon svg { width: 1.35rem; height: 1.35rem; }
+.lp-card-icon svg { width: 1.4rem; height: 1.4rem; }
 .lp-card h3 { font-size: 1.1rem; margin-bottom: 0.45rem; }
-.lp-card p { color: var(--fg-soft); font-size: 0.94rem; line-height: 1.6; }
+.lp-card p { color: var(--fg-soft); font-size: 0.94rem; line-height: 1.62; }
+
+/* ── The crew ── */
+.lp-crew {
+  max-width: 48rem; margin: 0 auto;
+  border: 1px solid var(--line); border-radius: 0.9rem;
+  background: var(--panel); overflow: hidden;
+}
+.lp-crew-row {
+  display: grid;
+  grid-template-columns: 2.6rem 6.5rem 8rem 1fr;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.95rem 1.4rem;
+  border-top: 1px solid var(--line-soft);
+  transition: background 0.14s;
+}
+.lp-crew-row:first-child { border-top: 0; }
+.lp-crew-row:hover { background: color-mix(in srgb, var(--ember) 5%, transparent); }
+.lp-crew-mark {
+  display: grid; place-items: center;
+  width: 2.2rem; height: 2.2rem; border-radius: 0.55rem;
+  color: var(--ember);
+  background: color-mix(in srgb, var(--ember) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ember) 22%, transparent);
+}
+.lp-crew-mark svg { width: 1.2rem; height: 1.2rem; }
+.lp-crew-name { font-weight: 700; letter-spacing: -0.01em; }
+.lp-crew-role { font-family: var(--font-mono); font-size: 0.78rem; color: var(--ember); }
+.lp-crew-body { color: var(--fg-soft); font-size: 0.92rem; line-height: 1.5; }
+.lp-myth {
+  max-width: 40rem; margin: 2rem auto 0;
+  text-align: center;
+  font-size: 0.95rem; line-height: 1.7; color: var(--fg-dim);
+  border-left: 2px solid color-mix(in srgb, var(--ember) 55%, transparent);
+  padding-left: 1.1rem; text-align: left;
+}
+.lp-myth strong { color: var(--fg-soft); }
 
 /* ── Steps ── */
 .lp-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
 .lp-step {
-  padding: 1.6rem;
-  border-radius: 0.9rem;
-  border: 1px solid var(--line);
-  background: var(--panel);
   position: relative;
-}
-.lp-step-num {
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-  color: var(--accent);
-  font-weight: 700;
-}
-.lp-step h3 { margin: 0.7rem 0 0.5rem; font-size: 1.2rem; }
-.lp-step p { color: var(--fg-soft); font-size: 0.94rem; line-height: 1.6; }
-
-/* ── The cast ── */
-.lp-cast {
-  max-width: 46rem;
-  margin: 0 auto;
-  border: 1px solid var(--line);
+  padding: 1.7rem;
   border-radius: 0.9rem;
+  border: 1px solid var(--line);
   background: var(--panel);
   overflow: hidden;
 }
-.lp-cast-row {
-  display: grid;
-  grid-template-columns: 6.5rem 8rem 1fr;
-  align-items: baseline;
-  gap: 1rem;
-  padding: 1rem 1.4rem;
-  border-top: 1px solid var(--line-soft);
-}
-.lp-cast-row:first-child { border-top: 0; }
-.lp-cast-name { font-weight: 700; letter-spacing: -0.01em; }
-.lp-cast-role { font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent); }
-.lp-cast-body { color: var(--fg-soft); font-size: 0.94rem; line-height: 1.55; }
+.lp-step-num { font-family: var(--font-mono); font-size: 0.85rem; color: var(--ember); font-weight: 700; }
+.lp-step-line { display: block; height: 2px; width: 2.4rem; margin: 0.7rem 0 0; border-radius: 2px; background: linear-gradient(90deg, var(--ember), transparent); }
+.lp-step h3 { margin: 0.7rem 0 0.5rem; font-size: 1.2rem; }
+.lp-step p { color: var(--fg-soft); font-size: 0.94rem; line-height: 1.6; }
 
 /* ── Sindri band ── */
-.lp-aegir {
+.lp-forge-band {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
   gap: 3rem;
   align-items: center;
-  padding: 2.4rem;
+  padding: 2.5rem;
   border-radius: 1.1rem;
   border: 1px solid var(--line);
   background:
-    radial-gradient(80% 120% at 100% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
+    radial-gradient(80% 130% at 100% 100%, color-mix(in srgb, var(--ember) 12%, transparent), transparent 60%),
     var(--panel);
 }
-.lp-aegir h2 { font-size: clamp(1.7rem, 3vw, 2.3rem); letter-spacing: -0.03em; margin: 0.6rem 0 0.9rem; }
-.lp-aegir p { color: var(--fg-soft); font-size: 1.02rem; line-height: 1.65; margin-bottom: 1.6rem; max-width: 32rem; }
+.lp-forge-band h2 { font-size: clamp(1.7rem, 3vw, 2.3rem); letter-spacing: -0.03em; margin: 0.6rem 0 0.9rem; }
+.lp-forge-band p { color: var(--fg-soft); font-size: 1.02rem; line-height: 1.65; margin-bottom: 1.6rem; max-width: 32rem; }
 .lp-chat { display: flex; flex-direction: column; gap: 0.7rem; }
-.lp-bubble {
-  padding: 0.85rem 1.05rem;
-  border-radius: 0.9rem;
-  font-size: 0.92rem;
-  line-height: 1.55;
-  max-width: 90%;
-}
+.lp-bubble { padding: 0.85rem 1.05rem; border-radius: 0.9rem; font-size: 0.92rem; line-height: 1.55; max-width: 92%; }
 .lp-bubble-user {
   align-self: flex-end;
-  background: var(--accent);
-  color: var(--primary-foreground);
+  background: color-mix(in srgb, var(--accent) 90%, black);
+  color: #fff;
   border-bottom-right-radius: 0.3rem;
 }
 .lp-bubble-ai {
@@ -1982,11 +1992,17 @@ html.dark .fv-hl .shiki span {
 }
 .lp-bubble-ai b { color: var(--fg); }
 .lp-ai-tag { display: flex; width: fit-content; align-items: center; gap: 0.4rem; font-weight: 600; color: var(--fg); font-size: 0.82rem; margin-bottom: 0.5rem; }
+.lp-ember-mark { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--ember); box-shadow: 0 0 7px 1px var(--ember); vertical-align: middle; }
 
 /* ── Final CTA ── */
-.lp-cta { position: relative; overflow: hidden; padding: 5.5rem 0; text-align: center; border-top: 1px solid var(--line-soft); }
+.lp-cta { position: relative; overflow: hidden; padding: 6rem 0; text-align: center; border-top: 1px solid var(--line-soft); }
+.lp-forge-glow {
+  position: absolute; inset: auto -10% -60% -10%; height: 460px; pointer-events: none;
+  background: radial-gradient(50% 100% at 50% 100%, var(--ember-soft), transparent 68%);
+  filter: blur(8px);
+}
 .lp-cta-inner { position: relative; z-index: 1; max-width: 40rem; margin: 0 auto; }
-.lp-cta h2 { font-size: clamp(2rem, 4vw, 3rem); letter-spacing: -0.035em; }
+.lp-cta h2 { font-size: clamp(2.1rem, 4.2vw, 3rem); letter-spacing: -0.035em; }
 .lp-cta p { margin: 1rem auto 0; color: var(--fg-soft); font-size: 1.1rem; line-height: 1.6; }
 .lp-cta-actions { justify-content: center; }
 
@@ -1996,23 +2012,32 @@ html.dark .fv-hl .shiki span {
 .lp-footer-note { color: var(--fg-dim); font-size: 0.88rem; }
 .lp-footer-note a { color: var(--fg-soft); text-decoration: underline; text-underline-offset: 2px; }
 .lp-footer-links { display: flex; gap: 1.3rem; font-size: 0.9rem; color: var(--fg-soft); }
-.lp-footer-links a { text-decoration: none; color: inherit; }
 .lp-footer-links a:hover { color: var(--fg); }
 
+/* ── Motion off ── */
+@media (prefers-reduced-motion: reduce) {
+  .lp-sparks span, .lp-run-dot { animation: none; }
+  .lp-sparks span { opacity: 0.5; }
+  .lp-btn:hover, .lp-card:hover { transform: none; }
+}
+
 /* ── Responsive ── */
-@media (max-width: 900px) {
-  .lp-hero-inner { grid-template-columns: 1fr; gap: 2.2rem; }
-  .lp-console { order: 2; }
+@media (max-width: 940px) {
+  .lp-hero-inner { grid-template-columns: 1fr; gap: 2.4rem; }
+  .lp-scene { order: 2; max-width: 30rem; }
   .lp-features { grid-template-columns: repeat(2, 1fr); }
   .lp-steps { grid-template-columns: 1fr; }
-  .lp-aegir { grid-template-columns: 1fr; gap: 2rem; }
+  .lp-forge-band { grid-template-columns: 1fr; gap: 2rem; }
   .lp-strip-inner { grid-template-columns: repeat(2, 1fr); }
+  .lp-strip-cell:nth-child(3) { border-left: 0; }
   .lp-nav-links { display: none; }
 }
 @media (max-width: 560px) {
   .lp-features { grid-template-columns: 1fr; }
-  .lp-console-stats { flex-direction: column; }
-  .lp-console-list li { grid-template-columns: auto 1fr auto; }
-  .lp-console-node { display: none; }
-  .lp-cast-row { grid-template-columns: 1fr; gap: 0.2rem; }
+  .lp-queue li { grid-template-columns: auto 1fr auto; }
+  .lp-q-who { display: none; }
+  .lp-crew-row { grid-template-columns: 2.2rem 1fr; row-gap: 0.15rem; }
+  .lp-crew-role { grid-column: 2; }
+  .lp-crew-body { grid-column: 2; }
+  .lp-strip-inner { grid-template-columns: 1fr 1fr; }
 }
