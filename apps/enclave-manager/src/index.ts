@@ -58,6 +58,8 @@ async function ensureBaseImage(): Promise<void> {
 // an optional per-request `image` lets different projects pin different runtimes
 // (fixed at first-create, since the enclave is warm thereafter).
 const enclaves = new Map<string, RunscEnclave>();
+// Last-touched wall-clock per warm enclave — drives the idle reaper below.
+const lastUsed = new Map<string, number>();
 function enclaveFor(project: string, checkoutRoot: string, image?: string, gitCommonDir?: string): RunscEnclave {
   let e = enclaves.get(project);
   if (!e) {
@@ -65,6 +67,60 @@ function enclaveFor(project: string, checkoutRoot: string, image?: string, gitCo
     enclaves.set(project, e);
   }
   return e;
+}
+
+// ── Reaping ───────────────────────────────────────────────────────────────────
+// Enclaves are warm containers (`brokk-enclave-<project>`) that only ever went away
+// on an explicit `/stop`. Two leaks that left orphans running for days: (1) a deploy
+// recreates THIS process → the warm map is empty but the old containers keep running;
+// (2) a card that crashes without a clean `/stop`. Both are reaped here.
+const IDLE_TTL_MS = Number(process.env.BROKK_ENCLAVE_IDLE_TTL_MS || 30 * 60_000);
+const SWEEP_MS = Number(process.env.BROKK_ENCLAVE_SWEEP_MS || 5 * 60_000);
+
+/** Boot reconcile: our warm map is empty on (re)start, so ANY `brokk-enclave-*`
+ *  container/network is an orphan from a previous life — a deploy recreated us AND
+ *  the workers, so nothing is using them. LIST (read-only) then remove by EXACT name
+ *  — never `docker rm --filter` (substring match is a footgun). Best-effort. */
+async function reapOrphans(): Promise<void> {
+  try {
+    const { stdout } = await execFileAsync(
+      "docker",
+      ["ps", "-a", "--filter", "name=brokk-enclave-", "--format", "{{.Names}}"],
+      { timeout: 15_000 },
+    );
+    const names = stdout
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((n) => n.startsWith("brokk-enclave-") && !n.includes("manager"));
+    for (const name of names) {
+      try {
+        await execFileAsync("docker", ["rm", "-f", name], { timeout: 30_000 });
+        await execFileAsync("docker", ["network", "rm", name], { timeout: 15_000 }).catch(() => {});
+        console.log(`[enclave-manager] reaped orphan enclave ${name}`);
+      } catch (e: any) {
+        console.error(`[enclave-manager] failed to reap ${name}: ${e?.message ?? e}`);
+      }
+    }
+  } catch (e: any) {
+    console.error(`[enclave-manager] orphan reconcile failed (best-effort): ${e?.message ?? e}`);
+  }
+}
+
+/** Idle sweep: stop warm enclaves untouched for longer than the TTL. exec is capped
+ *  well under the TTL, so a long-running command never looks idle mid-flight. */
+async function sweepIdle(): Promise<void> {
+  const now = Date.now();
+  for (const [project, enc] of enclaves) {
+    if (now - (lastUsed.get(project) ?? 0) <= IDLE_TTL_MS) continue;
+    try {
+      await enc.stop();
+    } catch {
+      /* best-effort */
+    }
+    enclaves.delete(project);
+    lastUsed.delete(project);
+    console.log(`[enclave-manager] reaped idle enclave ${project}`);
+  }
 }
 
 function readJson(req: IncomingMessage): Promise<any> {
@@ -116,6 +172,7 @@ const server = createServer(async (req, res) => {
         b.image ? String(b.image) : undefined,
         b.gitCommonDir ? String(b.gitCommonDir) : undefined,
       );
+      lastUsed.set(String(b.project), Date.now());
       const r = await enc.exec(String(b.command), String(b.cwd), { timeoutMs: Number(b.timeoutMs) || undefined });
       return send(res, 200, r);
     }
@@ -127,6 +184,7 @@ const server = createServer(async (req, res) => {
       if (enc) {
         await enc.stop();
         enclaves.delete(key);
+        lastUsed.delete(key);
       }
       return send(res, 200, { ok: true });
     }
@@ -140,3 +198,6 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, () => console.log(`[enclave-manager] listening on :${PORT}`));
 // Ensure the default runtime image exists (best-effort, non-blocking).
 void ensureBaseImage();
+// Reap orphans left by a previous life (deploy), then sweep idle enclaves.
+void reapOrphans();
+setInterval(() => void sweepIdle(), SWEEP_MS).unref();
