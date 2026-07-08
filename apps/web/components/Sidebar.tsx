@@ -27,7 +27,7 @@ import { useProject } from "../lib/project-context";
 
 // Global / project-agnostic — always see everything.
 const GLOBAL = [
-  { href: "/", label: "Fleet", icon: <LayoutGrid /> },
+  { href: "/fleet", label: "Fleet", icon: <LayoutGrid /> },
   { href: "/dashboard", label: "Dashboard", icon: <Gauge /> },
   { href: "/mimir", label: "Mímir", icon: <BookText /> },
 ] as const;
@@ -92,7 +92,7 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
   const path = usePathname();
   const { currentId } = useProject();
   const isActive = (href: string) =>
-    href === "/" ? path === "/" : path.startsWith(href);
+    href === "/fleet" ? path === "/fleet" : path.startsWith(href);
 
   return (
     <NavSidebar>
@@ -126,7 +126,7 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
           <ProjectSwitcher />
           <NavLink
             as={Link}
-            href={currentId ? `/projects/${currentId}` : "/"}
+            href={currentId ? `/projects/${currentId}` : "/fleet"}
             icon={<Columns3 />}
             active={path.startsWith("/projects") && !path.endsWith("/descoberta")}
           >
@@ -134,7 +134,7 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
           </NavLink>
           <NavLink
             as={Link}
-            href={currentId ? `/projects/${currentId}/descoberta` : "/"}
+            href={currentId ? `/projects/${currentId}/descoberta` : "/fleet"}
             icon={<Feather />}
             active={path.endsWith("/descoberta")}
           >

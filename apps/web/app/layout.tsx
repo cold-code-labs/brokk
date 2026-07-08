@@ -1,14 +1,10 @@
 import type { ReactNode } from "react";
-import { redirect } from "next/navigation";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "@cold-code-labs/yggdrasil-tokens/css";
 import "@cold-code-labs/yggdrasil-react/shell.css";
 import "streamdown/styles.css";
 import "./globals.css";
-import { AppShell } from "@cold-code-labs/yggdrasil-react";
 import { Providers } from "./providers";
-import Sidebar from "../components/Sidebar";
-import { authEnabled, getSession } from "../lib/logto";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -22,22 +18,12 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata = {
-  title: "Brokk",
-  description: "CCL's AI coding-agent platform — the forge.",
+  title: "Brokk — the forge for autonomous coding agents",
+  description:
+    "Card → agent forges the code → Pull Request. Brokk runs a fleet of isolated coding agents over your repos — Mímir advises, Brokkr forges, Eitri reviews. Open source, Apache-2.0.",
 };
 
-// Auth is enforced per-request in this layout (getSession reads cookies + the
-// runtime LOGTO_* env). Force dynamic rendering so the gate is never baked into a
-// static prerender — otherwise a build without LOGTO_* set would ship the open
-// (unauthenticated) shell as static HTML, bypassing login at runtime.
-export const dynamic = "force-dynamic";
-
-export default async function RootLayout({ children }: { children: ReactNode }) {
-  const session = await getSession();
-  if (authEnabled && !session.isAuthenticated) {
-    redirect("/sign-in");
-  }
-
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
@@ -45,14 +31,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       className={`${inter.variable} ${jetbrains.variable}`}
     >
       <body suppressHydrationWarning>
-        <Providers>
-          <AppShell>
-            <Sidebar
-              user={{ name: session.name, role: session.role, authDisabled: session.authDisabled }}
-            />
-            <div style={{ minWidth: 0 }}>{children}</div>
-          </AppShell>
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

@@ -8,5 +8,5 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   await handleSignIn(logtoConfig, request.nextUrl.searchParams);
-  redirect("/");
+  redirect("/fleet");
 }

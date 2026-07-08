@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   if (!authEnabled) {
-    redirect("/");
+    redirect("/fleet");
   }
   await signIn(logtoConfig);
 }

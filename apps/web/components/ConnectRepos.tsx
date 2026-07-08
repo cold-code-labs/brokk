@@ -97,7 +97,7 @@ export default function ConnectRepos() {
         }
         actions={
           <Button asChild variant="outline" size="sm">
-            <Link href="/">← Fleet</Link>
+            <Link href="/fleet">← Fleet</Link>
           </Button>
         }
       />
@@ -115,7 +115,7 @@ export default function ConnectRepos() {
       {done !== null && (
         <Banner tone="info">
           ✓ Connected {done} repo{done === 1 ? "" : "s"}.{" "}
-          <Link href="/" style={{ color: "var(--accent)", textDecoration: "none" }}>
+          <Link href="/fleet" style={{ color: "var(--accent)", textDecoration: "none" }}>
             Open the fleet →
           </Link>
         </Banner>
@@ -144,7 +144,7 @@ export default function ConnectRepos() {
           description="Every repo is already on the forge."
           action={
             <Button asChild variant="outline" size="sm">
-              <Link href="/">Open the fleet →</Link>
+              <Link href="/fleet">Open the fleet →</Link>
             </Button>
           }
         />
