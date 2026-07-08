@@ -268,13 +268,30 @@ export class GhProvider implements GitProvider {
       .catch(() => false);
     if (refreshed) return { path, branch };
 
-    // First boot (or broken worktree): create fresh from the fetched tip.
-    // Prune AFTER removing the dir so git drops any stale registration that
-    // still pins `branch` to the old path, then add with --force — otherwise
-    // git aborts with "'<branch>' is already used by worktree" (the documented
-    // stale-worktree boot failure).
+    // First boot (or broken worktree): recreate from the fetched tip. Tear down
+    // any stale worktree at this path FIRST — otherwise `worktree add` aborts with
+    // "'<path>' already exists" (an orphaned dir) or "'<branch>' is already used by
+    // worktree" (a stale registration). Let git remove it (drops the registration
+    // AND the dir together when it can), then rm any leftover dir, then prune so
+    // git forgets any registration still pinning `branch` to the old path.
+    await git(bare, ["worktree", "remove", "--force", path]).catch(() => {});
     await rm(path, { recursive: true, force: true }).catch(() => {});
     await git(bare, ["worktree", "prune"]).catch(() => {});
+
+    // If the dir SURVIVED that cleanup, it holds files this process (the runner
+    // uid) can't remove — the fingerprint of a run that crashed mid-forge under
+    // the isolation enclave, leaving objects/node_modules owned by another uid.
+    // Fail LOUD with the exact fix instead of letting `worktree add` wedge every
+    // future card for this app on a cryptic "already exists". See the git.ts
+    // note in brokk-dev-preview and the enclave-uid follow-up.
+    if (existsSync(path)) {
+      throw new Error(
+        `persistentCheckout: could not remove stale worktree dir ${path} ` +
+          `(contains files not owned by the runner uid — likely a crashed run under the enclave). ` +
+          `Clean it as root, then retry: rm -rf ${path} && git -C ${bare} worktree prune`,
+      );
+    }
+
     // Detached (dev-lane card): no local branch, so it never collides with the
     // preview's `<branch>` worktree. Otherwise bind the local branch (preview path).
     await git(
