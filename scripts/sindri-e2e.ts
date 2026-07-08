@@ -12,11 +12,11 @@
 //
 // Usage (from the repo root):
 //   pnpm dlx tsx scripts/sindri-e2e.ts [projectName]
-//   BROKK_E2E_BASE=https://brokk.preview.coldcodelabs.com \
+//   BROKK_E2E_BASE=https://brokk.coldcodelabs.com \
 //     pnpm dlx tsx scripts/sindri-e2e.ts asgard
 //
 // Env / flags:
-//   BROKK_E2E_BASE   origin serving /api (default the dev lane)
+//   BROKK_E2E_BASE   origin serving /api (default prod)
 //   BROKK_E2E_MODEL  haiku|sonnet|opus (default haiku — cheap/fast)
 //   BROKK_E2E_EFFORT low|medium|high   (default low)
 //   --keep           don't delete the session/preview at the end
@@ -28,7 +28,7 @@
 // harness reports that honestly rather than hanging.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BASE = (process.env.BROKK_E2E_BASE || "https://brokk.preview.coldcodelabs.com").replace(/\/$/, "");
+const BASE = (process.env.BROKK_E2E_BASE || "https://brokk.coldcodelabs.com").replace(/\/$/, "");
 const PROJECT = process.argv.slice(2).find((a) => !a.startsWith("-")) || "asgard";
 const MODEL = process.env.BROKK_E2E_MODEL || "haiku";
 const EFFORT = process.env.BROKK_E2E_EFFORT || "low";

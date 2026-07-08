@@ -22,9 +22,9 @@
  *
  * ─── Request flow ───────────────────────────────────────────────────────────
  *
- *  brokk-dev.preview.coldcodelabs.com
+ *  <app>-dev.preview.coldcodelabs.com
  *    → CF tunnel → this gateway :3020
- *    → extract leftmost label "brokk-dev"
+ *    → extract leftmost label "<app>-dev"
  *    → look up in preview cache (refresh from control plane every 5 s)
  *    → proxy to http://127.0.0.1:<port>  (HTTP + WebSocket)
  *    → bump expiresAt on the preview (at most once per 60 s) so active demos
@@ -49,8 +49,8 @@ interface CpBase {
   hostname: string;
   port: number;
   /** Host to dial this plane's preview processes on (see BROKK_PREVIEW_HOST_MAP).
-   *  Planes can live on different hosts — prod previews inside the `forge`
-   *  container, dev-lane previews on the host — so it's resolved per plane. */
+   *  Previews live inside the `forge` container by default; the map lets a plane
+   *  on a different host resolve to its own preview host. */
   previewHost: string;
 }
 
@@ -65,8 +65,8 @@ function parseBaseUrl(raw: string): CpBase {
 }
 
 /** All control planes, primary (prod) first. The gateway is the singleton that
- *  serves the public *.preview domain, so it merges previews across planes (e.g.
- *  prod :8789 + dev-lane :8790) — same host, same shared secret, disjoint ports. */
+ *  serves the public *.preview domain; it can merge previews across additional
+ *  planes (BROKK_CONTROL_URL_EXTRA) but normally runs one — prod :8789. */
 const cpBases: CpBase[] = cfg.controlUrls.map(parseBaseUrl);
 
 /** GET <control-plane>/previews from ONE plane and return the parsed JSON array. */
