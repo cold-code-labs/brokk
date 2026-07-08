@@ -1,4 +1,14 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from "node:crypto";
+
+/** Constant-time secret compare — avoids the byte-wise early-exit timing leak of
+ *  `a === b` when checking a bearer/runner secret. Length pre-check first
+ *  (timingSafeEqual throws on unequal-length buffers). */
+export function secretEquals(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
 
 /**
  * Authenticated encryption for Max tokens at rest (same scheme as the CCL Ice

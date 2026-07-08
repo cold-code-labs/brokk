@@ -10,6 +10,7 @@ import { projectsRoutes } from "./routes/projects.js";
 import { repositoriesRoutes } from "./routes/repositories.js";
 import { runnerRoutes } from "./routes/runner.js";
 import { runsRoutes } from "./routes/runs.js";
+import { secretEquals } from "./secrets.js";
 import { studioRoutes } from "./routes/studio.js";
 import { subscriptionsRoutes } from "./routes/subscriptions.js";
 import { tasksRoutes } from "./routes/tasks.js";
@@ -82,7 +83,8 @@ export function buildApp(deps: AppDeps): Hono {
       isRunnerRunWrite
     )
       return next();
-    if (c.req.header("authorization") === `Bearer ${deps.apiSecret}`) return next();
+    const token = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    if (secretEquals(token, deps.apiSecret)) return next();
     return c.json({ error: "unauthorized" }, 401);
   });
 

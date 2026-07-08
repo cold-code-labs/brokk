@@ -127,6 +127,11 @@ services:
     image: brokk-web:coolify
     environment:
       BROKK_API_INTERNAL_URL: ${BROKK_API_INTERNAL_URL:-http://brokk-api:8789}
+      # The proxy (apps/web/app/api/[...path]) injects this bearer server-side so
+      # mutating UI calls reach the API authorized. Without it here the API's own
+      # secret guard 401s every write — the defense-in-depth is inert. Must match
+      # the value on the brokk-api service above.
+      BROKK_API_SECRET: ${BROKK_API_SECRET:-}
       LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
       LOGTO_APP_ID: ${LOGTO_APP_ID:-}
       LOGTO_APP_SECRET: ${LOGTO_APP_SECRET:-}

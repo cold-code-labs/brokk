@@ -36,5 +36,13 @@ export function loadConfig(): Config {
     const issues = parsed.error.issues.map((i) => `  - ${i.path.join(".")}: ${i.message}`);
     throw new Error(`Invalid configuration:\n${issues.join("\n")}`);
   }
+  // Fail closed in production: an empty BROKK_API_SECRET leaves every mutating
+  // endpoint open (app.ts short-circuits the guard when no secret is set). That's
+  // fine for local dev, but a prod boot without it is an open control plane.
+  if (process.env.NODE_ENV === "production" && !parsed.data.BROKK_API_SECRET) {
+    throw new Error(
+      "BROKK_API_SECRET is required in production — without it every mutating API call is unauthenticated.",
+    );
+  }
   return parsed.data;
 }

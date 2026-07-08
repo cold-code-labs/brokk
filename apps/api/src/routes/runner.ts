@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
-import { unseal } from "../secrets.js";
+import { secretEquals, unseal } from "../secrets.js";
 
 /** Guard for machine endpoints: requires `Authorization: Bearer <secret>`.
  *  If no secret is configured the endpoints are closed (503) rather than open. */
@@ -13,7 +13,7 @@ export function requireRunnerSecret(deps: AppDeps): MiddlewareHandler {
     }
     const auth = c.req.header("authorization") ?? "";
     const token = auth.replace(/^Bearer\s+/i, "");
-    if (token !== deps.runnerSecret) {
+    if (!secretEquals(token, deps.runnerSecret)) {
       return c.json({ error: "unauthorized" }, 401);
     }
     await next();

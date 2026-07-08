@@ -37,6 +37,15 @@ export type Session = {
 
 export async function getSession(): Promise<Session> {
   if (!authEnabled) {
+    // Fail closed in production: without Logto wired, the open shell would hand
+    // every visitor an authenticated *owner* session (below) — turning a deploy
+    // that forgot a LOGTO_* var into a fully open control plane. The auth-disabled
+    // convenience is for local dev only.
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "Refusing to serve without auth in production: set the five LOGTO_* vars (endpoint, app id, app secret, base url, cookie secret).",
+      );
+    }
     const roles = ["Proprietário"];
     return { isAuthenticated: true, authDisabled: true, name: "Local", roles, role: highestRole(roles) };
   }
