@@ -185,13 +185,20 @@ export class LocalEnclave implements ExecEnclave {
       // When the Landlock jail is available, run the command THROUGH it so the shell
       // can touch only the granted paths; otherwise fall back to a bare shell
       // (dev/local, or a kernel without Landlock). Same stdout/stderr shape either way.
+      // `umask 0002`: the sandbox drops bash to the egress uid (1002) while keeping
+      // the worker's gid (1001) — so files the shell writes into the checkout, the
+      // shared bare's objects, and the pnpm/npm caches must be GROUP-writable, or the
+      // worker (uid 1001) later EACCESes trying to rm/rebuild/`git add` them. Default
+      // umask 022 makes them group-read-only; 0002 makes them 0664/0775 so the two
+      // uids cooperate through the shared group. (See brokk-dev-preview / brokk-isolation.)
+      const shCommand = `umask 0002; ${command}`;
       const { stdout, stderr } = sandboxBinPath
         ? await execFileAsync(
             sandboxBinPath,
-            [...sandboxArgs(cwd, gh, opts.gitCommonDir), "--", "/bin/sh", "-c", command],
+            [...sandboxArgs(cwd, gh, opts.gitCommonDir), "--", "/bin/sh", "-c", shCommand],
             execOpts,
           )
-        : await execAsync(command, execOpts);
+        : await execAsync(shCommand, execOpts);
       return { out: `${stdout}${stderr ? `\n${stderr}` : ""}`.trim(), code: 0 };
     } catch (e: any) {
       const out = `${e?.stdout ?? ""}\n${e?.stderr ?? ""}`.trim();

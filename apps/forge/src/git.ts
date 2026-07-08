@@ -59,7 +59,7 @@ export class GhProvider implements GitProvider {
 
     let fresh = false;
     try {
-      await git(this.opts.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
+      await git(this.opts.workDir, ["clone", "--bare", "-c", "core.sharedRepository=group", repo.cloneUrl, bare]);
       fresh = true;
     } catch {
       /* bare already exists — refreshed below */
@@ -92,7 +92,7 @@ export class GhProvider implements GitProvider {
     await mkdir(join(this.opts.workDir, "repos"), { recursive: true });
     let fresh = false;
     try {
-      await git(this.opts.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
+      await git(this.opts.workDir, ["clone", "--bare", "-c", "core.sharedRepository=group", repo.cloneUrl, bare]);
       fresh = true;
     } catch {
       /* bare already exists */
@@ -132,7 +132,7 @@ export class GhProvider implements GitProvider {
     const bare = this.bareDir(repo);
     await mkdir(join(this.opts.workDir, "repos"), { recursive: true });
     try {
-      await git(this.opts.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
+      await git(this.opts.workDir, ["clone", "--bare", "-c", "core.sharedRepository=group", repo.cloneUrl, bare]);
     } catch {
       await git(bare, ["fetch", "origin", `+refs/heads/${repo.defaultBranch}:refs/heads/${repo.defaultBranch}`]);
     }
@@ -249,10 +249,16 @@ export class GhProvider implements GitProvider {
 
     // Ensure bare repo exists, then always fetch to get the latest commits.
     try {
-      await git(this.opts.workDir, ["clone", "--bare", repo.cloneUrl, bare]);
+      await git(this.opts.workDir, ["clone", "--bare", "-c", "core.sharedRepository=group", repo.cloneUrl, bare]);
     } catch {
       /* already exists — fall through to fetch below */
     }
+    // Retroactively share pre-existing bares too: objects + fanout dirs become
+    // group-writable (setgid) so the worker (uid 1001) and the agent's sandboxed
+    // bash (egress uid 1002, shared gid 1001) can BOTH add objects without EACCES.
+    // git ignores umask for objects, so this config — not umask — is the lever for
+    // the "insufficient permission for adding an object" wedge. (brokk-dev-preview)
+    await git(bare, ["config", "core.sharedRepository", "group"]).catch(() => {});
     // Fetch to FETCH_HEAD, NOT into refs/heads/<branch>: git refuses to update a
     // branch ref that's checked out in the persistent worktree ("refusing to
     // fetch into branch ... checked out").
