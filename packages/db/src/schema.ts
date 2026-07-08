@@ -384,20 +384,6 @@ export const previews = pgTable(
     port: integer("port"),
     hauldrProject: text("hauldr_project").notNull(),
     status: previewStatus("status").notNull().default("starting"),
-    /** 'build' (next build && next start — the Fleet dev preview) or 'dev'
-     *  (next dev with HMR, pointed straight at a Sindri session's live checkout).
-     *  A dev preview reflects the agent's edits the instant they hit disk. */
-    mode: text("mode").notNull().default("build"),
-    /** When mode='dev': the Sindri chat session this preview mirrors. Exact match
-     *  (the branch is only the id's first 8 chars, which collides). SET NULL on
-     *  session delete so the historical preview row survives the reap. */
-    sessionId: uuid("session_id").references(() => chatSessions.id, {
-      onDelete: "set null",
-    }),
-    /** When mode='dev': absolute path of the session checkout the dev server runs
-     *  in (cwd), e.g. /home/brokk/work/sindri/checkouts/<sessionId>. The supervisor
-     *  uses it verbatim — it never refreshes/resets it (that would clobber edits). */
-    workDir: text("work_dir"),
     /** When status='unsupported'/'failed': the human-readable reason (Huginn's
      *  explanation / the validation failure). Null otherwise. */
     detail: text("detail"),

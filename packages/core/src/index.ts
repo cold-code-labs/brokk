@@ -354,13 +354,6 @@ export interface Preview {
   port: number | null;
   /** Name of the Hauldr project backing this preview. */
   hauldrProject: string;
-  /** 'build' = next build && next start (Fleet dev preview); 'dev' = next dev with
-   *  HMR pointed at a Sindri session's live checkout. */
-  mode: string;
-  /** Sindri session this preview mirrors (mode='dev' only), else null. */
-  sessionId: string | null;
-  /** Absolute checkout path the dev server runs in (mode='dev' only), else null. */
-  workDir: string | null;
   status: PreviewStatus;
   /** When status='unsupported' (or 'failed'): the human-readable reason — Huginn's
    *  explanation of why there's no runtime to boot. Null otherwise. */

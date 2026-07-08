@@ -362,9 +362,6 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
     url: row.url,
     port: row.port,
     hauldrProject: row.hauldrProject,
-    mode: row.mode,
-    sessionId: row.sessionId,
-    workDir: row.workDir,
     status: row.status as PreviewStatus,
     detail: row.detail ?? null,
     commitSha: row.commitSha ?? null,
@@ -1569,11 +1566,6 @@ export function createStore(db: Db): Store {
             // slot in place ("Starting" over the previous build) instead of the
             // row vanishing; the supervisor overwrites both right after the
             // fresh checkout.
-            // Refresh dev-mode metadata so a reused slot tracks the current
-            // session checkout (no-op for build-mode previews).
-            ...(values.mode !== undefined ? { mode: values.mode } : {}),
-            ...(values.sessionId !== undefined ? { sessionId: values.sessionId } : {}),
-            ...(values.workDir !== undefined ? { workDir: values.workDir } : {}),
           })
           .where(eq(previews.id, row.id))
           .returning();
@@ -2021,19 +2013,13 @@ export async function ensureChatSchema(db: Db): Promise<void> {
   // Huginn discovery brief — one row per project (PK = project_id), upserted by
   // each scout. Self-healed (never in drizzle) to avoid the push-hang on new
   // db_brokk tables; JSON arrays for built/missing/stack keep it schema-light.
-  // Sindri live-preview columns on the (drizzle-pushed) previews table. Added
-  // here as idempotent ALTERs so they self-heal on boot without a push (which
-  // hangs on db_brokk). Guarded: if previews doesn't exist yet (fresh DB before
-  // push), skip — the next push creates it with these columns from schema.ts.
+  // Live-preview columns on the (drizzle-pushed) previews table. Added here as
+  // idempotent ALTERs so they self-heal on boot without a push (which hangs on
+  // db_brokk). Guarded: if previews doesn't exist yet (fresh DB before push),
+  // skip — the next push creates it with these columns from schema.ts.
+  // NOTE: mode/session_id/work_dir were dropped in ADR 0017 Fase 5 — no self-heal
+  // for them (a re-add would resurrect the columns a later DROP removes).
   try {
-    await db.execute(
-      sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS mode text NOT NULL DEFAULT 'build';`,
-    );
-    await db.execute(
-      sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS session_id uuid REFERENCES chat_sessions(id) ON DELETE SET NULL;`,
-    );
-    await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS work_dir text;`);
-    // Sleipnir runtime: the unsupported reason + the pinned per-project RuntimeSpec.
     await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS detail text;`);
     // The sha a preview last built/served — what promotes a preview row to a
     // "deploy" in Heimdall's fleet view (commitless previews are dropped there).
