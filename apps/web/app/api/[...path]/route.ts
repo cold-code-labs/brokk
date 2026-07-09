@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { getSession } from "../../../lib/logto";
 
@@ -16,6 +17,19 @@ export const dynamic = "force-dynamic";
 
 const API = process.env.BROKK_API_INTERNAL_URL ?? "http://127.0.0.1:8789";
 const API_SECRET = process.env.BROKK_API_SECRET ?? "";
+// Bearer alternativo ao cookie Logto p/ clientes nativos (Brokk Mobile). O token
+// nunca vai no bundle do app — o usuário cola 1x e fica no secure-store do device.
+const MOBILE_TOKEN = process.env.BROKK_MOBILE_TOKEN ?? "";
+
+function bearerOk(req: NextRequest): boolean {
+  if (!MOBILE_TOKEN) return false;
+  const header = req.headers.get("authorization") ?? "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (!token) return false;
+  const a = Buffer.from(token);
+  const b = Buffer.from(MOBILE_TOKEN);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 // Hop-by-hop / length headers must not be forwarded verbatim.
 const STRIP = new Set([
@@ -31,7 +45,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
   // Mutations require a logged-in human (Logto session). Otherwise the secret the
   // proxy injects below would let any anonymous caller create/enqueue forge runs
   // through the public origin. Reads stay open. Logto-off (dev) = open shell.
-  if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS") {
+  if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS" && !bearerOk(req)) {
     const session = await getSession();
     if (!session.isAuthenticated) {
       return new Response(JSON.stringify({ error: "unauthorized" }), {

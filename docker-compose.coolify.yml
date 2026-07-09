@@ -132,6 +132,9 @@ services:
       # secret guard 401s every write — the defense-in-depth is inert. Must match
       # the value on the brokk-api service above.
       BROKK_API_SECRET: ${BROKK_API_SECRET:-}
+      # Bearer p/ clientes nativos (Brokk Mobile) — alternativa ao cookie Logto
+      # nas mutações do proxy. Vazio = caminho desligado.
+      BROKK_MOBILE_TOKEN: ${BROKK_MOBILE_TOKEN:-}
       LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
       LOGTO_APP_ID: ${LOGTO_APP_ID:-}
       LOGTO_APP_SECRET: ${LOGTO_APP_SECRET:-}
