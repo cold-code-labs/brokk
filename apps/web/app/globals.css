@@ -2041,3 +2041,34 @@ html.dark .fv-hl .shiki span {
   .lp-crew-body { grid-column: 2; }
   .lp-strip-inner { grid-template-columns: 1fr 1fr; }
 }
+
+/* ── preview mobile-exclusivo (projeto Expo): moldura de aparelho ── */
+.sindri-preview-frame.is-phone {
+  align-items: flex-start;
+  padding: 0.9rem 0;
+  overflow: hidden;
+}
+.sindri-phone {
+  flex: none;
+  transform-origin: top center;
+  border: 1px solid var(--border);
+  border-radius: 26px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: var(--shadow-2, 0 8px 28px rgba(0, 0, 0, 0.25));
+}
+.sindri-phone .sindri-preview-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+.sindri-preview-device {
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--fg);
+  background: var(--bg-2, transparent);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 0.18rem 0.4rem;
+}

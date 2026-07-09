@@ -134,6 +134,9 @@ export default function Chat() {
   // Project selection is GLOBAL now (the sidebar AMBIENTE switcher) — Sindri reads
   // the same context, so the active environment drives which project Sindri works.
   const { projects, currentId: projectId } = useProject();
+  // Projeto mobile (runtime Expo/Metro): o preview é a app RN-web num viewport
+  // de celular — visualização EXCLUSIVA mobile (presets de aparelho, sem drag).
+  const mobileOnly = projects.find((p) => p.id === projectId)?.runtime?.id === "expo";
   const [model, setModel] = useState("sonnet");
   const [effort, setEffort] = useState("medium");
   const [sessions, setSessions] = useState<ChatSessionWithStats[]>([]);
@@ -716,6 +719,7 @@ export default function Chat() {
               onHide={() => setPreviewOpen(false)}
               device={device}
               setDevice={setDevice}
+              mobileOnly={mobileOnly}
               tokensIn={tokens.tin}
               tokensOut={tokens.tout}
             />
@@ -731,6 +735,17 @@ export default function Chat() {
 // app, on <app>-dev.preview.coldcodelabs.com. Sindri's edits land on `dev` and the
 // forge refreshes the singleton's checkout, so HMR reflects them. Lazy: auto-boots
 // on the first file edit (sawEdit), or on the "Subir preview" button.
+// Viewports reais de aparelho pro modo mobile-exclusivo (projeto Expo). O
+// preview NÃO é redimensionável à mão — troca-se de aparelho, como num device
+// lab. Medidas = viewport CSS (pt) dos aparelhos.
+const PHONE_PRESETS = [
+  { id: "iphone-se", label: "iPhone SE", w: 375, h: 667 },
+  { id: "iphone-15-pro", label: "iPhone 15 Pro", w: 393, h: 852 },
+  { id: "iphone-16-pro-max", label: "iPhone 16 Pro Max", w: 440, h: 956 },
+  { id: "pixel-8", label: "Pixel 8", w: 412, h: 915 },
+  { id: "galaxy-s24", label: "Galaxy S24", w: 360, h: 780 },
+] as const;
+
 function SindriPreview({
   sessionId,
   projectId,
@@ -741,6 +756,7 @@ function SindriPreview({
   onHide,
   device,
   setDevice,
+  mobileOnly,
   tokensIn,
   tokensOut,
 }: {
@@ -753,6 +769,7 @@ function SindriPreview({
   onHide: () => void;
   device: "desktop" | "mobile";
   setDevice: (d: "desktop" | "mobile") => void;
+  mobileOnly: boolean;
   tokensIn: number;
   tokensOut: number;
 }) {
@@ -764,6 +781,9 @@ function SindriPreview({
   const [view, setView] = useState<"preview" | "code" | "database">("preview");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageW, setStageW] = useState(0);
+  const [stageH, setStageH] = useState(0);
+  const [phoneId, setPhoneId] = useState<string>(PHONE_PRESETS[1].id);
+  const phone = PHONE_PRESETS.find((p) => p.id === phoneId) ?? PHONE_PRESETS[1];
   const autoTried = useRef(""); // projectId we've already auto-booted for
   const wokeFor = useRef(""); // projectId we've already auto-woken a stopped singleton for
 
@@ -786,7 +806,7 @@ function SindriPreview({
   useEffect(() => {
     setPreview(null);
     setErr("");
-    setDevice("desktop");
+    setDevice(mobileOnly ? "mobile" : "desktop");
     autoTried.current = "";
     wokeFor.current = "";
     if (!projectId) return;
@@ -801,7 +821,7 @@ function SindriPreview({
     return () => {
       cancelled = true;
     };
-  }, [projectId, setDevice]);
+  }, [projectId, setDevice, mobileOnly]);
 
   // Lazy auto-start: once Sindri makes its first file edit, ensure the singleton
   // is up (once per project). The manual button covers every other case.
@@ -842,6 +862,7 @@ function SindriPreview({
     if (!el || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver((entries) => {
       setStageW(Math.round(entries[0]?.contentRect.width ?? 0));
+      setStageH(Math.round(entries[0]?.contentRect.height ?? 0));
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -849,7 +870,20 @@ function SindriPreview({
 
   const status = preview?.status;
   const live = status === "live";
-  const dimLabel = device === "mobile" ? "390px" : stageW ? `${stageW}px` : "auto";
+  const dimLabel = mobileOnly
+    ? `${phone.w}×${phone.h}`
+    : device === "mobile"
+      ? "390px"
+      : stageW
+        ? `${stageW}px`
+        : "auto";
+  // Escala o viewport do aparelho pra caber no palco sem redimensionar o app —
+  // o iframe roda no px REAL do aparelho; só a apresentação encolhe.
+  const phoneScale = Math.min(
+    1,
+    stageW ? (stageW - 28) / phone.w : 1,
+    stageH ? (stageH - 28) / phone.h : 1,
+  );
   const statusColor =
     status === "live"
       ? STATUS_COLOR.done
@@ -935,23 +969,41 @@ function SindriPreview({
         ) : null}
         <span className="sindri-preview-spacer" />
         <div className="sindri-preview-actions">
-          <button
-            type="button"
-            className={`sindri-preview-icon ${device === "desktop" ? "is-on" : ""}`}
-            title="Largura desktop"
-            onClick={() => setDevice("desktop")}
-          >
-            <Monitor size={15} />
-          </button>
-          <button
-            type="button"
-            className={`sindri-preview-icon ${device === "mobile" ? "is-on" : ""}`}
-            title="Largura mobile"
-            onClick={() => setDevice("mobile")}
-          >
-            <Smartphone size={15} />
-          </button>
-          <span className="sindri-preview-dim" title="Largura do viewport">
+          {mobileOnly ? (
+            // Projeto mobile: sem toggle desktop, sem drag — troca-se de aparelho.
+            <select
+              className="sindri-preview-device"
+              title="Aparelho do preview"
+              value={phoneId}
+              onChange={(e) => setPhoneId(e.target.value)}
+            >
+              {PHONE_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={`sindri-preview-icon ${device === "desktop" ? "is-on" : ""}`}
+                title="Largura desktop"
+                onClick={() => setDevice("desktop")}
+              >
+                <Monitor size={15} />
+              </button>
+              <button
+                type="button"
+                className={`sindri-preview-icon ${device === "mobile" ? "is-on" : ""}`}
+                title="Largura mobile"
+                onClick={() => setDevice("mobile")}
+              >
+                <Smartphone size={15} />
+              </button>
+            </>
+          )}
+          <span className="sindri-preview-dim" title="Viewport">
             {dimLabel}
           </span>
           <button
@@ -981,15 +1033,38 @@ function SindriPreview({
         ) : view === "database" ? (
           <StudioPanel previewId={preview?.id ?? null} />
         ) : live && preview ? (
-          <div className={`sindri-preview-frame is-${device}`}>
-            <iframe
-              key={iframeKey}
-              src={preview.url}
-              title="Preview ao vivo"
-              className="sindri-preview-iframe"
-              sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
-            />
-          </div>
+          mobileOnly ? (
+            // Aparelho real: o iframe roda no px exato do device escolhido e a
+            // moldura toda escala pra caber no palco (o app nunca "vira desktop").
+            <div className="sindri-preview-frame is-phone">
+              <div
+                className="sindri-phone"
+                style={{
+                  width: phone.w,
+                  height: phone.h,
+                  transform: `scale(${phoneScale})`,
+                }}
+              >
+                <iframe
+                  key={iframeKey}
+                  src={preview.url}
+                  title={`Preview — ${phone.label}`}
+                  className="sindri-preview-iframe"
+                  sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className={`sindri-preview-frame is-${device}`}>
+              <iframe
+                key={iframeKey}
+                src={preview.url}
+                title="Preview ao vivo"
+                className="sindri-preview-iframe"
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+              />
+            </div>
+          )
         ) : (
           // Never a naked checkered void: the non-live states sit inside a
           // browser-window mock, so the stage always reads as a screen.
