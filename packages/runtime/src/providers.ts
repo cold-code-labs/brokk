@@ -130,6 +130,9 @@ export const PROVIDERS: Provider[] = [
       start: "{exec} expo start --dev-client --port $PORT",
     },
     health: "/status",
-    env: { EXPO_PACKAGER_PROXY_URL: "$PUBLIC_URL", CI: "1" },
+    // ⚠️ NÃO setar CI=1: Metro em CI mode DESLIGA o file watcher ("reloads are
+    // disabled") — mata o Fast Refresh do loop dev-lane. O spawn já é non-TTY,
+    // então o expo não trava em prompt; EXPO_NO_TELEMETRY corta o resto.
+    env: { EXPO_PACKAGER_PROXY_URL: "$PUBLIC_URL", EXPO_NO_TELEMETRY: "1" },
   },
 ];
