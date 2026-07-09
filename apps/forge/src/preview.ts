@@ -80,6 +80,8 @@ export class PreviewSupervisor {
   private readonly booting = new Set<string>();
   /** Ports currently in use by running preview processes. */
   private readonly usedPorts = new Set<number>();
+  /** Last drift-refresh (fetch da tip) per preview id — throttles the tick. */
+  private readonly lastDriftRefresh = new Map<string, number>();
 
   constructor(
     private readonly cfg: RunnerConfig,
@@ -124,27 +126,34 @@ export class PreviewSupervisor {
    *  dev server. No-op when the worktree doesn't exist yet (its next boot creates it
    *  fresh at the tip). Best-effort: never throws, and never kills the dev-server
    *  process (HMR reacts to the changed files on its own). */
-  async refreshCheckout(hauldrProject: string, branch: string): Promise<void> {
+  async refreshCheckout(hauldrProject: string, branch: string): Promise<string | null> {
     // Same path convention as GhProvider.persistentCheckout(name=<hauldrProject>):
     // <workDir>/preview-worktrees/<name>.
     const path = join(this.cfg.workDir, "preview-worktrees", hauldrProject);
-    if (!existsSync(path)) return; // no live singleton to refresh
+    if (!existsSync(path)) return null; // no live singleton to refresh
     const run = promisify(execFile);
     try {
       // Fetch the branch to FETCH_HEAD only — never into refs/heads/<branch>, which
       // is checked out in this worktree (git refuses to fetch into a checked-out
       // branch). Then hard-reset the worktree onto it. Mirrors persistentCheckout's
-      // refresh, minus the racy worktree-add.
+      // refresh, minus the racy worktree-add. Skip the reset when the tip didn't
+      // move, so the periodic tick refresh is a no-op without mtime churn (HMR
+      // would otherwise re-trigger on identical files).
       await run("git", ["fetch", "origin", `refs/heads/${branch}`], { cwd: path });
+      const head = (await run("git", ["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
+      const fetched = (await run("git", ["rev-parse", "FETCH_HEAD"], { cwd: path })).stdout.trim();
+      if (head === fetched) return null;
       await run("git", ["reset", "--hard", "FETCH_HEAD"], { cwd: path });
       console.log(
-        `[preview-supervisor] refreshed ${hauldrProject} worktree → ${branch} tip`,
+        `[preview-supervisor] refreshed ${hauldrProject} worktree → ${branch} tip (${fetched.slice(0, 8)})`,
       );
+      return fetched;
     } catch (err) {
       console.warn(
         `[preview-supervisor] refreshCheckout ${hauldrProject} failed:`,
         err instanceof Error ? err.message : err,
       );
+      return null;
     }
   }
 
@@ -237,6 +246,25 @@ export class PreviewSupervisor {
               pid: null,
               port: null,
             }).catch(() => {});
+            break;
+          }
+
+          // Drift refresh: pull the branch tip into the worktree so pushes that
+          // DON'T come from the dev-lane card flow (Sindri chat, a human `git
+          // push`) also land in the running HMR server. The card flow still
+          // calls refreshCheckout() directly for the instant path; this is the
+          // ≤60s backstop for everything else. Throttled per preview — the tick
+          // itself runs every few seconds.
+          const last = this.lastDriftRefresh.get(p.id) ?? 0;
+          if (Date.now() - last >= 60_000) {
+            this.lastDriftRefresh.set(p.id, Date.now());
+            void this.refreshCheckout(p.hauldrProject, p.branch).then((sha) => {
+              if (!sha) return;
+              return this.controlPatch(`/previews/${p.id}`, {
+                commitSha: sha,
+                builtAt: new Date().toISOString(),
+              }).catch(() => {});
+            });
           }
           break;
         }
