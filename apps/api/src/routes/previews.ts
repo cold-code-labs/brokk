@@ -1,17 +1,39 @@
 import { Hono } from "hono";
+import type { MiddlewareHandler } from "hono";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
-import { requireRunnerSecret } from "./runner.js";
+import { secretEquals } from "../secrets.js";
 
 const CreatePreviewBody = z.object({
   projectId: z.string().uuid(),
   branch: z.string().default("dev"),
 });
 
+/** Previews are managed by TWO identities: the forge runner (supervisor loop,
+ *  BROKK_RUNNER_SECRET) and the human UI (the web proxy injects BROKK_API_SECRET,
+ *  itself gated by a Logto session). Runner-only here 401'd every "Subir preview"
+ *  click in Sindri/Fleet — accept either. Other runner routes (/register etc.)
+ *  stay runner-only. */
+function requireRunnerOrApiSecret(deps: AppDeps): MiddlewareHandler {
+  return async (c, next) => {
+    if (!deps.runnerSecret) {
+      return c.json({ error: "runner endpoints disabled (no BROKK_RUNNER_SECRET)" }, 503);
+    }
+    const token = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    if (
+      secretEquals(token, deps.runnerSecret) ||
+      (deps.apiSecret && secretEquals(token, deps.apiSecret))
+    ) {
+      return next();
+    }
+    return c.json({ error: "unauthorized" }, 401);
+  };
+}
+
 export function previewsRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
-  r.use("*", requireRunnerSecret(deps));
+  r.use("*", requireRunnerOrApiSecret(deps));
 
   /** POST /previews — ensure+start: return an existing starting/live preview for
    *  the project+branch, or insert a fresh row with status 'starting' and signal
