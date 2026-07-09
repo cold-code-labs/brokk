@@ -534,9 +534,28 @@ function stripFramingGuards(
  *  server treat the request as same-origin. SCOPED to Next's dev-internal prefixes
  *  (`/_next/` assets + HMR, `/__nextjs*` dev endpoints incl. `/__nextjs_font/`) so
  *  page-route requests keep their Origin — Server Action CSRF validation relies on
- *  it (server actions POST to page routes, never these prefixes). */
+ *  it (server actions POST to page routes, never these prefixes).
+ *
+ *  Metro (Expo dev server, divisão mobile) tem a mesma classe de endpoints
+ *  dev-internos: `/hot` e `/message` (WebSockets do Fast Refresh), `*.bundle`
+ *  (o bundle JS que o dev client baixa), `/status`, `/symbolicate`, `/assets`,
+ *  `/logs`, `/inspector`. Mesmo tratamento: strip de Origin, nunca em rota de
+ *  página (Metro não tem página). */
 function isDevAssetPath(url: string | undefined): boolean {
-  return !!url && (url.startsWith("/_next/") || url.startsWith("/__nextjs"));
+  if (!url) return false;
+  if (url.startsWith("/_next/") || url.startsWith("/__nextjs")) return true;
+  const path = url.split("?")[0];
+  return (
+    path === "/status" ||
+    path === "/hot" ||
+    path === "/message" ||
+    path === "/symbolicate" ||
+    path === "/logs" ||
+    path.endsWith(".bundle") ||
+    path.endsWith(".map") ||
+    path.startsWith("/assets") ||
+    path.startsWith("/inspector")
+  );
 }
 
 function respondHtml(res: http.ServerResponse, status: number, body: string): void {

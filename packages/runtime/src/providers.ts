@@ -53,6 +53,9 @@ export interface Provider {
   /** Command templates with a `{exec}` placeholder; null for unsupported stacks. */
   commands?: { dev: string; build: string; start: string };
   health?: string;
+  /** Extra env for the dev process. `$PUBLIC_URL` expands to the preview's public
+   *  URL at boot (supervisor-side), so no framework knowledge leaks into the forge. */
+  env?: Record<string, string>;
 }
 
 export const PROVIDERS: Provider[] = [
@@ -105,5 +108,28 @@ export const PROVIDERS: Provider[] = [
       start: "{exec} astro preview --port $PORT --host 0.0.0.0",
     },
     health: "/",
+  },
+  // Expo / React Native (divisão mobile). O "preview" é o Metro (dev server):
+  // ele não renderiza a app — serve bundle JS pro dev client instalado no
+  // aparelho (deep link <scheme>://expo-development-client/?url=<preview-url>).
+  // Fast Refresh via WebSocket, proxiado pelo gateway como qualquer HMR.
+  // EXPO_PACKAGER_PROXY_URL faz o manifest apontar pro host público do preview
+  // (mesmo padrão do metro.coldcodelabs.com no ymir, provado 2026-07-08).
+  {
+    id: "expo",
+    label: "Expo (Metro)",
+    supported: true,
+    detect: {
+      anyDep: ["expo"],
+      anyFile: ["app.config.ts", "app.config.js", "app.json"],
+      anyScriptMatches: "expo start",
+    },
+    commands: {
+      dev: "{exec} expo start --dev-client --port $PORT",
+      build: "{exec} expo export --platform=web",
+      start: "{exec} expo start --dev-client --port $PORT",
+    },
+    health: "/status",
+    env: { EXPO_PACKAGER_PROXY_URL: "$PUBLIC_URL", CI: "1" },
   },
 ];

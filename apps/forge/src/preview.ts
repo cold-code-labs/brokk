@@ -445,10 +445,20 @@ export class PreviewSupervisor {
     // "before serving". Pin HOME (and the corepack cache) to a writable dir so
     // `pnpm install` can always provision its package manager.
     const home = process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
+    // Runtime-declared env (spec.env — e.g. Expo's EXPO_PACKAGER_PROXY_URL). The
+    // `$PUBLIC_URL` placeholder expands to the preview's public URL here, so the
+    // provider stays generic and the supervisor stays framework-blind.
+    const specEnv = Object.fromEntries(
+      Object.entries(spec.env ?? {}).map(([k, v]) => [
+        k,
+        v.replaceAll("$PUBLIC_URL", preview.url ?? ""),
+      ]),
+    );
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...hauldrEnv,
       ...appSecrets,
+      ...specEnv,
       HOME: home,
       COREPACK_HOME: `${home}/.cache/corepack`,
       PORT: String(port),
