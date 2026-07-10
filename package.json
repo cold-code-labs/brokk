@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "CCL's open-source AI coding-agent platform — card → Claude Agent SDK forges code in an isolated worktree → Pull Request.",
+  "description": "CCL's open-source AI coding-agent platform \u2014 cards, chat and review agents on a native lean kernel (Afl), forging code in isolated worktrees into PRs.",
   "license": "Apache-2.0",
   "packageManager": "pnpm@9.15.0",
   "engines": {
@@ -15,10 +15,12 @@
     "dev": "pnpm --parallel --filter \"./apps/*\" dev",
     "dev:api": "pnpm --filter @brokk/api dev",
     "dev:web": "pnpm --filter @brokk/web dev",
-    "lint": "pnpm -r --if-present lint"
+    "lint": "pnpm -r --if-present lint",
+    "eval": "tsx evals/run.ts"
   },
   "devDependencies": {
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.2"
   },
   "pnpm": {
     "overrides": {
