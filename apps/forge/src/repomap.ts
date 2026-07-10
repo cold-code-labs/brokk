@@ -11,6 +11,7 @@ import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { buildRepoMap as buildSymbolMap } from "@brokk/repomap";
 
 const exec = promisify(execFile);
 
@@ -19,8 +20,24 @@ const MAX_DIRS = 60;
 const MAX_PKGS = 40;
 
 /** Build the repo map from a worktree. Never throws — returns "" on any failure
- *  (a missing map just means the planner runs without it). */
+ *  (a missing map just means the planner runs without it).
+ *
+ *  ADR 0027 §4.2: the primary map is now the RANKED SYMBOL map (@brokk/repomap —
+ *  exported symbols per file, PageRank over the import graph, Aider's technique
+ *  on the TS compiler). Repos with no TS/JS exports fall back to the original
+ *  ls-files directory map below. */
 export async function buildRepoMap(cwd: string): Promise<string> {
+  try {
+    const symbolic = buildSymbolMap(cwd, { maxChars: MAX_MAP_CHARS });
+    // Header reports the file count — "0 code files" means nothing to rank.
+    if (symbolic && !/·\s*0 code files/.test(symbolic)) return symbolic;
+  } catch {
+    /* fall through to the cheap map */
+  }
+  return lsFilesMap(cwd);
+}
+
+async function lsFilesMap(cwd: string): Promise<string> {
   let files: string[] = [];
   try {
     const { stdout } = await exec("git", ["ls-files"], { cwd, maxBuffer: 1024 * 1024 * 32 });

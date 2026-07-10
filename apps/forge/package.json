@@ -12,7 +12,9 @@
   "dependencies": {
     "@brokk/core": "workspace:*",
     "@brokk/forge": "workspace:*",
-    "langfuse": "^3.38.20"
+    "langfuse": "^3.38.20",
+    "@brokk/repomap": "workspace:*",
+    "@brokk/afl": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
