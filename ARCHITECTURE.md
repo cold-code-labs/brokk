@@ -22,6 +22,8 @@ Dependency direction is one-way: `afl + mimir ← agents ← apps` (NORTH-STAR �
 | `packages/db` | Drizzle models + the Store over Postgres. Schema changes ship via **boot-time self-heal DDL** (see below). |
 | `packages/mimir` | **Mímir** — the cortex: enhance → triage (`força`) → plan. Pure library, HTTP-only client (Messages API via the gateway, or an OpenAI-compatible endpoint). |
 | `packages/sdk` | Typed client for the control-plane API. |
+| `packages/mcp` | **MCP bridge** (ADR 0027 §4.1): `BROKK_MCP_SERVERS` → connected servers → namespaced ToolDefs + a PartialExecutor mounted into Sindri turns. Fail-closed gating (read-only by default). |
+| `packages/repomap` | **Ranked symbol map** (ADR 0027 §4.2): exported symbols per file + PageRank over the import graph (TS compiler as parser). Feeds the forge's warm index. |
 | `packages/agents/forge` | **Brokkr** — autonomous card→worktree→verify→heal→PR engine. |
 | `packages/agents/chat` | **Sindri** — conversational coding over a live checkout, domain tools (cards, planning, infra intents). |
 | `packages/agents/scout` | **Huginn/Muninn** — read-only discovery: repo brief, card resolution, meeting intake, runtime detection. |
@@ -66,5 +68,12 @@ All agent `bash` funnels through one chokepoint (`ExecEnclave.exec`):
 ## Deploy
 
 Single compose app (`docker-compose.coolify.yml`) — push to `main` deploys via
-the fleet webhook pipeline. Verification: `pnpm -r typecheck` + smoke scripts
-in `scripts/`.
+the fleet webhook pipeline. Verification: `pnpm -r typecheck` + the golden-task
+eval suite (`pnpm eval`, see [evals/README.md](evals/README.md)) — run the
+`mock`+`build` lanes before touching the kernel or adding deps to bundled
+`@brokk/*` packages — plus smoke scripts in `scripts/`.
+
+One packaging gotcha worth knowing: the worker bundles use tsup `noExternal:
+[/^@brokk\//]`, so a CJS dependency added to any bundled workspace package gets
+inlined into an ESM bundle — the tsup banner shims `require`/`__filename`, and
+`pnpm eval --lane build` catches a bundle that no longer boots.

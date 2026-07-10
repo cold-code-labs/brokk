@@ -24,6 +24,10 @@ Lanes:
   pins the `chat_messages` rows (count/roles/seq/blocks/meta.usage), the emit
   stream, and title derivation. Needs docker, or point `EVAL_PG_URL` at any
   scratch Postgres.
+- **build** — builds the chat+forge bundles and boots them with a bare env:
+  pass = dies at config validation, fail = dies at module load (the CJS-inlined-
+  into-ESM class that typecheck and unit tests cannot see). Run it whenever a
+  bundled `@brokk/*` package gains a dependency.
 - **llm** — golden semantic tasks against the real gateway (needs
   `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_BASE_URL`). Haiku by default: the weakest
   model is the strictest gate. One retry per task (model flakiness ≠
