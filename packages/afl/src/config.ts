@@ -21,6 +21,12 @@ export interface AflConfig {
   maxTokens: number;
   /** Hard ceiling on tool-use rounds in one turn (runaway guard). */
   maxRounds: number;
+  /** Compact the transcript when the API reports this many input tokens for a
+   *  round (older rounds fold into a summary — see compact.ts). 0 = off. */
+  compactInputTokens: number;
+  /** Optional cumulative token budget per turn (input+output). 0 = unlimited.
+   *  Consumers pass it to runAgentLoop's maxTotalTokens. */
+  turnTokenBudget: number;
 }
 
 export function loadAflConfig(env: NodeJS.ProcessEnv = process.env): AflConfig {
@@ -39,6 +45,8 @@ export function loadAflConfig(env: NodeJS.ProcessEnv = process.env): AflConfig {
     // enough to pass a tight window; the gateway client shrinks it further on 429.
     maxTokens: Number(env.SINDRI_MAX_TOKENS ?? 2048),
     maxRounds: Number(env.SINDRI_MAX_ROUNDS ?? 80),
+    compactInputTokens: Number(env.BROKK_COMPACT_INPUT_TOKENS ?? 120_000),
+    turnTokenBudget: Number(env.BROKK_TURN_TOKEN_BUDGET ?? 0),
   };
 }
 

@@ -241,6 +241,96 @@ export const mockTasks: EvalTask[] = [
   },
 
   {
+    id: "loop-token-budget",
+    lane: "mock",
+    async run() {
+      await withMock(async (gw, cfg) => {
+        gw.load([
+          {
+            blocks: [{ type: "tool_use", id: "t1", name: "echo", input: { value: "x" } }],
+            stopReason: "tool_use",
+            inputTokens: 400,
+            outputTokens: 100,
+          },
+        ]); // repeats — every round costs 500 tokens
+        let execCalls = 0;
+        const result = await runAgentLoop({
+          cfg,
+          model: "mock-haiku",
+          system: "eval",
+          messages: seed("go"),
+          tools: [ECHO_TOOL],
+          exec: async () => {
+            execCalls++;
+            return { ok: true, content: "ok" };
+          },
+          maxTokens: 512,
+          maxRounds: 8,
+          maxTotalTokens: 600,
+        });
+        expect(result.stop === "budget", `stop=${result.stop}, want budget`);
+        expect(result.rounds === 2, `rounds=${result.rounds}, want 2 (500 < 600 ≤ 1000)`);
+        expect(execCalls === 1, `exec ran ${execCalls}×, want 1 (round 2's tools must NOT run)`);
+        expect(result.usage.inputTokens + result.usage.outputTokens === 1000, "usage accounting drifted");
+      });
+    },
+  },
+
+  {
+    id: "loop-compaction",
+    lane: "mock",
+    async run() {
+      await withMock(async (gw, cfg) => {
+        (cfg as any).compactInputTokens = 5000; // trigger threshold
+        gw.load([
+          // rounds 1-3: small context, tool churn builds transcript length
+          { blocks: [{ type: "tool_use", id: "t1", name: "echo", input: { value: "1" } }], stopReason: "tool_use", inputTokens: 100 },
+          { blocks: [{ type: "tool_use", id: "t2", name: "echo", input: { value: "2" } }], stopReason: "tool_use", inputTokens: 200 },
+          // round 3 reports a BIG context → compaction fires before round 4
+          { blocks: [{ type: "tool_use", id: "t3", name: "echo", input: { value: "3" } }], stopReason: "tool_use", inputTokens: 9000 },
+          // the compaction summarizer call itself:
+          { blocks: [{ type: "text", text: "SUMMARY-MARK: user wants echoes; t1,t2 done" }], stopReason: "end_turn" },
+          // round 4 (post-compaction) finishes the turn
+          { blocks: [{ type: "text", text: "all done" }], stopReason: "end_turn" },
+        ]);
+        let compacted = 0;
+        const messages = seed("go");
+        const result = await runAgentLoop({
+          cfg,
+          model: "mock-haiku",
+          system: "eval",
+          messages,
+          tools: [ECHO_TOOL],
+          exec: async () => ({ ok: true, content: "ok" }),
+          maxTokens: 512,
+          maxRounds: 8,
+          hooks: { onCompaction: (c) => void (compacted = c.dropped) },
+        });
+        expect(result.stop === "end_turn", `stop=${result.stop}`);
+        expect(compacted > 0, "onCompaction never fired");
+        // The post-compaction request must open with the summary user message and
+        // keep the surviving tail's tool pairing intact.
+        const lastReq = gw.requests[gw.requests.length - 1];
+        const first = lastReq.messages[0];
+        expect(
+          first.role === "user" && JSON.stringify(first.content).includes("SUMMARY-MARK"),
+          "compacted request does not start with the summary",
+        );
+        const roles = lastReq.messages.map((m: any) => m.role).join(",");
+        expect(roles.startsWith("user,assistant"), `post-compaction roles: ${roles}`);
+        // The summarizer request itself must carry NO tools (plain completion).
+        const summarizerReq = gw.requests[3];
+        expect(!summarizerReq.tools, "summarizer request leaked the tool defs");
+        // In-memory transcript shrank but kept the tail (assistant t3 + its result + final).
+        expect(
+          messages.some((m) => JSON.stringify(m.content).includes("SUMMARY-MARK")),
+          "summary message not in transcript",
+        );
+      });
+    },
+  },
+
+  {
     id: "fs-executor-contract",
     lane: "mock",
     async run(ctx) {

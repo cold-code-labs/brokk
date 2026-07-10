@@ -74,6 +74,8 @@ export class ForgeEngine implements AgentEngine {
       models: opts.models ?? DEFAULT_MODELS,
       maxTokens: opts.maxTokens ?? 8192,
       maxRounds: opts.maxRounds ?? 120,
+      compactInputTokens: Number(process.env.BROKK_COMPACT_INPUT_TOKENS ?? 120_000),
+      turnTokenBudget: 0,
     };
   }
 

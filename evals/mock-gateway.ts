@@ -114,5 +114,7 @@ export function mockCfg(baseUrl: string) {
     models: { haiku: "mock-haiku", sonnet: "mock-sonnet", opus: "mock-opus" },
     maxTokens: 512,
     maxRounds: 8,
+    compactInputTokens: 0,
+    turnTokenBudget: 0,
   };
 }

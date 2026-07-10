@@ -88,6 +88,7 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
     maxTokens,
     thinkingBudget: budget,
     maxRounds: cfg.maxRounds,
+    maxTotalTokens: cfg.turnTokenBudget || undefined,
     signal,
     hooks: {
       onRound: (round) => emit({ type: "status", phase: "round", detail: { round } }),
@@ -124,6 +125,10 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
       return;
     case "max_rounds":
       emit({ type: "status", phase: "max_rounds", detail: { maxRounds: cfg.maxRounds } });
+      emit({ type: "done" });
+      return;
+    case "budget":
+      emit({ type: "status", phase: "budget", detail: { maxTotalTokens: cfg.turnTokenBudget } });
       emit({ type: "done" });
       return;
     default:
