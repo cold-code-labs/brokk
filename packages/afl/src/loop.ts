@@ -33,6 +33,8 @@ import type {
 /** Side-effect hooks fired as the loop runs. All optional; all may be async (the
  *  loop awaits them, so a consumer can persist-before-continue for crash safety). */
 export interface AgentLoopHooks {
+  /** A round is starting (before its assistant stream opens). */
+  onRound?: (round: number) => void | Promise<void>;
   /** Live text/thinking deltas as the assistant streams. */
   onDelta?: DeltaSink;
   /** A completed assistant round (text + thinking + tool_use), already appended to
@@ -97,6 +99,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopRes
 
   for (let round = 0; round < maxRounds; round++) {
     if (signal?.aborted) return { stop: "aborted", rounds: round, usage, lastStopReason };
+    await hooks?.onRound?.(round);
 
     const result = await streamAssistant(
       cfg,

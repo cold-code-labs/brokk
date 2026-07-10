@@ -1,23 +1,23 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// The agentic turn loop — Sindri's heart. One user message → drive the model and
-// tools to completion, persisting every step so the turn survives a disconnect
-// (overnight) and replays on reconnect:
+// Sindri's turn = the kernel loop + persistence/streaming HOOKS (ADR 0027 §2.1).
+// One user message → runAgentLoop drives the model and tools to completion;
+// every side effect Sindri needs rides the kernel's hooks:
 //
-//   append user msg → [ stream assistant → persist → if tool_use: run tools,
-//   persist tool_results, repeat | else: stop ]
+//   onAssistant / onToolResults → persist to chat_messages BEFORE the next round
+//                                 (a crash/disconnect loses at most the in-flight
+//                                 round; the turn survives overnight)
+//   onDelta / onToolUse / ...   → the SSE event stream the workbench renders
 //
-// Every completed message is written to chat_messages BEFORE the next round, so a
-// crash/disconnect loses at most the in-flight (still-streaming) round. Live
-// deltas + completed messages are emitted to `emit` for the SSE stream.
+// This file used to carry its own copy of the tool loop (the pre-extraction
+// sibling); since ADR 0027 there is ONE loop — packages/afl/src/loop.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ChatSession } from "@brokk/core";
 import type { Store } from "@brokk/db";
 import type { AflConfig } from "@brokk/afl";
-import { resolveModel } from "@brokk/afl";
-import { streamAssistant } from "@brokk/afl";
+import { resolveModel, runAgentLoop } from "@brokk/afl";
 import { makeExecutor, TOOL_DEFS, type ToolContext } from "./tools.js";
-import type { ChatTurnMessage, ContentBlock, AgentEvent, ToolResultBlock, ToolUseBlock } from "@brokk/afl";
+import type { ChatTurnMessage, ContentBlock, AgentEvent } from "@brokk/afl";
 
 export interface RunTurnInput {
   session: ChatSession;
@@ -78,57 +78,56 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
     content: m.blocks as ContentBlock[],
   }));
 
-  const exec = makeExecutor(toolCtx);
+  const result = await runAgentLoop({
+    cfg,
+    model,
+    system,
+    messages,
+    tools: TOOL_DEFS,
+    exec: makeExecutor(toolCtx),
+    maxTokens,
+    thinkingBudget: budget,
+    maxRounds: cfg.maxRounds,
+    signal,
+    hooks: {
+      onRound: (round) => emit({ type: "status", phase: "round", detail: { round } }),
+      onDelta: (d) =>
+        emit(
+          d.type === "text_delta"
+            ? { type: "text_delta", text: d.text }
+            : { type: "thinking_delta", text: d.text },
+        ),
+      // Persist the assistant round (text + thinking + tool_use) before its tools run.
+      onAssistant: async (blocks, meta) => {
+        const assistantMsg = await store.appendChatMessage(session.id, {
+          role: "assistant",
+          blocks,
+          meta: { model, stopReason: meta.stopReason, usage: meta.usage },
+        });
+        emit({ type: "message", seq: assistantMsg.seq, role: "assistant", blocks });
+        emit({ type: "usage", usage: meta.usage });
+      },
+      onToolUse: (tu) => emit({ type: "tool_use", id: tu.id, name: tu.name, input: tu.input }),
+      onToolResult: (tu, r) =>
+        emit({ type: "tool_result", toolUseId: tu.id, ok: r.ok, preview: r.content.slice(0, 600) }),
+      // Persist the round's tool results as one user message before the next round.
+      onToolResults: async (blocks) => {
+        const toolMsg = await store.appendChatMessage(session.id, { role: "user", blocks });
+        emit({ type: "message", seq: toolMsg.seq, role: "user", blocks });
+      },
+    },
+  });
 
-  for (let round = 0; round < cfg.maxRounds; round++) {
-    if (signal?.aborted) {
+  switch (result.stop) {
+    case "aborted":
       emit({ type: "status", phase: "aborted" });
       return;
-    }
-    emit({ type: "status", phase: "round", detail: { round } });
-
-    const result = await streamAssistant(
-      cfg,
-      { model, system, messages, tools: TOOL_DEFS, maxTokens, thinkingBudget: budget },
-      (d) => emit(d.type === "text_delta" ? { type: "text_delta", text: d.text } : { type: "thinking_delta", text: d.text }),
-      signal,
-    );
-
-    // Persist the assistant round (text + thinking + tool_use) before running tools.
-    const assistantMsg = await store.appendChatMessage(session.id, {
-      role: "assistant",
-      blocks: result.blocks,
-      meta: { model, stopReason: result.stopReason, usage: result.usage },
-    });
-    messages.push({ role: "assistant", content: result.blocks });
-    emit({ type: "message", seq: assistantMsg.seq, role: "assistant", blocks: result.blocks });
-    emit({ type: "usage", usage: result.usage });
-
-    const toolUses = result.blocks.filter((b): b is ToolUseBlock => b.type === "tool_use");
-    if (result.stopReason !== "tool_use" || toolUses.length === 0) {
-      emit({ type: "status", phase: "turn_done" });
+    case "max_rounds":
+      emit({ type: "status", phase: "max_rounds", detail: { maxRounds: cfg.maxRounds } });
       emit({ type: "done" });
       return;
-    }
-
-    // Execute each tool call; collect the results into one user message.
-    const resultBlocks: ToolResultBlock[] = [];
-    for (const tu of toolUses) {
-      if (signal?.aborted) {
-        emit({ type: "status", phase: "aborted" });
-        return;
-      }
-      emit({ type: "tool_use", id: tu.id, name: tu.name, input: tu.input });
-      const r = await exec(tu.name, tu.input);
-      resultBlocks.push({ type: "tool_result", tool_use_id: tu.id, content: r.content, is_error: !r.ok });
-      emit({ type: "tool_result", toolUseId: tu.id, ok: r.ok, preview: r.content.slice(0, 600) });
-    }
-
-    const toolMsg = await store.appendChatMessage(session.id, { role: "user", blocks: resultBlocks });
-    messages.push({ role: "user", content: resultBlocks });
-    emit({ type: "message", seq: toolMsg.seq, role: "user", blocks: resultBlocks });
+    default:
+      emit({ type: "status", phase: "turn_done" });
+      emit({ type: "done" });
   }
-
-  emit({ type: "status", phase: "max_rounds", detail: { maxRounds: cfg.maxRounds } });
-  emit({ type: "done" });
 }
