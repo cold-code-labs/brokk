@@ -93,7 +93,9 @@ export async function streamAssistant(
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${cfg.authToken}`,
+          ...(cfg.authKind === "apikey"
+            ? { "x-api-key": cfg.authToken }
+            : { authorization: `Bearer ${cfg.authToken}` }),
           "anthropic-version": cfg.anthropicVersion,
           accept: "text/event-stream",
         },

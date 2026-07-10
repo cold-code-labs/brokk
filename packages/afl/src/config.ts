@@ -11,8 +11,14 @@ export interface AflConfig {
   /** Gateway base URL (ANTHROPIC_BASE_URL) — e.g. http://127.0.0.1:4000. We POST
    *  `${gatewayUrl}/v1/messages`. */
   gatewayUrl: string;
-  /** Bearer token for the gateway (ANTHROPIC_AUTH_TOKEN) — a LiteLLM virtual key. */
+  /** Credential: a gateway bearer (ANTHROPIC_AUTH_TOKEN, LiteLLM virtual key) or
+   *  a direct Anthropic API key (ANTHROPIC_API_KEY) — see authKind. */
   authToken: string;
+  /** How the credential is presented: "bearer" (Authorization header, the CCL
+   *  gateway/seat path — the default) or "apikey" (x-api-key, direct Anthropic).
+   *  ADR 0027 §3.1: ANTHROPIC_AUTH_TOKEN wins when both are set, so the fleet's
+   *  seat mode is untouched; an operator with only an API key just works. */
+  authKind: "bearer" | "apikey";
   /** anthropic-version header — mirrors what Claude Code sends. */
   anthropicVersion: string;
   /** alias → concrete model id, from the ANTHROPIC_DEFAULT_*_MODEL env. */
@@ -30,9 +36,14 @@ export interface AflConfig {
 }
 
 export function loadAflConfig(env: NodeJS.ProcessEnv = process.env): AflConfig {
+  const bearer = env.ANTHROPIC_AUTH_TOKEN ?? "";
+  const apiKey = env.ANTHROPIC_API_KEY ?? "";
+  const authKind: AflConfig["authKind"] = bearer ? "bearer" : apiKey ? "apikey" : "bearer";
+  const defaultBase = authKind === "apikey" ? "https://api.anthropic.com" : "http://127.0.0.1:4000";
   return {
-    gatewayUrl: (env.ANTHROPIC_BASE_URL ?? "http://127.0.0.1:4000").replace(/\/$/, ""),
-    authToken: env.ANTHROPIC_AUTH_TOKEN ?? "",
+    gatewayUrl: (env.ANTHROPIC_BASE_URL ?? defaultBase).replace(/\/$/, ""),
+    authToken: bearer || apiKey,
+    authKind,
     anthropicVersion: env.ANTHROPIC_VERSION ?? "2023-06-01",
     models: {
       haiku: env.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? "claude-haiku-4-5-20251001",

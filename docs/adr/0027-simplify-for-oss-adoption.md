@@ -49,7 +49,7 @@ Brokk works — card→forge→verify→heal→PR, Sindri chat+preview, Eitri re
 |---|------|--------|
 | 3.1 | **Credential seam: implement `mode=apikey` in Afl config.** | Afl accepts `ANTHROPIC_API_KEY` (direct to api.anthropic.com) *or* `BASE_URL+token` (today's seat via LiteLLM/Ratatoskr). This is the dormant NORTH-STAR #6 item, implemented in Brokk itself rather than only in the relay. **CCL default unchanged (seat mode)** — flipping defaults is a go-to-market decision, not this ADR's. Gateway.ts already speaks raw Messages; only header injection differs. |
 | 3.2 | **`DataProvider` interface for preview backends.** | Preview supervisor consumes an interface: `ensureEnv(project) → env vars`. Default implementation = passthrough (project-supplied env). Hauldr provisioning becomes the first real provider (today's behavior, still the CCL default). Forge's `apply_migration` tool mounts only when the provider supports migrations — doctrine unchanged. |
-| 3.3 | **Heimdall bridge behind env.** | Sindri's `set_env/redeploy_app/register_route/register_job` tools mount only when `BROKK_HEIMDALL_URL` is set (on for CCL). Removes a hard cross-pillar import from the chat app. |
+| 3.3 | **Heimdall bridge behind env.** | ✔ Already satisfied in the codebase: the bridge mounts only when `HEIMDALL_AGENT_URL`+`HEIMDALL_AGENT_TOKEN` are set (apps/chat/src/app.ts); absent env = infra tools report unavailable. No work needed. |
 
 ### 4. ADOPT — OSS where it's commodity (and keep rejecting where it isn't)
 

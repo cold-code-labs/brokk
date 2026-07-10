@@ -40,8 +40,11 @@ import { MIGRATION_TOOL_DEF, makeMigrationExecutor } from "./tools.js";
 export interface ForgeEngineOptions {
   /** Gateway base url (ANTHROPIC_BASE_URL) — LiteLLM → Ratatoskr. */
   gatewayUrl: string;
-  /** Gateway bearer (ANTHROPIC_AUTH_TOKEN) — a LiteLLM virtual key. */
+  /** Gateway bearer (ANTHROPIC_AUTH_TOKEN) — a LiteLLM virtual key — or a direct
+   *  Anthropic API key (pair with authKind: "apikey"). */
   authToken: string;
+  /** "bearer" (default, gateway/seat) or "apikey" (direct Anthropic). */
+  authKind?: "bearer" | "apikey";
   /** anthropic-version header. Default mirrors Claude Code. */
   anthropicVersion?: string;
   /** alias → concrete model id. Defaults to the current CCL model ids. */
@@ -70,6 +73,7 @@ export class ForgeEngine implements AgentEngine {
     this.cfg = {
       gatewayUrl: opts.gatewayUrl.replace(/\/$/, ""),
       authToken: opts.authToken,
+      authKind: opts.authKind ?? "bearer",
       anthropicVersion: opts.anthropicVersion ?? "2023-06-01",
       models: opts.models ?? DEFAULT_MODELS,
       maxTokens: opts.maxTokens ?? 8192,

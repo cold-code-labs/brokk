@@ -40,12 +40,13 @@ type Claimed = {
 async function main() {
   const cfg = loadRunnerConfig();
   const git = new GhProvider({ workDir: cfg.workDir, githubToken: cfg.githubToken });
-  // Native forge over @brokk/afl (no Agent SDK). Gateway-only auth: base url →
-  // LiteLLM/Ratatoskr, bearer = the LiteLLM virtual key (Ratatoskr injects the
-  // real seat upstream). The legacy api-key / per-run OAuth seat path is retired.
+  // Native forge over @brokk/afl (no Agent SDK). Two credential modes (ADR 0027
+  // §3.1): bearer (base url → LiteLLM/Ratatoskr, the CCL seat — wins when both
+  // are set) or a plain ANTHROPIC_API_KEY straight to Anthropic.
   const engine = new ForgeEngine({
-    gatewayUrl: cfg.anthropicBaseUrl,
-    authToken: cfg.anthropicAuthToken,
+    gatewayUrl: cfg.anthropicBaseUrl || (cfg.anthropicAuthToken ? "" : "https://api.anthropic.com"),
+    authToken: cfg.anthropicAuthToken || cfg.anthropicApiKey,
+    authKind: cfg.anthropicAuthToken ? "bearer" : cfg.anthropicApiKey ? "apikey" : "bearer",
     browser: cfg.browser,
   });
 

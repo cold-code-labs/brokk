@@ -331,6 +331,32 @@ export const mockTasks: EvalTask[] = [
   },
 
   {
+    id: "loop-apikey-auth",
+    lane: "mock",
+    async run() {
+      await withMock(async (gw, cfg) => {
+        gw.load([{ blocks: [{ type: "text", text: "ok" }], stopReason: "end_turn" }]);
+        (cfg as any).authKind = "apikey";
+        (cfg as any).authToken = "sk-ant-eval-key";
+        await runAgentLoop({
+          cfg,
+          model: "mock-haiku",
+          system: "eval",
+          messages: seed("hi"),
+          tools: [],
+          exec: async () => ({ ok: false, content: "none" }),
+          maxTokens: 128,
+          maxRounds: 1,
+        });
+        const h = gw.headers[0]!;
+        expect(h["x-api-key"] === "sk-ant-eval-key", `x-api-key header: ${h["x-api-key"]}`);
+        expect(!h["authorization"], `authorization must be absent in apikey mode: ${h["authorization"]}`);
+        expect(!!h["anthropic-version"], "anthropic-version header missing");
+      });
+    },
+  },
+
+  {
     id: "fs-executor-contract",
     lane: "mock",
     async run(ctx) {

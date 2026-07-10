@@ -21,6 +21,7 @@ export interface MockRound {
 
 export class MockGateway {
   readonly requests: any[] = [];
+  readonly headers: http.IncomingHttpHeaders[] = [];
   private script: MockRound[] = [];
   private server?: http.Server;
   private cursor = 0;
@@ -40,6 +41,7 @@ export class MockGateway {
       req.on("end", () => {
         const body = JSON.parse(Buffer.concat(chunks).toString() || "{}");
         this.requests.push(body);
+        this.headers.push(req.headers);
         const round =
           this.script[Math.min(this.cursor, this.script.length - 1)] ??
           ({ blocks: [{ type: "text", text: "mock exhausted" }], stopReason: "end_turn" } as MockRound);
@@ -110,6 +112,7 @@ export function mockCfg(baseUrl: string) {
   return {
     gatewayUrl: baseUrl,
     authToken: "eval",
+    authKind: "bearer" as const,
     anthropicVersion: "2023-06-01",
     models: { haiku: "mock-haiku", sonnet: "mock-sonnet", opus: "mock-opus" },
     maxTokens: 512,
