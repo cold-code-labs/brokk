@@ -16,6 +16,7 @@ import { loadRunnerConfig, type RunnerConfig } from "./config.js";
 const execAsync = promisify(exec);
 import { GhProvider } from "./git.js";
 import { ForgeEngine } from "@brokk/forge";
+import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
 import { HauldrClient } from "./hauldr.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
@@ -62,15 +63,15 @@ async function main() {
 
   // ── Preview supervisor (parallel loop) ──────────────────────────────────────
   // Runs alongside the forge claim loop; each is independent.
-  const hauldr = cfg.hauldrControlUrl
-    ? new HauldrClient(cfg.hauldrControlUrl, cfg.hauldrToken)
-    : null;
-  if (!hauldr) {
+  const dataProvider = cfg.hauldrControlUrl
+    ? makeHauldrDataProvider(new HauldrClient(cfg.hauldrControlUrl, cfg.hauldrToken), cfg.hauldrControlUrl)
+    : passthroughProvider;
+  if (dataProvider === passthroughProvider) {
     console.log(
-      "[forge] HAULDR_CONTROL_URL not set — preview Hauldr provisioning disabled",
+      "[forge] HAULDR_CONTROL_URL not set — previews run on passthrough env (no provisioning)",
     );
   }
-  const supervisor = new PreviewSupervisor(cfg, git, hauldr);
+  const supervisor = new PreviewSupervisor(cfg, git, dataProvider);
   const supervisorDone = supervisor.run(() => stopping);
   // ────────────────────────────────────────────────────────────────────────────
 
