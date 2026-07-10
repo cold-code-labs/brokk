@@ -57,7 +57,7 @@ Brokk works — card→forge→verify→heal→PR, Sindri chat+preview, Eitri re
 |---|-------|-----|
 | 4.1 | **MCP client in the tool loop** (`@modelcontextprotocol/sdk`, official, light). | The interop standard every Devin-class product speaks. User/operator-configured MCP servers surface as tools in Afl's loop — allowlisted, read-only by default, mutation opt-in (same `shellEnv` spirit). Instantly extensible Sindri without hand-writing domain tools. |
 | 4.2 | **tree-sitter repo map** (port Aider's technique: symbol extraction + PageRank-style ranking; grammars as deps, algorithm ours). | Replaces the `git ls-files` repomap. Feeds Huginn briefs and the forge prompt. The cheapest credible answer to Devin Wiki/Search. |
-| 4.3 | **Nixpacks as runtime-detection fallback** (Sleipnir v3 as already planned). | Only when preset + Huginn detection miss. |
+| 4.3 | **Nixpacks as runtime-detection fallback** (Sleipnir v3 as already planned). | **DEFERRED at E2 (2026-07-10):** the closed command-allowlist is the runtime layer's security model, and trusting `nixpacks plan` output means widening it — a real design decision with zero current value (the fleet is 100% preset-covered, and Huginn detection backstops). Revisit when a non-preset stack actually lands. |
 | 4.4 | **Keep the existing OSS spine.** | hono/zod/drizzle/langfuse/streamdown/semgrep/trivy/go-landlock/gVisor — the buy-vs-build line is already right. |
 | 4.5 | **Keep rejecting:** agent frameworks (the loop is ours), E2B (needs KVM we don't have), Daytona/stagewise (AGPL vs Apache-2.0), Sourcegraph (no longer OSS). | Documented so it stops being re-litigated. |
 
@@ -81,6 +81,8 @@ Brokk works — card→forge→verify→heal→PR, Sindri chat+preview, Eitri re
 - **E0 — cuts & folds (pure hygiene, zero behavior change):** 1.1–1.5, 2.2 runtime→core, 2.3 preview-proxy rename, 2.4/2.5 docs. Bisectable small deploys, same pattern as the 2026-06-25 structure landing.
 - **E1 — safety net, then the kernel:** 5.2 eval suite first; then 2.1 loop unification and 5.1 compaction+budgets land behind it.
 - **E2 — seams & capabilities:** 3.1 apikey seam, 3.2 DataProvider, 3.3 Heimdall-optional; 4.1 MCP client, 4.2 repo map, 4.3 Nixpacks fallback, 5.3 memory loop.
+
+**Execution log:** E0 shipped 2026-07-10 (`71c5ce6`, `0548fce`, `938e818`). E1 shipped 2026-07-10 (`815a18c` evals, `341fdc5` one loop, `9fdc462` compaction+budgets) — suite 17/17, unified loop proven E2E in prod (gVisor bash turn). E2 shipped 2026-07-10 (`32a99b3` apikey seam, `b4cc06c` DataProvider, `6d7310e` memory loop, `73e2833` repomap, `0b5786e` MCP); 3.3 was already satisfied; 4.3 deferred (see table). ADR 0027 is **fully executed** except the deferred 4.3 and §5.4 coordinator.
 
 ## Consequences
 

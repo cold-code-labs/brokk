@@ -263,25 +263,28 @@ afl + mimir   ◄──   agents   ◄──   apps
 
 ```
 packages/
-  afl/                  @brokk/afl       the hands (loop · gateway · fs+bash tools · context)
+  afl/                  @brokk/afl       the hands (loop · gateway · fs+bash tools · enclave · compaction)
   mimir/                @brokk/mimir     the cortex (enhance · triage · plan)
+  mcp/                  @brokk/mcp       MCP servers → loop tools (ADR 0027 §4.1)
+  repomap/              @brokk/repomap   ranked symbol map (ADR 0027 §4.2)
   agents/
     forge/              @brokk/forge     Brokkr
-    chat/               @brokk/chat      Sindri (slimmed)
+    chat/               @brokk/chat      Sindri (hooks on the ONE loop)
     scout/              @brokk/scout     Huginn
     reviewer/           @brokk/reviewer  Eitri
-  core/ db/ secrets/ sdk/
+  core/ db/ sdk/        (runtime folded into core — ADR 0027 §2.2)
 
 apps/
-  api/        control plane: session · forge · preview · routes   (the Asgard seam)
-  web/        UI (chat + live preview)
-  forge/      queue worker      → hosts @brokk/forge       [was brokk-runner]
-  chat/       HTTP + detached   → hosts @brokk/chat + @brokk/scout  [was apps/sindri]
-  reviewer/   gh poll/webhook   → hosts @brokk/reviewer    [was brokk-eitri]
-  gateway/    *.preview reverse proxy → routes preview subdomains to live ports
+  api/            control plane: session · forge · preview · routes   (the Asgard seam)
+  web/            UI (chat + live preview)
+  forge/          queue worker      → hosts @brokk/forge
+  chat/           HTTP + detached   → hosts @brokk/chat + @brokk/scout
+  reviewer/       gh poll/webhook   → hosts @brokk/reviewer
+  preview-proxy/  *.preview reverse proxy → routes preview subdomains to live ports
+  enclave-manager/ docker.sock broker for the gVisor enclaves
 ```
 
-`apps/gateway` is the **preview-lane router** — the live-preview half of the Session (§3/§4).
+`apps/preview-proxy` is the **preview-lane router** — the live-preview half of the Session (§3/§4).
 It is unrelated to Ratatoskr (the AI fuel line, §8); the two only share the word "gateway".
 
 **Only generic, dependency-free tools live in Afl** (fs + bash). Domain tools
