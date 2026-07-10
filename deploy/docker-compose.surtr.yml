@@ -3,7 +3,7 @@
 #
 # BRIDGE networking (Phase 1b, 2026-06-26) — no more network_mode: host. Every
 # service runs on the brokk compose network and reaches the others by DNS
-# (api:8789, chat:8795, and the gateway proxies previews to forge:<port>). Host-
+# (api:8789, chat:8795, and the preview-proxy proxies previews to forge:<port>). Host-
 # side deps are reached over Docker networks / the WireGuard IP, NOTHING public:
 #   • db_brokk        -> external `coolify` net, hauldr-db-bridge:5434 (socat)
 #   • LiteLLM/Ratatoskr -> external `litellm` net (the litellm Coolify app's
@@ -11,7 +11,7 @@
 #   • hauldr control / langfuse / dev-api -> the surtr WireGuard IP 10.10.0.2
 #     (:8787 / :3015 / :8790) — routable from bridge containers
 # Bridge URLs live in /home/brokk/brokk.env (host:port swapped to the above);
-# secrets stay there too. Only `web` (Traefik :3010) and `gateway` (:3020, the
+# secrets stay there too. Only `web` (Traefik :3010) and `preview-proxy` (:3020, the
 # *.preview tunnel target) publish on the host loopback.
 #
 # uid 1001 (brokk) so mode-600 creds (gh config, eitri .pem) are readable and
@@ -85,7 +85,7 @@ services:
     volumes:
       - /home/brokk/eitri-app.pem:/home/brokk/eitri-app.pem:ro
 
-  gateway:
+  preview-proxy:
     environment: !reset null
     env_file:
       - /home/brokk/brokk.env

@@ -5,7 +5,7 @@
 #
 #   • No bundled traefik/db. Ingress is published by the Coolify proxy via Heimdall
 #     /routing (heimdall-file routes for brokk.coldcodelabs.com → web:3000 and
-#     *.preview.coldcodelabs.com → gateway:3020) — Coolify's label generator fails on
+#     *.preview.coldcodelabs.com → preview-proxy:3020) — Coolify's label generator fails on
 #     multi-service compose, so NO hand-written labels. db is the external db_brokk
 #     (hauldr-db-bridge:5434 on the `coolify` net), set via BROKK_DATABASE_URL.
 #   • Host coupling removed: the four host bind-mounts under /home/brokk (work, gh
@@ -232,13 +232,13 @@ services:
     networks: [default]
     <<: *restart
 
-  gateway:
+  preview-proxy:
     build:
       context: .
-      dockerfile: apps/gateway/Dockerfile
+      dockerfile: apps/preview-proxy/Dockerfile
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
-    image: brokk-gateway:coolify
+    image: brokk-preview-proxy:coolify
     environment:
       BROKK_GATEWAY_PORT: "3020"
       BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://brokk-api:8789}

@@ -1,5 +1,5 @@
 /**
- * @brokk/gateway — *.preview reverse proxy
+ * @brokk/preview-proxy — *.preview reverse proxy (NOT the AI gateway)
  *
  * Routes *.preview.coldcodelabs.com traffic to the correct local preview port
  * based on the subdomain. Resolves subdomains via the Brokk control plane

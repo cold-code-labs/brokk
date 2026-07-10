@@ -137,7 +137,7 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
-  apps/gateway:
+  apps/preview-proxy:
     dependencies:
       zod:
         specifier: ^3.24.1

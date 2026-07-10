@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Build context is the repo root:  docker build -f apps/gateway/Dockerfile .
+# Build context is the repo root:  docker build -f apps/preview-proxy/Dockerfile .
 #
 # Preview reverse proxy — routes *.preview hostnames to the per-preview ports the
 # runner allocates (HTTP + WebSocket).
@@ -16,14 +16,14 @@ FROM base AS build
 COPY . .
 ARG NODE_AUTH_TOKEN
 RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
-RUN pnpm --filter @brokk/gateway build
-RUN pnpm --filter @brokk/gateway deploy --prod /out
+RUN pnpm --filter @brokk/preview-proxy build
+RUN pnpm --filter @brokk/preview-proxy deploy --prod /out
 
 FROM base AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /out/node_modules ./node_modules
-COPY --from=build /repo/apps/gateway/dist ./dist
-COPY --from=build /repo/apps/gateway/package.json ./package.json
+COPY --from=build /repo/apps/preview-proxy/dist ./dist
+COPY --from=build /repo/apps/preview-proxy/package.json ./package.json
 EXPOSE 3020
 CMD ["node", "dist/index.js"]
