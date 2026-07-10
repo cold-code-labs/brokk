@@ -46,6 +46,20 @@ emitting events, tracing — are **hooks**, never kernel code. Domain tools are
 composed onto the generic hands via `composeExecutors`; mutation is gated
 (read-only tool defs, `shellEnv()` env allowlist, gh creds opt-in).
 
+### Missions (Regin)
+
+**Regin** is the mission coordinator (ADR 0027 §5.4, MultiDevin-lite) — a
+*reconciler*, not an app: goal → plan (Mímir, the same plan/DAG recipe as
+Sindri's `plan_work`) → dispatch (auto-approve or board approval) → watch/react
+(per card: retry ≤2 → one-shot replan ≤1 → escalate/blocked) → synthesize the
+outcome → done. State lives in `missions` + append-only `mission_events`
+(self-heal DDL, reaction counters in `missions.state`); the tick loop rides
+`apps/api` (`src/missions.ts`, every 30s, crash-safe — recomputed from db rows).
+Every LLM use is a one-shot structured decision, at most one per mission per
+tick. Entry points: `POST /missions` and Sindri's `start_mission`/`list_missions`
+tools. A second claim-only runner (`forge-b`, `BROKK_SUPERVISOR=0`) gives
+missions real fan-out.
+
 ## Convention 2 — schema via self-heal DDL
 
 The canonical migration path is **idempotent self-heal DDL at boot**

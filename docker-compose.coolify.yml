@@ -182,6 +182,39 @@ services:
     networks: [default, litellm]
     <<: *restart
 
+  # Second forge runner (Regin fan-out, ADR 0027 §5.4): same image/env as `forge`
+  # but claim-loop ONLY — BROKK_SUPERVISOR=0 so exactly one runner (forge) owns the
+  # preview supervisor while both drain the card queue in parallel. Same build
+  # block + image tag on purpose: Docker dedupes the build, Coolify keeps both
+  # services deployable.
+  forge-b:
+    build:
+      context: .
+      dockerfile: apps/forge/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
+    image: brokk-forge:coolify
+    # No `user:` — the entrypoint starts as root to install the Nível 3 egress jail
+    # (needs CAP_NET_ADMIN) then drops to 1001:1001 before exec. cap dropped with it.
+    cap_add: [NET_ADMIN]
+    environment:
+      <<: *worker-env
+      BROKK_EGRESS: "1"
+      BROKK_SUPERVISOR: "0"
+      BROKK_PREVIEW_SECRETS_DIR: ${BROKK_PREVIEW_SECRETS_DIR:-/home/brokk/preview-secrets}
+      BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
+      BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
+      BROKK_VERIFY_CMD: ${BROKK_VERIFY_CMD:-}
+      # ADR 0017 Fase 3b: apps whose implement cards commit straight to dev (pilot).
+      BROKK_DEVLANE_APPS: ${BROKK_DEVLANE_APPS:-}
+    depends_on:
+      brokk-api:
+        condition: service_healthy
+    volumes:
+      - brokk_home:/home/brokk
+    networks: [default, litellm]
+    <<: *restart
+
   reviewer:
     build:
       context: .

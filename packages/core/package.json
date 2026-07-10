@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/runtime/*.test.ts"
+    "test": "tsx --test src/runtime/*.test.ts src/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

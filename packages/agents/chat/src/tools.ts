@@ -4,6 +4,7 @@
 //
 //   create_card / list_cards  — capture follow-ups or hand work to the forge
 //   plan_work                 — decompose a big intent via Mímir into backlog cards
+//   start_mission / list_missions — hand a whole goal to Regin (the coordinator)
 //
 // The generic file/bash tools live in afl (dependency-pure). The domain tools need
 // @brokk/db (the store) + a host-injected planner, so they live here and compose
@@ -32,6 +33,9 @@ export interface ToolContext {
   extraExec?: PartialExecutor;
   /** The Brokk project this session belongs to (for domain tools). */
   projectId: string;
+  /** The chat session driving this turn, when known — stamped on missions so
+   *  Regin's trail links back to the conversation that started them. */
+  sessionId?: string;
   store: Store;
   /** Default base branch for cards spun off to the forge. */
   baseBranch: string;
@@ -121,6 +125,32 @@ const DOMAIN_TOOL_DEFS: ToolDef[] = [
       },
       required: ["intent"],
     },
+  },
+  {
+    name: "start_mission",
+    description:
+      "Hand a WHOLE goal to Regin, the mission coordinator: he plans it via Mímir, dispatches the cards to the forge, watches them, retries/replans failures and reports the outcome — end to end, without further chat involvement. Use for a substantial goal the user wants DRIVEN to completion autonomously (vs plan_work, which only stages cards for human approval). By default the mission auto-approves its own cards; pass auto_approve:false to leave approval to the board.",
+    input_schema: {
+      type: "object",
+      properties: {
+        goal: {
+          type: "string",
+          description: "The full goal to accomplish, in the user's own words and language.",
+        },
+        auto_approve: {
+          type: "boolean",
+          description:
+            "Default true (Regin enqueues the planned cards himself). false = cards wait for human approval on the board.",
+        },
+      },
+      required: ["goal"],
+    },
+  },
+  {
+    name: "list_missions",
+    description:
+      "List this project's Regin missions with their status and latest detail (blocked reason / outcome summary).",
+    input_schema: { type: "object", properties: {} },
   },
   {
     name: "set_env",
@@ -240,6 +270,39 @@ function makeDomainExecutor(ctx: ToolContext): PartialExecutor {
           const intent = String(input.intent ?? "").trim();
           if (!intent) return { ok: false, content: "plan_work needs an intent" };
           return await ctx.planWork(intent);
+        }
+        case "start_mission": {
+          const goal = String(input.goal ?? "").trim();
+          if (!goal) return { ok: false, content: "start_mission needs a goal" };
+          const mission = await ctx.store.insertMission({
+            projectId: ctx.projectId,
+            goal,
+            autoApprove: input.auto_approve !== false,
+            chatSessionId: ctx.sessionId ?? null,
+            createdBy: "sindri",
+          });
+          await ctx.store.addMissionEvent(mission.id, "created", {
+            goal,
+            autoApprove: mission.autoApprove,
+            via: "sindri",
+          });
+          ctx.onDomainEvent?.({ kind: "mission_created", detail: { id: mission.id } });
+          return {
+            ok: true,
+            content: `mission ${mission.id.slice(0, 8)} criada: ${goal}. O coordenador (Regin) planeja e despacha; acompanhe com list_missions.`,
+          };
+        }
+        case "list_missions": {
+          const missions = await ctx.store.listMissions({ projectId: ctx.projectId });
+          if (!missions.length) return { ok: true, content: "(no missions)" };
+          const out = missions
+            .slice(0, 30)
+            .map((m) => {
+              const goal = m.goal.length > 60 ? `${m.goal.slice(0, 57)}…` : m.goal;
+              return `- ${m.id.slice(0, 8)} · ${m.status} · ${goal}${m.detail ? ` · ${m.detail}` : ""}`;
+            })
+            .join("\n");
+          return { ok: true, content: out };
         }
         case "set_env": {
           if (!ctx.infra) return { ok: false, content: "infra actions are not available in this context" };

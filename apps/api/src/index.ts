@@ -3,6 +3,7 @@ import { createDb, createStore, ensureSchema } from "@brokk/db";
 import { loadMimirConfig } from "@brokk/mimir";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { startMissionReconciler } from "./missions.js";
 
 async function main() {
   const cfg = loadConfig();
@@ -30,6 +31,10 @@ async function main() {
     hauldrControlUrl: cfg.HAULDR_CONTROL_URL,
     hauldrToken: cfg.HAULDR_TOKEN,
   });
+
+  // Regin (ADR 0027 §5.4): the mission reconciler rides the API process — one
+  // singleton tick loop; without Mímir, missions block at planning (never crash).
+  startMissionReconciler({ store, mimir });
 
   serve({ fetch: app.fetch, port: cfg.BROKK_API_PORT }, ({ port }) => {
     console.log(`brokk control-plane listening on :${port}`);

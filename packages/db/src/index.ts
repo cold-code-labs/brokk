@@ -12,6 +12,11 @@ import type {
   ChatSessionStatus,
   ChatTurnState,
   ForcaLevel,
+  Mission,
+  MissionEvent,
+  MissionEventType,
+  MissionState,
+  MissionStatus,
   ProjectBrief,
   MimirMode,
   MimirPrompt,
@@ -714,6 +719,33 @@ export interface Store {
    *  `version`, record the human `inputDetails` that triggered it, and set the head
    *  to pending. No-op (returns null) if there's no existing head to revise. */
   beginAnalysisRevision(taskId: string, inputDetails: string): Promise<TaskAnalysis | null>;
+
+  // regin (mission coordinator, ADR 0027 §5.4): missions + append-only trail.
+  // Self-healed tables (never in drizzle — the project_briefs pattern).
+  /** Create a mission (status 'planning'). Callers append the `created` event. */
+  insertMission(values: {
+    projectId: string;
+    goal: string;
+    autoApprove?: boolean;
+    chatSessionId?: string | null;
+    createdBy?: string | null;
+  }): Promise<Mission>;
+  getMission(id: string): Promise<Mission | null>;
+  listMissions(opts?: { projectId?: string; status?: MissionStatus }): Promise<Mission[]>;
+  /** Patch mutable mission fields (stamps updated_at). Omitted fields keep their
+   *  value; `detail` distinguishes null (clear) from undefined (keep). */
+  patchMission(
+    id: string,
+    patch: {
+      status?: MissionStatus;
+      planId?: string | null;
+      detail?: string | null;
+      state?: MissionState;
+    },
+  ): Promise<Mission>;
+  /** Append one entry to the mission's trail (the task_events sibling). */
+  addMissionEvent(missionId: string, type: MissionEventType, detail?: unknown): Promise<MissionEvent>;
+  listMissionEvents(missionId: string): Promise<MissionEvent[]>;
 }
 
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
@@ -1822,6 +1854,102 @@ export function createStore(db: Db): Store {
       const row = execRows(rows)[0];
       return row ? rowToAnalysis(row) : null;
     },
+
+    async insertMission(values) {
+      const rows = await db.execute(
+        sql`INSERT INTO missions (project_id, goal, auto_approve, chat_session_id, created_by)
+            VALUES (${values.projectId}, ${values.goal}, ${values.autoApprove ?? true},
+              ${values.chatSessionId ?? null}, ${values.createdBy ?? null})
+            RETURNING *`,
+      );
+      return rowToMission(execRows(rows)[0]!);
+    },
+    async getMission(id) {
+      const rows = await db.execute(sql`SELECT * FROM missions WHERE id = ${id} LIMIT 1`);
+      const row = execRows(rows)[0];
+      return row ? rowToMission(row) : null;
+    },
+    async listMissions(opts) {
+      const projectId = opts?.projectId ?? null;
+      const status = opts?.status ?? null;
+      const rows = await db.execute(
+        sql`SELECT * FROM missions
+            WHERE (${projectId}::uuid IS NULL OR project_id = ${projectId}::uuid)
+              AND (${status}::text IS NULL OR status = ${status})
+            ORDER BY created_at DESC`,
+      );
+      return execRows(rows).map(rowToMission);
+    },
+    async patchMission(id, patch) {
+      // COALESCE keeps omitted fields; `detail` needs the CASE so an explicit null
+      // CLEARS it (COALESCE couldn't tell "unset" from "set to null").
+      const rows = await db.execute(
+        sql`UPDATE missions SET
+              status = COALESCE(${patch.status ?? null}, status),
+              plan_id = COALESCE(${patch.planId ?? null}::uuid, plan_id),
+              detail = CASE WHEN ${patch.detail !== undefined} THEN ${patch.detail ?? null} ELSE detail END,
+              state = COALESCE(${patch.state ? JSON.stringify(patch.state) : null}::jsonb, state),
+              updated_at = now()
+            WHERE id = ${id}
+            RETURNING *`,
+      );
+      const row = execRows(rows)[0];
+      if (!row) throw new Error(`mission ${id} not found`);
+      return rowToMission(row);
+    },
+    async addMissionEvent(missionId, type, detail) {
+      const rows = await db.execute(
+        sql`INSERT INTO mission_events (mission_id, type, detail)
+            VALUES (${missionId}, ${type}, ${detail === undefined ? null : JSON.stringify(detail)}::jsonb)
+            RETURNING *`,
+      );
+      return rowToMissionEvent(execRows(rows)[0]!);
+    },
+    async listMissionEvents(missionId) {
+      const rows = await db.execute(
+        sql`SELECT * FROM mission_events WHERE mission_id = ${missionId} ORDER BY at ASC`,
+      );
+      return execRows(rows).map(rowToMissionEvent);
+    },
+  };
+}
+
+// ── Mission row mappers (self-healed tables — raw rows, never drizzle) ────────
+
+const rawIso = (v: unknown): string =>
+  v instanceof Date ? v.toISOString() : typeof v === "string" ? v : new Date().toISOString();
+
+function rowToMission(row: Record<string, unknown>): Mission {
+  const st = (row.state && typeof row.state === "object" ? row.state : {}) as Partial<MissionState>;
+  const attempts = st.attempts && typeof st.attempts === "object" ? st.attempts : {};
+  const replans = st.replans && typeof st.replans === "object" ? st.replans : {};
+  return {
+    id: String(row.id),
+    projectId: String(row.project_id),
+    goal: String(row.goal),
+    planId: (row.plan_id as string | null) ?? null,
+    status: String(row.status) as MissionStatus,
+    detail: (row.detail as string | null) ?? null,
+    autoApprove: Boolean(row.auto_approve),
+    chatSessionId: (row.chat_session_id as string | null) ?? null,
+    createdBy: (row.created_by as string | null) ?? null,
+    state: {
+      attempts: attempts as Record<string, number>,
+      replans: replans as Record<string, number>,
+      ...(Array.isArray(st.taskIds) ? { taskIds: st.taskIds.map(String) } : {}),
+    },
+    createdAt: rawIso(row.created_at),
+    updatedAt: rawIso(row.updated_at),
+  };
+}
+
+function rowToMissionEvent(row: Record<string, unknown>): MissionEvent {
+  return {
+    id: String(row.id),
+    missionId: String(row.mission_id),
+    type: String(row.type) as MissionEventType,
+    detail: row.detail ?? null,
+    at: rawIso(row.at),
   };
 }
 
@@ -1957,6 +2085,7 @@ export async function ensureSchema(db: Db): Promise<void> {
   }
 
   await ensureChatSchema(db);
+  await ensureMissionSchema(db);
 }
 
 /** Self-heal the Sindri chat tables (sessions + transcript). Idempotent
@@ -1964,6 +2093,63 @@ export async function ensureSchema(db: Db): Promise<void> {
  *  so we never depend on `drizzle-kit push` (which hangs on new tables against the
  *  shared, Hauldr-backed db_brokk). role/status/turn_state are plain text, so no
  *  enum DDL is needed. Called from ensureSchema() and standalone by Sindri's boot. */
+/** Regin missions (ADR 0027 §5.4) + their append-only trail — self-healed from
+ *  BOTH boots (api hosts the reconciler + routes via ensureSchema; the chat
+ *  daemon's Sindri tools write missions via ensureChatSchema). Idempotent. */
+export async function ensureMissionSchema(db: Db): Promise<void> {
+  // Regin missions (ADR 0027 §5.4) + their append-only trail. Self-healed (the
+  // project_briefs pattern — never in drizzle, push hangs on new db_brokk tables).
+  // status is plain text; reaction counters live in the `state` jsonb so a tick
+  // is recomputable purely from the row.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS missions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id uuid NOT NULL,
+    goal text NOT NULL,
+    plan_id uuid,
+    status text NOT NULL DEFAULT 'planning',
+    detail text,
+    auto_approve boolean NOT NULL DEFAULT true,
+    chat_session_id uuid,
+    created_by text,
+    state jsonb NOT NULL DEFAULT '{"attempts":{},"replans":{}}',
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );`);
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS mission_events (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    mission_id uuid NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+    type text NOT NULL,
+    detail jsonb,
+    at timestamptz NOT NULL DEFAULT now()
+  );`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS mission_events_mission_idx ON mission_events (mission_id);`,
+  );
+
+  // Resolve per-card analysis — one row per task (PK = task_id), upserted by the
+  // scout. Same self-heal rationale as project_briefs (kept out of drizzle to dodge
+  // the push-hang on new db_brokk tables); JSON steps/questions keep it schema-light.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS card_analyses (
+    task_id uuid PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+    status text NOT NULL DEFAULT 'pending',
+    version integer NOT NULL DEFAULT 1,
+    revised_title text,
+    details text,
+    evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
+    approach text,
+    rationale text,
+    mode text,
+    steps jsonb NOT NULL DEFAULT '[]'::jsonb,
+    questions jsonb NOT NULL DEFAULT '[]'::jsonb,
+    input_details text,
+    revisions jsonb NOT NULL DEFAULT '[]'::jsonb,
+    model text,
+    error text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );`);
+}
+
 export async function ensureChatSchema(db: Db): Promise<void> {
   await db.execute(sql`CREATE TABLE IF NOT EXISTS chat_sessions (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2078,26 +2264,5 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     updated_at timestamptz NOT NULL DEFAULT now()
   );`);
 
-  // Resolve per-card analysis — one row per task (PK = task_id), upserted by the
-  // scout. Same self-heal rationale as project_briefs (kept out of drizzle to dodge
-  // the push-hang on new db_brokk tables); JSON steps/questions keep it schema-light.
-  await db.execute(sql`CREATE TABLE IF NOT EXISTS card_analyses (
-    task_id uuid PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
-    status text NOT NULL DEFAULT 'pending',
-    version integer NOT NULL DEFAULT 1,
-    revised_title text,
-    details text,
-    evidence jsonb NOT NULL DEFAULT '[]'::jsonb,
-    approach text,
-    rationale text,
-    mode text,
-    steps jsonb NOT NULL DEFAULT '[]'::jsonb,
-    questions jsonb NOT NULL DEFAULT '[]'::jsonb,
-    input_details text,
-    revisions jsonb NOT NULL DEFAULT '[]'::jsonb,
-    model text,
-    error text,
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
-  );`);
+  await ensureMissionSchema(db);
 }

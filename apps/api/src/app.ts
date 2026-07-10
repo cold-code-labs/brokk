@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import { version } from "../package.json";
 import { chatRoutes } from "./routes/chat.js";
 import { mimirRoutes } from "./routes/mimir.js";
+import { missionsRoutes } from "./routes/missions.js";
 import { previewsRoutes } from "./routes/previews.js";
 import { projectsRoutes } from "./routes/projects.js";
 import { repositoriesRoutes } from "./routes/repositories.js";
@@ -96,6 +97,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/users", usersRoutes(deps));
   app.route("/subscriptions", subscriptionsRoutes(deps));
   app.route("/tasks", tasksRoutes(deps));
+  app.route("/missions", missionsRoutes(deps));
   app.route("/runs", runsRoutes(deps));
   app.route("/studio", studioRoutes(deps));
   app.route("/runner", runnerRoutes(deps));

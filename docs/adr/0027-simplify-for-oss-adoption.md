@@ -68,7 +68,7 @@ Brokk works — card→forge→verify→heal→PR, Sindri chat+preview, Eitri re
 | 5.1 | **Context compaction + token budgets in `runAgentLoop`.** | The one true framework-parity gap: Afl has no compaction — only 60KB tool-output clips and `maxRounds`; a long Sindri session or deep heal loop silently degrades at the window. On threshold: summarize older rounds into one message, keep recent rounds verbatim. Plus a per-run token budget enforced in the loop (usage sums already exist; add the ceiling) — required the day `mode=apikey` carries real billing. |
 | 5.2 | **Golden-task eval suite.** | Fixture repos + ~10–15 fixed cards with assertions, runnable on demand and gating deploy. Today every prompt/model/força change is vibes. Also the safety net that 2.1's loop unification lands behind. |
 | 5.3 | **RepoMemory auto-write loop.** | Distill lessons from heal failures and Eitri verdicts into `repoMemories` automatically. Devin's "knowledge suggestions," nearly free — the substrate (table + prompt injection + pgvector recall) already exists; only the writer is missing. |
-| 5.4 | *(deferred)* Coordinator persona over the 3a lease infra. | MultiDevin-lite; the lease + plan/DAG tables are ~70% of it. Valuable, but not part of this tuning pass. |
+| 5.4 | **Regin — mission coordinator** (implemented 2026-07-10). | MultiDevin-lite over the existing plan/DAG + lease infra: `missions`/`mission_events` (self-heal DDL) + a reconciler in apps/api (plan via Mímir → dispatch → retry ≤2 / replan ≤1 / escalate → synthesize), Sindri `start_mission`/`list_missions` tools, and a second claim-only runner (`forge-b`, `BROKK_SUPERVISOR=0`) for fan-out. |
 
 ## Non-goals
 
@@ -82,7 +82,7 @@ Brokk works — card→forge→verify→heal→PR, Sindri chat+preview, Eitri re
 - **E1 — safety net, then the kernel:** 5.2 eval suite first; then 2.1 loop unification and 5.1 compaction+budgets land behind it.
 - **E2 — seams & capabilities:** 3.1 apikey seam, 3.2 DataProvider, 3.3 Heimdall-optional; 4.1 MCP client, 4.2 repo map, 4.3 Nixpacks fallback, 5.3 memory loop.
 
-**Execution log:** E0 shipped 2026-07-10 (`71c5ce6`, `0548fce`, `938e818`). E1 shipped 2026-07-10 (`815a18c` evals, `341fdc5` one loop, `9fdc462` compaction+budgets) — suite 17/17, unified loop proven E2E in prod (gVisor bash turn). E2 shipped 2026-07-10 (`32a99b3` apikey seam, `b4cc06c` DataProvider, `6d7310e` memory loop, `73e2833` repomap, `0b5786e` MCP); 3.3 was already satisfied; 4.3 deferred (see table). ADR 0027 is **fully executed** except the deferred 4.3 and §5.4 coordinator.
+**Execution log:** E0 shipped 2026-07-10 (`71c5ce6`, `0548fce`, `938e818`). E1 shipped 2026-07-10 (`815a18c` evals, `341fdc5` one loop, `9fdc462` compaction+budgets) — suite 17/17, unified loop proven E2E in prod (gVisor bash turn). E2 shipped 2026-07-10 (`32a99b3` apikey seam, `b4cc06c` DataProvider, `6d7310e` memory loop, `73e2833` repomap, `0b5786e` MCP); 3.3 was already satisfied; 4.3 deferred (see table). ADR 0027 is **fully executed** except the deferred 4.3; §5.4 (Regin) landed 2026-07-10.
 
 ## Consequences
 

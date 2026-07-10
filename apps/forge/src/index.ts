@@ -72,8 +72,16 @@ async function main() {
       "[forge] HAULDR_CONTROL_URL not set — previews run on passthrough env (no provisioning)",
     );
   }
+  // BROKK_SUPERVISOR=0 disables the preview-supervisor loop on this runner —
+  // for extra claim-only runners (e.g. compose `forge-b`), so exactly ONE runner
+  // owns the previews while N runners drain the card queue in parallel. The
+  // instance is still constructed (dev-lane runs use refreshCheckout).
   const supervisor = new PreviewSupervisor(cfg, git, dataProvider);
-  const supervisorDone = supervisor.run(() => stopping);
+  const supervisorEnabled = process.env.BROKK_SUPERVISOR !== "0";
+  if (!supervisorEnabled) {
+    console.log("[forge] BROKK_SUPERVISOR=0 — preview supervisor DISABLED on this runner (claim loop only)");
+  }
+  const supervisorDone = supervisorEnabled ? supervisor.run(() => stopping) : Promise.resolve();
   // ────────────────────────────────────────────────────────────────────────────
 
   const heartbeat = setInterval(

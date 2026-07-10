@@ -10,6 +10,21 @@
 export type { RuntimeSpec, DetectCtx } from "./runtime.js";
 import type { RuntimeSpec } from "./runtime.js";
 
+// Regin missions (the coordinator persona, ADR 0027 §5.4).
+export {
+  MISSION_STATUSES,
+  missionCardsSettled,
+  missionProgress,
+} from "./missions.js";
+export type {
+  Mission,
+  MissionEvent,
+  MissionEventType,
+  MissionProgress,
+  MissionState,
+  MissionStatus,
+} from "./missions.js";
+
 // ── Enums ───────────────────────────────────────────────────────────────────
 
 /** Board columns + side states. See ARCHITECTURE.md §5 "Card lifecycle".

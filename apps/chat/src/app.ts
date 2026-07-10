@@ -465,6 +465,7 @@ async function runSessionTurn(
   const toolCtx: ToolContext = {
     cwd: path,
     projectId: project.id,
+    sessionId: session.id,
     store: deps.store,
     baseBranch: project.baseBranch,
     extraExec: deps.mcp?.executor,
