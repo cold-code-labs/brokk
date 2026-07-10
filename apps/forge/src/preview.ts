@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Preview, Repository, RuntimeSpec } from "@brokk/core";
-import { buildDetectCtx, composeCommand, resolveRuntime } from "@brokk/runtime";
+import { buildDetectCtx, composeCommand, PACKAGE_MANAGERS, resolveRuntime } from "@brokk/runtime";
 import type { RunnerConfig } from "./config.js";
 import type { GhProvider } from "./git.js";
 import type { HauldrClient } from "./hauldr.js";
@@ -127,6 +127,21 @@ export class PreviewSupervisor {
    *  fresh at the tip). Best-effort: never throws, and never kills the dev-server
    *  process (HMR reacts to the changed files on its own). */
   async refreshCheckout(hauldrProject: string, branch: string): Promise<string | null> {
+    // Serialized per worktree: the tick's drift refresh and the card flow's direct
+    // call can overlap, and a reset racing an in-flight `pnpm install` would rip
+    // node_modules out from under it. Late callers just join the in-flight refresh.
+    const inflight = this.refreshing.get(hauldrProject);
+    if (inflight) return inflight;
+    const p = this.doRefreshCheckout(hauldrProject, branch).finally(() => {
+      this.refreshing.delete(hauldrProject);
+    });
+    this.refreshing.set(hauldrProject, p);
+    return p;
+  }
+
+  private readonly refreshing = new Map<string, Promise<string | null>>();
+
+  private async doRefreshCheckout(hauldrProject: string, branch: string): Promise<string | null> {
     // Same path convention as GhProvider.persistentCheckout(name=<hauldrProject>):
     // <workDir>/preview-worktrees/<name>.
     const path = join(this.cfg.workDir, "preview-worktrees", hauldrProject);
@@ -147,6 +162,10 @@ export class PreviewSupervisor {
       console.log(
         `[preview-supervisor] refreshed ${hauldrProject} worktree → ${branch} tip (${fetched.slice(0, 8)})`,
       );
+      // A push that adds a dependency changes the lockfile; only boot installs, so
+      // without this the running dev server 500s on module resolution until someone
+      // installs by hand (incident: brokk-mobile-dev 2026-07-09).
+      await this.installIfLockfileChanged(path, hauldrProject, head, fetched);
       return fetched;
     } catch (err) {
       console.warn(
@@ -154,6 +173,45 @@ export class PreviewSupervisor {
         err instanceof Error ? err.message : err,
       );
       return null;
+    }
+  }
+
+  /** Re-run the package-manager install after a refresh whose diff touched a
+   *  lockfile (any depth — monorepo lockfiles live off-root). Best-effort like the
+   *  rest of the refresh path: a failed install logs and leaves the worktree as-is. */
+  private async installIfLockfileChanged(
+    path: string,
+    hauldrProject: string,
+    fromSha: string,
+    toSha: string,
+  ): Promise<void> {
+    const run = promisify(execFile);
+    try {
+      const { stdout } = await run("git", ["diff", "--name-only", fromSha, toSha], { cwd: path });
+      const changed = stdout.split("\n").filter(Boolean);
+      const pm = Object.values(PACKAGE_MANAGERS).find((info) =>
+        changed.some((f) => f === info.lockfile || f.endsWith(`/${info.lockfile}`)),
+      );
+      if (!pm) return;
+      console.log(
+        `[preview-supervisor] ${hauldrProject}: lockfile changed → ${pm.install}`,
+      );
+      // Same HOME/corepack pinning as boot(): the runner's env can arrive without a
+      // writable HOME and corepack dies provisioning the repo-pinned pnpm.
+      const home =
+        process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
+      await run("sh", ["-c", pm.install], {
+        cwd: path,
+        env: { ...process.env, HOME: home, COREPACK_HOME: `${home}/.cache/corepack` },
+        timeout: 5 * 60_000,
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      console.log(`[preview-supervisor] ${hauldrProject}: install ok`);
+    } catch (err) {
+      console.warn(
+        `[preview-supervisor] ${hauldrProject}: install after refresh failed:`,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 
