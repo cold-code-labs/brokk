@@ -60,6 +60,10 @@ tick. Entry points: `POST /missions` and Sindri's `start_mission`/`list_missions
 tools. A second claim-only runner (`forge-b`, `BROKK_SUPERVISOR=0`) gives
 missions real fan-out.
 
+Operational note: after a human resolves an escalation, `POST
+/missions/:id/resume` unblocks the mission but does NOT re-dispatch — re-queue
+the failed card yourself (Board "queue →" / `PATCH /tasks/:id`), then resume.
+
 ## Convention 2 — schema via self-heal DDL
 
 The canonical migration path is **idempotent self-heal DDL at boot**

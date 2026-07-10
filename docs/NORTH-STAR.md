@@ -177,6 +177,11 @@ names describe the **role**; the Norse name is the **persona** (product/UI ident
 | `@brokk/chat`      | Sindri  | conversational build, sessions, stream | HTTP    |
 | `@brokk/scout`     | Huginn  | read-only repo → structured brief      | HTTP    |
 | `@brokk/reviewer`  | Eitri   | review a diff → verdict + repo-memory  | gh poll |
+| *(apps/api tick)*  | Regin   | mission foreman: plan → dispatch → react → synthesize (ADR 0027 §5.4) | 30s reconciler |
+
+Regin is deliberately NOT a tool-loop agent: the mission control flow is a
+deterministic reconciler, and the LLM appears only at one-shot decision points
+(plan, replan-or-escalate, synthesis) — §9 #5 applied to orchestration.
 
 The flow:
 
