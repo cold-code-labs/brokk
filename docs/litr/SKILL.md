@@ -13,6 +13,15 @@ is the Fleet board ([`fleet-design.md`](../fleet-design.md),
 `apps/web/app/fleet.css`, `apps/web/components/FleetView.tsx`). Read those before
 forging a new surface.
 
+> **ADR 0028 (2026-07-10):** Litr was promoted fleet-wide as the **product-soul
+> system** (`@cold-code-labs/yggdrasil-litr` in the Yggdrasil repo: soul schema,
+> `litr-validate`, generalized `litr-verify`, METHOD.md). Brokk's identity —
+> including the **voice/copy layer** this skill didn't cover — is now the
+> contract in [`soul.json`](./soul.json) (validated: `litr-validate
+> docs/litr/soul.json`). **Read the soul before any design or copy pass; souls
+> outrank tasks.** This SKILL.md remains the Brokk-local pipeline; the
+> app-agnostic version is the package's METHOD.md.
+
 ---
 
 ## When to run

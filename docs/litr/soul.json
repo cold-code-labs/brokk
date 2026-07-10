@@ -1,0 +1,142 @@
+{
+  "$schema": "https://github.com/cold-code-labs/yggdrasil/packages/litr/schema/soul.schema.json",
+  "soul": "1",
+
+  "product": {
+    "slug": "brokk",
+    "name": "Brokk",
+    "essence": "The forge where work becomes software while you do something else.",
+    "audience": "internal"
+  },
+
+  "mission": "An operator glances at one board and knows, in two seconds, what the forge is doing right now — and can hand it the next task in one line.",
+
+  "metaphor": {
+    "name": "The Forge at Night",
+    "statement": "A smithy under the cold mountain sky: an aurora drifts over the peak, the workshop is dark, ordered and quiet — and the only warmth in the frame is the ember of work actually in the fire. Repos are doors along the wall; the queue is the smith's ledger; a running task is metal glowing on the anvil.",
+    "world": "CCL = a mountain under a cold sky (navy + ice-blue); Brokk = the dwarven smith who forged Mjölnir while betting his own head"
+  },
+
+  "personality": {
+    "character": "a taciturn master smith — speaks little, shows the work",
+    "traits": ["precise", "calm", "workmanlike", "quietly confident"],
+    "never": ["chatty", "apologetic", "cute", "salesy", "dramatic"]
+  },
+
+  "voice": {
+    "language": "en",
+    "principles": [
+      "Numbers over adjectives: '2 running', never 'lots of activity'.",
+      "Verb-first imperatives for actions; three words or fewer.",
+      "No exclamation marks, no emoji in product copy — the ember is the excitement.",
+      "The work is the message: state what happened, name the artifact (PR #, branch, log), stop.",
+      "Forge vocabulary is seasoning, not sauce: at most one metaphor word per string, and only where it aids meaning."
+    ],
+    "vocabulary": {
+      "say": [
+        "queue → to the forge",
+        "running → in the fire / forging",
+        "idle → the forge is quiet",
+        "task → work",
+        "finished → forged / done"
+      ],
+      "never": [
+        "oops",
+        "uh oh",
+        "awesome",
+        "something went wrong",
+        "please try again later",
+        "we're sorry"
+      ]
+    },
+    "patterns": {
+      "action": {
+        "rule": "Verb first, object second, nothing else. The primary action of a surface appears exactly once.",
+        "example": "Queue task · Connect a repo · Open PR",
+        "counterexample": "Click here to create your new task!"
+      },
+      "emptyState": {
+        "rule": "The cold hearth: zero is the system at rest, never a failure. Name the state in the metaphor, one calm line on what will appear, one clear action to light it.",
+        "example": "The forge is quiet. Queued and running tasks line up here, next-up first. Describe a task above to light it.",
+        "counterexample": "No data found :("
+      },
+      "error": {
+        "rule": "A smith names what cracked and how to reforge it: the failing step, the artifact to inspect, the next move. No apology theater, no blame on the user.",
+        "example": "Build failed at pnpm install. Read the log, fix, and re-queue — the branch is untouched.",
+        "counterexample": "Oops! Something went wrong. Please try again later."
+      },
+      "success": {
+        "rule": "Quiet confirmation; the artifact IS the message. Link it, don't celebrate it.",
+        "example": "PR #42 opened — brokk/fleet-empty-states.",
+        "counterexample": "🎉 Success! Your task was completed successfully!"
+      },
+      "loading": {
+        "rule": "Present-tense verb of the actual step, one word where possible. Progress is shown by the ember, not by prose.",
+        "example": "Forging… · Cloning… · Opening PR…",
+        "counterexample": "Please wait while we process your request…"
+      },
+      "confirm": {
+        "rule": "State the irreversible consequence flatly, then ask with the verb. Destructive confirmations repeat the object's name.",
+        "example": "This deletes forge-b and its queue. Delete forge-b?",
+        "counterexample": "Are you sure you want to do this?"
+      }
+    }
+  },
+
+  "palette": {
+    "base": "yggdrasil",
+    "semantics": {
+      "--accent": "cold structure — links, focus, live/info metrics, active nav",
+      "--fg / --fg-soft / --fg-dim": "text tiers: primary / secondary / tertiary",
+      "--line / --line-soft": "the only borders — every divider and card edge",
+      "--panel / --panel-2": "card surface / hover tier; glass = color-mix(panel 72%, transparent) for floating controls"
+    },
+    "literal": {
+      "name": "--ember",
+      "means": "work in the fire — the single warm thing in a cold world",
+      "reservation": "running work ONLY: forge pulse, running card rail/beam, running queue row. Never decorative, never for emphasis, never for errors.",
+      "values": { "dark": "#ff7a45", "light": "#e0571f" }
+    }
+  },
+
+  "motion": {
+    "cap": 6,
+    "animations": [
+      { "name": "fleet-aurora-drift", "means": "the sky over the peak is alive", "where": "hero aurora", "duration": "22s" },
+      { "name": "fleet-sheen", "means": "the wordmark catches cold light", "where": "title gradient", "duration": "6s" },
+      { "name": "fleet-ember-pulse", "means": "live forge heartbeat", "where": "pulse chip, running dots", "duration": "1.7s" },
+      { "name": "fleet-rise", "means": "content settles into place on load", "where": "stats + cards entrance", "duration": "0.5s" },
+      { "name": "fleet-beam", "means": "live work sweeps across the rail", "where": "running card/queue rail", "duration": "2.2s" },
+      { "name": "fleet-spark", "means": "a live metric is updating", "where": "live stat underline" }
+    ],
+    "reducedMotion": "all animations set to none, gradients pinned static — the board reads identically, just still"
+  },
+
+  "layout": {
+    "density": "comfortable",
+    "maxWidth": "74rem",
+    "radiusFamily": "--radius-sm / --radius / --radius-lg",
+    "border": "--line",
+    "order": [
+      { "region": "hero", "why": "identity + the single most important fact: is anything in the fire right now" },
+      { "region": "stats", "why": "the fleet's vital signs — running / queued / in review / seats" },
+      { "region": "composer", "why": "the primary action — queue work — always one reach away, before inventory" },
+      { "region": "projects", "why": "the doors along the wall; live work flagged in ember" },
+      { "region": "queue", "why": "the smith's ledger — next-up work across the fleet" }
+    ]
+  },
+
+  "signature": [
+    { "name": "the ember pulse", "what": "one warm heartbeat chip that says 'forging now · N in the fire', flipping to a quiet grey 'the forge is quiet'", "where": "hero" },
+    { "name": "the count-up", "what": "stat numbers tick up on load in tabular-nums — vitals being read, not painted", "where": "stat tiles" },
+    { "name": "the spotlight", "what": "cards catch a cursor-follow cold light, like a lantern moving down the workshop wall", "where": "project cards" },
+    { "name": "the running beam", "what": "an ember sweep along the rail of anything actually executing — the eye finds live work instantly", "where": "cards + queue rows" },
+    { "name": "the cold hearth", "what": "empty states as an unlit forge: ringed mark, calm line, one action to light it", "where": "every zero state" }
+  ],
+
+  "verify": {
+    "harness": "node tools/litr-verify/render.mjs",
+    "states": ["populated", "empty"],
+    "themes": ["dark", "light"]
+  }
+}
