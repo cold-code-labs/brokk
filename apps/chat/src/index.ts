@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { loadAflConfig } from "@brokk/chat";
+import { McpToolProvider, parseMcpServers } from "@brokk/mcp";
 import { createDb, createStore, ensureChatSchema } from "@brokk/db";
 import { buildSindri } from "./app.js";
 import { CheckoutManager } from "./checkout.js";
@@ -30,12 +31,20 @@ async function main() {
   console.log(`[sindri] gateway=${chatCfg.gatewayUrl} models=${chatCfg.models.sonnet}/${chatCfg.models.opus}`);
   console.log(`[sindri] workdir=${cfg.workDir}`);
 
+  // MCP servers (ADR 0027 §4.1): operator-configured via BROKK_MCP_SERVERS
+  // (JSON array). Their tools mount into every Sindri turn, namespaced
+  // mcp__<server>__<tool>; read-only by default, mutation opt-in per server.
+  const mcpConfigs = parseMcpServers(process.env.BROKK_MCP_SERVERS);
+  const mcp = mcpConfigs.length ? await McpToolProvider.connect(mcpConfigs) : null;
+  if (mcp) console.log(`[sindri] MCP: ${mcp.toolDefs.length} tool(s) from ${mcpConfigs.length} server(s)`);
+
   const app = buildSindri({
     store,
     cfg: chatCfg,
     checkouts: new CheckoutManager(cfg.workDir),
     turns: new TurnManager(),
     runnerSecret: cfg.BROKK_RUNNER_SECRET,
+    mcp,
   });
 
   serve({ fetch: app.fetch, port: cfg.SINDRI_PORT }, ({ port }) => {

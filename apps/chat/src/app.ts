@@ -16,6 +16,7 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { CheckoutManager } from "./checkout.js";
 import { fsRoutes } from "./fs-routes.js";
+import type { McpToolProvider } from "@brokk/mcp";
 import { HeimdallAgentClient } from "./heimdall.js";
 import { TurnManager } from "./turns.js";
 
@@ -26,6 +27,8 @@ export interface SindriDeps {
   turns: TurnManager;
   /** Shared secret the API proxy presents. Empty = open (dev). */
   runnerSecret: string;
+  /** Connected MCP servers (ADR 0027 §4.1), or null when none configured. */
+  mcp?: McpToolProvider | null;
 }
 
 const CreateSession = z.object({
@@ -464,6 +467,7 @@ async function runSessionTurn(
     projectId: project.id,
     store: deps.store,
     baseBranch: project.baseBranch,
+    extraExec: deps.mcp?.executor,
     onDomainEvent: (e) => emit({ type: "status", phase: e.kind, detail: e.detail }),
     // The plan_work tool bridges to Mímir — Haiku decides to plan, the strong
     // planner decomposes, the cards land in the backlog (proposed) for approval.
@@ -487,7 +491,16 @@ async function runSessionTurn(
   });
 
   try {
-    await runTurn({ session: { ...session, branch }, userText: text, cfg: deps.cfg, toolCtx, system, emit, signal });
+    await runTurn({
+      session: { ...session, branch },
+      userText: text,
+      cfg: deps.cfg,
+      toolCtx,
+      system,
+      extraTools: deps.mcp?.toolDefs,
+      emit,
+      signal,
+    });
   } finally {
     await deps.store.updateChatSession(session.id, { turnState: "idle" }).catch(() => {});
   }

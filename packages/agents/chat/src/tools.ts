@@ -27,6 +27,9 @@ export { shellEnv } from "@brokk/afl";
 export interface ToolContext {
   /** The working checkout the tools operate in. */
   cwd: string;
+  /** Host-injected extra tools (e.g. MCP servers, ADR 0027 §4.1) — a partial
+   *  executor composed BEFORE the generic hands; pair with RunTurnInput.extraTools. */
+  extraExec?: PartialExecutor;
   /** The Brokk project this session belongs to (for domain tools). */
   projectId: string;
   store: Store;
@@ -328,6 +331,7 @@ function makeDomainExecutor(ctx: ToolContext): PartialExecutor {
  *  hands composed with the Brokk-domain tools. */
 export function makeExecutor(ctx: ToolContext): ToolExecutor {
   return composeExecutors(
+    ...(ctx.extraExec ? [ctx.extraExec] : []),
     makeFsExecutor({ cwd: ctx.cwd, enclave: resolveEnclave({ checkoutRoot: ctx.cwd }) }),
     makeDomainExecutor(ctx),
   );

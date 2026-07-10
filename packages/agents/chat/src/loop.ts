@@ -17,7 +17,7 @@ import type { Store } from "@brokk/db";
 import type { AflConfig } from "@brokk/afl";
 import { resolveModel, runAgentLoop } from "@brokk/afl";
 import { makeExecutor, TOOL_DEFS, type ToolContext } from "./tools.js";
-import type { ChatTurnMessage, ContentBlock, AgentEvent } from "@brokk/afl";
+import type { ChatTurnMessage, ContentBlock, AgentEvent, ToolDef } from "@brokk/afl";
 
 export interface RunTurnInput {
   session: ChatSession;
@@ -27,6 +27,9 @@ export interface RunTurnInput {
   toolCtx: ToolContext;
   /** System prompt (built by buildSystemPrompt). */
   system: string;
+  /** Extra tool defs the host mounts (e.g. MCP, ADR 0027 §4.1) — executed by
+   *  toolCtx.extraExec. */
+  extraTools?: ToolDef[];
   emit: (e: AgentEvent) => void;
   signal?: AbortSignal;
 }
@@ -83,7 +86,7 @@ export async function runTurn(input: RunTurnInput): Promise<void> {
     model,
     system,
     messages,
-    tools: TOOL_DEFS,
+    tools: input.extraTools?.length ? [...TOOL_DEFS, ...input.extraTools] : TOOL_DEFS,
     exec: makeExecutor(toolCtx),
     maxTokens,
     thinkingBudget: budget,
