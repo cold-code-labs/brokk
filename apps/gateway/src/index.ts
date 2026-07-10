@@ -27,8 +27,6 @@
  *    → extract leftmost label "<app>-dev"
  *    → look up in preview cache (refresh from control plane every 5 s)
  *    → proxy to http://127.0.0.1:<port>  (HTTP + WebSocket)
- *    → bump expiresAt on the preview (at most once per 60 s) so active demos
- *      keep sliding their TTL
  *
  * ─── Error pages ────────────────────────────────────────────────────────────
  *
@@ -123,35 +121,6 @@ async function fetchAllPreviews(): Promise<TaggedPreview[]> {
     }
   });
   return out;
-}
-
-/**
- * Fire-and-forget PATCH /previews/:id to slide the TTL forward.
- * Errors are logged but never propagate — a missed bump is non-fatal.
- */
-function patchPreviewTtl(id: string, expiresAt: string, cp: CpBase): void {
-  const payload = JSON.stringify({ expiresAt });
-  const req = http.request(
-    {
-      hostname: cp.hostname,
-      port: cp.port,
-      path: `/previews/${id}`,
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(payload),
-        Authorization: `Bearer ${cfg.BROKK_RUNNER_SECRET}`,
-      },
-    },
-    (res) => {
-      res.resume(); // drain and discard
-    },
-  );
-  req.on("error", (err) => {
-    console.error(`[gateway] activity bump PATCH /previews/${id} failed:`, err.message);
-  });
-  req.write(payload);
-  req.end();
 }
 
 /**
@@ -255,21 +224,6 @@ async function resolveCache(): Promise<Map<string, CacheEntry>> {
   }
 
   return cache;
-}
-
-// ── Activity bump (at most once per 60 s per preview id) ─────────────────────
-
-const BUMP_THROTTLE_MS = 60_000;
-const lastBumpAt = new Map<string, number>();
-
-function maybeBump(id: string, cp: CpBase): void {
-  const now = Date.now();
-  const last = lastBumpAt.get(id) ?? 0;
-  if (now - last < BUMP_THROTTLE_MS) return;
-  lastBumpAt.set(id, now);
-
-  const expiresAt = new Date(now + cfg.BROKK_PREVIEW_TTL_MS).toISOString();
-  patchPreviewTtl(id, expiresAt, cp);
 }
 
 // ── Auto-wake (at most once per 15 s per subdomain) ──────────────────────────
@@ -615,8 +569,6 @@ async function handleRequest(
     return;
   }
 
-  maybeBump(entry.id, entry.cp);
-
   // Forward the request to the upstream preview process — on the host that owns
   // this preview's control plane (planes can run on different hosts). Drop the
   // Origin on /_next/* so Next dev's cross-origin guard doesn't 403 dev assets.
@@ -692,8 +644,6 @@ async function handleUpgrade(
     return;
   }
 
-  maybeBump(entry.id, entry.cp);
-
   // Open a raw TCP connection to the upstream preview process and replay the
   // HTTP upgrade handshake so the upstream's WebSocket server can respond. Dial
   // the host that owns this preview's plane (HMR rides this WS — it must reach
@@ -744,7 +694,6 @@ server.listen(cfg.BROKK_GATEWAY_PORT, "0.0.0.0", () => {
       .map((cp) => `${cp.hostname}→${cp.previewHost}`)
       .join(", ")}`,
   );
-  console.log(`[gateway] preview TTL bump: ${cfg.BROKK_PREVIEW_TTL_MS} ms`);
 });
 
 server.on("error", (err) => {

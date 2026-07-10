@@ -511,8 +511,6 @@ function plannerConfig(): MimirConfig | null {
     plannerModel: model,
     baseUrl,
     apiKey,
-    claudeBin: "",
-    oauthToken: "",
     authToken: "",
     anthropicBaseUrl: "",
   };

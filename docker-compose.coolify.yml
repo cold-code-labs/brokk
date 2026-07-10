@@ -171,7 +171,6 @@ services:
       BROKK_PREVIEW_SECRETS_DIR: ${BROKK_PREVIEW_SECRETS_DIR:-/home/brokk/preview-secrets}
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
-      BROKK_PREVIEW_PINNED: ${BROKK_PREVIEW_PINNED:-}
       BROKK_VERIFY_CMD: ${BROKK_VERIFY_CMD:-}
       # ADR 0017 Fase 3b: apps whose implement cards commit straight to dev (pilot).
       BROKK_DEVLANE_APPS: ${BROKK_DEVLANE_APPS:-}

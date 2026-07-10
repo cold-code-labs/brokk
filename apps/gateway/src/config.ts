@@ -18,8 +18,6 @@ import { z } from "zod";
  *                       :8790). The singleton gateway serves the one public
  *                       *.preview domain, so listing the dev plane here lets dev
  *                       previews resolve on the same host. Same shared secret.
- * BROKK_PREVIEW_TTL_MS  How far into the future to push expiresAt on each
- *                       activity bump. Default 3 600 000 ms (1 hour).
  * BROKK_PREVIEW_HOST    Host the gateway proxies preview traffic to. Previews are
  *                       child processes of the runner (forge), binding 0.0.0.0 on
  *                       their port. Default "127.0.0.1" (host networking — runner
@@ -41,7 +39,6 @@ const Env = z.object({
   BROKK_RUNNER_SECRET: z.string().default(""),
   BROKK_CONTROL_URL: z.string().default("http://127.0.0.1:8789"),
   BROKK_CONTROL_URL_EXTRA: z.string().default(""),
-  BROKK_PREVIEW_TTL_MS: z.coerce.number().int().positive().default(3_600_000),
   BROKK_PREVIEW_HOST: z.string().default("127.0.0.1"),
   BROKK_PREVIEW_HOST_MAP: z.string().default(""),
 });

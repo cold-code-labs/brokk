@@ -366,10 +366,7 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
     detail: row.detail ?? null,
     commitSha: row.commitSha ?? null,
     builtAt: iso(row.builtAt),
-    readyAt: iso(row.readyAt),
     pid: row.pid,
-    lastSeenAt: iso(row.lastSeenAt),
-    expiresAt: iso(row.expiresAt),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -631,7 +628,7 @@ export interface Store {
   getPreviewBySubdomain(subdomain: string): Promise<Preview | null>;
   setPreviewStatus(id: string, status: PreviewStatus, pid?: number | null): Promise<Preview>;
   /** Update arbitrary mutable fields on a preview row (used by the runner
-   *  supervisor to set status, pid, port and expiresAt in one call). */
+   *  supervisor to set status, pid and port in one call). */
   patchPreview(
     id: string,
     patch: {
@@ -639,15 +636,11 @@ export interface Store {
       detail?: string | null;
       commitSha?: string | null;
       builtAt?: Date | null;
-      readyAt?: Date | null;
       pid?: number | null;
       port?: number | null;
-      expiresAt?: Date | null;
-      lastSeenAt?: Date | null;
     },
   ): Promise<Preview>;
   /** Bump last_seen_at to now and slide expires_at forward by 24 hours. */
-  touchPreview(id: string): Promise<void>;
   /** Mark a preview stopped and clear its pid. */
   stopPreview(id: string): Promise<Preview>;
 
@@ -1605,11 +1598,8 @@ export function createStore(db: Db): Store {
       if (patch.detail !== undefined) set.detail = patch.detail ?? null;
       if (patch.commitSha !== undefined) set.commitSha = patch.commitSha ?? null;
       if (patch.builtAt !== undefined) set.builtAt = patch.builtAt ?? null;
-      if (patch.readyAt !== undefined) set.readyAt = patch.readyAt ?? null;
       if (patch.pid !== undefined) set.pid = patch.pid;
       if (patch.port !== undefined) set.port = patch.port;
-      if (patch.expiresAt !== undefined) set.expiresAt = patch.expiresAt ?? undefined;
-      if (patch.lastSeenAt !== undefined) set.lastSeenAt = patch.lastSeenAt ?? undefined;
       const rows = await db
         .update(previews)
         .set(set)
@@ -1617,14 +1607,6 @@ export function createStore(db: Db): Store {
         .returning();
       if (!rows[0]) throw new Error(`preview ${id} not found`);
       return rowToPreview(rows[0]);
-    },
-    async touchPreview(id) {
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-      await db
-        .update(previews)
-        .set({ lastSeenAt: now, expiresAt, updatedAt: now })
-        .where(eq(previews.id, id));
     },
     async stopPreview(id) {
       const rows = await db

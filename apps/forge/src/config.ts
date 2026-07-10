@@ -59,9 +59,6 @@ export interface RunnerConfig {
    *  substituted. Override: BROKK_PREVIEW_DEV_CMD. `pnpm exec next dev` resolves
    *  the local binary; `-H 0.0.0.0` is load-bearing (gateway proxies 127.0.0.1). */
   previewDevCmd: string;
-  /** How long a preview lives without a touch before the reaper kills it (ms).
-   *  Configurable via BROKK_PREVIEW_TTL_MS. Default: 45 minutes. */
-  previewTtlMs: number;
   /** How long (ms) the supervisor waits for a freshly-spawned preview to answer
    *  its health path before flipping it 'live' anyway (degraded). Covers the
    *  `pnpm install` + first compile so the pane shows a spinner, not a broken
@@ -71,14 +68,6 @@ export interface RunnerConfig {
   previewPortMin: number;
   /** Highest port (inclusive) the supervisor may allocate for preview processes. */
   previewPortMax: number;
-  /** When true (default), the supervisor deprovisions a preview's Hauldr compute
-   *  (auth + rest, keeping the DB) once it stops/expires, so an idle backend
-   *  costs zero containers. BROKK_PREVIEW_EPHEMERAL=false keeps it standing. */
-  previewEphemeral: boolean;
-  /** Hauldr projects the supervisor must NEVER deprovision — pinned standing
-   *  envs (e.g. a client staging DB) that happen to share a preview slug.
-   *  CSV via BROKK_PREVIEW_PINNED. */
-  previewPinned: Set<string>;
   /** Directory holding per-app preview secrets as `<hauldrProject>.env` files
    *  (e.g. OPENAI_API_KEY pointing at the LiteLLM gateway). Merged into the
    *  preview's spawn env at boot — kept OUTSIDE the worktree so the secrets
@@ -124,17 +113,9 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
       // args cleanly (bare `next` isn't on PATH under `sh -c`; `pnpm run dev --`
       // leaks the `--` into next's argv). Verified e2e on the dev lane.
       "pnpm install --no-frozen-lockfile --prod=false && pnpm exec next dev -p $PORT -H 0.0.0.0",
-    previewTtlMs: Number(env.BROKK_PREVIEW_TTL_MS ?? 45 * 60 * 1000),
     previewHealthTimeoutMs: Number(env.BROKK_PREVIEW_HEALTH_TIMEOUT_MS ?? 2 * 60 * 1000),
     previewPortMin: Number(env.BROKK_PREVIEW_PORT_MIN ?? 4100),
     previewPortMax: Number(env.BROKK_PREVIEW_PORT_MAX ?? 4199),
-    previewEphemeral: (env.BROKK_PREVIEW_EPHEMERAL ?? "true") !== "false",
-    previewPinned: new Set(
-      (env.BROKK_PREVIEW_PINNED ?? "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    ),
     previewSecretsDir: env.BROKK_PREVIEW_SECRETS_DIR ?? "",
   };
 }

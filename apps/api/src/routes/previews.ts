@@ -92,40 +92,29 @@ export function previewsRoutes(deps: AppDeps): Hono {
     return c.json(preview);
   });
 
-  /** PATCH /previews/:id — runner updates status, pid, port, expiresAt.
+  /** PATCH /previews/:id — runner updates status, pid, port.
    *  This is the machine-facing counterpart of DELETE (stop); it lets the
-   *  preview supervisor mark a preview 'live' and set the runner-defined TTL. */
+   *  preview supervisor mark a preview 'live'. */
   r.patch("/:id", async (c) => {
     const PatchBody = z.object({
       status: z.enum(["starting", "live", "stopped", "failed", "unsupported"]).optional(),
       detail: z.string().nullable().optional(),
       commitSha: z.string().nullable().optional(),
       builtAt: z.string().datetime().nullable().optional(),
-      readyAt: z.string().datetime().nullable().optional(),
       pid: z.number().int().nullable().optional(),
       port: z.number().int().nullable().optional(),
-      expiresAt: z.string().datetime().nullable().optional(),
-      lastSeenAt: z.string().datetime().nullable().optional(),
     });
     const parsed = PatchBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-    const { status, detail, commitSha, builtAt, readyAt, pid, port, expiresAt, lastSeenAt } =
-      parsed.data;
+    const { status, detail, commitSha, builtAt, pid, port } = parsed.data;
     const patch = {
       ...(status !== undefined ? { status } : {}),
       ...(detail !== undefined ? { detail } : {}),
       ...(commitSha !== undefined ? { commitSha } : {}),
       ...(builtAt !== undefined ? { builtAt: builtAt ? new Date(builtAt) : null } : {}),
-      ...(readyAt !== undefined ? { readyAt: readyAt ? new Date(readyAt) : null } : {}),
       ...(pid !== undefined ? { pid } : {}),
       ...(port !== undefined ? { port } : {}),
-      ...(expiresAt !== undefined
-        ? { expiresAt: expiresAt ? new Date(expiresAt) : null }
-        : {}),
-      ...(lastSeenAt !== undefined
-        ? { lastSeenAt: lastSeenAt ? new Date(lastSeenAt) : null }
-        : {}),
     };
 
     try {

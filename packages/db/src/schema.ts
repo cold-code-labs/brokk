@@ -397,13 +397,7 @@ export const previews = pgTable(
      *  deploy's chronological anchor in the fleet feed. Without it a preview
      *  would sort by the SLOT's created_at (ancient) instead of the build. */
     builtAt: timestamp("built_at", { withTimezone: true }),
-    /** When the preview finished building and went live (stamped on the flip to
-     *  'live'). Paired with built_at this gives the build's duration — what the
-     *  fleet feed shows as "Xm Ys", the same as a prod deploy. Null until live. */
-    readyAt: timestamp("ready_at", { withTimezone: true }),
     pid: integer("pid"),
-    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-    expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

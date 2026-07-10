@@ -40,14 +40,6 @@ export class CheckoutManager {
     return join(this.workDir, "checkouts", sessionId);
   }
 
-  /** The path a session's checkout WILL live at — deterministic, no IO. Lets the
-   *  preview endpoint write the preview row (with its workDir) and return before
-   *  the clone/worktree finishes materialising, so the request never blocks on a
-   *  30–120s first clone. The supervisor waits for the worktree before booting. */
-  plannedPath(sessionId: string): string {
-    return this.checkoutDir(sessionId);
-  }
-
   /** The path of an EXISTING session checkout (a materialised git work tree), or
    *  null. Unlike ensure(), never clones/creates — the Studio file viewer only
    *  reads what a turn or preview already put on disk. `.git` (a file in a

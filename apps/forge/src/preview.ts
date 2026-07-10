@@ -605,23 +605,17 @@ export class PreviewSupervisor {
       return;
     }
 
-    // Update the control plane: live + pid + port + expiresAt (runner-defined TTL).
-    // Stamp readyAt = now: the build just finished (the server answered health).
-    // Paired with builtAt (stamped after checkout) this is the build's duration —
-    // what Heimdall's fleet feed renders as "Xm Ys", same as a prod deploy.
-    const expiresAt = new Date(Date.now() + this.cfg.previewTtlMs).toISOString();
+    // Update the control plane: live + pid + port.
     await this.controlPatch(`/previews/${preview.id}`, {
       status: "live",
       detail: null,
-      readyAt: new Date().toISOString(),
       pid: proc.pid ?? null,
       port,
-      expiresAt,
     });
 
     console.log(
       `[preview-supervisor] ${preview.subdomain} live on :${port}` +
-        ` (pid=${proc.pid}, expires=${expiresAt}, health=${outcome})`,
+        ` (pid=${proc.pid}, health=${outcome})`,
     );
 
     // Auto-stop when the process exits unexpectedly

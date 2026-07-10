@@ -231,6 +231,9 @@ principles:
    behavior. Mutation behind an explicit grant (the `shellEnv()` allowlist instinct).
 7. **Concurrency is the only real cost.** Subscription tokens are ~free; the seat's limit is
    parallel pressure. Lean agents are small → fan out wider per seat.
+8. **Adopt OSS below the loop, never for the loop.** Sandboxing (Landlock/gVisor), parsing
+   (tree-sitter), scanners (semgrep/trivy), protocol SDKs (MCP) — buy. The tool loop,
+   streaming, retry, and prompts — own. (ADR 0027.)
 
 **Origin:** a reachability test (5 linear + 5 parallel Sonnet agents through Ratatoskr) where
 every subagent spent an identical ~33.3k tokens — fixed *context* overhead of the spawn, not
