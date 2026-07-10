@@ -408,6 +408,9 @@ export interface RunResult {
   verify: VerifyOutcome | null;
   /** Heal iterations the agent ran (0 = passed first try / no verify). */
   healAttempts: number;
+  /** Tail of the verify failure that triggered the LAST heal, when any — the
+   *  raw material for the runner's repo-memory lesson (ADR 0027 §5.3). */
+  lastHealFailure?: string;
 }
 
 /** What the runner needs to execute one task. */

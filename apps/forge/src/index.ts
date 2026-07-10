@@ -20,6 +20,7 @@ import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js"
 import { HauldrClient } from "./hauldr.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
+import { distillHealLesson } from "./memory.js";
 import { buildRepoMap } from "./repomap.js";
 import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
 
@@ -293,6 +294,31 @@ async function handleRun(
         (verify ? ` · verify ${verify.ok ? "✓" : "✗"}` : "") +
         (result.healAttempts ? ` · healed ×${result.healAttempts}` : ""),
     );
+
+    // Knowledge loop (ADR 0027 §5.3): a verify failure the agent HEALED is a
+    // reusable fact about this repo/toolchain — distill it into repo memory so
+    // the next forge gets it in its prompt. Best-effort, never fails the run.
+    if (repository && repository.id !== "env" && result.healAttempts > 0 && verify?.ok && result.lastHealFailure) {
+      try {
+        const lesson = await distillHealLesson({
+          taskTitle: task.title,
+          verifyCmd: cfg.verifyCmd,
+          failure: result.lastHealFailure,
+        });
+        if (lesson) {
+          await api(cfg, "POST", "/runner/memories", {
+            repositoryId: repository.id,
+            kind: "pitfall",
+            content: lesson,
+            source: "forge-heal",
+            prNumber: pr.number ?? null,
+          });
+          console.log(`[forge] recorded heal lesson for ${repository.fullName}: ${lesson.slice(0, 80)}`);
+        }
+      } catch (e) {
+        console.warn("[forge] heal-lesson record failed:", String(e).slice(0, 160));
+      }
+    }
 
     // Refresh the warm index (#4) from the just-forged worktree, so the planner
     // sees the current tree next time. Best-effort — never fails the run. Skipped

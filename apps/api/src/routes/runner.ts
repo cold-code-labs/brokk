@@ -26,6 +26,14 @@ const RegisterBody = z.object({
   runnerId: z.string().uuid().optional(),
 });
 
+const MemoryBody = z.object({
+  repositoryId: z.string().uuid(),
+  kind: z.enum(["convention", "pitfall", "review_failure", "decision"]),
+  content: z.string().min(1).max(400),
+  source: z.string().optional(),
+  prNumber: z.number().int().nullable().optional(),
+});
+
 export function runnerRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
@@ -103,6 +111,16 @@ export function runnerRoutes(deps: AppDeps): Hono {
     const number = typeof body?.number === "number" ? body.number : null;
     const plan = await deps.store.setPlanPrIfUnset(c.req.param("id"), url, number);
     return c.json(plan);
+  });
+
+  /** POST /runner/memories — a worker records a learned repo fact (ADR 0027
+   *  §5.3: the forge distills a lesson from a verify-fail→heal cycle). Dedup +
+   *  weight-bump live in store.recordRepoMemory. */
+  r.post("/memories", async (c) => {
+    const parsed = MemoryBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const memory = await deps.store.recordRepoMemory(parsed.data);
+    return c.json({ memory }, 201);
   });
 
   return r;

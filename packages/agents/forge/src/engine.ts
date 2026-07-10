@@ -122,6 +122,7 @@ export class ForgeEngine implements AgentEngine {
 
     let verify: VerifyOutcome | null = null;
     let healAttempts = 0;
+    let lastHealFailure: string | undefined;
     const maxHeal = ctx.verify ? Math.max(0, ctx.maxHealAttempts ?? 0) : 0;
 
     try {
@@ -143,6 +144,7 @@ export class ForgeEngine implements AgentEngine {
           });
           if (verify.ok || round >= maxHeal) break;
           healAttempts++;
+          lastHealFailure = verify.output.slice(-4000);
           ctx.emit({ type: "status", payload: { phase: "heal", attempt: healAttempts, of: maxHeal } });
           messages.push({
             role: "user",
@@ -157,7 +159,7 @@ export class ForgeEngine implements AgentEngine {
     }
 
     ctx.emit({ type: "status", payload: { phase: "agent_done", usage, healAttempts } });
-    return { usage, verify, healAttempts };
+    return { usage, verify, healAttempts, lastHealFailure };
   }
 
   /** Map the loop's hooks onto the runner's RunEvent stream, keeping the SDK-era
