@@ -1,5 +1,5 @@
 /**
- * @brokk/runtime — Sleipnir's logic: the command allowlist (the trusted boundary
+ * @brokk/core/runtime — Sleipnir's logic: the command allowlist (the trusted boundary
  * that replaces a human approval), `validateSpec`, the canonical fast-path, and
  * the resolver. Pure except for `buildDetectCtx` (which reads the checkout tree).
  * The supervisor consumes a `RuntimeSpec` and never knows the word "next".
@@ -8,10 +8,10 @@
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import type { DetectCtx, RuntimeSpec } from "@brokk/core";
+import type { DetectCtx, RuntimeSpec } from "../index.js";
 import { PACKAGE_MANAGERS, PM_ORDER, type PmId, PROVIDERS } from "./providers.js";
 
-export type { DetectCtx, RuntimeSpec } from "@brokk/core";
+export type { DetectCtx, RuntimeSpec } from "../index.js";
 export { PACKAGE_MANAGERS, PROVIDERS } from "./providers.js";
 
 // ── The allowlist (the gate that replaces a human) ──────────────────────────────

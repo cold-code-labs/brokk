@@ -22,7 +22,7 @@ import { readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import type { AcceptanceReceipt } from "@brokk/core";
-import { buildDetectCtx, composeCommand, resolveRuntime } from "@brokk/runtime";
+import { buildDetectCtx, composeCommand, resolveRuntime } from "@brokk/core/runtime";
 import type { RunnerConfig } from "./config.js";
 
 const CHECK_REL = ".brokk/acceptance.mjs";

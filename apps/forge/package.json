@@ -12,7 +12,6 @@
   "dependencies": {
     "@brokk/core": "workspace:*",
     "@brokk/forge": "workspace:*",
-    "@brokk/runtime": "workspace:*",
     "langfuse": "^3.38.20"
   },
   "devDependencies": {

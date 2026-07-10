@@ -22,7 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Preview, Repository, RuntimeSpec } from "@brokk/core";
-import { buildDetectCtx, composeCommand, PACKAGE_MANAGERS, resolveRuntime } from "@brokk/runtime";
+import { buildDetectCtx, composeCommand, PACKAGE_MANAGERS, resolveRuntime } from "@brokk/core/runtime";
 import type { RunnerConfig } from "./config.js";
 import type { GhProvider } from "./git.js";
 import type { HauldrClient } from "./hauldr.js";

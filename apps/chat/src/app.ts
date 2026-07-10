@@ -6,7 +6,7 @@ import {
   runTurn,
 } from "@brokk/chat";
 import { detectRuntime, runDiscovery, runMeetingScout, runResolve } from "@brokk/scout";
-import { buildDetectCtx, resolveRuntime } from "@brokk/runtime";
+import { buildDetectCtx, resolveRuntime } from "@brokk/core/runtime";
 import type { Store } from "@brokk/db";
 import { featureBranch, type Repository } from "@brokk/core";
 import { planJob, type MimirConfig } from "@brokk/mimir";

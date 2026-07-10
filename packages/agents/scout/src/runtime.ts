@@ -13,7 +13,7 @@ import type { AflConfig } from "@brokk/afl";
 import { resolveModel, streamAssistant } from "@brokk/afl";
 import type { ChatTurnMessage, ToolDef, ToolUseBlock } from "@brokk/afl";
 import type { DetectCtx, RuntimeSpec } from "@brokk/core";
-import { PROVIDERS, unsupported } from "@brokk/runtime";
+import { PROVIDERS, unsupported } from "@brokk/core/runtime";
 
 export interface DetectRuntimeInput {
   cfg: AflConfig;

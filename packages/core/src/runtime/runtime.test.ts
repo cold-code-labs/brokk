@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { DetectCtx, RuntimeSpec } from "@brokk/core";
+import type { DetectCtx, RuntimeSpec } from "../index.js";
 import {
   composeCommand,
   fastPath,
