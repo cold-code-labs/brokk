@@ -7,6 +7,7 @@ import { loadAflConfig, resolveModel } from "../packages/afl/src/index.js";
 import { EvalFailure, makeSandbox, rmSandbox, withTimeout, type EvalCtx, type EvalTask } from "./harness.js";
 import { mockTasks } from "./tasks-mock.js";
 import { llmTasks } from "./tasks-llm.js";
+import { buildTasks } from "./bundle-boot.eval.js";
 import { chatTasks } from "./chat-turn.eval.js";
 
 interface Outcome {
@@ -78,7 +79,7 @@ async function main(): Promise<void> {
   const llmAvailable = !!cfg.authToken && process.env.EVAL_LLM !== "0";
   const chatAvailable = (hasDocker() || !!process.env.EVAL_PG_URL) && process.env.EVAL_CHAT !== "0";
 
-  let tasks: EvalTask[] = [...mockTasks, ...chatTasks, ...llmTasks];
+  let tasks: EvalTask[] = [...mockTasks, ...buildTasks, ...chatTasks, ...llmTasks];
   if (laneArg !== "all") tasks = tasks.filter((t) => t.lane === laneArg);
   if (only) tasks = tasks.filter((t) => t.id === only);
   if (!tasks.length) {

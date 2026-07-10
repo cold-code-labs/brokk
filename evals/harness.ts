@@ -29,7 +29,7 @@ export interface EvalCtx {
 
 export interface EvalTask {
   id: string;
-  lane: "mock" | "llm" | "chat";
+  lane: "mock" | "llm" | "chat" | "build";
   /** Model alias for the llm lane. Default haiku (weakest = strictest gate). */
   model?: "haiku" | "sonnet";
   timeoutMs?: number;
