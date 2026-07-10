@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { missionCardsSettled, missionProgress } from "./missions.js";
+import { missionCardsSettled, missionProgress } from "./index.js";
 import type { TaskStatus } from "./index.js";
 
 const cards = (...statuses: TaskStatus[]) => statuses.map((status) => ({ status }));
