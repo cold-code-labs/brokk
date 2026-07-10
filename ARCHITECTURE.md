@@ -36,7 +36,7 @@ Dependency direction is one-way: `afl + mimir ← agents ← apps` (NORTH-STAR �
 | `apps/chat` | Sindri daemon (detached turns, checkout manager) — also hosts the scout. |
 | `apps/forge` | Runner: claims cards, runs the forge engine, supervises live previews. |
 | `apps/reviewer` | Eitri daemon: polls PRs, semgrep+trivy scan, LLM review, verdict comment. |
-| `apps/gateway` | `*.preview` reverse proxy (subdomain → live preview port). Not the AI gateway. |
+| `apps/preview-proxy` | `*.preview` reverse proxy (subdomain → live preview port). Not the AI gateway (that's LiteLLM/Ratatoskr). |
 | `apps/enclave-manager` | Broker that owns the Docker socket for gVisor enclaves. |
 
 ## Convention 1 — one loop, hooks for effects
