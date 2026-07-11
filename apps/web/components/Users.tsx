@@ -6,6 +6,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Users as CrewIcon } from "lucide-react";
 import { Main, Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
+import { useToast } from "./Toaster";
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([]);
@@ -14,6 +15,7 @@ export default function Users() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [gh, setGh] = useState("");
+  const toast = useToast();
   const [err, setErr] = useState<string | null>(null);
   const [connect, setConnect] = useState<ConnectState | null>(null);
 
@@ -35,10 +37,11 @@ export default function Users() {
     setErr(null);
     try {
       await brokk.createUser({ name: name.trim(), email: email.trim(), githubLogin: gh.trim() || undefined });
+      toast(`${name.trim()} joined the crew.`, { tone: "ok" });
       setName(""); setEmail(""); setGh("");
       await refresh();
     } catch (e) {
-      setErr(String(e));
+      toast("Could not add the member.", { meta: String(e), tone: "err" });
     }
   }
 

@@ -813,3 +813,115 @@
 }
 .forge-dialog-body { font-size: 0.88rem; line-height: 1.55; color: var(--fg-soft); margin: 0 0 1.1rem; }
 .forge-dialog-actions { display: flex; justify-content: flex-end; gap: 0.6rem; }
+
+/* ── The anvil card — work on the board ─────────────────────────────────────
+   A compact plate: selection lights the accent ring; the RUNNING card is the
+   one warm thing on the board (molten inset rail + wash, kin of
+   forge-row.is-running). Replaces Board.tsx inline card styles. */
+.anvil-col {
+  box-sizing: border-box;
+  flex: 0 0 272px;
+  scroll-snap-align: start;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+}
+.anvil-cards {
+  flex: 1 1 auto;
+  min-height: 8rem;
+  max-height: calc(100dvh - 21rem);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+}
+.anvil-card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--fg) 2%, var(--panel));
+  padding: 0.7rem 0.75rem;
+  margin-bottom: 0.55rem;
+  color: var(--fg);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.anvil-card:hover { border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); }
+.anvil-card.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.anvil-card.is-running {
+  border-color: color-mix(in srgb, var(--ember) 30%, var(--line));
+  box-shadow: inset 2px 0 0 var(--ember);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--ember) 7%, transparent), transparent 55%),
+    color-mix(in srgb, var(--fg) 2%, var(--panel));
+}
+.anvil-card-head { display: flex; gap: 0.45rem; align-items: flex-start; justify-content: space-between; }
+.anvil-card-lead { display: flex; gap: 0.45rem; align-items: flex-start; min-width: 0; flex: 1; }
+.anvil-card-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+.anvil-card-title {
+  font-size: 0.845rem;
+  line-height: 1.35;
+  min-width: 0;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.anvil-card-foot { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; align-items: center; }
+/* mini action on a card; color driven by the status it moves the card into */
+.anvil-card-act {
+  --act: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--act);
+  border: 1px solid color-mix(in srgb, var(--act) 40%, var(--line));
+  border-radius: 6px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--act) 7%, transparent);
+  cursor: pointer;
+}
+.anvil-card-pr {
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.7rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* ── The tooltip — an etched plate on hover ─────────────────────────────────
+   CSS-only: any element with data-tip shows a small mono plate above it.
+   For rich/positioned tips, promote to a component later. */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(2px);
+  z-index: 70;
+  white-space: nowrap;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  color: var(--fg-soft);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease 0.25s, transform 0.15s ease 0.25s;
+}
+[data-tip]:hover::after, [data-tip]:focus-visible::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

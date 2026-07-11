@@ -33,6 +33,7 @@ import {
   Button,
 } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
+import { useToast } from "./Toaster";
 import { analysis as analysisApi, type AnalysisQuestion, type TaskAnalysis } from "../lib/chat";
 import { useProject } from "../lib/project-context";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
@@ -50,6 +51,7 @@ const chipClass = (s: string) =>
  *  it falls back to the first project (legacy single-project entry). */
 export default function Board({ projectId }: { projectId?: string }) {
   const [project, setProject] = useState<Project | null>(null);
+  const toast = useToast();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -176,7 +178,7 @@ export default function Board({ projectId }: { projectId?: string }) {
       if (input.owner === "brokk" && input.queue) await brokk.enqueueTask(task.id);
       await refresh(project.id);
     },
-    [project, refresh],
+    [project, refresh, toast],
   );
 
   // Keyboard: `c` opens the new-card modal, `/` focuses search — the Linear feel.
@@ -205,6 +207,7 @@ export default function Board({ projectId }: { projectId?: string }) {
     try {
       await brokk.approveAnalysis(id);
       await refresh(project?.id);
+      toast("Queued — to the forge.", { tone: "ok" });
     } catch {
       // #5: the analysis isn't ready yet (or needs the confirm-questions flow) —
       // open the drawer where the analysis + Aprovar live, instead of a bare error.
@@ -222,8 +225,9 @@ export default function Board({ projectId }: { projectId?: string }) {
       );
       try {
         await brokk.resolveTask(id, "concluído pelo menu do card");
+        toast("Marked done.", { tone: "ok" });
       } catch (e) {
-        setErr(String(e));
+        toast("Could not resolve the card.", { meta: String(e), tone: "err" });
       }
       await refresh(project?.id);
     },
@@ -338,13 +342,13 @@ export default function Board({ projectId }: { projectId?: string }) {
           {COLUMNS.map((key) => {
             const items = visible.filter((x) => x.status === key);
             return (
-              <section key={key} style={column} className="anvil-col">
+              <section key={key} className="anvil-col">
                 <div className="forge-h" style={{ margin: "0 0 0.7rem" }}>
                   <span className="forge-h-title">{STATUS_LABEL[key]}</span>
                   <span className="forge-h-meta">{items.length}</span>
                   <span className="forge-h-rule" />
                 </div>
-                <div style={cardList}>
+                <div className="anvil-cards">
                   {items.length === 0 && <div className="anvil-col-empty" aria-hidden>—</div>}
                   {items.map((task) => (
                     <div
@@ -353,33 +357,32 @@ export default function Board({ projectId }: { projectId?: string }) {
                       tabIndex={0}
                       onClick={() => setSelected(task.id)}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(task.id); } }}
-                      className="forge-panel"
-                      style={card(selected === task.id, task.status === "running")}
+                      className={`anvil-card${selected === task.id ? " is-selected" : ""}${task.status === "running" ? " is-running" : ""}`}
                     >
-                      <span style={{ display: "flex", gap: 7, alignItems: "start", justifyContent: "space-between" }}>
-                        <span style={{ display: "flex", gap: 7, alignItems: "start", minWidth: 0, flex: 1 }}>
-                          <span style={{ ...dot, background: task.status === "running" ? "var(--ember)" : STATUS_COLOR[task.status] }} />
-                          <span style={cardTitle}>{task.title}</span>
+                      <span className="anvil-card-head">
+                        <span className="anvil-card-lead">
+                          <span className="anvil-card-dot" style={{ background: task.status === "running" ? "var(--ember)" : STATUS_COLOR[task.status] }} />
+                          <span className="anvil-card-title">{task.title}</span>
                         </span>
                         <CardMenu task={task} onMarkDone={markCardDone} />
                       </span>
-                      <span style={cardFooter}>
+                      <span className="anvil-card-foot">
                         <OwnerChip owner={task.owner} source={task.source} />
                         <span style={{ flex: 1 }} />
                         {task.status === "backlog" && (
-                          <span onClick={(e) => { e.stopPropagation(); analyze(task.id); }} style={analyzeBtn}>
+                          <span onClick={(e) => { e.stopPropagation(); analyze(task.id); }} className="anvil-card-act" style={{ "--act": STATUS_COLOR.analysis } as React.CSSProperties}>
                             Analyze →
                           </span>
                         )}
                         {/* Queue only for already-analysed cards (owner=brokk). Backlog
                             must go through analyze first. */}
                         {task.status === "analysis" && task.owner === "brokk" && (
-                          <span onClick={(e) => { e.stopPropagation(); approveAndQueue(task.id); }} style={miniBtn}>
+                          <span onClick={(e) => { e.stopPropagation(); approveAndQueue(task.id); }} className="anvil-card-act">
                             Queue →
                           </span>
                         )}
                         {task.prUrl && (
-                          <a href={task.prUrl} target="_blank" rel="noreferrer" style={prLink} onClick={(e) => e.stopPropagation()}>
+                          <a href={task.prUrl} target="_blank" rel="noreferrer" className="anvil-card-pr" onClick={(e) => e.stopPropagation()}>
                             PR ↗
                           </a>
                         )}
@@ -1525,19 +1528,8 @@ const menuBackdrop: React.CSSProperties = { position: "fixed", inset: 0, zIndex:
 const menuPopover: React.CSSProperties = { position: "fixed", zIndex: 60, minWidth: 210, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 9, padding: 5, boxShadow: "var(--shadow-2)", display: "flex", flexDirection: "column", gap: 2 };
 const menuItem = (disabled: boolean): React.CSSProperties => ({ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 6, border: "none", background: "transparent", color: disabled ? t.textFaint : t.text, fontSize: 12.5, cursor: disabled ? "default" : "pointer" });
 
-// Board: fixed-width columns + horizontal scroll (standard kanban), owned by the
-// .anvil-board class in forge.css (containment + visible scrollbar affordance).
-// Columns run the full remaining viewport height so the board reads as a
-// workspace, not a strip of boxes floating over dead space.
-const column: React.CSSProperties = { flex: "0 0 272px", scrollSnapAlign: "start", background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column" };
-const cardList: React.CSSProperties = { flex: "1 1 auto", minHeight: "8rem", maxHeight: "calc(100dvh - 21rem)", overflowY: "auto", overflowX: "hidden", paddingRight: 2 };
-// Title clamped to 3 lines — long ajuste titles no longer eat the whole column.
-const cardTitle: React.CSSProperties = { fontSize: 13.5, lineHeight: 1.35, minWidth: 0, wordBreak: "break-word", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" };
 const dot: React.CSSProperties = { width: 7, height: 7, borderRadius: 7, flexShrink: 0, marginTop: 5 };
-const cardFooter: React.CSSProperties = { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8, alignItems: "center" };
 const prLink: React.CSSProperties = { fontSize: 11, color: t.purple, textDecoration: "none" };
-const miniBtn: React.CSSProperties = { fontSize: 11, color: STATUS_COLOR.queued, border: `1px solid ${STATUS_COLOR.queued}44`, borderRadius: 6, padding: "2px 8px" };
-const analyzeBtn: React.CSSProperties = { fontSize: 11, color: STATUS_COLOR.analysis, border: `1px solid ${STATUS_COLOR.analysis}44`, borderRadius: 6, padding: "2px 8px" };
 const touchChip: React.CSSProperties = { fontSize: 11, fontFamily: "var(--font-mono, monospace)", background: t.inset, border: `1px solid ${t.border}`, borderRadius: 5, padding: "1px 6px", color: t.textMuted };
 const calloutBox: React.CSSProperties = { background: t.surface2, border: `1px solid ${STATUS_COLOR.queued}66`, borderLeft: `3px solid ${STATUS_COLOR.queued}`, borderRadius: 8, padding: "12px 14px", marginBottom: 16 };
 const techToggle: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", borderTop: `1px solid ${t.border}`, padding: "10px 0 2px", color: t.textMuted, fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600, cursor: "pointer" };
@@ -1552,27 +1544,3 @@ const runLogBox: React.CSSProperties = { display: "flex", flexDirection: "column
 const toolRowHead: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", padding: "8px 10px", color: t.text, cursor: "pointer" };
 const runPre: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 6, padding: 8, margin: 0, fontFamily: "var(--font-mono, monospace)", fontSize: 11, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", overflowX: "auto" };
 
-/** Card = a compact forge-panel. Overrides only what the column needs (tighter
- *  padding, stack layout); selection lights the accent border; a RUNNING card is
- *  the one warm thing on the board — ember rail + faint ember wash, mirroring
- *  forge-row.is-running. */
-function card(active: boolean, running: boolean): React.CSSProperties {
-  return {
-    display: "flex",
-    flexDirection: "column",
-    width: "100%",
-    textAlign: "left",
-    borderRadius: 8,
-    padding: "11px 12px",
-    marginBottom: 9,
-    color: t.text,
-    cursor: "pointer",
-    ...(active ? { borderColor: t.borderActive } : null),
-    ...(running
-      ? {
-          borderLeft: "2px solid var(--ember)",
-          background: "color-mix(in srgb, var(--ember) 5%, var(--panel))",
-        }
-      : null),
-  };
-}

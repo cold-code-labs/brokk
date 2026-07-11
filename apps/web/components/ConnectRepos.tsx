@@ -10,6 +10,7 @@ import {
   Button,
 } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
+import { useToast } from "./Toaster";
 import { useProject } from "../lib/project-context";
 
 /** gh-backed importer: list the org's repos, pick the ones to forge in, connect
@@ -20,6 +21,7 @@ export default function ConnectRepos() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState("");
   const [loading, setLoading] = useState(true);
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<number | null>(null);
@@ -60,6 +62,7 @@ export default function ConnectRepos() {
         .map((c) => ({ fullName: c.fullName, defaultBranch: c.defaultBranch }));
       const out = await brokk.importRepositories({ repos, createProject: true });
       setDone(out.length);
+      toast(`${out.length} repo${out.length === 1 ? "" : "s"} connected — doors on the wall.`, { tone: "ok" });
       setPicked(new Set());
       // Surface the new project in the global switcher immediately (no hard
       // reload) and select the one we just connected, so the operator lands

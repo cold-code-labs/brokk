@@ -18,6 +18,7 @@ import {
   Textarea,
 } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
+import { useToast } from "./Toaster";
 
 const MODES: { mode: MimirMode; label: string; hint: string }[] = [
   { mode: "polish", label: "Light", hint: "Clarity and grammar only" },
@@ -54,6 +55,7 @@ function refinoToMode(refino: RefinoLevel): MimirMode {
 }
 
 export default function Mimir() {
+  const toast = useToast();
   const [mounted, setMounted] = useState(false);
   const [input, setInput] = useState("");
   const [triage, setTriage] = useState<MimirTriageResult | null>(null);
@@ -125,8 +127,9 @@ export default function Mimir() {
       setTitle("");
       setTags("");
       await refreshBank(query);
+      toast("Kept in the well.", { tone: "ok" });
     } catch (e) {
-      setErr(String(e));
+      toast("Could not save the prompt.", { meta: String(e), tone: "err" });
     }
   }
 

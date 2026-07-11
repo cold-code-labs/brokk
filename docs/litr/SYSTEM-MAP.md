@@ -84,7 +84,7 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Crumb (mono breadcrumb) | ✓ | forge.css `.forge-crumb` |
 | Identity plate (initials) | ✓ | globals `.brokk-user-plate` |
 | Skeleton (metal heating shimmer) | ✓ | forge.css `.forge-skeleton` |
-| Tooltip | ✗ | title= attrs only; forge word pending |
+| Tooltip | ✓ | `[data-tip]` etched mono plate (CSS-only); rich/positioned tips promote to component later |
 
 ### L4 Components
 | Word | Status | Where |
@@ -99,7 +99,7 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Ember pulse | ✓ | `.forge-pulse` |
 | Cold hearth (empty state) | ✓ | `.forge-empty` |
 | Banner (info/ok/err) | ✓ | globals `.ygg-banner` restyle |
-| Toast — quiet confirmation stack | ◐ | forge.css `.forge-toast*` + Toaster.tsx; piloted in Discovery, adoption pending elsewhere |
+| Toast — quiet confirmation stack | ✓ | `.forge-toast*` + Toaster.tsx; adopted: Discovery, Board (queue/done), Connect, Crew, Mímir (save) |
 | Dialog / modal plate | ◐ | forge.css `.forge-dialog*`; no adopter yet (Board uses inline drawer by design) |
 | Panel card | ✓ | `.forge-panel` |
 | Identity pod | ✓ | globals `.brokk-user` |
@@ -108,22 +108,22 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Word | Status | Where |
 |---|---|---|
 | Sidebar chrome (rail, groups, active, switcher) | ✓ | globals + shell.css |
-| Kanban board (anvil, columns, snap-scroll) | ◐ | `.anvil-*`; card internals still inline-styled in Board.tsx — debt |
+| Kanban board (anvil, columns, snap-scroll) | ✓ | `.anvil-*` incl. `.anvil-card*` (selected/running states, act buttons, PR link); drawer stays inline by design |
 | Chat cockpit (bubbles, composer, chips) | ✓ | globals `.sindri-*` (bespoke layer, in-language) |
 | Data table | ✓ | `.forge-ledger table` (History) |
 | Form section | ◐ | forge-field exists; no multi-field surface yet |
-| Notification stack | ◐ | `.forge-toasts` (top-right, stacking) — adoption with toast |
+| Notification stack | ✓ | `.forge-toasts` (top-right, stacking) |
 | Route loading state | ✓ | `app/(app)/loading.tsx` skeleton (nav never feels dead) |
 
 ### L6 Pages (each = one mission, gate-walked 2026-07-11)
-Fleet ✓ · Dashboard ✓ · Board ◐ (card internals) · Discovery ✓ · Sindri ✓
+Fleet ✓ · Dashboard ✓ · Board ✓ (cards in vocabulary; populated-board gate pending live cards) · Discovery ✓ · Sindri ✓
 (blank; live-session surfaces walked only via shared CSS — debt) · Mímir ✓ ·
 Connect ✓ · History ✓ · Crew ✓ · Settings ✓ · Landing ✓ (own art, kept).
 
 ### Known debt (next rounds)
-1. Board card internals → vocabulary words (`.anvil-card*`), kill inline styles.
-2. Toast adoption beyond Discovery (Board queue, Connect, Crew flows).
-3. Tooltip word (positioning + delay; today title= only).
+1. Board drawer/modal style constants → vocabulary (token-driven today, inline in form; heavy SSE logic — convert with care).
+2. Sindri live-session surfaces (thread, Studio, FileViewer) gate-walked with a real open session.
+3. Populated-board gate shot once real cards exist on any project.
 4. Sindri live-session gate walk with a real open session (Studio, FileViewer).
 5. Fleet-wide: extract the product-agnostic halves of this map into
    `@cold-code-labs/yggdrasil-litr` METHOD.md when Heimdall builds its soul.
