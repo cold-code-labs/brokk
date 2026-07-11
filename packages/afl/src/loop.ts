@@ -42,7 +42,7 @@ export interface AgentLoopHooks {
    *  the transcript, BEFORE its tools run. */
   onAssistant?: (
     blocks: ContentBlock[],
-    meta: { stopReason: string; usage: TurnUsage },
+    meta: { stopReason: string; usage: TurnUsage; model: string },
   ) => void | Promise<void>;
   /** About to execute one tool call. */
   onToolUse?: (tu: ToolUseBlock) => void | Promise<void>;
@@ -135,7 +135,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopRes
     lastRoundInput = result.usage.inputTokens;
 
     messages.push({ role: "assistant", content: result.blocks });
-    await hooks?.onAssistant?.(result.blocks, { stopReason: result.stopReason, usage: result.usage });
+    await hooks?.onAssistant?.(result.blocks, { stopReason: result.stopReason, usage: result.usage, model });
 
     const toolUses = result.blocks.filter((b): b is ToolUseBlock => b.type === "tool_use");
     if (result.stopReason !== "tool_use" || toolUses.length === 0) {

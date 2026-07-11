@@ -190,7 +190,13 @@ export class ForgeEngine implements AgentEngine {
         ctx.emit({ type: "message", payload: { role: "assistant", content: blocks } });
         ctx.emit({
           type: "usage",
-          payload: { input_tokens: meta.usage.inputTokens, output_tokens: meta.usage.outputTokens },
+          payload: {
+            model: meta.model,
+            input_tokens: meta.usage.inputTokens,
+            output_tokens: meta.usage.outputTokens,
+            cache_read_input_tokens: meta.usage.cacheReadTokens,
+            cache_creation_input_tokens: meta.usage.cacheCreationTokens,
+          },
         });
         usage.tokensIn += meta.usage.inputTokens;
         usage.tokensOut += meta.usage.outputTokens;
