@@ -1529,7 +1529,7 @@ const menuItem = (disabled: boolean): React.CSSProperties => ({ display: "flex",
 // .anvil-board class in forge.css (containment + visible scrollbar affordance).
 // Columns run the full remaining viewport height so the board reads as a
 // workspace, not a strip of boxes floating over dead space.
-const column: React.CSSProperties = { flex: "0 0 272px", scrollSnapAlign: "start", background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", minHeight: 0 };
+const column: React.CSSProperties = { flex: "0 0 272px", scrollSnapAlign: "start", background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column" };
 const cardList: React.CSSProperties = { flex: "1 1 auto", minHeight: "8rem", maxHeight: "calc(100dvh - 21rem)", overflowY: "auto", overflowX: "hidden", paddingRight: 2 };
 // Title clamped to 3 lines — long ajuste titles no longer eat the whole column.
 const cardTitle: React.CSSProperties = { fontSize: 13.5, lineHeight: 1.35, minWidth: 0, wordBreak: "break-word", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" };
