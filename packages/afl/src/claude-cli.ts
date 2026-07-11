@@ -101,9 +101,15 @@ export function claudeCliAvailable(): boolean {
 function cliEnv(input: CliTurnInput): Record<string, string> {
   const src = process.env;
   const out: Record<string, string> = {};
-  for (const k of ["HOME", "PATH", "TMPDIR", "LANG", "TZ"]) {
+  for (const k of ["PATH", "TMPDIR", "LANG", "TZ"]) {
     if (src[k]) out[k] = src[k]!;
   }
+  // HOME must be real and writable: the worker entrypoint's su-exec can leave
+  // PID1 with HOME=/ — the CLI then SILENTLY skips session persistence (the
+  // turn works, --resume breaks). Prefer the explicit knob, else a sane HOME,
+  // else the fleet worker home.
+  out.HOME =
+    src.BROKK_CLI_HOME || (src.HOME && src.HOME !== "/" ? src.HOME : "/home/brokk");
   out.CLAUDE_CODE_OAUTH_TOKEN = src.CLAUDE_CODE_OAUTH_TOKEN ?? "";
   // Git identity so the model's local commits attribute like the fleet's.
   out.GIT_AUTHOR_NAME = src.BROKK_GIT_NAME || "Brokk";

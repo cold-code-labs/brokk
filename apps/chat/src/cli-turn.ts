@@ -18,6 +18,7 @@ import type { Store } from "@brokk/db";
 import {
   type AflConfig,
   type AgentEvent,
+  type CliTurnInput,
   type ContentBlock,
   resolveModel,
   runClaudeCliTurn,
@@ -75,11 +76,11 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
 
   inFlight++;
   try {
-    const outcome = await runClaudeCliTurn({
+    const turnOpts = (resume: string | undefined): CliTurnInput => ({
       cwd: input.cwd,
       prompt: input.userText,
       model,
-      resume: session.cliSessionId ?? undefined,
+      resume,
       appendSystem,
       gh: true,
       timeoutMs: Math.max(0, Number(process.env.BROKK_CLI_TURN_TIMEOUT_MS ?? 3_600_000) || 0),
@@ -100,6 +101,19 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
         },
       },
     });
+
+    let outcome = await runClaudeCliTurn(turnOpts(session.cliSessionId ?? undefined));
+    // Stored CLI session lost (e.g. transcript never persisted, volume reset):
+    // fall back to a FRESH CLI session once instead of bricking the chat. The
+    // conversation context is gone, but the turn proceeds and re-anchors.
+    if (
+      !outcome.ok &&
+      session.cliSessionId &&
+      /no conversation found/i.test(outcome.resultText)
+    ) {
+      emit({ type: "status", phase: "cli_resume_lost", detail: { lost: session.cliSessionId } });
+      outcome = await runClaudeCliTurn(turnOpts(undefined));
+    }
 
     // Store the CLI session id the first time (and if the CLI ever rotates it).
     if (outcome.cliSessionId && outcome.cliSessionId !== session.cliSessionId) {
