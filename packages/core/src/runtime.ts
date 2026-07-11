@@ -27,6 +27,12 @@ export interface RuntimeSpec {
   start?: string;
   /** HTTP path polled to decide "live". Default "/". */
   health?: string;
+  /** HTTP path whose response reveals whether the CLIENT bundle compiles (as
+   *  opposed to `health`, which only says the server binds). For Metro/Expo the
+   *  server answers `/status` fine while the JS bundle fails to resolve — so the
+   *  preview supervisor probes THIS to detect+self-heal a broken bundle. Absent =
+   *  no bundle-level self-heal (the framework fails at boot or shows it in-page). */
+  bundleProbe?: string;
   /** Extra env injected into the process. */
   env?: Record<string, string>;
   /** Whether Sleipnir can actually boot this stack today (v1: only nextjs). */

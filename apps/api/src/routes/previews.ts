@@ -128,6 +128,58 @@ export function previewsRoutes(deps: AppDeps): Hono {
     }
   });
 
+  /** POST /previews/:id/heal — the supervisor detected a bundle that won't
+   *  compile even after a clean-cache restart (a real code error). Hand the Metro
+   *  error to the app's newest ACTIVE, IDLE Sindri session so the agent fixes it
+   *  and republishes. Best-effort + heavily guarded: no session / a running turn /
+   *  no Sindri URL → a clean no-op ({healed:false}). The supervisor already
+   *  dedupes per broken commit, so this fires at most once per breakage. */
+  r.post("/:id/heal", async (c) => {
+    const HealBody = z.object({ error: z.string().min(1).max(4000) });
+    const parsed = HealBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+    const preview = await deps.store.getPreview(c.req.param("id"));
+    if (!preview) return c.json({ error: "not found" }, 404);
+
+    const base = (deps.sindriUrl ?? "").replace(/\/$/, "");
+    if (!base) return c.json({ healed: false, reason: "no sindri url" });
+
+    // Newest active session for the app that isn't mid-turn. We fix on a REAL
+    // chat so the human sees the diagnosis + fix land in their thread.
+    const sessions = await deps.store.listChatSessions({
+      projectId: preview.projectId,
+      status: "active",
+    });
+    const target = sessions
+      .filter((s) => s.turnState !== "running")
+      .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))[0];
+    if (!target) return c.json({ healed: false, reason: "no idle active session" });
+
+    const text = [
+      `⚠️ O preview \`${preview.subdomain}\` parou de compilar depois do último push — o app está numa tela de erro.`,
+      "",
+      "Erro do Metro:",
+      "```",
+      parsed.data.error,
+      "```",
+      "",
+      "Descubra o que quebrou, corrija no código e publique como você normalmente faz para atualizar o preview.",
+    ].join("\n");
+
+    // Fire-and-forget: starting the turn is enough; we don't hold the SSE.
+    void fetch(`${base}/sessions/${target.id}/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(deps.runnerSecret ? { authorization: `Bearer ${deps.runnerSecret}` } : {}),
+      },
+      body: JSON.stringify({ text }),
+    }).catch(() => {});
+
+    return c.json({ healed: true, sessionId: target.id });
+  });
+
   /** DELETE /previews/:id — stop a preview (mark stopped, clear pid). */
   r.delete("/:id", async (c) => {
     try {

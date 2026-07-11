@@ -32,6 +32,12 @@ interface LivePreview {
   /** When the process was spawned — lets the tick tell a fresh boot settling
    *  into 'live' apart from a stale process whose row was respun to 'starting'. */
   startedAt: number;
+  /** Self-heal (bundle probe). Set at boot from the resolved RuntimeSpec. */
+  bundleProbe?: string;
+  /** Worktree path — the Metro/transform caches to clear live during a heal. */
+  wtPath: string;
+  hauldrProject: string;
+  branch: string;
 }
 
 /**
@@ -81,6 +87,17 @@ export class PreviewSupervisor {
   private readonly usedPorts = new Set<number>();
   /** Last drift-refresh (fetch da tip) per preview id — throttles the tick. */
   private readonly lastDriftRefresh = new Map<string, number>();
+  /** Last bundle-probe per preview id — throttles the self-heal check. */
+  private readonly lastBundleProbe = new Map<string, number>();
+  /** Consecutive broken bundle probes per preview id — a heal only fires after
+   *  ≥2 so a mid-rebuild blip (which self-heals in seconds) never triggers it. */
+  private readonly brokenStreak = new Map<string, number>();
+  /** Heal bookkeeping keyed by `${previewId}:${sha}` — a clean-cache restart and
+   *  a code heal each fire at most ONCE per broken commit, never in a loop. */
+  private readonly restartedShas = new Set<string>();
+  private readonly codeHealedShas = new Set<string>();
+  /** Master switch for bundle self-heal (BROKK_PREVIEW_AUTOHEAL=0 disables). */
+  private readonly autoheal = process.env.BROKK_PREVIEW_AUTOHEAL !== "0";
 
   constructor(
     private readonly cfg: RunnerConfig,
@@ -324,6 +341,21 @@ export class PreviewSupervisor {
               }).catch(() => {});
             });
           }
+
+          // Bundle self-heal: for stacks that declare a bundleProbe (Expo/Metro),
+          // periodically check the JS bundle actually compiles — the server can
+          // answer /status while the bundle fails to resolve (the "./index" /
+          // UnableToResolveError class that leaves the phone on a red screen).
+          // Throttled + streak-gated so a mid-rebuild blip never triggers a heal.
+          if (lp.bundleProbe && this.autoheal) {
+            const lastProbe = this.lastBundleProbe.get(p.id) ?? 0;
+            if (Date.now() - lastProbe >= 20_000) {
+              this.lastBundleProbe.set(p.id, Date.now());
+              void this.verifyAndHealBundle(p, lp).catch((err) =>
+                console.warn(`[preview-supervisor] bundle heal ${p.subdomain} errored:`, err),
+              );
+            }
+          }
           break;
         }
 
@@ -524,7 +556,15 @@ export class PreviewSupervisor {
 
     // Register locally BEFORE the first await so concurrent ticks don't
     // double-boot (the `this.live` check in tick() gates further starts).
-    this.live.set(preview.id, { proc, port, startedAt: Date.now() });
+    this.live.set(preview.id, {
+      proc,
+      port,
+      startedAt: Date.now(),
+      bundleProbe: spec.bundleProbe,
+      wtPath,
+      hauldrProject: preview.hauldrProject,
+      branch: preview.branch,
+    });
 
     // Don't flip to 'live' the instant the process spawns — that's why the iframe
     // used to render a broken page while `pnpm install` + the first compile were
@@ -590,6 +630,108 @@ export class PreviewSupervisor {
         }
       }
     });
+  }
+
+  // ── Bundle self-heal ──────────────────────────────────────────────────────────
+
+  /** Probe the JS bundle; on a genuine (streak-confirmed) compile failure, heal:
+   *  N1 = restart the dev server with its caches cleared (fixes the stale-graph /
+   *  reset-race class); N2 = if it STILL breaks on the same commit, hand the Metro
+   *  error to the app's newest active Sindri session to fix the code. Bounded: each
+   *  step fires at most once per (preview, commit). */
+  private async verifyAndHealBundle(p: Preview, lp: LivePreview): Promise<void> {
+    const err = await this.probeBundle(lp.port, lp.bundleProbe!);
+    const streakKey = p.id;
+    if (!err) {
+      this.brokenStreak.delete(streakKey);
+      return;
+    }
+    // Require two consecutive broken probes (~40s) so a mid-rebuild blip — which
+    // Metro recovers from on its own — never escalates to a restart.
+    const streak = (this.brokenStreak.get(streakKey) ?? 0) + 1;
+    this.brokenStreak.set(streakKey, streak);
+    if (streak < 2) {
+      console.log(`[preview-supervisor] ${p.subdomain}: bundle broken (probe ${streak}/2), watching`);
+      return;
+    }
+
+    const sha = p.commitSha ?? "unknown";
+    const restartKey = `${p.id}:${sha}`;
+
+    // N1 — clean-cache restart. Clear Metro's transform caches in the worktree,
+    // kill the process, and drop the row back to 'starting' so the next tick boots
+    // it fresh (equivalent to `expo start -c`). Once per broken commit.
+    if (!this.restartedShas.has(restartKey)) {
+      this.restartedShas.add(restartKey);
+      console.log(
+        `[preview-supervisor] ${p.subdomain}: bundle broken on ${sha.slice(0, 8)} — clean-cache restart (N1)\n  ${err.slice(0, 200)}`,
+      );
+      await this.clearMetroCache(lp.wtPath);
+      this.killAndClean(p.id, lp);
+      this.brokenStreak.delete(streakKey);
+      await this.controlPatch(`/previews/${p.id}`, {
+        status: "starting",
+        detail: "Metro travou o bundle — reiniciando com cache limpo…",
+      }).catch(() => {});
+      return;
+    }
+
+    // N2 — the clean restart didn't fix it: this is a real code error. Hand it to
+    // the app's Sindri agent to fix + publish. Once per broken commit; the API
+    // finds the newest active session and refuses if none/one is already running.
+    if (!this.codeHealedShas.has(restartKey)) {
+      this.codeHealedShas.add(restartKey);
+      console.log(
+        `[preview-supervisor] ${p.subdomain}: still broken after restart — asking Sindri to fix (N2)`,
+      );
+      await this.controlPatch(`/previews/${p.id}`, {
+        status: "failed",
+        detail: `Bundle não compila:\n${err.slice(0, 260)}`,
+      }).catch(() => {});
+      await this.controlPost(`/previews/${p.id}/heal`, { error: err.slice(0, 1500) }).catch((e) =>
+        console.warn(`[preview-supervisor] ${p.subdomain}: heal handoff failed:`, e),
+      );
+    }
+  }
+
+  /** Fetch the bundle probe; return null if it compiles, else the Metro error
+   *  text. Metro answers a broken bundle with a JSON body carrying a `type` ending
+   *  in "Error" (and a non-2xx status); a healthy bundle is 200 JS. */
+  private async probeBundle(port: number, probePath: string): Promise<string | null> {
+    const url = `http://127.0.0.1:${port}${probePath}`;
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 15_000);
+      const res = await fetch(url, { signal: ac.signal });
+      const ct = res.headers.get("content-type") ?? "";
+      if (res.ok && !ct.includes("application/json")) return null; // 200 JS = healthy
+      const body = await res.text();
+      try {
+        const j = JSON.parse(body) as { type?: string; message?: string };
+        if (typeof j.type === "string" && /Error$/.test(j.type)) {
+          return `${j.type}: ${j.message ?? ""}`.trim();
+        }
+      } catch {
+        /* not JSON */
+      }
+      // Non-2xx without a recognizable Metro error object — treat as broken but
+      // report the status so the streak logic can still recover on a blip.
+      return res.ok ? null : `bundle probe HTTP ${res.status}`;
+    } catch (e) {
+      // A timeout/refused mid-restart is not a compile error — don't escalate.
+      return e instanceof Error && e.name === "AbortError" ? null : null;
+    }
+  }
+
+  /** Remove Metro/Expo transform caches under the worktree so the next boot
+   *  compiles from clean state (the `-c` equivalent). Best-effort. */
+  private async clearMetroCache(wtPath: string): Promise<void> {
+    const targets = ["node_modules/.cache", ".expo", ".metro-cache"];
+    await Promise.all(
+      targets.map((rel) =>
+        promisify(execFile)("rm", ["-rf", join(wtPath, rel)]).catch(() => {}),
+      ),
+    );
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -683,6 +825,23 @@ export class PreviewSupervisor {
     if (!res.ok) {
       throw new Error(
         `[preview-supervisor] PATCH ${path} → ${res.status} ${await res.text().catch(() => "")}`.trim(),
+      );
+    }
+    return (await res.json()) as T;
+  }
+
+  private async controlPost<T>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(`${this.cfg.controlUrl}${path}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.cfg.runnerSecret}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `[preview-supervisor] POST ${path} → ${res.status} ${await res.text().catch(() => "")}`.trim(),
       );
     }
     return (await res.json()) as T;

@@ -53,6 +53,8 @@ export interface Provider {
   /** Command templates with a `{exec}` placeholder; null for unsupported stacks. */
   commands?: { dev: string; build: string; start: string };
   health?: string;
+  /** HTTP path that reveals whether the JS bundle compiles (see RuntimeSpec). */
+  bundleProbe?: string;
   /** Extra env for the dev process. `$PUBLIC_URL` expands to the preview's public
    *  URL at boot (supervisor-side), so no framework knowledge leaks into the forge. */
   env?: Record<string, string>;
@@ -130,6 +132,11 @@ export const PROVIDERS: Provider[] = [
       start: "{exec} expo start --dev-client --port $PORT",
     },
     health: "/status",
+    // The dev client's real entry request — a broken import (the "./index" /
+    // UnableToResolveError class) makes Metro answer this with a JSON error while
+    // /status stays 200. The supervisor probes it to detect + self-heal.
+    bundleProbe:
+      "/node_modules/expo-router/entry.bundle?platform=ios&dev=true&transform.routerRoot=src%2Fapp",
     // ⚠️ NÃO setar CI=1: Metro em CI mode DESLIGA o file watcher ("reloads are
     // disabled") — mata o Fast Refresh do loop dev-lane. O spawn já é non-TTY,
     // então o expo não trava em prompt; EXPO_NO_TELEMETRY corta o resto.
