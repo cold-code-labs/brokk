@@ -50,6 +50,7 @@ export interface TurnUsage {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  cacheCreationTokens: number;
 }
 
 /** Live events Sindri emits during a turn — fed to the SSE stream and (for the

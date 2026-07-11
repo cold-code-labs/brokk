@@ -102,7 +102,7 @@ const noop: DeltaSink = () => {};
 export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopResult> {
   const { cfg, model, system, messages, tools, exec, maxTokens, thinkingBudget, maxRounds, signal, hooks } =
     opts;
-  const usage: TurnUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
+  const usage: TurnUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
   let lastStopReason = "end_turn";
   // Context size as last reported by the API (input_tokens of the newest round) —
   // the compaction trigger. Best-effort: a failed summarize never kills the turn.
@@ -130,6 +130,7 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopRes
     usage.inputTokens += result.usage.inputTokens;
     usage.outputTokens += result.usage.outputTokens;
     usage.cacheReadTokens += result.usage.cacheReadTokens;
+    usage.cacheCreationTokens += result.usage.cacheCreationTokens;
     lastStopReason = result.stopReason;
     lastRoundInput = result.usage.inputTokens;
 

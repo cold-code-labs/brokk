@@ -10,3 +10,6 @@ out/
 .DS_Store
 coverage/
 *.log
+
+# pnpm project-local store (never commit — the forge verify creates it)
+.pnpm-store/
