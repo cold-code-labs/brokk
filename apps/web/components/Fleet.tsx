@@ -3,6 +3,7 @@
 import type { Preview, Project, Repository, Subscription, Task } from "@brokk/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { brokk } from "../lib/api";
+import { useProject } from "../lib/project-context";
 import "../app/fleet.css";
 import FleetView from "./FleetView";
 
@@ -19,7 +20,10 @@ export default function Fleet() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  // composer
+  // composer — defaults to the active environment (the sidebar's Anvil pick),
+  // not just "whichever project loaded first", so queuing from Fleet targets
+  // the project you're already working in.
+  const { currentId } = useProject();
   const [pid, setPid] = useState("");
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,7 +42,10 @@ export default function Fleet() {
       setTasks(ts);
       setSeats(s);
       setPreviews(pv);
-      if (!pid && p[0]) setPid(p[0].id);
+      if (!pid && p[0]) {
+        const active = currentId && p.some((x) => x.id === currentId) ? currentId : p[0].id;
+        setPid(active);
+      }
     } catch (e) {
       setErr(String(e));
     }

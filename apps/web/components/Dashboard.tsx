@@ -1,11 +1,12 @@
 "use client";
 
-import type { Project, Task } from "@brokk/sdk";
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { Task } from "@brokk/sdk";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Flame } from "lucide-react";
 import { Main, Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
+import { useProject } from "../lib/project-context";
 import { STATUS_COLOR, STATUS_LABEL } from "../lib/theme";
 
 /* Tile order: live work first, then the record. Keys are API status values
@@ -23,12 +24,16 @@ const STATS = [
 const LIVE_TILES = new Set(["running", "review"]);
 
 export default function Dashboard() {
-  const [project, setProject] = useState<Project | null>(null);
+  // The dashboard IS a project-scoped page — it follows the same "current
+  // project" the sidebar's Anvil switcher drives, same as Board/Sindri.
+  // (Previously this fetched its own project list and took index 0, so the
+  // floor shown here could silently disagree with what the switcher said.)
+  const { current: project, currentId, loading: projectsLoading } = useProject();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const projectIdRef = useRef<string | undefined>(undefined);
 
   const refresh = useCallback(async (projectId?: string) => {
+    if (!projectId) return;
     try {
       setTasks(await brokk.listTasks(projectId));
       setErr(null);
@@ -38,25 +43,11 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const projects = await brokk.listProjects();
-        if (!alive) return;
-        const p = projects[0] ?? null;
-        setProject(p);
-        projectIdRef.current = p?.id;
-        await refresh(p?.id);
-      } catch (e) {
-        setErr(String(e));
-      }
-    })();
-    const interval = setInterval(() => refresh(projectIdRef.current), 5_000);
-    return () => {
-      alive = false;
-      clearInterval(interval);
-    };
-  }, [refresh]);
+    if (!currentId) return;
+    refresh(currentId);
+    const interval = setInterval(() => refresh(currentId), 5_000);
+    return () => clearInterval(interval);
+  }, [currentId, refresh]);
 
   function count(key: string): number {
     if (key === "all") return tasks.length;
@@ -77,7 +68,11 @@ export default function Dashboard() {
             <span className="forge-eyebrow">Brokk · the forge floor</span>
             <h1 className="forge-title">{project ? project.name : "The floor"}</h1>
             <p className="forge-sub">
-              {project ? `${activeCount} active · ${tasks.length} on the books` : "Loading…"}
+              {project
+                ? `${activeCount} active · ${tasks.length} on the books`
+                : projectsLoading
+                  ? "Loading…"
+                  : "Connect a repo to light the floor."}
             </p>
           </div>
           <span className={`forge-pulse${running > 0 ? "" : " is-quiet"}`}>

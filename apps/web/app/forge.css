@@ -49,7 +49,10 @@
   --line-soft: #131926;
   --fg: #f1f4f9;
   --fg-soft: #a3aec2;
-  --fg-dim: #5f6b83;
+  /* WCAG AA needs 4.5:1 for body-sized text; the prior #5f6b83 measured ~3.7:1
+     against --bg (#07090f) — timestamps, column meta and empty-state copy all
+     ride this token, so it undershot AA across most of the app. */
+  --fg-dim: #7a869e;
   background: var(--bg);
 }
 
@@ -828,7 +831,25 @@
   padding: 12px;
   display: flex;
   flex-direction: column;
+  transition: flex-basis 0.15s ease;
 }
+/* Empty lanes narrow to a rail instead of holding a full 272px of nothing —
+   on a normal viewport that's the difference between seeing Review/Done/Failed
+   at a glance and having to scroll to find where the work actually is. */
+.anvil-col.is-empty {
+  flex-basis: 132px;
+  padding: 12px 10px;
+}
+.anvil-col.is-empty .forge-h-title {
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.anvil-col.is-empty .forge-h-rule { display: none; }
+.anvil-col.is-empty .anvil-cards { min-height: 0; }
+.anvil-col.is-empty .anvil-col-empty { min-height: 3rem; font-size: 0.72rem; }
 .anvil-cards {
   flex: 1 1 auto;
   min-height: 8rem;

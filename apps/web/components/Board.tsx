@@ -342,7 +342,7 @@ export default function Board({ projectId }: { projectId?: string }) {
           {COLUMNS.map((key) => {
             const items = visible.filter((x) => x.status === key);
             return (
-              <section key={key} className="anvil-col">
+              <section key={key} className={`anvil-col${items.length === 0 ? " is-empty" : ""}`}>
                 <div className="forge-h" style={{ margin: "0 0 0.7rem" }}>
                   <span className="forge-h-title">{STATUS_LABEL[key]}</span>
                   <span className="forge-h-meta">{items.length}</span>
