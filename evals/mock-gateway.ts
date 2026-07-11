@@ -15,6 +15,8 @@ export interface MockRound {
   stopReason: string; // "end_turn" | "tool_use" | ...
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
   /** Optional inspection hook — receives the parsed request body for this round. */
   onRequest?: (body: any) => void;
 }
@@ -68,7 +70,13 @@ function frame(event: string, data: unknown): string {
 /** Serialize one MockRound into the SSE stream shape the afl parser expects. */
 function sse(round: MockRound): string {
   let out = frame("message_start", {
-    message: { usage: { input_tokens: round.inputTokens ?? 100, cache_read_input_tokens: 0 } },
+    message: {
+      usage: {
+        input_tokens: round.inputTokens ?? 100,
+        cache_read_input_tokens: round.cacheReadTokens ?? 0,
+        cache_creation_input_tokens: round.cacheCreationTokens ?? 0,
+      },
+    },
   });
 
   round.blocks.forEach((b, index) => {

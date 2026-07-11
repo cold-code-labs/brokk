@@ -78,7 +78,13 @@ export async function streamAssistant(
       model: req.model,
       max_tokens: maxTokens,
       stream: true,
-      system: req.system,
+      system: [
+        {
+          type: "text",
+          text: req.system,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       messages: req.messages,
     };
     if (req.tools.length) body.tools = req.tools;
@@ -130,7 +136,7 @@ export async function streamAssistant(
   }
   if (!res || !res.body) throw new GatewayError("gateway: no response after retries", 502);
 
-  const usage: TurnUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
+  const usage: TurnUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
   let stopReason = "end_turn";
   const building = new Map<number, Building>();
   const finished: { index: number; block: ContentBlock }[] = [];
@@ -148,6 +154,7 @@ export async function streamAssistant(
         const u = j.message?.usage ?? {};
         usage.inputTokens += Number(u.input_tokens ?? 0);
         usage.cacheReadTokens += Number(u.cache_read_input_tokens ?? 0);
+        usage.cacheCreationTokens += Number(u.cache_creation_input_tokens ?? 0);
         break;
       }
       case "content_block_start": {

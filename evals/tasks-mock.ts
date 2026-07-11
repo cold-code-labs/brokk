@@ -409,4 +409,93 @@ export const mockTasks: EvalTask[] = [
       }
     },
   },
+
+  {
+    id: "cache-control-and-tokens",
+    lane: "mock",
+    async run() {
+      await withMock(async (gw, cfg) => {
+        gw.load([
+          {
+            blocks: [{ type: "text", text: "first response" }],
+            stopReason: "end_turn",
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheCreationTokens: 1024, // first round: cache is created
+            cacheReadTokens: 0,
+          },
+          {
+            blocks: [{ type: "text", text: "second response" }],
+            stopReason: "end_turn",
+            inputTokens: 50,
+            outputTokens: 50,
+            cacheCreationTokens: 0, // second round: no new cache creation
+            cacheReadTokens: 1024, // cache read tokens from the previously cached system
+          },
+        ]);
+
+        const messages = seed("hello");
+        let roundCount = 0;
+        const result = await runAgentLoop({
+          cfg,
+          model: "mock-haiku",
+          system: "stable system prompt for testing cache",
+          messages,
+          tools: [],
+          exec: async () => ({ ok: false, content: "" }),
+          maxTokens: 512,
+          maxRounds: 2,
+          hooks: {
+            onAssistant: () => void roundCount++,
+          },
+        });
+
+        // Verify the loop ran 2 rounds
+        expect(result.rounds === 2, `rounds=${result.rounds}, want 2`);
+        expect(roundCount === 2, `onAssistant hook fired ${roundCount}× instead of 2`);
+
+        // Verify that both requests were sent
+        expect(gw.requests.length === 2, `requests count=${gw.requests.length}, want 2`);
+
+        // Verify the first request has system as a block array with cache_control
+        const firstReq = gw.requests[0]!;
+        expect(Array.isArray(firstReq.system), `1st request system should be array, got ${typeof firstReq.system}`);
+        expect(
+          firstReq.system.length === 1 &&
+          firstReq.system[0]?.type === "text" &&
+          firstReq.system[0]?.cache_control?.type === "ephemeral",
+          `1st request system[0] missing cache_control: ${JSON.stringify(firstReq.system[0])}`,
+        );
+
+        // Verify the second request also sends system with cache_control
+        const secondReq = gw.requests[1]!;
+        expect(Array.isArray(secondReq.system), `2nd request system should be array, got ${typeof secondReq.system}`);
+        expect(
+          secondReq.system.length === 1 &&
+          secondReq.system[0]?.type === "text" &&
+          secondReq.system[0]?.cache_control?.type === "ephemeral",
+          `2nd request system[0] missing cache_control: ${JSON.stringify(secondReq.system[0])}`,
+        );
+
+        // Verify usage accumulation: first round should report cache creation, second should report cache reads
+        expect(
+          result.usage.cacheCreationTokens === 1024,
+          `cacheCreationTokens=${result.usage.cacheCreationTokens}, want 1024`,
+        );
+        expect(
+          result.usage.cacheReadTokens === 1024,
+          `cacheReadTokens=${result.usage.cacheReadTokens}, want 1024`,
+        );
+
+        // Verify that the text content was streamed correctly
+        expect(messages.length === 2, `transcript len=${messages.length}, want 2 (user, assistant)`);
+        const assistantContent = messages[1]?.content;
+        const textBlock = assistantContent?.find((b) => b.type === "text");
+        expect(
+          textBlock?.type === "text" && (textBlock as any).text.includes("second response"),
+          "assistant message should contain text from both rounds",
+        );
+      });
+    },
+  },
 ];
