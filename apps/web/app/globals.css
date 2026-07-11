@@ -2417,3 +2417,27 @@ html.dark .fv-hl .shiki span {
   width: 0.95rem;
   height: 0.95rem;
 }
+
+/* Banners speak the forge voice: hairline plate, tone rail on the left,
+   body text — never a colored slab. 36 call sites pick this up untouched. */
+.ygg-shell .ygg-banner {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  color: var(--fg-soft);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding: 0.7rem 0.95rem 0.7rem 1.15rem;
+  overflow: hidden;
+}
+.ygg-shell .ygg-banner::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--accent);
+}
+.ygg-shell .ygg-banner[data-tone="ok"]::before { background: var(--ok); }
+.ygg-shell .ygg-banner[data-tone="err"]::before { background: var(--err, #e5484d); }
+.ygg-shell .ygg-banner[data-tone="warn"]::before { background: var(--gold, #d98a1f); }

@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { ThemeProvider } from "next-themes";
 import { ProjectProvider } from "../lib/project-context";
+import { Toaster } from "../components/Toaster";
 
 /**
  * Brokk is dark-native, so it defaults to dark — but the Yggdrasil tokens are
@@ -18,7 +19,9 @@ export function Providers({ children }: { children: ReactNode }) {
       enableSystem={false}
       disableTransitionOnChange
     >
-      <ProjectProvider>{children}</ProjectProvider>
+      <ProjectProvider>
+        <Toaster>{children}</Toaster>
+      </ProjectProvider>
     </ThemeProvider>
   );
 }

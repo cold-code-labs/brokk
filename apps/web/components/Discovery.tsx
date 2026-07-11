@@ -9,12 +9,14 @@ import { Main, Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
 import { discovery, type ProjectBrief } from "../lib/chat";
 import { useProject } from "../lib/project-context";
+import { useToast } from "./Toaster";
 
 /** Huginn's project-discovery page — its own surface (not crammed into the Quadro).
  *  Shows what the project IS, what's BUILT, what's MISSING, and turns the "missing"
  *  items into proposed backlog cards. Polls while a scout is in flight. */
 export default function Discovery({ projectId }: { projectId?: string }) {
   const { setCurrentId } = useProject();
+  const toast = useToast();
   const [project, setProject] = useState<Project | null>(null);
   const [brief, setBrief] = useState<ProjectBrief | null>(null);
   const [running, setRunning] = useState(false);
@@ -109,11 +111,13 @@ export default function Discovery({ projectId }: { projectId?: string }) {
     try {
       const { enqueued } = await brokk.approveProposed(projectId);
       await loadCount();
-      setGenMsg(
-        enqueued ? `${enqueued} card${enqueued === 1 ? "" : "s"} queued — to the forge.` : "Nothing proposed.",
-      );
+      if (enqueued) {
+        toast(`${enqueued} card${enqueued === 1 ? "" : "s"} queued — to the forge.`, { tone: "ok" });
+      } else {
+        setGenMsg("Nothing proposed.");
+      }
     } catch (e) {
-      setGenMsg(`Could not queue — ${String(e)}`);
+      toast("Could not queue.", { meta: String(e), tone: "err" });
     } finally {
       setAppBusy(false);
     }
@@ -128,15 +132,16 @@ export default function Discovery({ projectId }: { projectId?: string }) {
     try {
       const { created, skipped } = await brokk.backlogFromBrief(projectId);
       await loadCount();
-      setGenMsg(
-        created.length
-          ? `${created.length} card${created.length > 1 ? "s" : ""} in the backlog${skipped ? ` · ${skipped} already existed` : ""}. Approve here or on the board.`
-          : skipped
-            ? `All ${skipped} items already have cards.`
-            : "Nothing to create.",
-      );
+      if (created.length) {
+        toast(`${created.length} card${created.length > 1 ? "s" : ""} in the backlog. Approve here or on the board.`, {
+          meta: skipped ? `${skipped} already existed` : undefined,
+          tone: "ok",
+        });
+      } else {
+        setGenMsg(skipped ? `All ${skipped} items already have cards.` : "Nothing to create.");
+      }
     } catch (e) {
-      setGenMsg(`Could not create cards — ${String(e)}`);
+      toast("Could not create cards.", { meta: String(e), tone: "err" });
     } finally {
       setGenBusy(false);
     }
