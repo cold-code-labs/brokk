@@ -14,11 +14,18 @@ export { type CompactionResult, type CompactOptions, compactTranscript } from ".
 export { type AflConfig, loadAflConfig, resolveModel } from "./config.js";
 export {
   type AssistantResult,
+  type BlockInterceptor,
   type DeltaSink,
   GatewayError,
   type MessagesRequest,
   streamAssistant,
 } from "./gateway.js";
+export {
+  type ToolUseRule,
+  defaultCorrectors,
+  makeToolUseInterceptor,
+  stripCodeFenceRule,
+} from "./correctors.js";
 export {
   type AgentLoopHooks,
   type AgentLoopOptions,

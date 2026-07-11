@@ -33,7 +33,19 @@ export interface AssistantResult {
   blocks: ContentBlock[];
   stopReason: string;
   usage: TurnUsage;
+  /** Notes from the stream interceptor (#4 POC), when one is supplied — one entry
+   *  per block it corrected. Empty/absent when no interceptor ran. */
+  corrections?: string[];
 }
+
+/** Stream interceptor (#4, the v0 "LLM Suspense" lesson): inspect each assistant
+ *  content block the instant it finalizes mid-turn — BEFORE the loop appends it —
+ *  and optionally rewrite it, cheaply and deterministically (a hallucinated import
+ *  path, a nonexistent icon), instead of paying a whole model heal to catch the
+ *  obvious. Return null to leave the block untouched. This is the seam v0 puts a
+ *  ~250ms deterministic autofixer on; here it stays opt-in (undefined = the live
+ *  path is byte-identical to before). */
+export type BlockInterceptor = (block: ContentBlock) => { block: ContentBlock; note: string } | null;
 
 export type DeltaSink = (
   d:
@@ -62,6 +74,7 @@ export async function streamAssistant(
   req: MessagesRequest,
   onDelta: DeltaSink,
   signal?: AbortSignal,
+  interceptor?: BlockInterceptor,
 ): Promise<AssistantResult> {
   // Fire the request with retry on transient failures (429/5xx). The Max seat is
   // SHARED (forge + Mímir + Eitri + Sindri), and the subscription rate-limiter
@@ -145,6 +158,21 @@ export async function streamAssistant(
   let stopReason = "end_turn";
   const building = new Map<number, Building>();
   const finished: { index: number; block: ContentBlock }[] = [];
+  const corrections: string[] = [];
+
+  // Push a finalized block, first running it through the interceptor (#4). A
+  // returned correction replaces the block and records a note; null passes through.
+  const push = (index: number, block: ContentBlock) => {
+    if (interceptor) {
+      const c = interceptor(block);
+      if (c) {
+        finished.push({ index, block: c.block });
+        corrections.push(c.note);
+        return;
+      }
+    }
+    finished.push({ index, block });
+  };
 
   const handleEvent = (event: string, data: string) => {
     if (!data) return;
@@ -191,12 +219,9 @@ export async function streamAssistant(
       case "content_block_stop": {
         const b = building.get(j.index);
         if (!b) break;
-        if (b.kind === "text") finished.push({ index: j.index, block: { type: "text", text: b.text } as TextBlock });
+        if (b.kind === "text") push(j.index, { type: "text", text: b.text } as TextBlock);
         else if (b.kind === "thinking")
-          finished.push({
-            index: j.index,
-            block: { type: "thinking", thinking: b.thinking, signature: b.signature } as ThinkingBlock,
-          });
+          push(j.index, { type: "thinking", thinking: b.thinking, signature: b.signature } as ThinkingBlock);
         else if (b.kind === "tool_use") {
           let input: Record<string, unknown> = {};
           try {
@@ -204,7 +229,7 @@ export async function streamAssistant(
           } catch {
             input = {};
           }
-          finished.push({ index: j.index, block: { type: "tool_use", id: b.id, name: b.name, input } as ToolUseBlock });
+          push(j.index, { type: "tool_use", id: b.id, name: b.name, input } as ToolUseBlock);
         }
         building.delete(j.index);
         break;
@@ -245,5 +270,5 @@ export async function streamAssistant(
   }
 
   const blocks = finished.sort((a, b) => a.index - b.index).map((f) => f.block);
-  return { blocks, stopReason, usage };
+  return { blocks, stopReason, usage, corrections: corrections.length ? corrections : undefined };
 }
