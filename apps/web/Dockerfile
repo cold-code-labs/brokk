@@ -12,7 +12,11 @@ FROM base AS build
 # history — acceptable for this internal tool (same posture as Heimdall OSS).
 COPY . .
 ARG NODE_AUTH_TOKEN
-RUN NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
+# BuildKit cache mount for pnpm's content-addressable store (PNPM_HOME=/pnpm →
+# store at /pnpm/store). Persists across deploys: this stage does `COPY . .`
+# before install, so every source change busts the install layer — the store
+# mount makes that reinstall hard-link packages instead of refetching them.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
 RUN pnpm --filter @brokk/web build
 
 FROM node:22-alpine AS runtime
