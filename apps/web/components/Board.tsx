@@ -29,7 +29,6 @@ import {
 } from "lucide-react";
 import {
   Main,
-  PageHeader,
   Banner,
   Button,
 } from "@cold-code-labs/yggdrasil-react";
@@ -42,16 +41,10 @@ import { PreviewChip } from "./PreviewChip";
 
 const COLUMNS = ["backlog", "analysis", "queued", "running", "review", "done", "failed"] as const;
 
-/** Status → Yggdrasil badge tone (the four supported tones). */
-const STATUS_TONE: Record<string, "ok" | "warn" | "err" | "info" | undefined> = {
-  analysis: "info",
-  queued: "warn",
-  running: "info",
-  review: "info",
-  done: "ok",
-  succeeded: "ok",
-  failed: "err",
-};
+/** Status → forge-chip class. The ember is reserved for running work — the one
+ *  warm thing on the board; accent flags review/PR; everything else stays cold. */
+const chipClass = (s: string) =>
+  `forge-chip${s === "running" ? " is-ember" : s === "review" ? " is-accent" : ""}`;
 
 /** Board for a single project. `projectId` selects the repo's board; when omitted
  *  it falls back to the first project (legacy single-project entry). */
@@ -264,20 +257,24 @@ export default function Board({ projectId }: { projectId?: string }) {
 
   return (
     <Main style={{ maxWidth: "94rem" }}>
-      <PageHeader
-        title={project ? project.name : "Board"}
-        description={
-          <>
-            The forge — card → agent → PR.{" "}
-            {project && <span className="ygg-dim">model {project.model}</span>}
-          </>
-        }
-        actions={
+      <header className="forge-head">
+        <Link href="/fleet" className="ygg-dim" style={{ fontSize: 12, textDecoration: "none", display: "inline-block", marginBottom: 6 }}>
+          ← Fleet
+        </Link>
+        <div className="forge-head-top">
+          <div>
+            <span className="forge-eyebrow">Brokk · the anvil</span>
+            <h1 className="forge-title">{project ? project.name : "Board"}</h1>
+            <p className="forge-sub">
+              Card → agent → PR.{" "}
+              {project && <span className="ygg-dim">model {project.model}</span>}
+            </p>
+          </div>
           <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {project && (
               <Button size="sm" type="button" onClick={() => setShowNew(true)}>
                 <Plus size={14} style={{ marginRight: 4, verticalAlign: "-2px" }} />
-                Novo card
+                New card
               </Button>
             )}
             {project &&
@@ -285,16 +282,13 @@ export default function Board({ projectId }: { projectId?: string }) {
                 <PreviewChip preview={preview} onStop={handleStopPreview} />
               ) : (
                 <Button variant="outline" size="sm" type="button" onClick={handlePreview} disabled={previewBusy}>
-                  {previewBusy ? "starting…" : "Preview dev"}
+                  {previewBusy ? "Starting…" : "Preview dev"}
                 </Button>
               ))}
           </span>
-        }
-      >
-        <Link href="/fleet" className="ygg-dim" style={{ fontSize: 12, textDecoration: "none", display: "inline-block", marginBottom: 6 }}>
-          ← Fleet
-        </Link>
-      </PageHeader>
+        </div>
+        <div className="forge-head-rule" />
+      </header>
 
       {/* Toolbar: search + owner lane filter + view toggle — the "ver todos os
           cards facilmente" surface. */}
@@ -305,14 +299,14 @@ export default function Board({ projectId }: { projectId?: string }) {
             ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar cards…  ( / )"
+            placeholder="Search cards…  ( / )"
             style={{ ...field, width: "100%", paddingLeft: 30 }}
           />
         </div>
         <div style={segGroup}>
           {(["all", "brokk", "human"] as const).map((o) => (
             <button key={o} type="button" onClick={() => setOwnerFilter(o)} style={segBtn(ownerFilter === o)}>
-              {o === "all" ? "Todos" : o === "brokk" ? "Brokk" : `Meus${mineCount ? ` (${mineCount})` : ""}`}
+              {o === "all" ? "All" : o === "brokk" ? "Brokk" : `Mine${mineCount ? ` (${mineCount})` : ""}`}
             </button>
           ))}
         </div>
@@ -320,14 +314,14 @@ export default function Board({ projectId }: { projectId?: string }) {
           <button type="button" onClick={() => setView("board")} style={segBtn(view === "board")} aria-label="Board" title="Board">
             <Columns3 size={15} />
           </button>
-          <button type="button" onClick={() => setView("list")} style={segBtn(view === "list")} aria-label="List" title="Lista">
+          <button type="button" onClick={() => setView("list")} style={segBtn(view === "list")} aria-label="List" title="List">
             <Rows3 size={15} />
           </button>
         </div>
       </div>
 
-      {err && <Banner tone="err">⚠ {err}</Banner>}
-      {previewErr && <Banner tone="err">⚠ preview: {previewErr}</Banner>}
+      {err && <Banner tone="err">{err}</Banner>}
+      {previewErr && <Banner tone="err">Preview failed: {previewErr}</Banner>}
 
       {view === "board" ? (
         <div style={boardScroll}>
@@ -335,12 +329,17 @@ export default function Board({ projectId }: { projectId?: string }) {
             const items = visible.filter((x) => x.status === key);
             return (
               <section key={key} style={column}>
-                <h2 style={colHead}>
-                  {STATUS_LABEL[key]}
-                  <span style={{ color: "var(--fg-dim)", marginLeft: 6 }}>{items.length}</span>
-                </h2>
+                <div className="forge-h" style={{ margin: "0 0 0.7rem" }}>
+                  <span className="forge-h-title">{STATUS_LABEL[key]}</span>
+                  <span className="forge-h-meta">{items.length}</span>
+                  <span className="forge-h-rule" />
+                </div>
                 <div style={cardList}>
-                  {items.length === 0 && <p className="ygg-dim" style={{ fontSize: 12, margin: 0 }}>—</p>}
+                  {items.length === 0 && (
+                    <div className="forge-empty" style={{ padding: "1.4rem 0.5rem" }}>
+                      <p className="forge-empty-sub">Nothing on the anvil. Queue work from Fleet or the composer.</p>
+                    </div>
+                  )}
                   {items.map((task) => (
                     <div
                       key={task.id}
@@ -348,11 +347,12 @@ export default function Board({ projectId }: { projectId?: string }) {
                       tabIndex={0}
                       onClick={() => setSelected(task.id)}
                       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelected(task.id); } }}
-                      style={card(selected === task.id)}
+                      className="forge-panel"
+                      style={card(selected === task.id, task.status === "running")}
                     >
                       <span style={{ display: "flex", gap: 7, alignItems: "start", justifyContent: "space-between" }}>
                         <span style={{ display: "flex", gap: 7, alignItems: "start", minWidth: 0, flex: 1 }}>
-                          <span style={{ ...dot, background: STATUS_COLOR[task.status] }} />
+                          <span style={{ ...dot, background: task.status === "running" ? "var(--ember)" : STATUS_COLOR[task.status] }} />
                           <span style={cardTitle}>{task.title}</span>
                         </span>
                         <CardMenu task={task} onMarkDone={markCardDone} />
@@ -362,14 +362,14 @@ export default function Board({ projectId }: { projectId?: string }) {
                         <span style={{ flex: 1 }} />
                         {task.status === "backlog" && (
                           <span onClick={(e) => { e.stopPropagation(); analyze(task.id); }} style={analyzeBtn}>
-                            analyze →
+                            Analyze →
                           </span>
                         )}
                         {/* Queue only for already-analysed cards (owner=brokk). Backlog
                             must go through analyze first. */}
                         {task.status === "analysis" && task.owner === "brokk" && (
                           <span onClick={(e) => { e.stopPropagation(); approveAndQueue(task.id); }} style={miniBtn}>
-                            queue →
+                            Queue →
                           </span>
                         )}
                         {task.prUrl && (
@@ -407,13 +407,13 @@ export default function Board({ projectId }: { projectId?: string }) {
   );
 }
 
-/** Owner/source signal chip. 'human' reads as "Meu" (you pulled it); manual cards
+/** Owner/source signal chip. 'human' reads as "Mine" (you pulled it); manual cards
  *  get a subtle "manual" hint. Brokk-owned agent cards show nothing (the default). */
 function OwnerChip({ owner, source }: { owner: TaskOwner; source: string }) {
   if (owner === "human") {
     return (
       <span style={ownerChip(STATUS_COLOR.review)}>
-        <UserIcon size={11} /> Meu
+        <UserIcon size={11} /> Mine
       </span>
     );
   }
@@ -443,9 +443,13 @@ function ListView({
       (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""),
   );
   if (rows.length === 0)
-    return <p className="ygg-dim" style={{ fontSize: 13, marginTop: 20 }}>Nenhum card com esse filtro.</p>;
+    return (
+      <div className="forge-empty">
+        <p className="forge-empty-sub">Nothing matches this filter. Clear it, or queue work from the composer.</p>
+      </div>
+    );
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+    <div className="forge-ledger">
       {rows.map((task) => (
         <div
           key={task.id}
@@ -453,15 +457,14 @@ function ListView({
           tabIndex={0}
           onClick={() => onSelect(task.id)}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(task.id); } }}
-          style={listRow(selected === task.id)}
+          className={`forge-row${task.status === "running" ? " is-running" : ""}`}
+          style={{ cursor: "pointer", ...(selected === task.id ? { background: "color-mix(in srgb, var(--accent) 8%, var(--panel))" } : null) }}
         >
-          <span style={{ ...dot, background: STATUS_COLOR[task.status], marginTop: 0 }} />
-          <span style={{ fontSize: 11, color: STATUS_COLOR[task.status], width: 74, flexShrink: 0, textTransform: "uppercase", letterSpacing: 0.3 }}>
+          <span style={{ ...dot, background: task.status === "running" ? "var(--ember)" : STATUS_COLOR[task.status], marginTop: 0 }} />
+          <span className={chipClass(task.status)} style={{ flexShrink: 0, minWidth: 76, justifyContent: "center" }}>
             {task.status}
           </span>
-          <span style={{ fontSize: 13.5, minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: t.text }}>
-            {task.title}
-          </span>
+          <span className="forge-row-title">{task.title}</span>
           <OwnerChip owner={task.owner} source={task.source} />
           {task.prUrl && (
             <a href={task.prUrl} target="_blank" rel="noreferrer" style={prLink} onClick={(e) => e.stopPropagation()}>
@@ -529,13 +532,13 @@ function CardMenu({ task, onMarkDone }: { task: Task; onMarkDone: (id: string) =
   const isRunning = task.status === "running";
   const canMarkDone = !isDone && !isRunning;
   const doneLabel = isDone
-    ? "Já concluído"
+    ? "Already done"
     : isRunning
-      ? "Em execução no forge…"
-      : "Marcar como concluído";
+      ? "In the fire — wait"
+      : "Mark done";
   return (
     <>
-      <button ref={btnRef} type="button" aria-label="Ações do card" onClick={toggle} style={menuBtn}>
+      <button ref={btnRef} type="button" aria-label="Card actions" onClick={toggle} style={menuBtn}>
         <MoreHorizontal size={16} />
       </button>
       {open && (
@@ -587,14 +590,14 @@ function NewCardModal({
     <div style={overlay} onClick={onClose}>
       <div style={modalCard} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>Novo card</h2>
+          <h2 style={{ margin: 0, fontSize: 16 }}>New card</h2>
           <Button variant="outline" size="icon" onClick={onClose} aria-label="Close">✕</Button>
         </div>
-        {err && <Banner tone="err">⚠ {err}</Banner>}
+        {err && <Banner tone="err">{err}</Banner>}
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Título do card…"
+          placeholder="Title…"
           // biome-ignore lint/a11y/noAutofocus: modal opened on explicit action
           autoFocus
           onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submit()}
@@ -603,29 +606,29 @@ function NewCardModal({
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder="Descrição / o que precisa ser feito…"
+          placeholder="What needs doing…"
           rows={4}
           style={{ ...field, width: "100%", resize: "vertical", marginBottom: 14 }}
         />
         <div className="ygg-dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 7 }}>
-          Quem resolve
+          Who forges it
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
           <button type="button" onClick={() => setOwner("brokk")} style={ownerPick(owner === "brokk")}>
             <Bot size={16} />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>Brokk forja</span>
-            <span className="ygg-dim" style={{ fontSize: 11 }}>vai pra fila do forge</span>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>Brokk</span>
+            <span className="ygg-dim" style={{ fontSize: 11 }}>goes to the forge queue</span>
           </button>
           <button type="button" onClick={() => setOwner("human")} style={ownerPick(owner === "human")}>
             <UserIcon size={16} />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>Eu resolvo</span>
-            <span className="ygg-dim" style={{ fontSize: 11 }}>fica comigo, forge ignora</span>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>Me</span>
+            <span className="ygg-dim" style={{ fontSize: 11 }}>stays yours — the runner skips it</span>
           </button>
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <Button variant="outline" onClick={onClose} disabled={busy}>Cancelar</Button>
+          <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button onClick={submit} disabled={busy || !title.trim()}>
-            {busy ? "Criando…" : owner === "brokk" ? "Criar → forja" : "Criar card"}
+            {busy ? "Creating…" : owner === "brokk" ? "Create → queue" : "Create card"}
           </Button>
         </div>
       </div>
@@ -683,10 +686,10 @@ function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void;
           <Button variant="outline" size="icon" onClick={onClose} aria-label="Close">✕</Button>
         </div>
         <div style={{ display: "flex", gap: 8, margin: "8px 0 14px", alignItems: "center", flexWrap: "wrap" }}>
-          <span className="ygg-badge" data-tone={STATUS_TONE[task.status]}>{task.status}</span>
-          {latest && <span className="ygg-badge" data-tone={STATUS_TONE[latest.status]}>run {latest.status}</span>}
+          <span className={chipClass(task.status)}>{task.status}</span>
+          {latest && <span className={chipClass(latest.status)}>run {latest.status}</span>}
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--fg-dim)" }}>
-            por <AgentAvatar createdBy={task.createdBy} size={18} showLabel />
+            by <AgentAvatar createdBy={task.createdBy} size={18} showLabel />
           </span>
           {task.prUrl && (
             <a href={task.prUrl} target="_blank" rel="noreferrer" style={{ ...prLink, position: "static" }}>
@@ -708,7 +711,7 @@ function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void;
               onClick={() => handoff(() => brokk.setTaskOwner(task.id, "human", "pego pelo humano"))}
             >
               <Hand size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
-              Pegar pra mim
+              Take it
             </Button>
           ) : (
             <Button
@@ -718,7 +721,7 @@ function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void;
               onClick={() => handoff(() => brokk.setTaskOwner(task.id, "brokk", "devolvido ao forge"))}
             >
               <Undo2 size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
-              Devolver ao Brokk
+              Return to Brokk
             </Button>
           )}
           {!isTerminal && (
@@ -728,18 +731,18 @@ function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void;
               onClick={() => handoff(() => brokk.resolveTask(task.id, "resolvido fora do forge"))}
             >
               <CheckCircle2 size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
-              Resolver por fora
+              Resolve by hand
             </Button>
           )}
         </div>
-        {handoffErr && <Banner tone="err">⚠ {handoffErr}</Banner>}
+        {handoffErr && <Banner tone="err">{handoffErr}</Banner>}
 
         {isAnalysis ? (
           <AnalysisPanel task={task} onChanged={onChanged} onClose={onClose} />
         ) : (
           <>
             <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "16px 0 8px" }}>
-              Live run log{latest ? ` · ${latest.id.slice(0, 8)}` : ""}
+              Live run log{latest && <> · <span className="forge-row-mono">{latest.id.slice(0, 8)}</span></>}
             </h3>
             <RunLog events={events} logRef={logRef} />
           </>
@@ -771,12 +774,12 @@ function Timeline({ taskId, status, owner }: { taskId: string; status: string; o
   return (
     <div style={{ marginTop: 20 }}>
       <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "0 0 10px", letterSpacing: 0.4 }}>
-        Ciclo de vida
+        Lifecycle
       </h3>
       {events === null ? (
-        <p className="ygg-dim" style={{ fontSize: 12 }}>carregando…</p>
+        <p className="ygg-dim" style={{ fontSize: 12 }}>Loading…</p>
       ) : events.length === 0 ? (
-        <p className="ygg-dim" style={{ fontSize: 12 }}>sem eventos ainda.</p>
+        <p className="ygg-dim" style={{ fontSize: 12 }}>No events yet.</p>
       ) : (
         <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 0 }}>
           {events.map((ev, i) => (
@@ -789,7 +792,7 @@ function Timeline({ taskId, status, owner }: { taskId: string; status: string; o
                 <div style={{ fontSize: 12.5, color: t.text }}>
                   {eventLabel(ev)}
                 </div>
-                <div className="ygg-dim" style={{ fontSize: 11, marginTop: 2 }}>
+                <div className="ygg-dim" style={{ fontSize: 11, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>
                   {ev.actor} · {new Date(ev.at).toLocaleString()}
                   {ev.reason ? ` · ${ev.reason}` : ""}
                 </div>
@@ -811,11 +814,11 @@ function eventTint(ev: TaskEvent): string {
 function eventLabel(ev: TaskEvent): string {
   switch (ev.type) {
     case "created":
-      return `Card criado (${ev.to})`;
+      return `Card created (${ev.to})`;
     case "owner":
-      return ev.to === "human" ? "Pego por um humano" : "Devolvido ao Brokk";
+      return ev.to === "human" ? "Taken by a human" : "Returned to Brokk";
     case "resolved":
-      return "Resolvido por fora";
+      return "Resolved by hand";
     case "status":
       return `${ev.from ?? "—"} → ${ev.to}`;
     default:
@@ -914,23 +917,23 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
   return (
     <div style={{ marginTop: 16 }}>
       <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "0 0 10px", letterSpacing: 0.4 }}>
-        Resolve · visão da resolução
+        Resolve · the plan
       </h3>
 
-      {err && <Banner tone="err">⚠ {err}</Banner>}
+      {err && <Banner tone="err">{err}</Banner>}
 
       {pending && !failed && (
         <p className="ygg-dim" style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ ...dot, background: STATUS_COLOR.analysis, marginTop: 0 }} />
-          Resolve está lendo o checkout e montando o plano…
+          Reading the checkout, drafting the plan…
         </p>
       )}
 
       {failed && (
         <>
-          <pre style={{ ...logBox, color: STATUS_COLOR.failed, maxHeight: 140 }}>{analysis?.error ?? "falhou"}</pre>
+          <pre style={{ ...logBox, color: STATUS_COLOR.failed, maxHeight: 140 }}>{analysis?.error ?? "Analysis failed — no detail returned."}</pre>
           <Button size="sm" variant="outline" onClick={() => reanalyze()} disabled={busy !== null} style={{ marginTop: 10 }}>
-            {busy === "reanalyze" ? "re-analisando…" : "Tentar de novo"}
+            {busy === "reanalyze" ? "Reanalyzing…" : "Retry"}
           </Button>
         </>
       )}
@@ -949,7 +952,9 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
               {isFeature ? `feature · ${analysis.steps.length} sub-cards` : "atomic · 1 PR"}
             </span>
             <span className="ygg-badge" data-tone={needsConfirm ? "warn" : "ok"}>
-              {needsConfirm ? `⚠ ${analysis.questions.length} premissa(s) a confirmar` : "✓ plano confiante"}
+              {needsConfirm
+                ? `${analysis.questions.length} assumption${analysis.questions.length === 1 ? "" : "s"} to confirm`
+                : "0 open questions"}
             </span>
           </div>
 
@@ -957,11 +962,11 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
           {titleChanged && (
             <div style={{ ...calloutBox, borderColor: `${STATUS_COLOR.analysis}66`, borderLeftColor: STATUS_COLOR.analysis }}>
               <div className="ygg-dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 }}>
-                Título corrigido
+                Title revised
               </div>
               <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.4 }}>{analysis.revisedTitle}</div>
               <div className="ygg-dim" style={{ fontSize: 11, marginTop: 4, textDecoration: "line-through" }}>{task.title}</div>
-              <div className="ygg-dim" style={{ fontSize: 11, marginTop: 3 }}>substitui o título do card ao aprovar</div>
+              <div className="ygg-dim" style={{ fontSize: 11, marginTop: 3 }}>replaces the card title on approve</div>
             </div>
           )}
 
@@ -971,15 +976,15 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
           )}
           <p className="ygg-dim" style={{ fontSize: 12.5, margin: "0 0 14px" }}>
             {isFeature
-              ? `Trabalho maior — vira ${analysis.steps.length} sub-cards em sequência.`
-              : "Mudança localizada — vira um PR direto."}
+              ? `Larger job — becomes ${analysis.steps.length} sub-cards, in order.`
+              : "Localized change — becomes one PR."}
           </p>
 
           {/* Citações da reunião — verbatim, rastreabilidade real. */}
           {analysis.evidence.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div className="ygg-dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 }}>
-                Da reunião
+                From the meeting
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {analysis.evidence.map((ev, i) => (
@@ -1012,9 +1017,9 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
 
           {/* Detalhes técnicos — colapsados por padrão (não-técnico primeiro). */}
           <button type="button" onClick={() => setShowTech((v) => !v)} style={techToggle}>
-            <span>{showTech ? "▾" : "▸"} Detalhes técnicos</span>
-            <span className="ygg-dim" style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
-              {analysis.steps.length} passo(s)
+            <span>{showTech ? "▾" : "▸"} Technical detail</span>
+            <span className="ygg-dim" style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, fontVariantNumeric: "tabular-nums" }}>
+              {analysis.steps.length} step{analysis.steps.length === 1 ? "" : "s"}
             </span>
           </button>
 
@@ -1040,7 +1045,7 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
                           <span style={{ fontWeight: 600, fontSize: 13, minWidth: 0, wordBreak: "break-word" }}>{s.title}</span>
                         </span>
                         <span className="ygg-dim" style={{ fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
-                          {s.touches.length > 0 ? `${s.touches.length} arq. ` : ""}{open ? "▾" : "▸"}
+                          {s.touches.length > 0 ? `${s.touches.length} file${s.touches.length === 1 ? "" : "s"} ` : ""}{open ? "▾" : "▸"}
                         </span>
                       </button>
                       {open && (
@@ -1069,17 +1074,17 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
               (o que a IA não pôde saber), regenerando título/citações/plano numa v+1. */}
           <div style={{ marginTop: 16, borderTop: `1px solid ${t.border}`, paddingTop: 12 }}>
             <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: t.textMuted, fontWeight: 600, marginBottom: 8 }}>
-              Adicionar detalhes
+              Add details
             </div>
             <textarea
               value={detailsInput}
               onChange={(e) => setDetailsInput(e.target.value)}
-              placeholder="Sabe algo que a IA não sabe? Escreva — ela regenera título, citações e plano."
+              placeholder="Know something the plan doesn't? Write it — title, quotes, and plan regenerate."
               rows={3}
               style={{ ...field, width: "100%", resize: "vertical", minWidth: 0 }}
             />
             <Button size="sm" variant="outline" onClick={addDetails} disabled={busy !== null || !detailsInput.trim()} style={{ marginTop: 8 }}>
-              {busy === "details" ? "gerando revisão…" : `Gerar revisão → v${analysis.version + 1}`}
+              {busy === "details" ? "Revising…" : `Revise → v${analysis.version + 1}`}
             </Button>
           </div>
 
@@ -1087,9 +1092,9 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
           {analysis.revisions.length > 0 && (
             <>
               <button type="button" onClick={() => setShowHistory((v) => !v)} style={techToggle}>
-                <span>{showHistory ? "▾" : "▸"} Histórico</span>
-                <span className="ygg-dim" style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
-                  {analysis.revisions.length} versão(ões) anterior(es)
+                <span>{showHistory ? "▾" : "▸"} History</span>
+                <span className="ygg-dim" style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, fontVariantNumeric: "tabular-nums" }}>
+                  {analysis.revisions.length} prior version{analysis.revisions.length === 1 ? "" : "s"}
                 </span>
               </button>
               {showHistory && (
@@ -1105,7 +1110,7 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
                         </div>
                         {r.inputDetails && (
                           <div className="ygg-dim" style={{ fontSize: 11.5, marginTop: 5 }}>
-                            + detalhe: {r.inputDetails}
+                            + detail: {r.inputDetails}
                           </div>
                         )}
                         {r.details && (
@@ -1124,14 +1129,14 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
           <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
             <Button onClick={approve} disabled={busy !== null} variant={needsConfirm ? "outline" : undefined}>
               {busy === "approve"
-                ? "aprovando…"
+                ? "Approving…"
                 : needsConfirm
-                  ? (isFeature ? "Aprovar mesmo assim → sub-cards" : "Aprovar mesmo assim → enfileirar")
-                  : (isFeature ? "Aprovar → criar sub-cards" : "Aprovar → enfileirar")}
+                  ? (isFeature ? "Approve anyway → sub-cards" : "Approve anyway → queue")
+                  : (isFeature ? "Approve → sub-cards" : "Approve → queue")}
             </Button>
             {!needsConfirm && (
               <Button variant="outline" onClick={() => reanalyze()} disabled={busy !== null}>
-                {busy === "reanalyze" ? "…" : "Re-analisar"}
+                {busy === "reanalyze" ? "…" : "Reanalyze"}
               </Button>
             )}
           </div>
@@ -1154,33 +1159,33 @@ type ToolResultP = { tool_use_id?: string; ok?: boolean; preview?: string };
 
 /** Tool name → friendly verb + icon (mirrors Sindri's TOOL_META). */
 const TOOL_META: { match: RegExp; label: string; Icon: typeof Wrench }[] = [
-  { match: /write|edit|str_replace|create|apply|patch/i, label: "Editando", Icon: FileEdit },
-  { match: /read|cat|view|get_file/i, label: "Lendo", Icon: FileText },
-  { match: /bash|shell|run|exec|command|terminal/i, label: "Executando", Icon: TerminalSquare },
+  { match: /write|edit|str_replace|create|apply|patch/i, label: "Editing", Icon: FileEdit },
+  { match: /read|cat|view|get_file/i, label: "Reading", Icon: FileText },
+  { match: /bash|shell|run|exec|command|terminal/i, label: "Shell", Icon: TerminalSquare },
   { match: /pr|pull|merge|commit|push|branch|git/i, label: "Git", Icon: GitPullRequest },
-  { match: /card|task|plan|todo/i, label: "Planejando", Icon: ListTodo },
+  { match: /card|task|plan|todo/i, label: "Planning", Icon: ListTodo },
 ];
 function toolMeta(name = "") {
-  return TOOL_META.find((t) => t.match.test(name)) ?? { label: "Ferramenta", Icon: Wrench };
+  return TOOL_META.find((t) => t.match.test(name)) ?? { label: "Tool", Icon: Wrench };
 }
 
 /** Friendly phase label + tint + icon for a `status` event. Null = don't show. */
 function phaseMeta(p: Record<string, unknown>): { label: string; tint: string; Icon: typeof Wrench } | null {
   switch (p.phase) {
     case "verify_start":
-      return { label: p.round != null ? `Verificando (rodada ${p.round})…` : "Verificando…", tint: STATUS_COLOR.running, Icon: Loader2 };
+      return { label: p.round != null ? `Verifying (round ${p.round})…` : "Verifying…", tint: STATUS_COLOR.running, Icon: Loader2 };
     case "verify_done":
       return p.ok
-        ? { label: "Verify passou", tint: STATUS_COLOR.done, Icon: CheckCircle2 }
-        : { label: "Verify falhou", tint: STATUS_COLOR.failed, Icon: XCircle };
+        ? { label: "Verify passed", tint: STATUS_COLOR.done, Icon: CheckCircle2 }
+        : { label: "Verify failed", tint: STATUS_COLOR.failed, Icon: XCircle };
     case "heal":
-      return { label: `Corrigindo (tentativa ${p.attempt}/${p.of})`, tint: STATUS_COLOR.queued, Icon: Loader2 };
+      return { label: `Fixing (attempt ${p.attempt}/${p.of})`, tint: STATUS_COLOR.queued, Icon: Loader2 };
     case "acceptance":
-      return { label: "Testando ao vivo…", tint: STATUS_COLOR.running, Icon: Loader2 };
+      return { label: "Live check…", tint: STATUS_COLOR.running, Icon: Loader2 };
     case "forge_pass":
-      return { label: "Forja concluída", tint: t.textMuted, Icon: CheckCircle2 };
+      return { label: "Forge pass done", tint: t.textMuted, Icon: CheckCircle2 };
     case "agent_done":
-      return { label: "Run finalizada", tint: t.textMuted, Icon: CheckCircle2 };
+      return { label: "Run finished", tint: t.textMuted, Icon: CheckCircle2 };
     default:
       return null; // agent_start etc. — noise, skip
   }
@@ -1228,7 +1233,7 @@ function RunLog({ events, logRef }: { events: RunEvent[]; logRef: React.RefObjec
 
   return (
     <div ref={logRef} style={runLogBox}>
-      {items.length === 0 ? <span className="ygg-dim" style={{ fontSize: 12 }}>sem eventos ainda…</span> : items}
+      {items.length === 0 ? <span className="ygg-dim" style={{ fontSize: 12 }}>No events yet.</span> : items}
     </div>
   );
 }
@@ -1266,14 +1271,14 @@ function ToolRow({ tool, result }: { tool: ToolBlock; result?: ToolResultP }) {
       <button type="button" onClick={() => setOpen((o) => !o)} style={toolRowHead}>
         <Icon size={13} style={{ color: t.textMuted, flexShrink: 0 }} />
         <span style={{ fontSize: 12, fontWeight: 600, flexShrink: 0 }}>{label}</span>
-        <code style={{ fontSize: 11, color: t.textFaint, fontFamily: "ui-monospace, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>
+        <code style={{ fontSize: 11, color: t.textFaint, fontFamily: "var(--font-mono, monospace)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>
           {String(arg).slice(0, 100)}
         </code>
         {status === "running" ? (
           <Loader2 size={12} style={{ color: pill, flexShrink: 0 }} />
         ) : (
           <span style={{ fontSize: 10, fontWeight: 700, color: pill, flexShrink: 0, textTransform: "uppercase" }}>
-            {status === "ok" ? "ok" : "erro"}
+            {status === "ok" ? "ok" : "err"}
           </span>
         )}
         <ChevronRight size={13} style={{ color: t.textFaint, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
@@ -1323,7 +1328,7 @@ function ConfirmQuestions({
 
   return (
     <div style={calloutBox}>
-      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Antes de aprovar, confirme:</div>
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Confirm before approving</div>
       <div style={{ display: "grid", gap: 10 }}>
         {questions.map((q, i) => {
           const isCustom = customOpen[i];
@@ -1340,13 +1345,13 @@ function ConfirmQuestions({
                   </button>
                 ))}
                 <button type="button" onClick={() => openCustom(i)} style={optionBtn(!!isCustom)}>
-                  ✎ Outro…
+                  Other…
                 </button>
                 {isCustom && (
                   <textarea
                     value={sel}
                     onChange={(e) => setPicked((p) => ({ ...p, [i]: e.target.value }))}
-                    placeholder="Sua resposta…"
+                    placeholder="Your answer…"
                     rows={2}
                     // biome-ignore lint/a11y/noAutofocus: revealed on explicit click
                     autoFocus
@@ -1360,10 +1365,10 @@ function ConfirmQuestions({
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12 }}>
         <Button size="sm" onClick={submit} disabled={busy || !allAnswered}>
-          {busy ? "re-analisando…" : "Iniciar re-análise"}
+          {busy ? "Reanalyzing…" : "Reanalyze"}
         </Button>
-        <span className="ygg-dim" style={{ fontSize: 11.5 }}>
-          {answered}/{questions.length} respondidas
+        <span className="ygg-dim" style={{ fontSize: 11.5, fontVariantNumeric: "tabular-nums" }}>
+          {answered}/{questions.length} answered
         </span>
       </div>
     </div>
@@ -1385,7 +1390,7 @@ function AcceptanceRow({
       <button type="button" onClick={() => setOpen((o) => !o)} style={toolRowHead}>
         <Camera size={13} style={{ color: tint, flexShrink: 0 }} />
         <span style={{ fontSize: 12, fontWeight: 600, color: tint }}>
-          Aceite ao vivo · {receipt.ok ? "✅ passou" : "❌ falhou"}
+          Live check · {receipt.ok ? "passed" : "failed"}
         </span>
         <ChevronRight
           size={13}
@@ -1419,7 +1424,7 @@ function LogRow({ text, error }: { text: string; error?: boolean }) {
       <button type="button" onClick={() => setOpen((o) => !o)} style={toolRowHead}>
         <ScrollText size={13} style={{ color: error ? STATUS_COLOR.failed : t.textMuted, flexShrink: 0 }} />
         <span style={{ fontSize: 12, fontWeight: 600, flex: 1, color: error ? STATUS_COLOR.failed : t.text }}>
-          {error ? "Saída do verify (falhou)" : "Log"}
+          {error ? "Verify output (failed)" : "Log"}
         </span>
         <ChevronRight size={13} style={{ color: t.textFaint, flexShrink: 0, transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
       </button>
@@ -1490,20 +1495,7 @@ const ownerChip = (color: string): React.CSSProperties => ({
   background: `${color}14`,
   whiteSpace: "nowrap",
 });
-const listRow = (active: boolean): React.CSSProperties => ({
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  width: "100%",
-  textAlign: "left",
-  padding: "9px 12px",
-  borderRadius: 8,
-  cursor: "pointer",
-  border: `1px solid ${active ? t.borderActive : "transparent"}`,
-  background: active ? t.surface3 : t.surface2,
-  color: t.text,
-});
-const modalCard: React.CSSProperties = { width: "min(520px, 100%)", margin: "auto", alignSelf: "center", background: t.bg, border: `1px solid ${t.border}`, borderRadius: 12, padding: 22, boxShadow: "0 24px 80px rgba(0,0,0,0.5)" };
+const modalCard: React.CSSProperties = { width: "min(520px, 100%)", margin: "auto", alignSelf: "center", background: t.bg, border: `1px solid ${t.border}`, borderRadius: 12, padding: 22, boxShadow: "var(--shadow-2)" };
 const ownerPick = (active: boolean): React.CSSProperties => ({
   flex: 1,
   display: "flex",
@@ -1523,7 +1515,7 @@ const handoffBar: React.CSSProperties = { display: "flex", gap: 8, margin: "14px
 // column's overflow clip).
 const menuBtn: React.CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, flexShrink: 0, borderRadius: 6, border: "none", background: "transparent", color: t.textMuted, cursor: "pointer" };
 const menuBackdrop: React.CSSProperties = { position: "fixed", inset: 0, zIndex: 59 };
-const menuPopover: React.CSSProperties = { position: "fixed", zIndex: 60, minWidth: 210, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 9, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)", display: "flex", flexDirection: "column", gap: 2 };
+const menuPopover: React.CSSProperties = { position: "fixed", zIndex: 60, minWidth: 210, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 9, padding: 5, boxShadow: "var(--shadow-2)", display: "flex", flexDirection: "column", gap: 2 };
 const menuItem = (disabled: boolean): React.CSSProperties => ({ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 6, border: "none", background: "transparent", color: disabled ? t.textFaint : t.text, fontSize: 12.5, cursor: disabled ? "default" : "pointer" });
 
 // Board: fixed-width columns + horizontal scroll (standard kanban). Fixed width
@@ -1532,7 +1524,6 @@ const menuItem = (disabled: boolean): React.CSSProperties => ({ display: "flex",
 const boardScroll: React.CSSProperties = { display: "flex", gap: 14, overflowX: "auto", overflowY: "hidden", paddingBottom: 10, scrollSnapType: "x proximity" };
 const column: React.CSSProperties = { flex: "0 0 300px", scrollSnapAlign: "start", background: t.surface, border: `1px solid ${t.border}`, borderRadius: 10, padding: 12, display: "flex", flexDirection: "column", minHeight: 0 };
 const cardList: React.CSSProperties = { flex: "1 1 auto", minHeight: 0, maxHeight: "min(62vh, 640px)", overflowY: "auto", overflowX: "hidden", paddingRight: 2 };
-const colHead: React.CSSProperties = { fontSize: 12, textTransform: "uppercase", color: t.textMuted, margin: "0 0 12px", letterSpacing: 0.4 };
 // Title clamped to 3 lines — long ajuste titles no longer eat the whole column.
 const cardTitle: React.CSSProperties = { fontSize: 13.5, lineHeight: 1.35, minWidth: 0, wordBreak: "break-word", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" };
 const dot: React.CSSProperties = { width: 7, height: 7, borderRadius: 7, flexShrink: 0, marginTop: 5 };
@@ -1540,19 +1531,41 @@ const cardFooter: React.CSSProperties = { display: "flex", justifyContent: "flex
 const prLink: React.CSSProperties = { fontSize: 11, color: t.purple, textDecoration: "none" };
 const miniBtn: React.CSSProperties = { fontSize: 11, color: STATUS_COLOR.queued, border: `1px solid ${STATUS_COLOR.queued}44`, borderRadius: 6, padding: "2px 8px" };
 const analyzeBtn: React.CSSProperties = { fontSize: 11, color: STATUS_COLOR.analysis, border: `1px solid ${STATUS_COLOR.analysis}44`, borderRadius: 6, padding: "2px 8px" };
-const touchChip: React.CSSProperties = { fontSize: 11, fontFamily: "ui-monospace, SFMono-Regular, monospace", background: t.inset, border: `1px solid ${t.border}`, borderRadius: 5, padding: "1px 6px", color: t.textMuted };
+const touchChip: React.CSSProperties = { fontSize: 11, fontFamily: "var(--font-mono, monospace)", background: t.inset, border: `1px solid ${t.border}`, borderRadius: 5, padding: "1px 6px", color: t.textMuted };
 const calloutBox: React.CSSProperties = { background: t.surface2, border: `1px solid ${STATUS_COLOR.queued}66`, borderLeft: `3px solid ${STATUS_COLOR.queued}`, borderRadius: 8, padding: "12px 14px", marginBottom: 16 };
 const techToggle: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", borderTop: `1px solid ${t.border}`, padding: "10px 0 2px", color: t.textMuted, fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 600, cursor: "pointer" };
 const stepCard: React.CSSProperties = { border: `1px solid ${t.border}`, borderRadius: 8, background: t.surface2, overflow: "hidden" };
 const stepHead: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", padding: "9px 11px", color: t.text, cursor: "pointer" };
 const quoteBox: React.CSSProperties = { margin: 0, background: t.surface2, borderLeft: `3px solid ${t.border2}`, borderRadius: 6, padding: "8px 11px", color: t.text };
-const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "flex-end", zIndex: 50 };
-const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%", background: t.bg, borderLeft: `1px solid ${t.border}`, padding: 22, overflowY: "auto", boxShadow: "-20px 0 60px rgba(0,0,0,0.4)" };
-const logBox: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };
+// Scrim + drawer shadow from tokens only — both themes read, nothing hardcoded.
+const overlay: React.CSSProperties = { position: "fixed", inset: 0, background: "color-mix(in srgb, var(--bg) 62%, transparent)", display: "flex", justifyContent: "flex-end", zIndex: 50 };
+const drawer: React.CSSProperties = { width: "min(560px, 100%)", height: "100%", background: t.bg, borderLeft: `1px solid ${t.border}`, padding: 22, overflowY: "auto", boxShadow: "var(--shadow-2)" };
+const logBox: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 8, padding: 10, fontFamily: "var(--font-mono, monospace)", fontSize: 11.5, lineHeight: 1.45, maxHeight: 360, overflowY: "auto", whiteSpace: "pre-wrap" };
 const runLogBox: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 8, maxHeight: "min(58vh, 560px)", overflowY: "auto", paddingRight: 4 };
 const toolRowHead: React.CSSProperties = { display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", background: "transparent", border: "none", padding: "8px 10px", color: t.text, cursor: "pointer" };
-const runPre: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 6, padding: 8, margin: 0, fontFamily: "ui-monospace, SFMono-Regular, monospace", fontSize: 11, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", overflowX: "auto" };
+const runPre: React.CSSProperties = { background: t.inset, border: `1px solid ${t.border}`, borderRadius: 6, padding: 8, margin: 0, fontFamily: "var(--font-mono, monospace)", fontSize: 11, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", overflowX: "auto" };
 
-function card(active: boolean): React.CSSProperties {
-  return { display: "flex", flexDirection: "column", width: "100%", textAlign: "left", background: active ? t.surface3 : t.surface2, border: `1px solid ${active ? t.borderActive : t.border2}`, borderRadius: 8, padding: "11px 12px", marginBottom: 9, color: t.text, cursor: "pointer" };
+/** Card = a compact forge-panel. Overrides only what the column needs (tighter
+ *  padding, stack layout); selection lights the accent border; a RUNNING card is
+ *  the one warm thing on the board — ember rail + faint ember wash, mirroring
+ *  forge-row.is-running. */
+function card(active: boolean, running: boolean): React.CSSProperties {
+  return {
+    display: "flex",
+    flexDirection: "column",
+    width: "100%",
+    textAlign: "left",
+    borderRadius: 8,
+    padding: "11px 12px",
+    marginBottom: 9,
+    color: t.text,
+    cursor: "pointer",
+    ...(active ? { borderColor: t.borderActive } : null),
+    ...(running
+      ? {
+          borderLeft: "2px solid var(--ember)",
+          background: "color-mix(in srgb, var(--ember) 5%, var(--panel))",
+        }
+      : null),
+  };
 }

@@ -2,36 +2,25 @@
 
 import type { Project, Task } from "@brokk/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type React from "react";
 import Link from "next/link";
-import {
-  Main,
-  PageHeader,
-  Section,
-  StatStrip,
-  Stat,
-  Banner,
-  type Tone,
-} from "@cold-code-labs/yggdrasil-react";
+import { Flame } from "lucide-react";
+import { Main, Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
-import { STATUS_COLOR } from "../lib/theme";
+import { STATUS_COLOR, STATUS_LABEL } from "../lib/theme";
 
+/* Tile order: live work first, then the record. Keys are API status values
+ * (logic) — labels are render-only forge voice. */
 const STATS = [
-  { key: "all", label: "Total" },
-  { key: "running", label: "Running" },
-  { key: "review", label: "In Review" },
+  { key: "running", label: "Running now" },
   { key: "queued", label: "Queued" },
-  { key: "done", label: "Done" },
+  { key: "review", label: "In review · PR" },
+  { key: "done", label: "Forged" },
   { key: "failed", label: "Failed" },
+  { key: "all", label: "Total" },
 ] as const;
 
-const TONE: Record<string, Tone | undefined> = {
-  running: "info",
-  review: "info",
-  queued: "warn",
-  done: "ok",
-  failed: "err",
-};
+/* Tiles that glow accent when non-zero — live work only. */
+const LIVE_TILES = new Set(["running", "review"]);
 
 export default function Dashboard() {
   const [project, setProject] = useState<Project | null>(null);
@@ -74,47 +63,74 @@ export default function Dashboard() {
     return tasks.filter((t) => t.status === key).length;
   }
 
-  // Active = running + queued combined; shown in the project subtitle.
+  // Active = running + queued combined; shown in the masthead sub line.
   const activeCount = count("running") + count("queued");
+  const running = count("running");
+  const recent = tasks.slice(0, 12);
 
   return (
-    <Main style={{ maxWidth: "68rem" }}>
-      <PageHeader
-        title="Dashboard"
-        description={
-          project ? (
-            <>
-              <span style={{ color: "var(--fg)" }}>{project.name}</span>
-              {" · "}
-              {activeCount} active
-            </>
-          ) : (
-            <em>loading project…</em>
-          )
-        }
-      />
+    <Main style={{ maxWidth: "74rem" }}>
+      {/* ── masthead: the forge floor ── */}
+      <header className="forge-head">
+        <div className="forge-head-top">
+          <div>
+            <span className="forge-eyebrow">Brokk · the forge floor</span>
+            <h1 className="forge-title">{project ? project.name : "The floor"}</h1>
+            <p className="forge-sub">
+              {project ? `${activeCount} active · ${tasks.length} on the books` : "Loading…"}
+            </p>
+          </div>
+          <span className={`forge-pulse${running > 0 ? "" : " is-quiet"}`}>
+            <span className="forge-ember" />
+            {running > 0 ? `Forging now · ${running} in the fire` : "The forge is quiet"}
+          </span>
+        </div>
+        <div className="forge-head-rule" />
+      </header>
 
-      {err && <Banner tone="err">⚠ {err}</Banner>}
+      {err && (
+        <Banner tone="err">
+          Board fetch failed: {err} — retrying every 5s.
+        </Banner>
+      )}
 
-      <StatStrip>
-        {STATS.map((s) => (
-          <Stat
-            key={s.key}
-            value={count(s.key)}
-            label={s.label}
-            tone={TONE[s.key]}
-            dot={s.key !== "all"}
-          />
-        ))}
-      </StatStrip>
+      {/* ── vitals ── */}
+      <div className="forge-tiles">
+        {STATS.map((s) => {
+          const n = count(s.key);
+          const live = LIVE_TILES.has(s.key) && n > 0;
+          return (
+            <div key={s.key} className={`forge-tile${live ? " is-live" : ""}`}>
+              <div className="forge-tile-num">{n}</div>
+              <div className="forge-tile-label">{s.label}</div>
+              <span className="forge-tile-spark" />
+            </div>
+          );
+        })}
+      </div>
 
-      <Section title="Recent tasks">
+      {/* ── recent work ── */}
+      <section>
+        <div className="forge-h">
+          <span className="forge-h-title">Recent work</span>
+          <span className="forge-h-meta">{tasks.length}</span>
+          <span className="forge-h-rule" />
+        </div>
         {tasks.length === 0 ? (
-          <p className="ygg-dim" style={{ fontSize: "0.85rem" }}>No tasks yet.</p>
+          <div className="forge-empty is-panel">
+            <span className="forge-empty-mark"><Flame /></span>
+            <span className="forge-empty-title">The floor is clear</span>
+            <p className="forge-empty-sub">Work lands here as it is queued, newest first.</p>
+            <span className="forge-empty-action">
+              <Button asChild>
+                <Link href="/">Queue work</Link>
+              </Button>
+            </span>
+          </div>
         ) : (
-          <div className="ygg-card" style={{ padding: 0, overflow: "hidden", animation: "none" }}>
-            {tasks.slice(0, 12).map((task) => (
-              <div key={task.id} style={taskRow}>
+          <div className="forge-ledger">
+            {recent.map((task) => (
+              <div key={task.id} className={`forge-row${task.status === "running" ? " is-running" : ""}`}>
                 <span
                   style={{
                     width: 8,
@@ -124,38 +140,34 @@ export default function Dashboard() {
                     flexShrink: 0,
                   }}
                 />
-                <span style={{ flex: 1, fontSize: "0.85rem", color: "var(--fg)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {task.title}
-                </span>
-                <span className="ygg-dim" style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: 0.3, flexShrink: 0 }}>
-                  {task.status}
-                </span>
+                <span className="forge-row-title">{task.title}</span>
                 {task.prUrl && (
-                  <a href={task.prUrl} target="_blank" rel="noreferrer" style={{ fontSize: "0.7rem", color: "var(--accent)", textDecoration: "none", flexShrink: 0 }}>
+                  <a
+                    href={task.prUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="forge-row-mono"
+                    style={{ color: "var(--accent)", flexShrink: 0 }}
+                  >
                     PR ↗
                   </a>
                 )}
+                <span className="forge-row-meta" style={{ flexShrink: 0, color: STATUS_COLOR[task.status] ?? "var(--fg-dim)" }}>
+                  {STATUS_LABEL[task.status] ?? task.status}
+                </span>
               </div>
             ))}
           </div>
         )}
         {tasks.length > 12 && (
           <p className="ygg-muted" style={{ fontSize: "0.78rem", margin: "0.75rem 0 0", textAlign: "center" }}>
-            +{tasks.length - 12} more —{" "}
+            {tasks.length - 12} more ·{" "}
             <Link href="/history" style={{ color: "var(--accent)", textDecoration: "none" }}>
-              view all in History
+              Open the ledger
             </Link>
           </p>
         )}
-      </Section>
+      </section>
     </Main>
   );
 }
-
-const taskRow: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "0.6rem 1rem",
-  borderBottom: "1px solid var(--line-soft)",
-};

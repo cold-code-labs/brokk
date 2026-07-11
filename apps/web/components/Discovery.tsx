@@ -3,11 +3,11 @@
 import type { Project } from "@brokk/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Main, PageHeader, Banner, Button } from "@cold-code-labs/yggdrasil-react";
+import { Bird } from "lucide-react";
+import { Main, Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
 import { discovery, type ProjectBrief } from "../lib/chat";
 import { useProject } from "../lib/project-context";
-import { t } from "../lib/theme";
 
 /** Huginn's project-discovery page — its own surface (not crammed into the Quadro).
  *  Shows what the project IS, what's BUILT, what's MISSING, and turns the "missing"
@@ -45,7 +45,7 @@ export default function Discovery({ projectId }: { projectId?: string }) {
     };
   }, [projectId]);
 
-  // How many proposed cards (discovery/plan) are waiting in the backlog — drives "Aprovar todos".
+  // How many proposed cards (discovery/plan) are waiting in the backlog — drives "Approve N".
   const loadCount = useCallback(async () => {
     if (!projectId) return;
     try {
@@ -109,17 +109,17 @@ export default function Discovery({ projectId }: { projectId?: string }) {
       const { enqueued } = await brokk.approveProposed(projectId);
       await loadCount();
       setGenMsg(
-        enqueued ? `${enqueued} card(s) enfileirado(s) — a forja vai começar.` : "Nada proposto para aprovar.",
+        enqueued ? `${enqueued} card${enqueued === 1 ? "" : "s"} queued — to the forge.` : "Nothing proposed.",
       );
     } catch (e) {
-      setGenMsg(`Erro: ${String(e)}`);
+      setGenMsg(`Could not queue — ${String(e)}`);
     } finally {
       setAppBusy(false);
     }
   }
 
   // Materialize the brief's "missing" items as proposed backlog cards. They land in
-  // the Backlog column on the Quadro; approve each with "queue →" or "Aprovar todos".
+  // the Backlog column on the Quadro; approve each with "queue →" or "Approve N".
   async function generateBacklog() {
     if (!projectId || !brief) return;
     setGenBusy(true);
@@ -129,13 +129,13 @@ export default function Discovery({ projectId }: { projectId?: string }) {
       await loadCount();
       setGenMsg(
         created.length
-          ? `${created.length} card${created.length > 1 ? "s" : ""} no backlog${skipped ? ` · ${skipped} já existiam` : ""} — aprove abaixo ou no Quadro.`
+          ? `${created.length} card${created.length > 1 ? "s" : ""} in the backlog${skipped ? ` · ${skipped} already existed` : ""}. Approve here or on the board.`
           : skipped
-            ? `Todos os ${skipped} itens já viraram cards.`
-            : "Nada para gerar.",
+            ? `All ${skipped} items already have cards.`
+            : "Nothing to create.",
       );
     } catch (e) {
-      setGenMsg(`Erro: ${String(e)}`);
+      setGenMsg(`Could not create cards — ${String(e)}`);
     } finally {
       setGenBusy(false);
     }
@@ -145,71 +145,86 @@ export default function Discovery({ projectId }: { projectId?: string }) {
 
   return (
     <Main style={{ maxWidth: "72rem" }}>
-      <PageHeader
-        title={project ? project.name : "Descoberta"}
-        description={
-          <>
-            🪶 Huginn — descoberta do projeto.{" "}
-            {status === "pending" && <span className="ygg-dim">explorando o repositório…</span>}
-            {status === "failed" && <span style={{ color: "var(--err, #f85149)" }}>falhou</span>}
-          </>
-        }
-        actions={
+      {/* ── masthead: the scout ── */}
+      <header className="forge-head">
+        <div className="forge-head-top">
+          <div>
+            <div style={{ marginBottom: 6 }}>
+              <Link
+                href={projectId ? `/projects/${projectId}` : "/"}
+                className="ygg-dim"
+                style={{ fontSize: 12, textDecoration: "none" }}
+              >
+                ← Board
+              </Link>
+            </div>
+            <span className="forge-eyebrow">Brokk · the scout</span>
+            <h1 className="forge-title">{project ? project.name : "Discovery"}</h1>
+            <p className="forge-sub">
+              Huginn reads the repo and returns the brief — mission, built, missing, stack.
+            </p>
+            {status === "pending" && (
+              <span className="forge-pulse" style={{ marginTop: "0.8rem" }}>
+                <span className="forge-ember" />
+                Scouting…
+              </span>
+            )}
+          </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {proposedCount > 0 && (
               <Button type="button" size="sm" onClick={approveAll} disabled={appBusy}>
-                {appBusy ? "Enfileirando…" : `Aprovar todos (${proposedCount})`}
+                {appBusy ? "Queueing…" : `Approve ${proposedCount}`}
               </Button>
             )}
             <Button variant="outline" size="sm" type="button" onClick={rescout} disabled={status === "pending"}>
-              {status === "pending" ? "escaneando…" : brief ? "Re-escanear" : "Escanear"}
+              {status === "pending" ? "Scouting…" : brief ? "Scout again" : "Scout"}
             </Button>
           </div>
-        }
-      >
-        <Link
-          href={projectId ? `/projects/${projectId}` : "/"}
-          className="ygg-dim"
-          style={{ fontSize: 12, textDecoration: "none", display: "inline-block", marginBottom: 6 }}
-        >
-          ← Quadro
-        </Link>
-      </PageHeader>
+        </div>
+        <div className="forge-head-rule" />
+      </header>
 
-      {!loaded && <p className="ygg-dim" style={{ fontSize: 13 }}>carregando…</p>}
+      {!loaded && <p className="ygg-dim" style={{ fontSize: 13 }}>Loading…</p>}
 
       {loaded && !brief && status !== "pending" && (
-        <Banner tone="info">
-          Ainda não escaneado. Clique em “Escanear” para o Huginn ler o projeto e propor um backlog.
-        </Banner>
+        <div className="forge-empty is-panel">
+          <span className="forge-empty-mark"><Bird /></span>
+          <span className="forge-empty-title">Not yet scouted</span>
+          <p className="forge-empty-sub">
+            One pass writes the brief and proposes backlog cards from what is missing.
+          </p>
+          <span className="forge-empty-action">
+            <Button type="button" onClick={rescout}>Scout</Button>
+          </span>
+        </div>
       )}
 
       {status === "failed" && brief?.error && (
-        <Banner tone="err">⚠ {brief.error}</Banner>
+        <Banner tone="err">Scout failed — {brief.error}. Scout again to retry.</Banner>
       )}
 
       {brief?.status === "ready" && (
-        <section style={panel}>
+        <section className="forge-panel">
           <div style={{ display: "grid", gap: 16 }}>
-            {brief.mission && <p style={{ margin: 0, fontSize: 15, lineHeight: 1.5 }}>{brief.mission}</p>}
+            {brief.mission && <p style={{ margin: 0, fontSize: 15, lineHeight: 1.5, color: "var(--fg)" }}>{brief.mission}</p>}
             {brief.summary && (
-              <p className="ygg-dim" style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6 }}>{brief.summary}</p>
+              <p className="ygg-muted" style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6 }}>{brief.summary}</p>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-              <BriefList title="✅ Construído" items={brief.built} />
-              <BriefList title="🧭 Faltando / próximos passos" items={brief.missing} accent />
+              <BriefList title="Built" items={brief.built} />
+              <BriefList title="Missing" items={brief.missing} accent />
             </div>
             {brief.stack.length > 0 && (
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                <span className="ygg-dim" style={{ fontSize: 12 }}>stack:</span>
+                <span className="forge-h-title">Stack</span>
                 {brief.stack.map((s) => (
-                  <span key={s} style={stackChip}>{s}</span>
+                  <span key={s} className="forge-chip">{s}</span>
                 ))}
               </div>
             )}
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <Button type="button" size="sm" onClick={generateBacklog} disabled={genBusy || brief.missing.length === 0}>
-                {genBusy ? "Gerando…" : `Gerar cards do backlog (${brief.missing.length})`}
+                {genBusy ? "Creating…" : `Create ${brief.missing.length} card${brief.missing.length === 1 ? "" : "s"}`}
               </Button>
               {genMsg && <span className="ygg-dim" style={{ fontSize: 12 }}>{genMsg}</span>}
             </div>
@@ -223,9 +238,11 @@ export default function Discovery({ projectId }: { projectId?: string }) {
 function BriefList({ title, items, accent }: { title: string; items: string[]; accent?: boolean }) {
   return (
     <div>
-      <h3 style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--fg-dim)", margin: "0 0 8px" }}>
-        {title}
-      </h3>
+      <div className="forge-h" style={{ marginBottom: "0.6rem" }}>
+        <span className="forge-h-title">{title}</span>
+        <span className="forge-h-meta">{items.length}</span>
+        <span className="forge-h-rule" />
+      </div>
       {items.length === 0 ? (
         <p className="ygg-dim" style={{ fontSize: 12, margin: 0 }}>—</p>
       ) : (
@@ -237,10 +254,10 @@ function BriefList({ title, items, accent }: { title: string; items: string[]; a
                 fontSize: 13,
                 lineHeight: 1.4,
                 padding: "6px 9px",
-                borderRadius: 7,
-                border: "1px solid var(--border)",
-                borderLeft: `3px solid ${accent ? "var(--info, #2f81f7)" : "var(--ok, #2ea043)"}`,
-                background: "var(--bg-subtle, rgba(127,127,127,0.04))",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--line)",
+                borderLeft: `3px solid ${accent ? "var(--accent)" : "var(--ok)"}`,
+                background: "color-mix(in srgb, var(--fg) 3%, transparent)",
               }}
             >
               {it}
@@ -251,6 +268,3 @@ function BriefList({ title, items, accent }: { title: string; items: string[]; a
     </div>
   );
 }
-
-const panel: React.CSSProperties = { background: t.surface, border: `1px solid ${t.border}`, borderRadius: 12, padding: 18 };
-const stackChip: React.CSSProperties = { fontSize: 11, padding: "2px 8px", borderRadius: 999, border: `1px solid ${t.border}`, color: t.textMuted };

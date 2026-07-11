@@ -3,12 +3,11 @@
 import type { RepoCandidate } from "@brokk/sdk";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { DoorOpen } from "lucide-react";
 import {
   Main,
-  PageHeader,
   Banner,
   Button,
-  EmptyState,
 } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
 import { useProject } from "../lib/project-context";
@@ -87,119 +86,162 @@ export default function ConnectRepos() {
 
   return (
     <Main style={{ maxWidth: "52rem" }}>
-      <PageHeader
-        title="Connect repos"
-        description={
-          <>
-            Repos in <span style={{ color: "var(--fg)" }}>{org || "the org"}</span>{" "}
-            not yet on the forge. Each one you connect gets a default project.
-          </>
-        }
-        actions={
+      {/* ── masthead: the doors ── */}
+      <header className="forge-head">
+        <div className="forge-head-top">
+          <div>
+            <span className="forge-eyebrow">Brokk · the doors</span>
+            <h1 className="forge-title">Connect repos</h1>
+            <p className="forge-sub">
+              Repos in <span style={{ color: "var(--fg)" }}>{org || "the org"}</span> not yet at the
+              forge. Each connected repo gets a default project.
+            </p>
+          </div>
           <Button asChild variant="outline" size="sm">
             <Link href="/fleet">← Fleet</Link>
           </Button>
-        }
-      />
+        </div>
+        <div className="forge-head-rule" />
+      </header>
 
       {err && (
         <Banner tone="err">
           <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ flex: 1, minWidth: 0 }}>⚠ {humanizeErr(err)}</span>
+            <span style={{ flex: 1, minWidth: 0 }}>{humanizeErr(err)}</span>
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-              ↻ Tentar de novo
+              Retry
             </Button>
           </span>
         </Banner>
       )}
       {done !== null && (
         <Banner tone="info">
-          ✓ Connected {done} repo{done === 1 ? "" : "s"}.{" "}
+          {done} repo{done === 1 ? "" : "s"} connected.{" "}
           <Link href="/fleet" style={{ color: "var(--accent)", textDecoration: "none" }}>
             Open the fleet →
           </Link>
         </Banner>
       )}
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
+      {/* ── command bar: filter + connect ── */}
+      <div className="forge-bar" style={{ marginBottom: 14 }}>
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter…"
-          style={{ ...field, flex: "0 0 240px" }}
+          placeholder="Filter repos…"
+          aria-label="Filter repos"
         />
+        <button
+          type="button"
+          className="forge-bar-send"
+          onClick={connect}
+          disabled={busy || picked.size === 0}
+        >
+          {busy ? "Connecting…" : picked.size > 0 ? `Connect ${picked.size}` : "Connect"}
+        </button>
+      </div>
+
+      <div className="forge-h">
+        <span className="forge-h-title">Repos</span>
+        <span className="forge-h-meta">
+          {filter ? `${shown.length} of ${candidates.length}` : candidates.length}
+        </span>
+        <span className="forge-h-rule" />
         <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-          ↻ Refresh
-        </Button>
-        <span style={{ flex: 1 }} />
-        <Button onClick={connect} disabled={busy || picked.size === 0}>
-          {busy ? "Connecting…" : `Connect ${picked.size || ""} →`}
+          Refresh
         </Button>
       </div>
 
-      {loading && <p className="ygg-muted" style={{ fontSize: 13 }}>Listing repos via gh…</p>}
+      {loading && <p className="ygg-dim" style={{ fontSize: 13 }}>Listing repos…</p>}
       {!loading && shown.length === 0 && (
-        <EmptyState
-          title="Nothing to connect"
-          description="Every repo is already on the forge."
-          action={
-            <Button asChild variant="outline" size="sm">
-              <Link href="/fleet">Open the fleet →</Link>
-            </Button>
-          }
-        />
+        candidates.length === 0 ? (
+          <div className="forge-empty is-panel">
+            <span className="forge-empty-mark"><DoorOpen /></span>
+            <span className="forge-empty-title">Every door is open</span>
+            <p className="forge-empty-sub">
+              Each repo in {org || "the org"} is already connected to the forge.
+            </p>
+            <span className="forge-empty-action">
+              <Button asChild variant="outline" size="sm">
+                <Link href="/fleet">Open the fleet</Link>
+              </Button>
+            </span>
+          </div>
+        ) : (
+          <p className="ygg-dim" style={{ fontSize: 13 }}>
+            0 of {candidates.length} match “{filter}”.
+          </p>
+        )
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {shown.map((c) => {
-          const on = picked.has(c.fullName);
-          return (
-            <button key={c.fullName} onClick={() => toggle(c.fullName)} style={row(on)}>
-              <span style={{ ...check, ...(on ? checkOn : {}) }}>{on ? "✓" : ""}</span>
-              <span style={{ display: "flex", flexDirection: "column", flex: 1, textAlign: "left", minWidth: 0 }}>
-                <span style={{ fontSize: 13.5, color: "var(--fg)" }}>
-                  {c.fullName}
-                  {c.isArchived && <span style={{ fontSize: 11, color: "var(--fg-dim)" }}> · archived</span>}
+      {shown.length > 0 && (
+        <div className="forge-ledger">
+          {shown.map((c) => {
+            const on = picked.has(c.fullName);
+            return (
+              <button
+                key={c.fullName}
+                type="button"
+                onClick={() => toggle(c.fullName)}
+                aria-pressed={on}
+                className="forge-row"
+                style={rowReset(on)}
+              >
+                <span style={{ ...check, ...(on ? checkOn : {}) }}>{on ? "✓" : ""}</span>
+                <span style={{ display: "flex", flexDirection: "column", flex: 1, textAlign: "left", minWidth: 0 }}>
+                  <span
+                    className="forge-row-mono"
+                    style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
+                    {c.fullName}
+                    {c.isArchived && <span style={{ color: "var(--fg-dim)" }}> · archived</span>}
+                  </span>
+                  {c.description && (
+                    <span style={{ fontSize: 12, color: "var(--fg-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.description}
+                    </span>
+                  )}
                 </span>
-                {c.description && (
-                  <span style={{ fontSize: 12, color: "var(--fg-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.description}</span>
-                )}
-              </span>
-              <span style={{ fontSize: 11, color: "var(--fg-dim)" }}>{c.defaultBranch}</span>
-            </button>
-          );
-        })}
-      </div>
+                <span className="forge-row-meta">{c.defaultBranch}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </Main>
   );
 }
 
-/** Turn a raw SDK/proxy error into a calm, human line. Transient gateway hiccups
- *  (502/504/unreachable, or a `gh` timeout) get a "try again" framing instead of a
- *  stack-trace dump; anything unexpected falls through verbatim (trimmed). */
+/** Turn a raw SDK/proxy error into a line that names what broke and the next
+ *  move. Transient gateway hiccups (502/504/unreachable, or a `gh` timeout) get
+ *  a retry framing instead of a stack-trace dump; anything unexpected falls
+ *  through verbatim (trimmed). */
 function humanizeErr(raw: string): string {
   if (/502|504|bad gateway|unreachable|restarting|timed out|timeout/i.test(raw)) {
-    return "Não consegui listar os repositórios agora — o serviço está reiniciando ou indisponível. Tente de novo em instantes.";
+    return "Could not list repos — the gateway is restarting or unreachable. Retry in a moment.";
   }
   if (/gh repo list failed|unauthorized|401|403|auth/i.test(raw)) {
-    return "Falha ao consultar o GitHub via gh (autenticação ou acesso). Verifique o token da org e tente de novo.";
+    return "GitHub refused the gh call (auth or access). Check the org token, then retry.";
   }
   return raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
 }
 
-const field: React.CSSProperties = {
-  background: "var(--bg-soft)",
-  border: "1px solid var(--line)",
-  borderRadius: "0.55rem",
-  padding: "0.55rem 0.7rem",
-  color: "var(--fg)",
-  font: "inherit",
-  fontSize: "0.9rem",
-  minWidth: 140,
-};
-const check: React.CSSProperties = { width: 18, height: 18, borderRadius: 5, border: "1px solid var(--line-soft)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#fff", flexShrink: 0 };
-const checkOn: React.CSSProperties = { background: "var(--accent)", borderColor: "var(--accent)" };
-
-function row(on: boolean): React.CSSProperties {
-  return { display: "flex", alignItems: "center", gap: 11, width: "100%", background: on ? "var(--bg-soft)" : "var(--panel-2)", border: `1px solid ${on ? "var(--accent)" : "var(--line-soft)"}`, borderRadius: 9, padding: "10px 12px", cursor: "pointer" };
+/** Neutralize the UA button chrome so `.forge-row` reads as a ledger row: kill
+ *  the top/left/right borders only (the class supplies the bottom hairline) and
+ *  keep the picked state on an accent tint — never the ember (that's running
+ *  work). All color via tokens. */
+function rowReset(on: boolean): React.CSSProperties {
+  return {
+    width: "100%",
+    font: "inherit",
+    textAlign: "left",
+    cursor: "pointer",
+    borderTop: 0,
+    borderLeft: 0,
+    borderRight: 0,
+    background: on ? "color-mix(in srgb, var(--accent) 8%, transparent)" : "transparent",
+  };
 }
+
+const check: React.CSSProperties = { width: 18, height: 18, borderRadius: "var(--radius-sm)", border: "1px solid var(--line-soft)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "var(--primary-foreground)", flexShrink: 0 };
+const checkOn: React.CSSProperties = { background: "var(--accent)", borderColor: "var(--accent)" };

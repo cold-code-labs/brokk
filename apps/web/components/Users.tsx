@@ -2,16 +2,9 @@
 
 import type { Subscription, User } from "@brokk/sdk";
 import type React from "react";
-import { useEffect, useState } from "react";
-import {
-  Main,
-  PageHeader,
-  StatStrip,
-  Stat,
-  Banner,
-  EmptyState,
-  Button,
-} from "@cold-code-labs/yggdrasil-react";
+import { Fragment, useEffect, useState } from "react";
+import { Users as CrewIcon } from "lucide-react";
+import { Main, Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
 
 export default function Users() {
@@ -53,71 +46,115 @@ export default function Users() {
 
   return (
     <Main style={{ maxWidth: "54rem" }}>
-      <PageHeader
-        title="Users & seats"
-        description={
-          <>
-            Each member lends a <strong>Max seat</strong>; the forge spreads runs across them.
-          </>
-        }
-      />
+      {/* masthead — the crew */}
+      <header className="forge-head">
+        <div className="forge-head-top">
+          <div>
+            <span className="forge-eyebrow">Brokk · the crew</span>
+            <h1 className="forge-title">Crew</h1>
+            <p className="forge-sub">Each member lends a Max seat. The forge spreads runs across them.</p>
+          </div>
+        </div>
+        <div className="forge-head-rule" />
+      </header>
 
-      {err && <Banner tone="err">⚠ {err}</Banner>}
+      {err && <Banner tone="err">{err}</Banner>}
 
-      <StatStrip>
-        <Stat value={users.length} label="Members" />
-        <Stat value={subs.length} label="Seats connected" />
-        <Stat value={activeSeats} label="Active seats" tone="ok" dot />
-      </StatStrip>
+      {/* vitals */}
+      <div className="forge-tiles">
+        <div className="forge-tile">
+          <div className="forge-tile-num">{users.length}</div>
+          <div className="forge-tile-label">Members</div>
+        </div>
+        <div className="forge-tile">
+          <div className="forge-tile-num">{subs.length}</div>
+          <div className="forge-tile-label">Seats connected</div>
+        </div>
+        <div className={`forge-tile${activeSeats > 0 ? " is-live" : ""}`}>
+          <div className="forge-tile-num">{activeSeats}</div>
+          <div className="forge-tile-label">Active seats</div>
+          <span className="forge-tile-spark" />
+        </div>
+      </div>
 
-      <form onSubmit={addUser} style={{ display: "flex", gap: 8, marginBottom: "1.4rem", flexWrap: "wrap" }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" style={{ ...field, flex: "0 1 160px" }} />
-        <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@coldcodelabs.com" style={{ ...field, flex: "1 1 220px" }} />
-        <input value={gh} onChange={(e) => setGh(e.target.value)} placeholder="github (optional)" style={{ ...field, flex: "0 1 150px" }} />
-        <Button type="submit" disabled={!name.trim() || !email.trim()}>Add member</Button>
+      {/* one command-bar: add a member */}
+      <form onSubmit={addUser} className="forge-bar" style={{ marginBottom: "1.6rem" }}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Name"
+          style={{ flex: "0 1 10rem" }}
+        />
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="email@coldcodelabs.com"
+          style={{ borderLeft: "1px solid var(--line-soft)" }}
+        />
+        <input
+          value={gh}
+          onChange={(e) => setGh(e.target.value)}
+          placeholder="github (optional)"
+          style={{ flex: "0 1 10rem", borderLeft: "1px solid var(--line-soft)" }}
+        />
+        <button type="submit" className="forge-bar-send" disabled={!name.trim() || !email.trim()}>
+          Add member
+        </button>
       </form>
 
       {users.length === 0 ? (
-        <EmptyState title="No members yet" description="Add a member above to lend their Max seat to the forge." />
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {users.map((u) => {
-            const seats = subs.filter((s) => s.userId === u.id);
-            return (
-              <section key={u.id} className="ygg-card" style={{ animation: "none" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 600 }}>{u.name}</div>
-                    <div className="ygg-dim" style={{ fontSize: 12 }}>
-                      {u.email}{u.githubLogin ? ` · @${u.githubLogin}` : ""}
-                    </div>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => setConnect({ userId: u.id, step: "idle" })}>
-                    + Connect Max seat
-                  </Button>
-                </div>
-
-                <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                  {seats.length === 0 && <span className="ygg-dim" style={{ fontSize: 12 }}>no seats connected</span>}
-                  {seats.map((s) => (
-                    <span key={s.id} className="ygg-badge" data-tone={s.status === "active" ? "ok" : undefined}>
-                      {s.label}{" "}
-                      <span className="ygg-dim" style={{ fontFamily: "ui-monospace, monospace" }}>{s.tokenPreview}</span>
-                    </span>
-                  ))}
-                </div>
-
-                {connect?.userId === u.id && (
-                  <ConnectFlow
-                    state={connect}
-                    setState={setConnect}
-                    onDone={async () => { setConnect(null); await refresh(); }}
-                  />
-                )}
-              </section>
-            );
-          })}
+        <div className="forge-empty is-panel">
+          <span className="forge-empty-mark"><CrewIcon /></span>
+          <span className="forge-empty-title">No crew yet</span>
+          <p className="forge-empty-sub">
+            People you invite work the forge with you. Add a member above to lend their seat.
+          </p>
         </div>
+      ) : (
+        <>
+          <div className="forge-h">
+            <span className="forge-h-title">Members</span>
+            <span className="forge-h-meta">{users.length}</span>
+            <span className="forge-h-rule" />
+          </div>
+          <div className="forge-ledger">
+            {users.map((u) => {
+              const seats = subs.filter((s) => s.userId === u.id);
+              return (
+                <Fragment key={u.id}>
+                  <div className="forge-row">
+                    <span className="forge-row-title" style={{ flex: "0 1 auto" }}>{u.name}</span>
+                    {seats.length === 0 ? (
+                      <span className="forge-row-meta">0 seats</span>
+                    ) : (
+                      seats.map((s) => (
+                        <span key={s.id} className={`forge-chip${s.status === "active" ? " is-accent" : ""}`}>
+                          {s.label}
+                          <span className="forge-row-mono">{s.tokenPreview}</span>
+                        </span>
+                      ))
+                    )}
+                    <span className="forge-row-mono" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right" }}>
+                      {u.email}{u.githubLogin ? ` · @${u.githubLogin}` : ""}
+                    </span>
+                    <Button variant="outline" size="sm" onClick={() => setConnect({ userId: u.id, step: "idle" })}>
+                      Connect seat
+                    </Button>
+                  </div>
+                  {connect?.userId === u.id && (
+                    <div style={connectWrap}>
+                      <ConnectFlow
+                        state={connect}
+                        setState={setConnect}
+                        onDone={async () => { setConnect(null); await refresh(); }}
+                      />
+                    </div>
+                  )}
+                </Fragment>
+              );
+            })}
+          </div>
+        </>
       )}
     </Main>
   );
@@ -165,35 +202,35 @@ function ConnectFlow({
   }
 
   return (
-    <div style={panel}>
+    <div>
       {state.step === "idle" ? (
         <>
           <p style={pTxt}>
-            Click to open Claude’s authorize page. Sign in with this member’s <strong>Max</strong> account,
-            approve, then paste the code back here.
+            Opens Claude&rsquo;s authorize page. Sign in with this member&rsquo;s <strong>Max</strong> account,
+            approve, and paste the code back here.
           </p>
           <div style={{ display: "flex", gap: 8 }}>
-            <Button onClick={start} disabled={busy}>{busy ? "Starting…" : "Open authorize page →"}</Button>
+            <Button onClick={start} disabled={busy}>{busy ? "Opening…" : "Open authorize page"}</Button>
             <Button variant="outline" onClick={() => setState(null)}>Cancel</Button>
           </div>
         </>
       ) : (
         <>
           <p style={pTxt}>
-            Authorize page opened.{" "}
-            <a href={state.url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>reopen ↗</a>{" "}
-            — paste the code (looks like <code style={codeS}>abc…#xyz</code>):
+            Authorize page opened —{" "}
+            <a href={state.url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>reopen ↗</a>.{" "}
+            Paste the code (looks like <code style={codeS}>abc…#xyz</code>):
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="paste code here" style={{ ...field, flex: "1 1 280px" }} />
             <Button onClick={finish} disabled={busy || code.trim().length < 4}>
-              {busy ? "Sealing…" : "Connect seat"}
+              {busy ? "Connecting…" : "Connect seat"}
             </Button>
             <Button variant="outline" onClick={() => setState(null)}>Cancel</Button>
           </div>
         </>
       )}
-      {err && <Banner tone="err" style={{ marginBottom: 0, marginTop: 8 }}>⚠ {err}</Banner>}
+      {err && <Banner tone="err" style={{ marginBottom: 0, marginTop: 8 }}>{err}</Banner>}
     </div>
   );
 }
@@ -208,12 +245,11 @@ const field: React.CSSProperties = {
   fontSize: "0.9rem",
   minWidth: 120,
 };
-const panel: React.CSSProperties = {
-  marginTop: 12,
-  padding: 14,
-  background: "var(--bg)",
-  border: "1px solid var(--line-soft)",
-  borderRadius: 9,
+/* The connect flow lives inside the ledger, one shade deeper than the rows. */
+const connectWrap: React.CSSProperties = {
+  padding: "0.9rem 1.1rem",
+  background: "var(--bg-soft)",
+  borderBottom: "1px solid var(--line-soft)",
 };
 const pTxt: React.CSSProperties = { margin: "0 0 10px", fontSize: 13, color: "var(--fg)", lineHeight: 1.5 };
-const codeS: React.CSSProperties = { background: "var(--bg-soft)", padding: "1px 5px", borderRadius: 4 };
+const codeS: React.CSSProperties = { background: "var(--bg)", padding: "1px 5px", borderRadius: 4 };

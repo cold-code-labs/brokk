@@ -9,43 +9,43 @@ import type {
   RefinoLevel,
 } from "@brokk/sdk";
 import { useEffect, useState } from "react";
+import { Droplets } from "lucide-react";
 import {
   Main,
-  PageHeader,
-  Section,
   Banner,
   Button,
   Input,
   Textarea,
-  EmptyState,
 } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
 
 const MODES: { mode: MimirMode; label: string; hint: string }[] = [
-  { mode: "polish", label: "Leve", hint: "Só clareza/gramática" },
-  { mode: "structure", label: "Médio", hint: "Contexto → tarefa → saída" },
-  { mode: "engineer", label: "Forte", hint: "Arquétipo completo" },
+  { mode: "polish", label: "Light", hint: "Clarity and grammar only" },
+  { mode: "structure", label: "Standard", hint: "Context → task → output" },
+  { mode: "engineer", label: "Full", hint: "Full engineering archetype" },
 ];
 
 const REFINO_LABEL: Record<RefinoLevel, string> = {
-  none: "Já está claro",
-  polish: "Leve",
-  structure: "Médio",
-  engineer: "Forte (arquétipo)",
+  none: "Already clear",
+  polish: "Light",
+  structure: "Standard",
+  engineer: "Full archetype",
 };
 
 const FORCA_LABEL: Record<ForcaLevel, string> = {
-  low: "Baixa",
-  medium: "Média",
-  high: "Alta",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
   extra: "Extra",
 };
 
-const FORCA_COLOR: Record<ForcaLevel, string> = {
-  low: "#2ea043",
-  medium: "#d29922",
-  high: "#f0883e",
-  extra: "#f85149",
+/** Escalating badge tone for the force estimate — tokens only, never ember
+ *  (the ember is running work; a triage verdict is cold information). */
+const FORCA_TONE: Record<ForcaLevel, "info" | "warn" | "err" | undefined> = {
+  low: undefined,
+  medium: "info",
+  high: "warn",
+  extra: "err",
 };
 
 /** Refino "none" maps to no enhancer mode; the rest map 1:1 onto MimirMode. */
@@ -141,30 +141,34 @@ export default function Mimir() {
 
   return (
     <Main style={{ maxWidth: "58rem" }}>
-      <PageHeader
-        title="Mímir"
-        description={
-          <>
-            O conselheiro da forja: triagem em dois eixos + refino.{" "}
-            <strong>Mímir aconselha → Brokkr forja → Eitri revisa.</strong>
-          </>
-        }
-      />
+      {/* ── masthead: the well ── */}
+      <header className="forge-head">
+        <div className="forge-head-top">
+          <div>
+            <span className="forge-eyebrow">Brokk · the well</span>
+            <h1 className="forge-title">Mímir</h1>
+            <p className="forge-sub">
+              Refine a prompt, keep it, draw it again. Mímir counsels, Brokkr forges, Eitri reviews.
+            </p>
+          </div>
+        </div>
+        <div className="forge-head-rule" />
+      </header>
 
-      {err && <Banner tone="err">⚠ {err}</Banner>}
+      {err && <Banner tone="err">{err}</Banner>}
 
       {/* ── Intake ── */}
-      <div className="ygg-card" style={{ animation: "none" }}>
+      <div className="forge-panel">
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Cole a tarefa ou prompt cru…"
+          placeholder="Paste the raw prompt…"
           rows={5}
           style={{ resize: "vertical" }}
         />
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
           <Button variant="outline" size="sm" onClick={doTriage} disabled={busyT || !input.trim()}>
-            {busyT ? "Triando…" : "✦ Triar"}
+            {busyT ? "Triaging…" : "Triage"}
           </Button>
 
           <div style={{ display: "flex", gap: 4 }}>
@@ -182,86 +186,107 @@ export default function Mimir() {
           </div>
 
           <Button size="sm" onClick={doEnhance} disabled={busyE || !input.trim()}>
-            {busyE ? "Refinando…" : "Refinar"}
+            {busyE ? "Refining…" : "Refine"}
           </Button>
         </div>
 
         {triage && (
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12, flexWrap: "wrap", paddingTop: 12, borderTop: "1px solid var(--line)" }}>
-            <span className="ygg-badge" data-tone="info">refino: {REFINO_LABEL[triage.refino]}</span>
-            <span className="ygg-badge" style={{ color: FORCA_COLOR[triage.forca], borderColor: FORCA_COLOR[triage.forca] }}>
-              força: {FORCA_LABEL[triage.forca]}
+            <span className="ygg-badge" data-tone="info">refine · {REFINO_LABEL[triage.refino]}</span>
+            <span className="ygg-badge" data-tone={FORCA_TONE[triage.forca]}>
+              force · {FORCA_LABEL[triage.forca]}
             </span>
             <span className="ygg-muted" style={{ fontSize: 12.5, flex: 1, minWidth: 200 }}>{triage.rationale}</span>
           </div>
         )}
       </div>
 
-      {/* ── Result ── */}
+      {/* ── Result — the artifact is the message ── */}
       {result && (
-        <div className="ygg-card" style={{ animation: "none", marginTop: 14 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span className="ygg-dim" style={{ fontSize: 12 }}>
-              refinado · {result.mode} · {result.model}
+        <div className="forge-panel" style={{ marginTop: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            <span className="forge-row-mono">
+              {result.mode} · {result.model}
             </span>
             <div style={{ display: "flex", gap: 8 }}>
-              <Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(result.enhanced)}>Copiar</Button>
-              <Button size="sm" onClick={() => setSaving((v) => !v)}>Salvar no banco</Button>
+              <Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(result.enhanced)}>Copy</Button>
+              <Button size="sm" onClick={() => setSaving((v) => !v)}>Save prompt</Button>
             </div>
           </div>
           <pre style={pre}>{result.enhanced}</pre>
           {result.rationale && (
             <p className="ygg-muted" style={{ margin: "10px 0 0", fontSize: 12.5 }}>
-              <strong style={{ color: "var(--fg)" }}>O que melhorou:</strong> {result.rationale}
+              <strong style={{ color: "var(--fg)" }}>What changed:</strong> {result.rationale}
             </p>
           )}
           {saving && (
-            <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Título" style={{ flex: "0 1 220px", minWidth: 120 }} />
-              <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="tags, separadas, por, vírgula" style={{ flex: "0 1 260px", minWidth: 120 }} />
-              <Button size="sm" onClick={doSave}>Salvar</Button>
+            <div className="forge-bar" style={{ marginTop: 12 }}>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Title"
+                aria-label="Title"
+              />
+              <input
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                placeholder="tags, comma-separated"
+                aria-label="Tags"
+                style={{ borderLeft: "1px solid var(--line)" }}
+              />
+              <button type="button" className="forge-bar-send" onClick={doSave}>
+                Save
+              </button>
             </div>
           )}
         </div>
       )}
 
-      {/* ── Bank ── */}
-      <Section title="Banco de prompts" style={{ marginTop: "1.6rem" }}>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      {/* ── The well — prompts kept, ready to draw ── */}
+      <section style={{ marginTop: "2rem" }}>
+        <div className="forge-h">
+          <span className="forge-h-title">The well</span>
+          <span className="forge-h-meta">{bank.length}</span>
+          <span className="forge-h-rule" />
           <Input
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
               refreshBank(e.target.value).catch((er) => setErr(String(er)));
             }}
-            placeholder="Buscar…"
+            placeholder="Search…"
+            aria-label="Search prompts"
             style={{ flex: "0 1 220px", minWidth: 120 }}
           />
         </div>
 
         {bank.length === 0 ? (
-          <EmptyState
-            title="Banco vazio"
-            description="Nenhum prompt salvo ainda. Refine um prompt acima e salve no banco."
-          />
+          <div className="forge-empty is-panel">
+            <span className="forge-empty-mark"><Droplets /></span>
+            <span className="forge-empty-title">The well is empty</span>
+            <p className="forge-empty-sub">Prompts you save are kept here, ready to draw. Refine one above and save it.</p>
+          </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {bank.map((p) => (
-              <div key={p.id} className="ygg-card" style={{ animation: "none" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 12 }}>
+              <div key={p.id} className="forge-panel">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 14.5, fontWeight: 600 }}>{p.title}</div>
-                    {p.tags.length > 0 && (
-                      <div style={{ display: "flex", gap: 5, marginTop: 5, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 14.5, fontWeight: 650, color: "var(--fg)" }}>{p.title}</div>
+                    {(p.tags.length > 0 || p.refineCount > 0) && (
+                      <div style={{ display: "flex", gap: 5, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
                         {p.tags.map((tag) => (
-                          <span key={tag} className="ygg-badge">{tag}</span>
+                          <span key={tag} className="forge-chip">{tag}</span>
                         ))}
+                        {p.refineCount > 0 && (
+                          <span className="forge-row-meta">refined ×{p.refineCount}</span>
+                        )}
                       </div>
                     )}
                   </div>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                    <Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(p.body)}>Copiar</Button>
-                    <Button variant="destructive" size="sm" onClick={() => doDelete(p.id)}>Excluir</Button>
+                    <Button variant="outline" size="sm" onClick={() => navigator.clipboard?.writeText(p.body)}>Copy</Button>
+                    <Button variant="destructive" size="sm" onClick={() => doDelete(p.id)}>Delete</Button>
                   </div>
                 </div>
                 <pre style={{ ...pre, marginTop: 10, maxHeight: 140, overflow: "auto" }}>{p.body}</pre>
@@ -269,7 +294,7 @@ export default function Mimir() {
             ))}
           </div>
         )}
-      </Section>
+      </section>
     </Main>
   );
 }
@@ -283,7 +308,7 @@ const pre: React.CSSProperties = {
   color: "var(--fg)",
   background: "var(--bg)",
   border: "1px solid var(--line)",
-  borderRadius: 8,
+  borderRadius: "var(--radius-sm)",
   padding: 12,
-  fontFamily: "ui-monospace, SFMono-Regular, monospace",
+  fontFamily: "var(--font-mono, monospace)",
 };

@@ -94,28 +94,28 @@ export function StudioPanel({ previewId }: { previewId: string | null }) {
 
   let body: ReactNode;
   if (!previewId) {
-    body = hero("Sem preview ativo", "Suba o preview da sessão pra conectar ao banco.");
+    body = hero("No preview running", "Start the preview and the database connects here.");
   } else if (loading && !overview) {
     body = (
       <div className="studio-hero">
         <span className="sindri-spinner" />
-        <p>Conectando ao banco…</p>
+        <p>Connecting…</p>
       </div>
     );
   } else if (overview && !overview.connected) {
     const reasonSub =
       overview.reason === "no-database"
-        ? "Este projeto ainda não tem um banco Hauldr. Conectar/provisionar chega em breve."
+        ? "No Hauldr database on this project yet. Provisioning lands here soon."
         : overview.reason === "studio-disabled"
-          ? "O Studio não está configurado (HAULDR_CONTROL_URL ausente)."
-          : overview.error || "Não foi possível alcançar o banco.";
-    body = hero("Sem banco conectado", reasonSub);
+          ? "Studio is not configured — HAULDR_CONTROL_URL is unset."
+          : overview.error || "Database unreachable.";
+    body = hero("No database connected", reasonSub);
   } else if (overview?.connected) {
     body = (
       <div className="studio-split">
         <aside className="studio-tables">
           <div className="studio-tables-head">
-            <span>Tabelas</span>
+            <span>Tables</span>
             <span className="studio-count">{tables?.length ?? 0}</span>
           </div>
           <ul>
@@ -133,7 +133,7 @@ export function StudioPanel({ previewId }: { previewId: string | null }) {
               </li>
             ))}
             {tables && tables.length === 0 ? (
-              <li className="studio-empty">Nenhuma tabela no schema public.</li>
+              <li className="studio-empty">0 tables in the public schema.</li>
             ) : null}
           </ul>
         </aside>
@@ -168,21 +168,21 @@ export function StudioPanel({ previewId }: { previewId: string | null }) {
                     ))}
                   </tbody>
                 </table>
-                {data.rows.length === 0 ? <div className="studio-empty">Tabela vazia.</div> : null}
+                {data.rows.length === 0 ? <div className="studio-empty">0 rows.</div> : null}
               </div>
               <div className="studio-grid-foot">
-                {data.rows.length} linha{data.rows.length === 1 ? "" : "s"}
-                {data.hasMore ? " (primeiras — há mais)" : ""} · leitura
+                {data.rows.length} row{data.rows.length === 1 ? "" : "s"}
+                {data.hasMore ? " · first page" : ""} · read-only
               </div>
             </>
           ) : (
-            hero("Selecione uma tabela")
+            hero("Pick a table")
           )}
         </div>
       </div>
     );
   } else {
-    body = hero("Banco", err || "");
+    body = hero("Database", err || "");
   }
 
   return (
@@ -190,15 +190,15 @@ export function StudioPanel({ previewId }: { previewId: string | null }) {
       <div className="studio-bar">
         <span className="studio-bar-title">
           <Database size={13} />
-          {overview?.connected ? overview.database || overview.hauldrProject : "Banco de dados"}
+          {overview?.connected ? overview.database || overview.hauldrProject : "Database"}
         </span>
         {overview?.connected ? (
-          <span className="studio-bar-meta">{overview.tableCount ?? 0} tabelas · read-only</span>
+          <span className="studio-bar-meta">{overview.tableCount ?? 0} tables · read-only</span>
         ) : null}
         <button
           type="button"
           className="sindri-preview-icon"
-          title="Recarregar"
+          title="Reload"
           onClick={() => void load()}
           disabled={!previewId || loading}
         >

@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // The Brokk cast — who DID a thing, shown as an avatar instead of "you". Each
 // agent gets a coloured icon-badge keyed off a task's `createdBy` (huginn /
-// sindri / brokk / eitri / mimir). Unknown / null = the human operator ("Você").
+// sindri / brokk / eitri / mimir). Unknown / null = the human operator ("You").
 // Icon-badges (lucide) are consistent + legible small; swap for portrait art
 // later if wanted.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ const CAST: Record<string, Member> = {
 /** Resolve a `createdBy` string to a cast member (human operator as fallback). */
 export function actorOf(createdBy?: string | null): Member {
   const key = (createdBy ?? "").toLowerCase();
-  return CAST[key] ?? { label: createdBy || "Você", color: "#6b7488", Icon: User };
+  return CAST[key] ?? { label: createdBy || "You", color: "#6b7488", Icon: User };
 }
 
 export function AgentAvatar({

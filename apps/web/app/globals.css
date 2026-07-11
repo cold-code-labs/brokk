@@ -177,11 +177,11 @@ body:has(.sindri) {
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 .sindri-tab:hover {
-  background: var(--card);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
   color: var(--fg-soft, var(--fg));
 }
 .sindri-tab.is-active {
-  background: var(--card);
+  background: color-mix(in srgb, var(--accent) 11%, var(--panel-2));
   border-color: var(--border);
   color: var(--fg);
   font-weight: 500;
@@ -229,8 +229,8 @@ body:has(.sindri) {
 }
 .sindri-tab-del:hover {
   opacity: 1;
-  color: #f85149;
-  background: color-mix(in srgb, #f85149 16%, transparent);
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 16%, transparent);
 }
 
 /* ── body: chat | gutter | preview split ── */
@@ -278,19 +278,20 @@ body:has(.sindri) {
   background: var(--primary);
 }
 
+/* running-session dot — live work carries the ember (soul: the one warm signal) */
 .sindri-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #2ea043;
+  background: var(--ember);
   flex-shrink: 0;
-  box-shadow: 0 0 0 0 rgba(46, 160, 67, 0.6);
-  animation: sindri-pulse 1.6s infinite;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ember) 60%, transparent);
+  animation: sindri-ember 1.6s infinite;
 }
-@keyframes sindri-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(46, 160, 67, 0.5); }
-  70% { box-shadow: 0 0 0 6px rgba(46, 160, 67, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(46, 160, 67, 0); }
+@keyframes sindri-ember {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ember) 50%, transparent); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 
 /* ── chat column ── */
@@ -655,7 +656,7 @@ body:has(.sindri) {
   background: var(--card);
   color: var(--fg-soft, var(--fg));
   cursor: pointer;
-  box-shadow: var(--shadow-1, 0 2px 8px rgba(0, 0, 0, 0.25));
+  box-shadow: var(--shadow-1);
   z-index: 5;
 }
 .sindri-scroll-btn:hover {
@@ -672,7 +673,7 @@ body:has(.sindri) {
   overflow: hidden;
 }
 .sindri-tool.is-error {
-  border-color: #f85149;
+  border-color: color-mix(in srgb, var(--err) 60%, var(--border));
 }
 .sindri-tool-head {
   display: flex;
@@ -720,12 +721,12 @@ body:has(.sindri) {
   color: var(--fg-dim);
 }
 .sindri-tool-pill.is-ok {
-  color: var(--ok, #2ea043);
-  border-color: color-mix(in srgb, var(--ok, #2ea043) 45%, transparent);
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
 }
 .sindri-tool-pill.is-error {
-  color: var(--err, #f85149);
-  border-color: color-mix(in srgb, var(--err, #f85149) 50%, transparent);
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 50%, transparent);
 }
 .sindri-tool-pill.is-running {
   border: 0;
@@ -1013,7 +1014,7 @@ body:has(.sindri) {
 }
 .sindri-preview-icon:hover {
   color: var(--fg);
-  background: var(--card);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
 }
 .sindri-preview-icon.is-on {
   color: var(--primary);
@@ -1049,7 +1050,7 @@ body:has(.sindri) {
 .sindri-viewswitch .sindri-preview-icon.is-on {
   background: var(--bg-soft, var(--card));
   border-color: var(--border);
-  box-shadow: var(--shadow-1, 0 1px 2px rgba(0, 0, 0, 0.12));
+  box-shadow: var(--shadow-1);
 }
 /* live viewport width readout, sits between the device toggles and the actions */
 .sindri-preview-dim {
@@ -1091,7 +1092,7 @@ body:has(.sindri) {
   border-radius: var(--radius, 12px);
   background: var(--bg-soft, var(--card));
   overflow: hidden;
-  box-shadow: var(--shadow-2, 0 10px 30px rgba(0, 0, 0, 0.22));
+  box-shadow: var(--shadow-2);
 }
 .sindri-preview-window-bar {
   display: flex;
@@ -1133,7 +1134,7 @@ body:has(.sindri) {
   padding: 1.4rem 1rem 1.8rem;
 }
 .sindri-preview-mark.is-err {
-  color: var(--danger, #f85149);
+  color: var(--err);
 }
 .sindri-preview-frame {
   width: 100%;
@@ -1149,7 +1150,7 @@ body:has(.sindri) {
   width: 100%;
   height: 100%;
   border: 0;
-  background: #fff;
+  background: var(--bg);
 }
 .sindri-preview-frame.is-mobile .sindri-preview-iframe {
   width: 390px;
@@ -1157,7 +1158,7 @@ body:has(.sindri) {
   height: 100%;
   border: 1px solid var(--border);
   border-radius: 14px;
-  box-shadow: var(--shadow-2, 0 8px 28px rgba(0, 0, 0, 0.25));
+  box-shadow: var(--shadow-2);
 }
 .sindri-preview-msg {
   margin: auto;
@@ -1228,7 +1229,7 @@ body:has(.sindri) {
 }
 .studio-err {
   padding: 6px 10px;
-  color: #f85149;
+  color: var(--err);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   font-size: 12px;
@@ -1279,10 +1280,10 @@ body:has(.sindri) {
   font-size: 13px;
 }
 .studio-table-item:hover {
-  background: var(--panel-2);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
 }
 .studio-table-item.is-on {
-  background: var(--bg-soft);
+  background: color-mix(in srgb, var(--accent) 11%, var(--panel));
   box-shadow: inset 2px 0 0 var(--accent);
 }
 .studio-table-name {
@@ -1290,6 +1291,8 @@ body:has(.sindri) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
 }
 .studio-table-rows {
   color: var(--fg-dim);
@@ -1434,7 +1437,7 @@ body:has(.sindri) {
 }
 .fv-err {
   padding: 6px 10px;
-  color: #f85149;
+  color: var(--err);
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   font-size: 12px;
@@ -1466,10 +1469,10 @@ body:has(.sindri) {
   font-size: 13px;
 }
 .fv-item:hover {
-  background: var(--panel-2);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
 }
 .fv-item.is-on {
-  background: var(--bg-soft);
+  background: color-mix(in srgb, var(--accent) 11%, var(--panel));
   box-shadow: inset 2px 0 0 var(--accent);
 }
 .fv-up {
@@ -2042,7 +2045,7 @@ html.dark .fv-hl .shiki span {
   .lp-strip-inner { grid-template-columns: 1fr 1fr; }
 }
 
-/* ── preview mobile-exclusivo (projeto Expo): moldura de aparelho ── */
+/* ── mobile-only preview (Expo project): device frame ── */
 .sindri-preview-frame.is-phone {
   align-items: flex-start;
   padding: 0.9rem 0;
@@ -2054,8 +2057,8 @@ html.dark .fv-hl .shiki span {
   border: 1px solid var(--border);
   border-radius: 26px;
   overflow: hidden;
-  background: #fff;
-  box-shadow: var(--shadow-2, 0 8px 28px rgba(0, 0, 0, 0.25));
+  background: var(--bg);
+  box-shadow: var(--shadow-2);
 }
 .sindri-phone .sindri-preview-iframe {
   width: 100%;

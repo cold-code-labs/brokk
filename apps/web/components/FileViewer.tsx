@@ -166,7 +166,7 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
       <div className="fv-bar">
         <nav className="fv-crumbs">
           <button type="button" className="fv-crumb" onClick={() => void loadDir("")}>
-            raiz
+            root
           </button>
           {crumbs.map((seg, i) => (
             <span key={i} className="fv-crumb-wrap">
@@ -185,7 +185,7 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
         <button
           type="button"
           className="sindri-preview-icon"
-          title="Enviar arquivo"
+          title="Upload file"
           onClick={() => inputRef.current?.click()}
           disabled={!list?.ready || uploading}
         >
@@ -194,7 +194,7 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
         <button
           type="button"
           className="sindri-preview-icon"
-          title="Recarregar"
+          title="Reload"
           onClick={() => void loadDir(dir)}
           disabled={loading}
         >
@@ -217,17 +217,17 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
       {!list ? (
         <div className="fv-hero">
           <span className="sindri-spinner" />
-          <p>Lendo arquivos…</p>
+          <p>Reading…</p>
         </div>
       ) : !list.ready ? (
         <div className="fv-hero">
           <div className="fv-hero-mark">
             <Folder size={26} strokeWidth={1.4} />
           </div>
-          <p>Sem checkout ainda</p>
+          <p>No checkout yet</p>
           <span className="fv-hero-sub">
-            Suba o preview (ou deixe o Sindri fazer a primeira edição) pra materializar os arquivos da
-            sessão.
+            Start the preview — or let Sindri make the first edit — and the session&apos;s files
+            land here.
           </span>
         </div>
       ) : (
@@ -255,7 +255,7 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
                 {en.type === "file" ? <span className="fv-size">{fmtSize(en.size)}</span> : null}
               </button>
             ))}
-            {list.entries.length === 0 ? <div className="fv-empty">Pasta vazia.</div> : null}
+            {list.entries.length === 0 ? <div className="fv-empty">0 files.</div> : null}
           </aside>
 
           <div className="fv-view">
@@ -264,8 +264,8 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
                 <div className="fv-hero-mark">
                   <FileIcon size={26} strokeWidth={1.4} />
                 </div>
-                <p>Selecione um arquivo</p>
-                <span className="fv-hero-sub">Ou arraste arquivos aqui pra enviá-los ao worktree.</span>
+                <p>Pick a file</p>
+                <span className="fv-hero-sub">Or drop files here to upload them to the worktree.</span>
               </div>
             ) : fileBusy && !file ? (
               <div className="fv-hero">
@@ -280,7 +280,7 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
                   <span className="fv-view-meta">{fmtSize(file.size)}</span>
                   <a
                     className="sindri-preview-icon"
-                    title="Baixar"
+                    title="Download"
                     href={files.downloadUrl(sessionId, file.path)}
                   >
                     <Download size={14} />
@@ -291,8 +291,8 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
                     <div className="fv-hero-mark">
                       <FileIcon size={26} strokeWidth={1.4} />
                     </div>
-                    <p>Arquivo binário</p>
-                    <span className="fv-hero-sub">Sem pré-visualização — use o botão de baixar.</span>
+                    <p>Binary file</p>
+                    <span className="fv-hero-sub">No preview for binaries — download it.</span>
                   </div>
                 ) : (
                   <div className="fv-code-scroll">
@@ -304,7 +304,7 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
                       <pre className="fv-code">{file.content}</pre>
                     )}
                     {file.truncated ? (
-                      <div className="fv-trunc">Arquivo grande — mostrando os primeiros 512 KB.</div>
+                      <div className="fv-trunc">Truncated — first 512 KB shown.</div>
                     ) : null}
                   </div>
                 )}
@@ -317,10 +317,10 @@ export function FileViewer({ sessionId }: { sessionId: string }) {
       {dragging ? (
         <div className="fv-drop">
           <Upload size={30} strokeWidth={1.4} />
-          <p>Solte pra enviar em {dir ? `/${dir}` : "raiz"}</p>
+          <p>Drop to upload to {dir ? `/${dir}` : "root"}</p>
         </div>
       ) : null}
-      {uploading ? <div className="fv-uploading">Enviando…</div> : null}
+      {uploading ? <div className="fv-uploading">Uploading…</div> : null}
     </div>
   );
 }

@@ -32,8 +32,8 @@ const GLOBAL = [
   { href: "/mimir", label: "Mímir", icon: <BookText /> },
 ] as const;
 
-// Project-scoped — these operate on the selected Ambiente. (Quadro's href is
-// dynamic, so it's rendered separately.)
+// Project-scoped — these operate on the selected project (the anvil). (Board's
+// href is dynamic, so it's rendered separately.)
 const ENV = [
   { href: "/chat", label: "Sindri", icon: <MessageSquare /> },
 ] as const;
@@ -68,7 +68,7 @@ function ProjectSwitcher() {
           cursor: "pointer",
         }}
       >
-        {projects.length === 0 && <option value="">— sem projetos —</option>}
+        {projects.length === 0 && <option value="">no projects yet</option>}
         {projects.map((p) => (
           <option key={p.id} value={p.id}>
             {p.name}
@@ -82,7 +82,7 @@ function ProjectSwitcher() {
 const MANAGE = [
   { href: "/connect", label: "Connect", icon: <Plus /> },
   { href: "/history", label: "History", icon: <List /> },
-  { href: "/users", label: "Users", icon: <Users /> },
+  { href: "/users", label: "Crew", icon: <Users /> },
   { href: "/settings", label: "Settings", icon: <Settings /> },
 ] as const;
 
@@ -122,7 +122,7 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
         </NavGroup>
 
         {/* Project-scoped — the switcher + the pages that operate on it. */}
-        <NavGroup label="Ambiente">
+        <NavGroup label="Anvil">
           <ProjectSwitcher />
           <NavLink
             as={Link}
@@ -130,7 +130,7 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
             icon={<Columns3 />}
             active={path.startsWith("/projects") && !path.endsWith("/descoberta")}
           >
-            Quadro
+            Board
           </NavLink>
           <NavLink
             as={Link}
@@ -138,7 +138,7 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
             icon={<Feather />}
             active={path.endsWith("/descoberta")}
           >
-            Descoberta
+            Discovery
           </NavLink>
           {ENV.map((n) => (
             <NavLink
@@ -152,7 +152,7 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
             </NavLink>
           ))}
         </NavGroup>
-        <NavGroup label="Manage">
+        <NavGroup label="Bench">
           {MANAGE.map((n) => (
             <NavLink
               key={n.href}

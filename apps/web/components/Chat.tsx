@@ -77,9 +77,9 @@ const MODELS = [
 
 // Reasoning effort → extended-thinking budget (backend: low=off, medium, high).
 const EFFORTS = [
-  { id: "low", label: "Leve" },
-  { id: "medium", label: "Médio" },
-  { id: "high", label: "Profundo" },
+  { id: "low", label: "Low" },
+  { id: "medium", label: "Medium" },
+  { id: "high", label: "Deep" },
 ];
 
 // Split (chat fraction) — persisted per-browser, so the balance you set survives
@@ -113,13 +113,13 @@ function relTime(iso?: string | null): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
   const s = Math.max(0, (Date.now() - then) / 1000);
-  if (s < 45) return "agora";
+  if (s < 45) return "now";
   if (s < 3600) return `${Math.round(s / 60)} min`;
   if (s < 86400) return `${Math.round(s / 3600)} h`;
   const d = Math.round(s / 86400);
-  if (d === 1) return "ontem";
+  if (d === 1) return "yesterday";
   if (d < 30) return `${d} d`;
-  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  return new Date(iso).toLocaleDateString("en-US", { day: "2-digit", month: "short" });
 }
 
 function sessionTime(s: ChatSessionWithStats): string {
@@ -348,7 +348,8 @@ export default function Chat() {
 
   async function removeSession(id: string, ev: React.MouseEvent) {
     ev.stopPropagation();
-    if (!confirm("Apagar este chat?")) return;
+    const name = sessions.find((s) => s.id === id)?.title;
+    if (!confirm(`This deletes ${name ? `"${name}"` : "the session"} and its transcript. Delete?`)) return;
     await chat.deleteSession(id).catch(() => {});
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (sessionId === id) {
@@ -480,13 +481,13 @@ export default function Chat() {
             <div className="sindri-blank-mark">
               <Hammer size={34} strokeWidth={1.4} />
             </div>
-            <h3>{currentProject ? `Trabalhe ${currentProject.name} com Sindri` : "Selecione um ambiente"}</h3>
+            <h3>{currentProject ? "No sessions yet" : "Pick an environment"}</h3>
             <p>
-              Abra um novo chat: ele clona o repositório e trabalha numa branch própria — lê, edita,
-              roda, e mostra o preview ao vivo das mudanças ao lado.
+              Start one and Sindri picks up the hammer with you — a clone of the repo, its own
+              branch, and the live preview beside the chat.
             </p>
             <Button variant="default" onClick={newChat} disabled={!projectId}>
-              <Plus size={16} /> Novo chat
+              <Plus size={16} /> New chat
             </Button>
           </div>
         </div>
@@ -513,15 +514,15 @@ export default function Chat() {
                   onClick={newChat}
                   disabled={!projectId}
                   className="sindri-tab-new"
-                  title="Novo chat"
-                  aria-label="Novo chat"
+                  title="New chat"
+                  aria-label="New chat"
                 >
                   <Plus size={16} />
                 </Button>
                 <div className="sindri-tabs-scroll">
                   {sortedSessions.length === 0 ? (
                     <span className="sindri-tabs-empty">
-                      {currentProject ? `Sem conversas em ${currentProject.name}.` : "Selecione um ambiente."}
+                      {currentProject ? `No sessions in ${currentProject.name}.` : "Pick an environment."}
                     </span>
                   ) : (
                     sortedSessions.map((s) => {
@@ -564,7 +565,7 @@ export default function Chat() {
                           )}
                           <span
                             className="sindri-tab-del"
-                            title="Apagar conversa"
+                            title="Delete session"
                             onClick={(e) => removeSession(s.id, e)}
                           >
                             <Trash2 size={12} />
@@ -578,7 +579,7 @@ export default function Chat() {
                   <button
                     type="button"
                     className="sindri-preview-toggle"
-                    title="Mostrar preview"
+                    title="Show preview"
                     onClick={() => setPreviewOpen(true)}
                   >
                     <PanelRightOpen size={15} />
@@ -601,7 +602,7 @@ export default function Chat() {
                   ) : null}
                   {running ? (
                     <div className="sindri-status">
-                      <span className="sindri-spinner" /> {phase || "working"}…
+                      <span className="sindri-spinner" /> {phase || "forging"}…
                     </div>
                   ) : null}
                   <ScrollToBottom />
@@ -612,7 +613,7 @@ export default function Chat() {
               <div className="sindri-composer">
                 <textarea
                   className="sindri-input"
-                  placeholder="Peça algo ao Sindri…  (Enter envia, Shift+Enter quebra linha)"
+                  placeholder="Describe the work…  (Enter sends · Shift+Enter for a new line)"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKey}
@@ -622,8 +623,8 @@ export default function Chat() {
                 <div className="sindri-cockpit">
                   <div className="sindri-cockpit-controls">
                     {/* effort: a lightning chip whose signal bars fill up with the
-                        reasoning level (leve=1 · médio=2 · profundo=3). */}
-                    <label className="sindri-chip sindri-effort" title="Esforço de raciocínio">
+                        reasoning level (low=1 · medium=2 · deep=3). */}
+                    <label className="sindri-chip sindri-effort" title="Reasoning effort">
                       <Zap size={13} />
                       <span className="sindri-bars" data-level={effort} aria-hidden="true">
                         <i />
@@ -645,7 +646,7 @@ export default function Chat() {
                         ))}
                       </select>
                     </label>
-                    <label className="sindri-chip sindri-model" title="Modelo">
+                    <label className="sindri-chip sindri-model" title="Model">
                       <select
                         className="sindri-chip-select"
                         value={model}
@@ -668,8 +669,8 @@ export default function Chat() {
                       variant="destructive"
                       onClick={stop}
                       className="sindri-send"
-                      title="Parar"
-                      aria-label="Parar"
+                      title="Stop"
+                      aria-label="Stop"
                     >
                       <Square size={16} />
                     </Button>
@@ -679,8 +680,8 @@ export default function Chat() {
                       onClick={send}
                       disabled={!input.trim()}
                       className="sindri-send"
-                      title="Enviar (Enter)"
-                      aria-label="Enviar"
+                      title="Send (Enter)"
+                      aria-label="Send"
                     >
                       <Send size={16} />
                     </Button>
@@ -698,8 +699,8 @@ export default function Chat() {
               role="separator"
               aria-orientation="vertical"
               aria-valuenow={Math.round(split * 100)}
-              aria-label="Redimensionar painéis (duplo-clique restaura)"
-              title="Arraste para redimensionar · duplo-clique restaura"
+              aria-label="Resize panes (double-click resets)"
+              title="Drag to resize · double-click resets"
               onPointerDown={startDrag}
               onDoubleClick={resetSplit}
             >
@@ -894,15 +895,15 @@ function SindriPreview({
           : theme.textMuted;
   const statusLabel =
     status === "live"
-      ? "ao vivo"
+      ? "live"
       : status === "starting"
-        ? "subindo…"
+        ? "starting…"
         : status === "failed"
-          ? "falhou"
+          ? "failed"
           : status === "unsupported"
-            ? "sem runtime"
+            ? "no runtime"
             : status === "stopped"
-              ? "parado"
+              ? "stopped"
               : "preview";
 
   return (
@@ -912,7 +913,7 @@ function SindriPreview({
         <button
           type="button"
           className="sindri-preview-icon"
-          title="Ocultar preview (chat inteiro)"
+          title="Hide preview"
           onClick={onHide}
         >
           <PanelRightClose size={15} />
@@ -920,17 +921,17 @@ function SindriPreview({
         <button
           type="button"
           className={`sindri-preview-icon ${zen ? "is-on" : ""}`}
-          title={zen ? "Restaurar o chat" : "Foco: preview em tela cheia"}
+          title={zen ? "Restore chat" : "Preview full-screen"}
           onClick={onToggleZen}
         >
           {zen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
         </button>
         <span className="sindri-preview-sep" />
-        <div className="sindri-viewswitch" role="tablist" aria-label="Modo de visualização">
+        <div className="sindri-viewswitch" role="tablist" aria-label="View">
           <button
             type="button"
             className={`sindri-preview-icon ${view === "preview" ? "is-on" : ""}`}
-            title="Preview do site"
+            title="Preview"
             onClick={() => setView("preview")}
           >
             <Eye size={15} />
@@ -938,7 +939,7 @@ function SindriPreview({
           <button
             type="button"
             className={`sindri-preview-icon ${view === "code" ? "is-on" : ""}`}
-            title="Código em desenvolvimento"
+            title="Code"
             onClick={() => setView("code")}
           >
             <Code2 size={15} />
@@ -946,7 +947,7 @@ function SindriPreview({
           <button
             type="button"
             className={`sindri-preview-icon ${view === "database" ? "is-on" : ""}`}
-            title="Banco de dados"
+            title="Database"
             onClick={() => setView("database")}
           >
             <Database size={15} />
@@ -958,12 +959,12 @@ function SindriPreview({
           {statusLabel}
         </span>
         {branch ? (
-          <span className="sindri-preview-branch" title={`Worktree da sessão: ${branch}`}>
+          <span className="sindri-preview-branch" title={`Session worktree: ${branch}`}>
             <GitBranch size={12} /> {branch}
           </span>
         ) : null}
         {tokensIn > 0 && tokensOut > 0 ? (
-          <span className="sindri-preview-tok" title="Tokens nesta sessão (entrada · saída)">
+          <span className="sindri-preview-tok" title="Session tokens (in · out)">
             {fmtTokens(tokensIn)} · {fmtTokens(tokensOut)}
           </span>
         ) : null}
@@ -973,7 +974,7 @@ function SindriPreview({
             // Projeto mobile: sem toggle desktop, sem drag — troca-se de aparelho.
             <select
               className="sindri-preview-device"
-              title="Aparelho do preview"
+              title="Preview device"
               value={phoneId}
               onChange={(e) => setPhoneId(e.target.value)}
             >
@@ -988,7 +989,7 @@ function SindriPreview({
               <button
                 type="button"
                 className={`sindri-preview-icon ${device === "desktop" ? "is-on" : ""}`}
-                title="Largura desktop"
+                title="Desktop width"
                 onClick={() => setDevice("desktop")}
               >
                 <Monitor size={15} />
@@ -996,7 +997,7 @@ function SindriPreview({
               <button
                 type="button"
                 className={`sindri-preview-icon ${device === "mobile" ? "is-on" : ""}`}
-                title="Largura mobile"
+                title="Mobile width"
                 onClick={() => setDevice("mobile")}
               >
                 <Smartphone size={15} />
@@ -1009,7 +1010,7 @@ function SindriPreview({
           <button
             type="button"
             className="sindri-preview-icon"
-            title="Recarregar"
+            title="Reload"
             disabled={!live}
             onClick={() => setIframeKey((k) => k + 1)}
           >
@@ -1017,7 +1018,7 @@ function SindriPreview({
           </button>
           <a
             className={`sindri-preview-icon ${live ? "" : "is-disabled"}`}
-            title="Abrir em nova aba"
+            title="Open in new tab"
             href={live ? preview?.url : undefined}
             target="_blank"
             rel="noreferrer"
@@ -1059,7 +1060,7 @@ function SindriPreview({
               <iframe
                 key={iframeKey}
                 src={preview.url}
-                title="Preview ao vivo"
+                title="Live preview"
                 className="sindri-preview-iframe"
                 sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
               />
@@ -1083,12 +1084,12 @@ function SindriPreview({
               {status === "starting" ? (
                 <div className="sindri-preview-msg">
                   <span className="sindri-spinner" />
-                  <p>Subindo o ambiente de preview…</p>
-                  {/* Live phase from the supervisor (preparando código →
-                      provisionando banco → migrações → instalando/compilando),
+                  <p>Starting preview…</p>
+                  {/* Live phase from the supervisor (preparing code →
+                      provisioning db → migrations → install/build),
                       falling back to the generic hint before the first phase lands. */}
                   <span className="sindri-preview-sub">
-                    {preview?.detail || "A primeira subida pode levar ~1 min."}
+                    {preview?.detail || "First boot takes ~1 min."}
                   </span>
                 </div>
               ) : status === "failed" ? (
@@ -1096,10 +1097,10 @@ function SindriPreview({
                   <div className="sindri-preview-mark is-err">
                     <RotateCw size={24} strokeWidth={1.5} />
                   </div>
-                  <p>O preview falhou ao subir.</p>
+                  <p>Preview failed to boot.</p>
                   {err ? <span className="sindri-preview-sub">{err}</span> : null}
                   <Button variant="default" onClick={ensure} disabled={busy}>
-                    <RotateCw size={15} /> Tentar de novo
+                    <RotateCw size={15} /> Retry
                   </Button>
                 </div>
               ) : status === "unsupported" ? (
@@ -1109,13 +1110,13 @@ function SindriPreview({
                   <div className="sindri-preview-mark">
                     <Monitor size={26} strokeWidth={1.4} />
                   </div>
-                  <p>Este repositório ainda não tem um runtime suportado.</p>
+                  <p>No supported runtime in this repo.</p>
                   {preview?.detail ? (
                     <span className="sindri-preview-sub">{preview.detail}</span>
                   ) : (
                     <span className="sindri-preview-sub">
-                      Hoje o preview sobe apps Next.js; outros stacks são reconhecidos mas
-                      ainda não bootam.
+                      Previews boot Next.js apps today; other stacks are detected but not
+                      booted yet.
                     </span>
                   )}
                 </div>
@@ -1124,12 +1125,12 @@ function SindriPreview({
                   <div className="sindri-preview-mark">
                     <Monitor size={26} strokeWidth={1.4} />
                   </div>
-                  <p>Preview ao vivo das mudanças</p>
+                  <p>No preview running</p>
                   <span className="sindri-preview-sub">
-                    Sobe sozinho na primeira edição do Sindri — ou suba agora.
+                    It boots on Sindri&apos;s first edit — or start it now.
                   </span>
                   <Button variant="default" onClick={ensure} disabled={busy || !branch}>
-                    {busy ? <span className="sindri-spinner" /> : <Plus size={15} />} Subir preview
+                    {busy ? <span className="sindri-spinner" /> : <Plus size={15} />} Start preview
                   </Button>
                 </div>
               )}
@@ -1200,11 +1201,11 @@ function TurnSummary({ tools }: { tools: (Block & { type: "tool_use" })[] }) {
   return (
     <div className="sindri-turn-meta">
       <span className="sindri-turn-stat">
-        <Wrench size={11} /> {tools.length} {tools.length === 1 ? "ação" : "ações"}
+        <Wrench size={11} /> {tools.length} {tools.length === 1 ? "action" : "actions"}
       </span>
       <span className="sindri-head-sep">·</span>
       <span className="sindri-turn-stat">
-        <FileEdit size={11} /> {files.length} {files.length === 1 ? "arquivo" : "arquivos"}
+        <FileEdit size={11} /> {files.length} {files.length === 1 ? "file" : "files"}
       </span>
       <span className="sindri-turn-files" title={files.join(", ")}>
         {files.slice(0, 4).join(", ")}
@@ -1217,15 +1218,15 @@ function TurnSummary({ tools }: { tools: (Block & { type: "tool_use" })[] }) {
 // Map raw tool names to a friendly verb + icon, so a turn reads like a story of
 // what Sindri did rather than a list of API calls.
 const TOOL_META: { match: RegExp; label: string; Icon: typeof Wrench }[] = [
-  { match: /read|cat|view|get_file/i, label: "Lendo", Icon: FileText },
-  { match: /write|edit|str_replace|create|apply|patch/i, label: "Editando", Icon: FileEdit },
-  { match: /bash|shell|run|exec|command|terminal/i, label: "Executando", Icon: TerminalSquare },
-  { match: /card|task|plan|todo/i, label: "Planejando", Icon: ListTodo },
+  { match: /read|cat|view|get_file/i, label: "Reading", Icon: FileText },
+  { match: /write|edit|str_replace|create|apply|patch/i, label: "Editing", Icon: FileEdit },
+  { match: /bash|shell|run|exec|command|terminal/i, label: "Running", Icon: TerminalSquare },
+  { match: /card|task|plan|todo/i, label: "Planning", Icon: ListTodo },
   { match: /pr|pull|merge|commit|push|branch/i, label: "Git", Icon: GitPullRequest },
 ];
 
 function toolMeta(name: string) {
-  return TOOL_META.find((t) => t.match.test(name)) ?? { label: "Ferramenta", Icon: Wrench };
+  return TOOL_META.find((t) => t.match.test(name)) ?? { label: "Tool", Icon: Wrench };
 }
 
 function ToolCall({
@@ -1251,19 +1252,19 @@ function ToolCall({
         <span className="sindri-tool-name">{label}</span>
         <span className="sindri-tool-arg">{String(arg).slice(0, 90)}</span>
         <span className={`sindri-tool-pill is-${status}`}>
-          {status === "running" ? <span className="sindri-spinner" /> : status === "error" ? "erro" : "ok"}
+          {status === "running" ? <span className="sindri-spinner" /> : status === "error" ? "error" : "ok"}
         </span>
         <ChevronDown size={13} className={`sindri-tool-caret ${open ? "is-open" : ""}`} />
       </button>
       {open ? (
         <div className="sindri-tool-body">
           <div className="sindri-tool-label">
-            {tool.name} · entrada
+            {tool.name} · input
           </div>
           <pre className="sindri-pre">{JSON.stringify(tool.input, null, 2)}</pre>
           {result ? (
             <>
-              <div className="sindri-tool-label">resultado</div>
+              <div className="sindri-tool-label">result</div>
               <pre className="sindri-pre">{result.content.slice(0, 4000)}</pre>
             </>
           ) : null}
@@ -1302,7 +1303,7 @@ function Reasoning({ text, live }: { text: string; live?: boolean }) {
     <div className={`sindri-reasoning ${live ? "is-live" : ""}`}>
       <button className="sindri-reasoning-head" onClick={() => setOpen((o) => !o)}>
         <Brain size={13} className={live ? "sindri-reasoning-pulse" : ""} />
-        <span>{live ? "Pensando…" : "Raciocínio"}</span>
+        <span>{live ? "Thinking…" : "Reasoning"}</span>
         <ChevronDown size={13} className={`sindri-reasoning-caret ${open ? "is-open" : ""}`} />
       </button>
       {open ? (
@@ -1322,7 +1323,7 @@ function MessageActions({ text }: { text: string }) {
   return (
     <div className="sindri-msg-actions">
       <button
-        title="Copiar resposta"
+        title="Copy reply"
         onClick={() => {
           navigator.clipboard?.writeText(text).then(
             () => {
@@ -1334,7 +1335,7 @@ function MessageActions({ text }: { text: string }) {
         }}
       >
         {copied ? <Check size={12} /> : <Copy size={12} />}
-        {copied ? "copiado" : "copiar"}
+        {copied ? "copied" : "copy"}
       </button>
     </div>
   );
@@ -1347,7 +1348,7 @@ function ScrollToBottom() {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
   if (isAtBottom) return null;
   return (
-    <button className="sindri-scroll-btn" onClick={() => scrollToBottom()} title="Ir para o final">
+    <button className="sindri-scroll-btn" onClick={() => scrollToBottom()} title="Jump to latest">
       <ArrowDown size={15} />
     </button>
   );

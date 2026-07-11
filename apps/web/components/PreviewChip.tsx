@@ -1,15 +1,6 @@
 "use client";
 
 import type { Preview } from "@brokk/sdk";
-import { STATUS_COLOR, t } from "../lib/theme";
-
-/** Preview status → indicator color. */
-const PREVIEW_COLOR: Record<string, string> = {
-  starting: STATUS_COLOR.running, // blue
-  live: STATUS_COLOR.done,        // green
-  failed: STATUS_COLOR.failed,    // red
-  stopped: STATUS_COLOR.backlog,  // gray
-};
 
 interface Props {
   preview: Preview;
@@ -18,83 +9,80 @@ interface Props {
 }
 
 /**
- * Inline status chip for a dev-preview environment.
- * – starting: animated dot + label
- * – live:     clickable URL link + dot
- * – failed:   red dot + "failed" label
+ * Inline status chip for a dev-preview environment, in the forge vocabulary
+ * (forge-chip). The ember marks a build actually running; a live preview is
+ * cold accent — the URL is the message.
+ * – starting: ember dot (work in the fire) + "starting…"
+ * – live:     accent chip, clickable URL
+ * – failed:   names what broke; ✕ dismisses
  * Rendered on the Fleet project card and on the Board header.
  */
 export function PreviewChip({ preview, onStop }: Props) {
-  const color = PREVIEW_COLOR[preview.status] ?? t.textMuted;
+  const chipClass =
+    preview.status === "starting"
+      ? "forge-chip is-ember"
+      : preview.status === "live"
+        ? "forge-chip is-accent"
+        : "forge-chip";
 
-  return (
+  const dot = (
     <span
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        fontSize: 12,
-        padding: "4px 10px",
-        borderRadius: 20,
-        background: t.surface3,
-        border: `1px solid ${color}44`,
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        background: "currentColor",
+        display: "inline-block",
       }}
-    >
-      {/* Status indicator */}
+    />
+  );
+
+  return (
+    <span className={chipClass}>
       {preview.status === "live" ? (
         <a
           href={preview.url}
           target="_blank"
           rel="noreferrer"
           style={{
-            color,
+            color: "inherit",
             textDecoration: "none",
             display: "inline-flex",
             alignItems: "center",
             gap: 4,
           }}
         >
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: color,
-              display: "inline-block",
-            }}
-          />
-          live ↗
+          {dot}
+          preview live ↗
         </a>
-      ) : (
+      ) : preview.status === "starting" ? (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <span className="forge-ember" style={{ width: 6, height: 6 }} />
+          starting…
+        </span>
+      ) : preview.status === "failed" ? (
         <span
-          style={{
-            color,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-          }}
+          title="Preview build failed. Dismiss, then start it again."
+          style={{ color: "var(--err)", display: "inline-flex", alignItems: "center", gap: 4 }}
         >
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              background: color,
-              display: "inline-block",
-            }}
-          />
-          {preview.status === "starting" ? "starting…" : preview.status}
+          {dot}
+          preview failed
+        </span>
+      ) : (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {dot}
+          {preview.status}
         </span>
       )}
 
-      {/* Stop / dismiss button */}
+      {/* Stop / dismiss */}
       <button
         type="button"
         title={preview.status === "failed" ? "Dismiss" : "Stop preview"}
         onClick={onStop}
         style={{
           fontSize: 11,
-          color: t.textFaint,
+          color: "var(--fg-dim)",
           background: "none",
           border: "none",
           cursor: "pointer",

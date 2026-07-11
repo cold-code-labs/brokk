@@ -4,6 +4,7 @@ import "@cold-code-labs/yggdrasil-tokens/css";
 import "@cold-code-labs/yggdrasil-react/shell.css";
 import "streamdown/styles.css";
 import "./globals.css";
+import "./forge.css";
 import { Providers } from "./providers";
 
 const inter = Inter({
