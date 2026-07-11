@@ -417,6 +417,15 @@ export class RunscEnclave implements ExecEnclave {
     const gitEmail = process.env.BROKK_GIT_EMAIL || "brokk@coldcodelabs.com";
     // docker exec returns the command's own exit code; the {out, code} normalisation
     // in this.docker() carries a non-zero exit in `code` without throwing.
+    //
+    // `umask 0002`: the enclave container runs as root (no --user; gVisor is the jail),
+    // and local git (add/commit) now runs HERE, so git metadata it writes to the SHARED
+    // worktree/bare tree (COMMIT_EDITMSG, index, index.lock) would be root:<gid> 0644 —
+    // group read-only. The uid-1001 worker (git.ts commitAndPush, push/gh outside) then
+    // can't rewrite them → EACCES, and the card never produces a PR. Group-writable
+    // (0664) + the tree's setgid dirs (shared gid 1001 across worker + brokk-bash) let
+    // both committers touch the same metadata. Mirrors LocalEnclave's brokk-sandbox
+    // `umask 0002`; the RunscEnclave exec was the one path missing it.
     return this.docker(
       [
         "exec", "-w", cwd,
@@ -426,7 +435,7 @@ export class RunscEnclave implements ExecEnclave {
         "-e", `GIT_AUTHOR_EMAIL=${gitEmail}`,
         "-e", `GIT_COMMITTER_NAME=${gitName}`,
         "-e", `GIT_COMMITTER_EMAIL=${gitEmail}`,
-        this.name, "/bin/sh", "-c", command,
+        this.name, "/bin/sh", "-c", `umask 0002; ${command}`,
       ],
       timeout,
     );
