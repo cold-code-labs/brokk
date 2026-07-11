@@ -157,16 +157,17 @@ export default function Mimir() {
 
       {err && <Banner tone="err">{err}</Banner>}
 
-      {/* ── Intake ── */}
-      <div className="forge-panel">
+      {/* ── Intake — one seamless surface: bare textarea on the panel, actions as
+          a flush footer. The whole panel lights on focus (forge-bar language). */}
+      <div className="forge-panel mimir-intake">
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Paste the raw prompt…"
           rows={5}
-          style={{ resize: "vertical" }}
+          style={{ resize: "vertical", border: 0, background: "transparent", boxShadow: "none", padding: "0.35rem 0.2rem", outline: "none" }}
         />
-        <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div className="mimir-intake-foot" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <Button variant="outline" size="sm" onClick={doTriage} disabled={busyT || !input.trim()}>
             {busyT ? "Triaging…" : "Triage"}
           </Button>

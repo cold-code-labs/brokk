@@ -95,7 +95,7 @@ export default function History() {
               <tbody>
                 {rows.map(({ task, latest }) => (
                   <tr key={task.id} className={task.status === "running" ? "is-running" : undefined}>
-                    <td style={{ minWidth: 0, maxWidth: "20rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <td style={{ minWidth: 0, maxWidth: "34rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {task.title}
                     </td>
                     <td>

@@ -9,17 +9,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Brand: the mascot stands on its own — no box, no border. A clean lockup of the
-   illustration beside the wordmark. */
+/* Brand: a tight lockup — the smith at working size, the wordmark carrying the
+   weight. Chrome stays quiet; the canvas is the show. */
 .brokk-brand {
   flex-direction: row;
   align-items: center;
-  gap: 0.7rem;
-  padding: 0.1rem 0.4rem 1.4rem;
+  gap: 0.55rem;
+  padding: 0.15rem 0.45rem 1.1rem;
 }
 .brokk-brand .ygg-brand-mark {
   width: auto;
-  height: 3rem;
+  height: 2rem;
   border-radius: 0;
   padding: 0;
   background: transparent;
@@ -34,10 +34,94 @@ body {
   display: block;
 }
 .brokk-brand .ygg-brand-name {
-  font-size: 1.3rem;
+  font-size: 1.02rem;
   font-weight: 700;
   letter-spacing: -0.01em;
 }
+
+/* Sidebar density — market rhythm: narrower rail, 13.5px labels, tight link
+   rows, icons that sit quiet until touched. */
+:root { --sidebar-w: 14.5rem; }
+.ygg-sidebar { padding: 1.1rem 0.75rem; }
+.ygg-nav { gap: 1.15rem; }
+.ygg-nav-group-label {
+  font-size: 0.64rem;
+  letter-spacing: 0.09em;
+  margin: 0 0 0.3rem;
+  padding: 0 0.55rem;
+}
+.ygg-nav-link {
+  font-size: 0.845rem;
+  font-weight: 500;
+  padding: 0.42rem 0.55rem;
+  border-radius: 0.5rem;
+  gap: 0.55rem;
+}
+.ygg-nav-link svg { width: 0.95rem; height: 0.95rem; }
+
+/* The environment switcher — a control of the house, not a browser artifact.
+   Same material as the nav links; custom caret; lights on touch. */
+.brokk-switch {
+  position: relative;
+  margin: 0 0 0.35rem;
+}
+.brokk-switch select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  padding: 0.44rem 1.8rem 0.44rem 0.55rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.845rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.brokk-switch select:hover {
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
+}
+.brokk-switch select:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+.brokk-switch::after {
+  content: "";
+  position: absolute;
+  right: 0.7rem;
+  top: 50%;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 1.5px solid var(--fg-dim);
+  border-bottom: 1.5px solid var(--fg-dim);
+  transform: translateY(-65%) rotate(45deg);
+  pointer-events: none;
+}
+
+/* Sidebar foot — one quiet layer, not three boxes. The user row loses its
+   panel chrome; sign-out is a ghost that appears on intent. */
+.ygg-sidebar-user {
+  background: transparent;
+  border: 0;
+  padding: 0.45rem 0.55rem;
+}
+.ygg-sidebar-user-name { font-size: 0.82rem; }
+.ygg-sidebar-signout {
+  border: 0;
+  color: var(--fg-dim);
+  font-size: 0.74rem;
+  padding: 0.25rem 0.45rem;
+}
+.ygg-sidebar-signout:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.ygg-sidebar-foot {
+  margin-top: 0.4rem;
+  padding: 0.6rem 0.55rem 0;
+  font-size: 0.72rem;
+}
+.ygg-sidebar-foot a:hover { color: var(--fg-soft); }
 
 /* ── Forge sidebar — nav blends with the material, accent on touch ───────────
    Extends the Yggdrasil nav with the Fleet ("The Forge at Night") language: a
@@ -336,6 +420,67 @@ body:has(.sindri) {
   max-width: 30rem;
   line-height: 1.55;
 }
+
+/* The one-shot start composer — same seamless command-bar language as the
+   Fleet composer: one bordered glass surface, flush input + flush accent send,
+   the whole bar lights on focus. Wide because it IS the page's primary act. */
+.sindri-blank-bar {
+  display: flex;
+  align-items: stretch;
+  width: min(40rem, 86vw);
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 0.3rem);
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+  text-align: left;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.sindri-blank-bar:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.sindri-blank-bar input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 0.9rem 1.1rem;
+}
+.sindri-blank-bar input::placeholder { color: var(--fg-dim); }
+.sindri-blank-bar button {
+  flex: 0 0 auto;
+  border: 0;
+  background: var(--accent);
+  color: var(--primary-foreground);
+  font: inherit;
+  font-weight: 650;
+  font-size: 0.9rem;
+  padding: 0 1.4rem;
+  cursor: pointer;
+  transition: filter 0.15s ease, background 0.15s ease;
+}
+.sindri-blank-bar button:hover:not(:disabled) { filter: brightness(1.08); }
+.sindri-blank-bar button:disabled {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg-dim);
+  cursor: not-allowed;
+}
+.sindri-blank-alt {
+  border: 0;
+  background: none;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+.sindri-blank-alt:hover:not(:disabled) { color: var(--fg-soft); text-decoration: underline; }
+.sindri-blank-alt:disabled { cursor: not-allowed; opacity: 0.6; }
 
 /* session header = the tab bar: new-chat + horizontally-scrolling session chips.
    Folded up from the old top strip so no whole layer is spent on tabs. */

@@ -342,8 +342,81 @@
   .forge-tile.is-live .forge-tile-spark { animation: none !important; }
 }
 
-/* ── Ledger hosted in a <table> (History) — the running entry still carries
-   the ember rail + tint, same voice as .forge-row.is-running. ─────────────── */
+/* ── The anvil board (kanban) ───────────────────────────────────────────────
+   Owns its horizontal overflow: containment so columns can never bleed past
+   the page gutter, a visible thin scrollbar as the affordance, snap per
+   column. Columns stretch to the viewport so the board reads as a workspace. */
+.anvil-board {
+  display: flex;
+  gap: 0.85rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  contain: inline-size;
+  padding-bottom: 0.6rem;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fg) 22%, transparent) transparent;
+}
+.anvil-board::-webkit-scrollbar { height: 8px; }
+.anvil-board::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+  border-radius: 999px;
+}
+.anvil-board::-webkit-scrollbar-track { background: transparent; }
+.anvil-col { min-height: calc(100dvh - 19rem); }
+.anvil-col-empty {
+  display: grid;
+  place-items: center;
+  min-height: 5.5rem;
+  margin: 0.1rem 0.1rem 0;
+  border: 1px dashed var(--line-soft);
+  border-radius: var(--radius-sm, 0.4rem);
+  color: var(--fg-dim);
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+/* ── Ledger hosted in a <table> (History) ───────────────────────────────────
+   A proper data table: a distinct head band (never cramped against the panel
+   edge), first-column gutter aligned with rows, metadata dimmer than the work
+   itself. The running entry carries the ember rail + tint, same voice as
+   .forge-row.is-running. */
 .forge-ledger table { margin: 0; width: 100%; }
+.forge-ledger .ygg-table th {
+  background: color-mix(in srgb, var(--fg) 3.5%, transparent);
+  padding: 0.65rem 1rem 0.6rem;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.forge-ledger .ygg-table th:first-child,
+.forge-ledger .ygg-table td:first-child { padding-left: 1.15rem; }
+.forge-ledger .ygg-table th:last-child,
+.forge-ledger .ygg-table td:last-child { padding-right: 1.15rem; }
+.forge-ledger .ygg-table td {
+  padding: 0.8rem 1rem;
+  color: var(--fg-soft);
+  font-size: 0.875rem;
+}
+.forge-ledger .ygg-table td:first-child { color: var(--fg); font-weight: 500; }
+.forge-ledger .ygg-table tbody tr:last-child td { border-bottom: 0; }
+.forge-ledger .ygg-table tr:hover td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
 .forge-ledger tr.is-running > td { background: color-mix(in srgb, var(--ember) 5%, transparent); }
 .forge-ledger tr.is-running > td:first-child { box-shadow: inset 2px 0 0 var(--ember); }
+
+/* ── Mímir intake — the panel IS the input (no box-in-box). ────────────────── */
+.mimir-intake { padding: 1rem 1.1rem 0.85rem; transition: border-color 0.2s ease, box-shadow 0.2s ease; }
+.mimir-intake:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.mimir-intake textarea { font-size: 0.92rem; line-height: 1.55; }
+.mimir-intake textarea:focus, .mimir-intake textarea:focus-visible { outline: none; box-shadow: none; border: 0; }
+.mimir-intake-foot {
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line-soft);
+}

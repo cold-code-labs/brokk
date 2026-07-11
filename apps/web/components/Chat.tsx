@@ -147,6 +147,8 @@ export default function Chat() {
   const [phase, setPhase] = useState("");
   const [running, setRunning] = useState(false);
   const [input, setInput] = useState("");
+  const [blankDraft, setBlankDraft] = useState("");
+  const [blankBusy, setBlankBusy] = useState(false);
   const [error, setError] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -316,11 +318,13 @@ export default function Chat() {
     };
     setSessions((prev) => [withStats, ...prev]);
     await openSession(s.id);
+    return s.id;
   }
 
-  async function send() {
-    const text = input.trim();
-    if (!text || !sessionId || running) return;
+  async function send(sidOverride?: string, textOverride?: string) {
+    const sid = sidOverride ?? sessionId;
+    const text = (textOverride ?? input).trim();
+    if (!text || !sid || running) return;
     setInput("");
     setError("");
     setLiveText("");
@@ -332,7 +336,7 @@ export default function Chat() {
     const ac = new AbortController();
     abortRef.current = ac;
     try {
-      await sendMessage(sessionId, text, handleEvent, ac.signal);
+      await sendMessage(sid, text, handleEvent, ac.signal);
     } catch (e) {
       if (!ac.signal.aborted) setError(String(e));
       setRunning(false);
@@ -479,16 +483,45 @@ export default function Chat() {
         <div className="sindri-body is-blank">
           <div className="sindri-blank">
             <div className="sindri-blank-mark">
-              <Hammer size={34} strokeWidth={1.4} />
+              <Hammer size={30} strokeWidth={1.4} />
             </div>
-            <h3>{currentProject ? "No sessions yet" : "Pick an environment"}</h3>
+            <h3>{currentProject ? `At the anvil with ${currentProject.name}` : "Pick an environment"}</h3>
             <p>
-              Start one and Sindri picks up the hammer with you — a clone of the repo, its own
-              branch, and the live preview beside the chat.
+              Sindri clones the repo, works a branch of its own, and boots the live preview
+              beside the chat. Describe the first task to light the forge.
             </p>
-            <Button variant="default" onClick={newChat} disabled={!projectId}>
-              <Plus size={16} /> New chat
-            </Button>
+            <form
+              className="sindri-blank-bar"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const text = blankDraft.trim();
+                if (!text || !projectId || blankBusy) return;
+                setBlankBusy(true);
+                void (async () => {
+                  try {
+                    const sid = await newChat();
+                    if (sid) await send(sid, text);
+                    setBlankDraft("");
+                  } finally {
+                    setBlankBusy(false);
+                  }
+                })();
+              }}
+            >
+              <input
+                value={blankDraft}
+                onChange={(e) => setBlankDraft(e.target.value)}
+                placeholder={currentProject ? `What should Sindri forge in ${currentProject.name}?` : "Pick a project first"}
+                disabled={!projectId || blankBusy}
+                aria-label="First task"
+              />
+              <button type="submit" disabled={!projectId || blankBusy || !blankDraft.trim()}>
+                {blankBusy ? "Lighting…" : "Start"}
+              </button>
+            </form>
+            <button type="button" className="sindri-blank-alt" onClick={() => void newChat()} disabled={!projectId || blankBusy}>
+              or open an empty session
+            </button>
           </div>
         </div>
       ) : (
@@ -677,7 +710,7 @@ export default function Chat() {
                   ) : (
                     <Button
                       variant="default"
-                      onClick={send}
+                      onClick={() => send()}
                       disabled={!input.trim()}
                       className="sindri-send"
                       title="Send (Enter)"

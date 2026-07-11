@@ -51,22 +51,12 @@ function ProjectSwitcher() {
   }
 
   return (
-    <div style={{ padding: "0 12px 8px" }}>
+    <div className="brokk-switch">
       <select
         value={currentId}
         onChange={(e) => pick(e.target.value)}
         disabled={projects.length === 0}
-        style={{
-          width: "100%",
-          padding: "7px 9px",
-          borderRadius: 8,
-          border: "1px solid var(--border)",
-          background: "var(--bg-subtle, transparent)",
-          color: "inherit",
-          fontSize: 13,
-          fontWeight: 600,
-          cursor: "pointer",
-        }}
+        aria-label="Project"
       >
         {projects.length === 0 && <option value="">no projects yet</option>}
         {projects.map((p) => (

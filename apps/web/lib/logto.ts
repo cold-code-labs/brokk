@@ -41,7 +41,12 @@ export async function getSession(): Promise<Session> {
     // every visitor an authenticated *owner* session (below) — turning a deploy
     // that forgot a LOGTO_* var into a fully open control plane. The auth-disabled
     // convenience is for local dev only.
-    if (process.env.NODE_ENV === "production") {
+    // BROKK_OPEN_SHELL=1 is the one deliberate opt-out: it lets the litr
+    // walkthrough harness run the standalone production build on a loopback
+    // port for real-render screenshots. It must be SET on purpose — a deploy
+    // that merely forgot LOGTO_* still fails closed. Never set it on anything
+    // reachable from outside localhost.
+    if (process.env.NODE_ENV === "production" && process.env.BROKK_OPEN_SHELL !== "1") {
       throw new Error(
         "Refusing to serve without auth in production: set the five LOGTO_* vars (endpoint, app id, app secret, base url, cookie secret).",
       );

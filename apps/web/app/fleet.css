@@ -526,3 +526,19 @@
   .fleet-card { animation: none !important; }
   .fleet-title { background-position: 0 0; }
 }
+
+/* Hero CTA sits ON the aurora — glass with an accent edge, not a solid slab
+   competing with the wordmark. (Button renders a Tailwind bg; override here so
+   the harness, which reads this css, stays honest.) */
+.fleet-hero-inner a, .fleet-hero-inner button {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel)) !important;
+  color: var(--fg) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)) !important;
+  backdrop-filter: blur(6px);
+}
+.fleet-hero-inner a:hover, .fleet-hero-inner button:hover {
+  background: color-mix(in srgb, var(--accent) 28%, var(--panel)) !important;
+}
+
+/* the connect slot matches the card row height, no taller */
+.fleet-card.is-add { min-height: 7rem; }

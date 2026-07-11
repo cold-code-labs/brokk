@@ -18,6 +18,13 @@ const nextConfig = {
     "@cold-code-labs/yggdrasil-brand",
     "@cold-code-labs/yggdrasil-react",
   ],
+  // webpack's wasm xxhash64 (WasmHash) flakily dies with "Cannot read properties
+  // of undefined (reading 'length')" under parallel load on ymir (dev + build).
+  // Known webpack bug class; the JS sha256 hasher sidesteps it at negligible cost.
+  webpack: (config) => {
+    config.output.hashFunction = "sha256";
+    return config;
+  },
   // The control-plane API is proxied under /api by a runtime route handler
   // (app/api/[...path]/route.ts) — NOT a rewrite. `output: "standalone"` freezes
   // rewrite destinations at build time, which broke runtime BROKK_API_INTERNAL_URL.
