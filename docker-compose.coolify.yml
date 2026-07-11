@@ -38,6 +38,12 @@ volumes:
 x-restart: &restart
   restart: unless-stopped
 
+# Resource ceilings (fleet-deploy-isolation, 2026-07-11): caps, not reservations —
+# a runaway service gets contained instead of squeezing the shared surtr host
+# (founding incident: swap exhaustion killed a deploy exec). Workers that run
+# coding agents + preview dev servers get generous headroom so a cap never kills
+# legitimate forge work; sum of caps may exceed host RAM on purpose.
+
 # Full runtime env for the worker tier (forge/chat/reviewer). Coolify interpolates
 # ${VAR} from its env store; infra-fixed values are inlined as defaults. Extra vars
 # on a service are harmless — better that than a missing one.
@@ -84,6 +90,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-api:coolify
+    mem_limit: 1g
+    cpus: 1.0
     environment:
       BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:?set in Coolify}
       BROKK_API_PORT: "8789"
@@ -125,6 +133,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-web:coolify
+    mem_limit: 1g
+    cpus: 1.0
     environment:
       BROKK_API_INTERNAL_URL: ${BROKK_API_INTERNAL_URL:-http://brokk-api:8789}
       # The proxy (apps/web/app/api/[...path]) injects this bearer server-side so
@@ -162,6 +172,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-forge:coolify
+    mem_limit: 6g
+    cpus: 3.0
     # No `user:` — the entrypoint starts as root to install the Nível 3 egress jail
     # (needs CAP_NET_ADMIN) then drops to 1001:1001 before exec. cap dropped with it.
     cap_add: [NET_ADMIN]
@@ -194,6 +206,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-forge:coolify
+    mem_limit: 4g
+    cpus: 2.0
     # No `user:` — the entrypoint starts as root to install the Nível 3 egress jail
     # (needs CAP_NET_ADMIN) then drops to 1001:1001 before exec. cap dropped with it.
     cap_add: [NET_ADMIN]
@@ -222,6 +236,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-reviewer:coolify
+    mem_limit: 2g
+    cpus: 1.5
     # No `user:` — entrypoint boots as root for the egress jail, then drops to 1001.
     cap_add: [NET_ADMIN]
     environment:
@@ -253,6 +269,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-enclave-manager:coolify
+    mem_limit: 512m
+    cpus: 0.5
     environment:
       BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:?set in Coolify}
       BROKK_ENCLAVE_HOME_VOLUME: ${BROKK_ENCLAVE_HOME_VOLUME:-}
@@ -272,6 +290,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-preview-proxy:coolify
+    mem_limit: 512m
+    cpus: 0.5
     environment:
       BROKK_GATEWAY_PORT: "3020"
       BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://brokk-api:8789}
@@ -291,6 +311,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-chat:coolify
+    mem_limit: 4g
+    cpus: 2.0
     # No `user:` — entrypoint boots as root for the egress jail, then drops to 1001.
     cap_add: [NET_ADMIN]
     environment:
