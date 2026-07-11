@@ -1,36 +1,96 @@
 /* ════════════════════════════════════════════════════════════════════════════
-   Forge — the app-wide design language of Brokk ("The Forge at Night").
+   Forge — the app-wide design language of Brokk ("The Forge at Night"). v2.
    The Fleet board (app/fleet.css) is the home's bespoke layer; THIS file is the
    shared vocabulary every inner surface composes from, so the whole app reads
-   as one workshop. Everything on Yggdrasil tokens → flips light/dark for free.
-   Contract: docs/litr/soul.json (souls outrank tasks). Loaded globally.
+   as one workshop. Contract: docs/litr/soul.json (souls outrank tasks).
 
-   Vocabulary
-   ─ forge-head        page masthead: eyebrow · title · sub · rule (+ .forge-pulse slot)
+   v2 — the fire enters the frame. v1 rendered the soul as a system: uniform
+   1px boxes, one 8px warm dot, 0.8rem grey everywhere — competent, dead.
+   v2 renders it as a world:
+   ─ the NIGHT: the shell floor is char-black with forge-light rising from
+     below the frame and a cold aurora over the top edge; film grain makes
+     the surfaces material instead of vector-flat.
+   ─ the VOICE: Big Shoulders (--font-display), condensed industrial caps,
+     carries every masthead and numeral — stamped steel, not SaaS Inter.
+   ─ the HEAT: --ember gained a ramp (--heat: ember→gold). Still strictly
+     the mark of work in the fire — never decorative — but when it appears
+     it GLOWS: molten rails, hot numerals, coal-lit empty hearths.
+
+   Vocabulary (class names unchanged from v1 — logic never touches this file)
+   ─ forge-head        page masthead: eyebrow · display title · sub · rule
    ─ forge-h           section heading with fading rule
-   ─ forge-tiles/tile  glassy stat tiles, .is-live glows accent
-   ─ forge-ledger/row  the smith's ledger; .is-running carries the ember
-   ─ forge-empty       the cold hearth (zero = at rest, never broken); .is-panel
+   ─ forge-tiles/tile  ONE forged vitals strip (hairline-divided, big numerals)
+   ─ forge-ledger/row  the smith's ledger; .is-running carries the molten rail
+   ─ forge-empty       the cold hearth (zero = at rest); coals still faintly lit
    ─ forge-bar         one seamless command-bar (input + flush submit)
    ─ forge-pulse       the ember chip; .is-quiet when nothing burns
    ─ forge-chip        small status chip; .is-ember reserved for running work
-   One warm signal only: --ember = work in the fire. Never decorative.
    ════════════════════════════════════════════════════════════════════════════ */
 
 :root {
   --ember: #ff7a45;
+  --gold: #ffb454;
+  --heat: linear-gradient(90deg, #ff5a1f, var(--ember) 45%, var(--gold));
   --ember-soft: color-mix(in srgb, var(--ember) 16%, transparent);
   --forge-glass: color-mix(in srgb, var(--panel) 72%, transparent);
+  /* film grain — one tiny turbulence tile, tinted by opacity per theme */
+  --forge-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
 }
-:root.light { --ember: #e0571f; }
+:root.light { --ember: #e0571f; --gold: #d98a1f; --heat: linear-gradient(90deg, #d8480f, var(--ember) 45%, var(--gold)); }
+
+/* ── The night — Brokk's own register of the Yggdrasil dark ─────────────────
+   Scoped to the app shell so the marketing landing keeps its own art.
+   Deeper, quieter, slightly desaturated: iron and char, not corporate navy. */
+.dark .ygg-shell {
+  --bg: #07090f;
+  --bg-soft: #0a0d15;
+  --panel: #0c101a;
+  --line: #1c2432;
+  --line-soft: #131926;
+  --fg: #f1f4f9;
+  --fg-soft: #a3aec2;
+  --fg-dim: #5f6b83;
+  background: var(--bg);
+}
+
+/* Atmosphere: forge-light rising from below the frame, cold sky above.
+   Fixed + pointer-transparent; sits under all content. */
+.ygg-shell { position: relative; isolation: isolate; }
+.ygg-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(90rem 46rem at 78% 118%, color-mix(in srgb, var(--ember) 7%, transparent), transparent 62%),
+    radial-gradient(70rem 30rem at 12% -18%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%);
+}
+.light .ygg-shell::before {
+  background:
+    radial-gradient(90rem 46rem at 78% 118%, color-mix(in srgb, var(--ember) 5%, transparent), transparent 62%),
+    radial-gradient(70rem 30rem at 12% -18%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 60%);
+}
+.ygg-shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--forge-grain);
+  background-size: 140px 140px;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
+}
+.light .ygg-shell::after { opacity: 0.035; mix-blend-mode: multiply; }
 
 /* Preflight is OFF — links styled as controls must not underline. */
 .forge-head a, .forge-ledger a, .forge-empty a, .forge-tile a { text-decoration: none; }
 
-/* ── Page masthead ──────────────────────────────────────────────────────────
-   Compact kin of the Fleet hero: no aurora (that's the home's signature), same
-   type voice, a hairline rule that fades out like a cooling bar of steel. */
-.forge-head { margin-bottom: 1.6rem; }
+/* ── Page masthead — the stamped nameplate ──────────────────────────────────
+   Display caps at real scale; the eyebrow is mono with a hot tick; the rule
+   cools left→right like a bar of steel pulled from the fire. */
+.forge-head { margin-bottom: 1.7rem; }
 .forge-head-top {
   display: flex;
   align-items: flex-end;
@@ -41,32 +101,45 @@
 .forge-eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.72rem;
+  gap: 0.6rem;
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.68rem;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--fg-dim);
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+.forge-eyebrow::before {
+  content: "";
+  width: 1.15em;
+  height: 2px;
+  background: var(--heat);
+  border-radius: 1px;
 }
 .forge-title {
-  font-size: clamp(1.45rem, 3vw, 1.9rem);
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  line-height: 1.1;
+  font-family: var(--font-display, inherit);
+  font-size: clamp(2.1rem, 4.5vw, 3.1rem);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.015em;
+  line-height: 0.95;
   margin: 0;
   color: var(--fg);
 }
 .forge-sub {
-  margin: 0.45rem 0 0;
+  margin: 0.55rem 0 0;
   color: var(--fg-soft);
   font-size: 0.92rem;
   max-width: 60ch;
 }
 .forge-head-rule {
-  margin-top: 1.1rem;
+  margin-top: 1.15rem;
   height: 1px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, var(--line)), var(--line) 30%, transparent);
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--ember) 55%, var(--line)),
+    color-mix(in srgb, var(--accent) 35%, var(--line)) 22%,
+    var(--line) 45%, transparent);
 }
 
 /* ── Section heading ──────────────────────────────────────────────────────── */
@@ -77,13 +150,14 @@
   margin: 0 0 0.85rem;
 }
 .forge-h-title {
-  font-size: 0.8rem;
-  font-weight: 700;
+  font-family: var(--font-display, inherit);
+  font-size: 0.92rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--fg-dim);
+  letter-spacing: 0.16em;
+  color: var(--fg-soft);
 }
-.forge-h-meta { font-size: 0.78rem; color: var(--fg-soft); font-variant-numeric: tabular-nums; }
+.forge-h-meta { font-size: 0.75rem; color: var(--fg-dim); font-family: var(--font-jetbrains, monospace); font-variant-numeric: tabular-nums; }
 .forge-h-rule { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
 
 /* ── The ember chip — live forge status ─────────────────────────────────────
@@ -92,24 +166,28 @@
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.4rem 0.8rem 0.4rem 0.65rem;
+  padding: 0.4rem 0.85rem 0.4rem 0.65rem;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--ember) 35%, var(--line));
-  background: color-mix(in srgb, var(--ember) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ember) 40%, var(--line));
+  background:
+    radial-gradient(120% 160% at 15% 50%, color-mix(in srgb, var(--ember) 16%, transparent), transparent 55%),
+    color-mix(in srgb, var(--ember) 6%, transparent);
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--fg);
+  box-shadow: 0 0 18px -6px color-mix(in srgb, var(--ember) 45%, transparent);
 }
 .forge-pulse.is-quiet {
   border-color: var(--line);
   background: color-mix(in srgb, var(--fg) 4%, transparent);
   color: var(--fg-dim);
+  box-shadow: none;
 }
 .forge-ember {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  background: var(--ember);
+  background: radial-gradient(circle at 35% 35%, var(--gold), var(--ember) 70%);
   animation: forge-ember-pulse 1.7s ease-out infinite;
 }
 .forge-pulse.is-quiet .forge-ember { background: var(--fg-dim); animation: none; box-shadow: none; }
@@ -133,9 +211,10 @@
   color: var(--fg-soft);
 }
 .forge-chip.is-ember {
-  border-color: color-mix(in srgb, var(--ember) 35%, var(--line));
-  background: color-mix(in srgb, var(--ember) 9%, transparent);
+  border-color: color-mix(in srgb, var(--ember) 40%, var(--line));
+  background: color-mix(in srgb, var(--ember) 10%, transparent);
   color: var(--ember);
+  box-shadow: 0 0 12px -4px color-mix(in srgb, var(--ember) 50%, transparent);
 }
 .forge-chip.is-accent {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
@@ -143,46 +222,67 @@
   color: var(--accent);
 }
 
-/* ── Stat tiles ─────────────────────────────────────────────────────────── */
+/* ── Vitals — ONE forged strip, not a crate of boxes ────────────────────────
+   Same markup as v1 (.forge-tiles > .forge-tile); rendered as a single bar
+   divided by hairlines. Numerals go display-face and big — the operator reads
+   the floor from across the room. Live numbers glow; the first live tile is
+   "running" by STATS order and burns ember instead of accent. */
 .forge-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
-  gap: 0.85rem;
-  margin-bottom: 1.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 0;
+  margin-bottom: 1.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fg) 2.5%, transparent), transparent 45%),
+    var(--forge-glass);
+  backdrop-filter: blur(6px);
 }
 .forge-tile {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--forge-glass);
-  backdrop-filter: blur(6px);
-  padding: 1rem 1.1rem 0.9rem;
-  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  border: 0;
+  border-left: 1px solid var(--line-soft);
+  background: transparent;
+  padding: 1.05rem 1.2rem 0.95rem;
+  transition: background 0.2s ease;
   animation: forge-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
-.forge-tile:nth-child(2) { animation-delay: 0.05s; }
-.forge-tile:nth-child(3) { animation-delay: 0.1s; }
-.forge-tile:nth-child(4) { animation-delay: 0.15s; }
-.forge-tile:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
-.forge-tile.is-live {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent),
-              0 14px 30px -22px color-mix(in srgb, var(--accent) 80%, transparent);
-}
+.forge-tile:first-child { border-left: 0; }
+.forge-tile:nth-child(2) { animation-delay: 0.04s; }
+.forge-tile:nth-child(3) { animation-delay: 0.08s; }
+.forge-tile:nth-child(4) { animation-delay: 0.12s; }
+.forge-tile:nth-child(5) { animation-delay: 0.16s; }
+.forge-tile:nth-child(6) { animation-delay: 0.2s; }
+.forge-tile:hover { background: color-mix(in srgb, var(--fg) 3%, transparent); transform: none; border-color: var(--line-soft); }
+.forge-tile.is-live { border-color: var(--line-soft); box-shadow: none; }
 .forge-tile-num {
-  font-size: 1.7rem;
-  font-weight: 750;
-  line-height: 1;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display, inherit);
+  font-size: 2.55rem;
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: 0.01em;
   font-variant-numeric: tabular-nums;
   color: var(--fg);
 }
-.forge-tile.is-live .forge-tile-num { color: var(--accent); }
+.forge-tile.is-live .forge-tile-num {
+  color: var(--accent);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+/* "running" is always the first tile — when live, it burns, not glows */
+.forge-tile:first-child.is-live .forge-tile-num {
+  color: var(--ember);
+  text-shadow: 0 0 24px color-mix(in srgb, var(--ember) 50%, transparent);
+}
 .forge-tile-label {
-  margin-top: 0.35rem;
-  font-size: 0.76rem;
+  margin-top: 0.5rem;
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.66rem;
   font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--fg-dim);
   display: flex;
   align-items: center;
@@ -191,19 +291,23 @@
 .forge-tile-spark {
   position: absolute;
   left: 0;
-  bottom: 0;
+  top: 0;
   height: 2px;
   width: 100%;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background: var(--heat);
   background-size: 200% 100%;
   opacity: 0;
   transition: opacity 0.2s ease;
 }
 .forge-tile.is-live .forge-tile-spark { opacity: 0.9; animation: forge-spark 2.4s linear infinite; }
+.forge-tile.is-live:not(:first-child) .forge-tile-spark {
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 200% 100%;
+}
 @keyframes forge-spark { to { background-position: -200% 0; } }
 
 /* ── The ledger ─────────────────────────────────────────────────────────────
-   Rows of work, next-up first. The running row carries the ember bar. */
+   Rows of work, next-up first. The running row carries molten metal. */
 .forge-ledger {
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -215,7 +319,7 @@
   display: flex;
   align-items: center;
   gap: 0.7rem;
-  padding: 0.75rem 1rem 0.75rem 1.1rem;
+  padding: 0.8rem 1rem 0.8rem 1.15rem;
   border-bottom: 1px solid var(--line-soft);
   text-decoration: none;
   transition: background 0.15s ease;
@@ -229,43 +333,59 @@
   width: 2px;
   background: transparent;
 }
-.forge-row.is-running::before { background: var(--ember); }
-.forge-row.is-running { background: color-mix(in srgb, var(--ember) 5%, transparent); }
-.forge-row-title { font-size: 0.88rem; flex: 1; min-width: 0; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.forge-row-meta { font-size: 0.78rem; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
-.forge-row-mono { font-size: 0.78rem; color: var(--fg-dim); font-family: var(--font-mono, monospace); }
+.forge-row.is-running::before { width: 3px; background: linear-gradient(180deg, var(--gold), var(--ember)); box-shadow: 0 0 10px color-mix(in srgb, var(--ember) 60%, transparent); }
+.forge-row.is-running {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--ember) 9%, transparent), transparent 45%);
+}
+.forge-row-title { font-size: 0.9rem; font-weight: 500; flex: 1; min-width: 0; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.forge-row-meta { font-size: 0.76rem; color: var(--fg-dim); font-family: var(--font-jetbrains, monospace); font-variant-numeric: tabular-nums; }
+.forge-row-mono { font-size: 0.76rem; color: var(--fg-dim); font-family: var(--font-jetbrains, monospace); }
 
 /* ── The cold hearth — deliberate empty states ──────────────────────────────
-   Zero is the system at rest, never broken: unlit mark, calm line, one action. */
+   Zero is the system at rest, never broken. v2: the coals are banked, not
+   dead — a faint warmth still sits in the mark, and the floor under the
+   hearth catches a low glow. One calm line, one action. */
 .forge-empty {
   display: grid;
   place-items: center;
   text-align: center;
   gap: 0.5rem;
-  padding: 2.8rem 1.5rem;
+  padding: 3rem 1.5rem;
 }
 .forge-empty.is-panel {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background:
-    radial-gradient(120% 140% at 50% -20%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%),
+    radial-gradient(70% 90% at 50% 118%, color-mix(in srgb, var(--ember) 7%, transparent), transparent 60%),
+    radial-gradient(120% 140% at 50% -20%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 60%),
     var(--panel);
 }
 .forge-empty-mark {
   display: grid;
   place-items: center;
-  width: 3rem;
-  height: 3rem;
+  width: 3.4rem;
+  height: 3.4rem;
   border-radius: 50%;
-  color: var(--fg-dim);
-  background: color-mix(in srgb, var(--fg) 5%, transparent);
-  border: 1px solid var(--line);
-  margin-bottom: 0.25rem;
+  color: color-mix(in srgb, var(--ember) 55%, var(--fg-dim));
+  background:
+    radial-gradient(circle at 50% 62%, color-mix(in srgb, var(--ember) 13%, transparent), transparent 68%),
+    color-mix(in srgb, var(--fg) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ember) 18%, var(--line));
+  box-shadow: 0 0 26px -8px color-mix(in srgb, var(--ember) 35%, transparent);
+  margin-bottom: 0.3rem;
 }
-.forge-empty-mark svg { width: 1.35rem; height: 1.35rem; }
-.forge-empty-title { font-size: 0.96rem; font-weight: 650; color: var(--fg-soft); }
-.forge-empty-sub { margin: 0; font-size: 0.82rem; line-height: 1.5; color: var(--fg-dim); max-width: 38ch; }
-.forge-empty-action { margin-top: 0.7rem; }
+.forge-empty-mark svg { width: 1.45rem; height: 1.45rem; }
+.forge-empty-title {
+  font-family: var(--font-display, inherit);
+  font-size: 1.2rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-soft);
+}
+.forge-empty-sub { margin: 0; font-size: 0.84rem; line-height: 1.55; color: var(--fg-dim); max-width: 40ch; }
+.forge-empty-action { margin-top: 0.75rem; }
 
 /* ── One seamless command-bar ───────────────────────────────────────────────
    A single bordered glass surface: flush input, flush solid submit that reads
@@ -282,7 +402,8 @@
 }
 .forge-bar:focus-within {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent),
+              0 12px 40px -18px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .forge-bar input, .forge-bar select {
   flex: 1 1 auto;
@@ -293,7 +414,7 @@
   color: var(--fg);
   font: inherit;
   font-size: 0.92rem;
-  padding: 0.75rem 1.05rem;
+  padding: 0.78rem 1.05rem;
 }
 .forge-bar input::placeholder { color: var(--fg-dim); }
 .forge-bar-send {
@@ -302,18 +423,20 @@
   align-items: center;
   gap: 0.4rem;
   border: 0;
-  background: var(--accent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff), var(--accent));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 25%, transparent);
   color: var(--primary-foreground);
   font: inherit;
   font-weight: 650;
   font-size: 0.9rem;
-  padding: 0 1.3rem;
+  padding: 0 1.35rem;
   cursor: pointer;
-  transition: background 0.15s ease, filter 0.15s ease;
+  transition: filter 0.15s ease;
 }
 .forge-bar-send:hover:not(:disabled) { filter: brightness(1.08); }
 .forge-bar-send:disabled {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
+  box-shadow: none;
   color: var(--fg-dim);
   cursor: not-allowed;
 }
@@ -379,15 +502,16 @@
 /* ── Ledger hosted in a <table> (History) ───────────────────────────────────
    A proper data table: a distinct head band (never cramped against the panel
    edge), first-column gutter aligned with rows, metadata dimmer than the work
-   itself. The running entry carries the ember rail + tint, same voice as
+   itself. The running entry carries the molten rail + tint, same voice as
    .forge-row.is-running. */
 .forge-ledger table { margin: 0; width: 100%; }
 .forge-ledger .ygg-table th {
   background: color-mix(in srgb, var(--fg) 3.5%, transparent);
   padding: 0.65rem 1rem 0.6rem;
-  font-size: 0.68rem;
-  font-weight: 650;
-  letter-spacing: 0.08em;
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   color: var(--fg-dim);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
@@ -404,8 +528,8 @@
 .forge-ledger .ygg-table td:first-child { color: var(--fg); font-weight: 500; }
 .forge-ledger .ygg-table tbody tr:last-child td { border-bottom: 0; }
 .forge-ledger .ygg-table tr:hover td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
-.forge-ledger tr.is-running > td { background: color-mix(in srgb, var(--ember) 5%, transparent); }
-.forge-ledger tr.is-running > td:first-child { box-shadow: inset 2px 0 0 var(--ember); }
+.forge-ledger tr.is-running > td { background: color-mix(in srgb, var(--ember) 6%, transparent); }
+.forge-ledger tr.is-running > td:first-child { box-shadow: inset 3px 0 0 var(--ember); }
 
 /* ── Mímir intake — the panel IS the input (no box-in-box). ────────────────── */
 .mimir-intake { padding: 1rem 1.1rem 0.85rem; transition: border-color 0.2s ease, box-shadow 0.2s ease; }

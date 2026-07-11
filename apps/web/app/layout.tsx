@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Big_Shoulders, Inter, JetBrains_Mono } from "next/font/google";
 import "@cold-code-labs/yggdrasil-tokens/css";
 import "@cold-code-labs/yggdrasil-react/shell.css";
 import "streamdown/styles.css";
@@ -17,6 +17,14 @@ const jetbrains = JetBrains_Mono({
   variable: "--font-jetbrains",
   display: "swap",
 });
+/* The display voice of the forge: condensed industrial grotesk — stamped
+ * steel for mastheads and numerals. Body stays Inter; data stays mono. */
+const bigShoulders = Big_Shoulders({
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
+  variable: "--font-display",
+  display: "swap",
+});
 
 export const metadata = {
   title: "Brokk — the forge for autonomous coding agents",
@@ -29,7 +37,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${jetbrains.variable}`}
+      className={`${inter.variable} ${jetbrains.variable} ${bigShoulders.variable}`}
     >
       <body suppressHydrationWarning>
         <Providers>{children}</Providers>

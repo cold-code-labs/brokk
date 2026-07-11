@@ -53,6 +53,8 @@
     radial-gradient(34% 60% at 85% 55%, var(--ember), transparent 70%);
   animation: fleet-aurora-drift 22s ease-in-out infinite alternate;
 }
+/* on paper the aurora must be a wash, not a stain */
+:root.light .fleet-aurora { opacity: 0.28; filter: blur(64px); }
 @keyframes fleet-aurora-drift {
   0%   { transform: translate3d(-4%, 0, 0) scale(1);   }
   50%  { transform: translate3d(3%, 6px, 0) scale(1.08); }
@@ -82,19 +84,29 @@
 .fleet-eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.72rem;
+  gap: 0.6rem;
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.68rem;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--fg-dim);
   margin-bottom: 0.55rem;
 }
+.fleet-eyebrow::before {
+  content: "";
+  width: 1.15em;
+  height: 2px;
+  background: var(--heat, var(--ember));
+  border-radius: 1px;
+}
 .fleet-title {
-  font-size: clamp(2rem, 4vw, 2.9rem);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1;
+  font-family: var(--font-display, inherit);
+  font-size: clamp(2.6rem, 5.5vw, 3.9rem);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.015em;
+  line-height: 0.92;
   margin: 0;
   background: linear-gradient(
     100deg,
@@ -165,45 +177,63 @@
 .fleet-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 0.85rem;
+  gap: 0;
   margin-bottom: 1.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fg) 2.5%, transparent), transparent 45%),
+    var(--glass);
+  backdrop-filter: blur(6px);
 }
 @media (max-width: 720px) {
   .fleet-stats { grid-template-columns: repeat(2, 1fr); }
+  .fleet-stat:nth-child(n + 3) { border-top: 1px solid var(--line-soft); }
+  .fleet-stat:nth-child(odd) { border-left: 0; }
 }
 .fleet-stat {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--glass);
-  backdrop-filter: blur(6px);
-  padding: 1rem 1.1rem 0.9rem;
-  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  border: 0;
+  border-left: 1px solid var(--line-soft);
+  background: transparent;
+  padding: 1.05rem 1.2rem 0.95rem;
+  transition: background 0.2s ease;
   animation: fleet-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+.fleet-stat:first-child { border-left: 0; }
 .fleet-stat:nth-child(2) { animation-delay: 0.05s; }
 .fleet-stat:nth-child(3) { animation-delay: 0.1s; }
 .fleet-stat:nth-child(4) { animation-delay: 0.15s; }
-.fleet-stat:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
-.fleet-stat.is-live {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent),
-              0 14px 30px -22px color-mix(in srgb, var(--accent) 80%, transparent);
-}
+.fleet-stat:hover { background: color-mix(in srgb, var(--fg) 3%, transparent); }
+.fleet-stat.is-live { border-color: var(--line-soft); box-shadow: none; }
 .fleet-stat-num {
-  font-size: 2rem;
-  font-weight: 750;
-  line-height: 1;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display, inherit);
+  font-size: 2.55rem;
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: 0.01em;
   font-variant-numeric: tabular-nums;
   color: var(--fg);
 }
-.fleet-stat.is-live .fleet-stat-num { color: var(--accent); }
+.fleet-stat.is-live .fleet-stat-num {
+  color: var(--accent);
+  text-shadow: 0 0 22px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+/* "running now" is always the first vital — when live it burns, not glows */
+.fleet-stat:first-child.is-live .fleet-stat-num {
+  color: var(--ember);
+  text-shadow: 0 0 24px color-mix(in srgb, var(--ember) 50%, transparent);
+}
+.fleet-stat:first-child.is-live .fleet-stat-dot { background: var(--ember); }
 .fleet-stat-label {
-  margin-top: 0.35rem;
-  font-size: 0.76rem;
+  margin-top: 0.5rem;
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.66rem;
   font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--fg-dim);
   display: flex;
   align-items: center;
@@ -332,11 +362,12 @@
   margin: 0 0 0.85rem;
 }
 .fleet-h-title {
-  font-size: 0.8rem;
-  font-weight: 700;
+  font-family: var(--font-display, inherit);
+  font-size: 0.92rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--fg-dim);
+  letter-spacing: 0.16em;
+  color: var(--fg-soft);
 }
 .fleet-h-meta { font-size: 0.78rem; color: var(--fg-soft); }
 .fleet-h-rule { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
@@ -405,7 +436,14 @@
 }
 
 .fleet-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.fleet-card-name { font-size: 1.05rem; font-weight: 650; color: var(--fg); }
+.fleet-card-name {
+  font-family: var(--font-display, inherit);
+  font-size: 1.3rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg);
+}
 .fleet-card-state { font-size: 0.78rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.4rem; }
 .fleet-card-state.running { color: var(--ember); }
 .fleet-card-state.idle {

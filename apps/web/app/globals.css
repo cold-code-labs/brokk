@@ -2220,3 +2220,99 @@ html.dark .fv-hl .shiki span {
   border-radius: 7px;
   padding: 0.18rem 0.4rem;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Forge chrome v2 — the sidebar joins the night (docs/litr/soul.json).
+   The rail is the dark wall of the smithy: a shade below the canvas, an iron
+   hairline edge, the wordmark stamped in the display face, group labels
+   etched in mono. Appended last on purpose: cascade overrides the earlier
+   chrome rules without disturbing them.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.dark .ygg-sidebar {
+  background: #05070c;
+  border-right: 1px solid #161d2b;
+  box-shadow: inset -14px 0 30px -26px #000;
+}
+.light .ygg-sidebar {
+  background: color-mix(in srgb, var(--bg) 60%, var(--panel));
+}
+
+/* Wordmark: stamped steel, matching the mastheads. */
+.brokk-brand .ygg-brand-name {
+  font-family: var(--font-display, inherit);
+  font-size: 1.28rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+/* Group labels: etched plate tags in mono. */
+.ygg-nav-group-label {
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  opacity: 0.85;
+}
+
+/* Active nav = lit from the wall: accent fill + a hot hairline on the left. */
+.ygg-nav-link[data-active="true"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* Footer link: mono, quiet. */
+.ygg-sidebar-foot { font-family: var(--font-jetbrains, monospace); font-size: 0.66rem; letter-spacing: 0.02em; }
+
+/* Sindri blank v2 — the anvil moment. The operator stands at the fire with one
+   act available: hand the smith the work. Scene light rises from the floor,
+   the mark holds a banked coal, the title is stamped in the display face. */
+.sindri-blank {
+  position: relative;
+  gap: 0.8rem;
+}
+.sindri-blank::before {
+  content: "";
+  position: absolute;
+  inset: -30% -40%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(46% 42% at 50% 78%, color-mix(in srgb, var(--ember, #ff7a45) 10%, transparent), transparent 70%),
+    radial-gradient(60% 50% at 50% 10%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%);
+}
+.sindri-blank-mark {
+  width: 4.4rem;
+  height: 4.4rem;
+  border-radius: 50%;
+  color: color-mix(in srgb, var(--ember, #ff7a45) 60%, var(--fg-soft));
+  background:
+    radial-gradient(circle at 50% 66%, color-mix(in srgb, var(--ember, #ff7a45) 15%, transparent), transparent 70%),
+    color-mix(in srgb, var(--fg) 4%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ember, #ff7a45) 20%, var(--line));
+  box-shadow: 0 0 34px -10px color-mix(in srgb, var(--ember, #ff7a45) 40%, transparent);
+}
+.sindri-blank h3 {
+  font-family: var(--font-display, inherit);
+  font-size: 1.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* Forged primary buttons — the default shadcn flat block reads plastic against
+   the night. Scoped to the shell; matches .forge-bar-send: a solid accent with
+   a struck top highlight, like light on worked metal. */
+.ygg-shell [class*="bg-primary"] {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, #fff), var(--accent));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 25%, transparent),
+              0 10px 24px -14px color-mix(in srgb, var(--accent) 60%, transparent);
+  font-weight: 650;
+}
+.ygg-shell [class*="bg-primary"]:hover { filter: brightness(1.07); }
