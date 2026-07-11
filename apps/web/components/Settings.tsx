@@ -38,16 +38,9 @@ export default function Settings() {
           <span className="forge-h-title">Appearance</span>
           <span className="forge-h-rule" />
         </div>
-        <div className="forge-panel">
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: "1rem",
-            }}
-          >
-            <span style={{ color: "var(--fg-soft)", fontSize: "0.9rem" }}>Theme</span>
+        <div className="forge-ledger">
+          <div className="forge-row">
+            <span className="forge-row-title">Theme</span>
             <ThemeToggle />
           </div>
         </div>
@@ -60,33 +53,26 @@ export default function Settings() {
           <span className="forge-h-rule" />
         </div>
 
-        {projects.map((p) => (
-          <div key={p.id} className="forge-panel" style={{ marginBottom: "0.9rem" }}>
-            <div className="ygg-card-title">{p.name}</div>
-            <div className="ygg-card-meta">
-              <div>
-                <b>Model</b>
-                <span className="forge-chip is-accent">{p.model}</span>
+        {projects.length > 0 && (
+          <div className="forge-ledger">
+            {projects.map((p) => (
+              <div key={p.id} className="forge-row is-stack">
+                <div className="forge-row-line">
+                  <span className="forge-row-title" style={{ flex: "0 1 auto" }}>{p.name}</span>
+                  <span className="forge-chip is-accent">{p.model || "engine default"}</span>
+                  <span className="forge-chip">{p.authMode}</span>
+                </div>
+                <div className="forge-row-line">
+                  <span className="forge-row-mono" title="Base branch">{p.baseBranch}</span>
+                  <span className="forge-row-mono" title="Allowed tools">
+                    {p.allowedTools.length ? p.allowedTools.join(", ") : "engine default"}
+                  </span>
+                  <span className="forge-row-mono is-end" title="Project id">{p.id}</span>
+                </div>
               </div>
-              <div>
-                <b>Auth mode</b>
-                <span className="forge-chip">{p.authMode}</span>
-              </div>
-              <div>
-                <b>Base branch</b>
-                <span style={{ fontFamily: "var(--font-mono, monospace)" }}>{p.baseBranch}</span>
-              </div>
-              <div>
-                <b>Allowed tools</b>
-                <span>{p.allowedTools.length ? p.allowedTools.join(", ") : "engine default"}</span>
-              </div>
-              <div>
-                <b>Project id</b>
-                <span style={{ fontFamily: "var(--font-mono, monospace)" }}>{p.id}</span>
-              </div>
-            </div>
+            ))}
           </div>
-        ))}
+        )}
 
         {projects.length === 0 && (
           <div className="forge-empty is-panel">

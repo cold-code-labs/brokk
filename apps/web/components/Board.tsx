@@ -258,7 +258,7 @@ export default function Board({ projectId }: { projectId?: string }) {
   return (
     <Main style={{ maxWidth: "94rem" }}>
       <header className="forge-head">
-        <Link href="/fleet" className="ygg-dim" style={{ fontSize: 12, textDecoration: "none", display: "inline-block", marginBottom: 6 }}>
+        <Link href="/fleet" className="forge-crumb">
           ← Fleet
         </Link>
         <div className="forge-head-top">

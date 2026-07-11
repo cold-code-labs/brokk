@@ -2316,3 +2316,104 @@ html.dark .fv-hl .shiki span {
   font-weight: 650;
 }
 .ygg-shell [class*="bg-primary"]:hover { filter: brightness(1.07); }
+
+/* ── The identity pod — who stands at the bench ──────────────────────────────
+   A quiet plate above the footer: initials struck on a small ring, name in
+   body, role in etched mono, sign-out a ghost that lights on intent. */
+.brokk-user {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+  padding: 0.7rem 0.55rem 0.15rem;
+  border-top: 1px solid var(--line-soft);
+}
+.brokk-user-plate {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
+    color-mix(in srgb, var(--fg) 4%, transparent);
+  font-family: var(--font-display, inherit);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fg-soft);
+}
+.brokk-user-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.brokk-user-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.brokk-user-role {
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.brokk-user-out {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border-radius: 0.45rem;
+  color: var(--fg-dim);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.brokk-user-out svg { width: 0.9rem; height: 0.9rem; }
+.brokk-user-out:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, transparent); }
+
+/* ── Widget sweep — no library default survives inside the shell ─────────────
+   Badges, outline buttons and checkboxes everywhere pick up the forge voice
+   without touching call sites. */
+
+/* status badges (History pills, Mímir triage) → etched mono chips */
+.ygg-shell .ygg-badge {
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+}
+
+/* outline/ghost buttons → quiet iron, lights accent on touch */
+.ygg-shell button[class*="border-input"],
+.ygg-shell a[class*="border-input"] {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  border-color: var(--line);
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.ygg-shell button[class*="border-input"]:hover,
+.ygg-shell a[class*="border-input"]:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* native checkboxes/radios (Connect repo list) speak accent */
+.ygg-shell input[type="checkbox"],
+.ygg-shell input[type="radio"] {
+  accent-color: var(--accent);
+  width: 0.95rem;
+  height: 0.95rem;
+}

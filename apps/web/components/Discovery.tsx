@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { Project } from "@brokk/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -149,15 +150,10 @@ export default function Discovery({ projectId }: { projectId?: string }) {
       <header className="forge-head">
         <div className="forge-head-top">
           <div>
-            <div style={{ marginBottom: 6 }}>
-              <Link
-                href={projectId ? `/projects/${projectId}` : "/"}
-                className="ygg-dim"
-                style={{ fontSize: 12, textDecoration: "none" }}
-              >
-                ← Board
-              </Link>
-            </div>
+            <Link href={projectId ? `/projects/${projectId}` : "/"} className="forge-crumb">
+              ← Board
+            </Link>
+            <br />
             <span className="forge-eyebrow">Brokk · the scout</span>
             <h1 className="forge-title">{project ? project.name : "Discovery"}</h1>
             <p className="forge-sub">
@@ -204,38 +200,56 @@ export default function Discovery({ projectId }: { projectId?: string }) {
       )}
 
       {brief?.status === "ready" && (
-        <section className="forge-panel">
-          <div style={{ display: "grid", gap: 16 }}>
-            {brief.mission && <p style={{ margin: 0, fontSize: 15, lineHeight: 1.5, color: "var(--fg)" }}>{brief.mission}</p>}
-            {brief.summary && (
-              <p className="ygg-muted" style={{ margin: 0, fontSize: 13.5, lineHeight: 1.6 }}>{brief.summary}</p>
-            )}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-              <BriefList title="Built" items={brief.built} />
-              <BriefList title="Missing" items={brief.missing} accent />
-            </div>
-            {brief.stack.length > 0 && (
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-                <span className="forge-h-title">Stack</span>
-                {brief.stack.map((s) => (
-                  <span key={s} className="forge-chip">{s}</span>
-                ))}
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <Button type="button" size="sm" onClick={generateBacklog} disabled={genBusy || brief.missing.length === 0}>
-                {genBusy ? "Creating…" : `Create ${brief.missing.length} card${brief.missing.length === 1 ? "" : "s"}`}
-              </Button>
-              {genMsg && <span className="ygg-dim" style={{ fontSize: 12 }}>{genMsg}</span>}
-            </div>
+        <section style={{ display: "grid", gap: "1.7rem" }}>
+          {/* the brief's lead — mission first, context under it */}
+          <div>
+            {brief.mission && <p className="forge-lead">{brief.mission}</p>}
+            {brief.summary && <p className="forge-lead-sub">{brief.summary}</p>}
           </div>
+
+          {/* the tally — what stands vs the ore still to forge */}
+          <div className="forge-cols">
+            <BriefList title="Built" items={brief.built} />
+            <BriefList
+              title="Missing"
+              items={brief.missing}
+              accent
+              foot={
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: "0.8rem" }}>
+                  <Button type="button" size="sm" onClick={generateBacklog} disabled={genBusy || brief.missing.length === 0}>
+                    {genBusy ? "Creating…" : `Create ${brief.missing.length} card${brief.missing.length === 1 ? "" : "s"}`}
+                  </Button>
+                  {genMsg && <span className="forge-note">{genMsg}</span>}
+                </div>
+              }
+            />
+          </div>
+
+          {brief.stack.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <span className="forge-h-title">Stack</span>
+              {brief.stack.map((s) => (
+                <span key={s} className="forge-chip">{s}</span>
+              ))}
+            </div>
+          )}
         </section>
       )}
     </Main>
   );
 }
 
-function BriefList({ title, items, accent }: { title: string; items: string[]; accent?: boolean }) {
+function BriefList({
+  title,
+  items,
+  accent,
+  foot,
+}: {
+  title: string;
+  items: string[];
+  accent?: boolean;
+  foot?: ReactNode;
+}) {
   return (
     <div>
       <div className="forge-h" style={{ marginBottom: "0.6rem" }}>
@@ -244,27 +258,15 @@ function BriefList({ title, items, accent }: { title: string; items: string[]; a
         <span className="forge-h-rule" />
       </div>
       {items.length === 0 ? (
-        <p className="ygg-dim" style={{ fontSize: 12, margin: 0 }}>—</p>
+        <p className="forge-note" style={{ margin: 0 }}>—</p>
       ) : (
-        <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none", display: "grid", gap: 6 }}>
+        <ul className={`forge-tally ${accent ? "is-ore" : "is-built"}`}>
           {items.map((it, i) => (
-            <li
-              key={i}
-              style={{
-                fontSize: 13,
-                lineHeight: 1.4,
-                padding: "6px 9px",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--line)",
-                borderLeft: `3px solid ${accent ? "var(--accent)" : "var(--ok)"}`,
-                background: "color-mix(in srgb, var(--fg) 3%, transparent)",
-              }}
-            >
-              {it}
-            </li>
+            <li key={i}>{it}</li>
           ))}
         </ul>
       )}
+      {foot}
     </div>
   );
 }

@@ -8,7 +8,6 @@ import {
   Nav,
   NavGroup,
   NavLink,
-  SidebarUser,
   SidebarFoot,
 } from "@cold-code-labs/yggdrasil-react";
 import {
@@ -22,6 +21,7 @@ import {
   Settings,
   Columns3,
   Feather,
+  LogOut,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 
@@ -77,6 +77,15 @@ const MANAGE = [
 ] as const;
 
 type SidebarUserProps = { name: string; role?: string; authDisabled: boolean };
+
+/** "Vitor Alves" → "VA" — the stamp on the identity plate. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0][0] ?? "";
+  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? "") : "";
+  return (first + last).toUpperCase();
+}
 
 export default function Sidebar({ user }: { user?: SidebarUserProps }) {
   const path = usePathname();
@@ -158,15 +167,20 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
       </Nav>
 
       {user ? (
-        <SidebarUser
-          name={user.name}
-          role={user.authDisabled ? "auth off" : user.role}
-          action={
-            <a href="/sign-out" className="ygg-sidebar-signout">
-              sign out
-            </a>
-          }
-        />
+        <div className="brokk-user">
+          <span className="brokk-user-plate" aria-hidden>
+            {initials(user.name)}
+          </span>
+          <span className="brokk-user-id">
+            <span className="brokk-user-name">{user.name}</span>
+            <span className="brokk-user-role">
+              {user.authDisabled ? "auth off" : user.role}
+            </span>
+          </span>
+          <a href="/sign-out" className="brokk-user-out" aria-label="Sign out" title="Sign out">
+            <LogOut />
+          </a>
+        </div>
       ) : null}
 
       <SidebarFoot>

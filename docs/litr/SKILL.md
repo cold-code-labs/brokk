@@ -72,6 +72,62 @@ example, is `design-language.json -> method.steps`.
    captures `opacity:0` mid-fade and reads as "missing". Never ship a surface
    verified in only one theme.
 
+## v2 — the three layers that turn a system into a world (2026-07-11)
+
+v1 of this skill produced a *correct* app that read dead: uniform 1px boxes,
+one 8px warm dot, 0.85rem grey everywhere. The founder's verdict: "rígido, sem
+alma, sem cor, widgets padrão". The fix was not a library — it was three layers
+of art direction, now part of the language (`forge.css` v2, soul `typography`):
+
+1. **The voice (type).** `--font-display` (Big Shoulders, condensed industrial
+   caps) carries every masthead, numeral, wordmark and empty-state title. Mono
+   marks machine truth (eyebrows, table heads, labels, metadata). Body stays
+   Inter. A surface whose biggest type is 1rem Inter has no voice.
+2. **The night (atmosphere).** The shell has its own dark register (char-black,
+   not corporate navy), forge-light rising from below the frame, a cold aurora
+   at the top, film grain on everything. Empty space must read as *night air*.
+3. **The heat.** `--ember` has a ramp (`--heat`: ember→gold) and real presence:
+   molten rails, burning numerals, banked coals in cold hearths. Reservation
+   unchanged — running work only — but when it appears, it *burns*.
+
+## The Brilliance Gate — the mandatory critique pass
+
+**Every change that touches a Brokk surface ends with this gate on the REAL
+rendered app** (runbook: memory `litr-real-render-walkthrough` — build on the
+surtr lane, screenshot 1440×900, dark AND light, populated AND empty). The mock
+harness checks the vocabulary; the gate checks the composition. A surface that
+was not walked is not done. Nobody should have to prompt "fix this screen" —
+the gate exists so the critique happens *before* ship, systematically.
+
+Read each screenshot as a skeptical user and answer ALL of these. One "no" =
+not done:
+
+1. **Nameplate** — mono eyebrow with the hot tick + display-caps title present
+   and correctly worded (the room of the smithy this surface is)?
+2. **Night floor** — atmosphere visible; does empty space read as air, or as a
+   dead void begging for content?
+3. **Type law** — is every string ≥1rem in the display face or deliberately
+   body? Is ALL machine truth (IDs, counts, timestamps, column heads, roles)
+   in mono? Any default-sans heading = fail.
+4. **Heat law** — ember/heat on every piece of live work, and NOWHERE else?
+   Empty hearths banked (faint warmth), never grey-dead?
+5. **No naked widget** — zero browser-default or library-default controls:
+   selects, checkboxes, buttons, pills, scrollbars, file inputs. Every control
+   speaks the vocabulary (forge-bar, forged buttons, forge-chips, brokk-switch).
+6. **No box-in-box** — bordered panels never nest; lists are ledgers/tallies
+   (hairline rows inside ONE surface), never stacks of bordered cards.
+7. **No inline composition** — presentation lives in the vocabulary files
+   (forge.css / fleet.css / globals.css). `style={{}}` for anything beyond a
+   one-off gap/flex is a missing word in the vocabulary: add the word.
+8. **Both themes** — light is a wash, not a stain (glows halved); dark is the
+   night, not navy. Contrast holds in both.
+9. **Both states** — populated AND empty verified. Populated hides in the empty
+   shot and vice-versa.
+10. **The two-second read** — does the surface answer its mission instantly
+    (what is burning / what do I do next), with the primary action exactly once?
+
+Deliverable of any design pass: the diff + the gate screenshots that prove it.
+
 ## Hard constraints (the easy ways to break the language)
 
 - **Preflight is OFF** (no global reset). A link rendered as a button keeps the

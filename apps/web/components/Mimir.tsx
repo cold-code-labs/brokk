@@ -172,17 +172,19 @@ export default function Mimir() {
             {busyT ? "Triaging…" : "Triage"}
           </Button>
 
-          <div style={{ display: "flex", gap: 4 }}>
+          <div className="forge-seg" role="radiogroup" aria-label="Refine depth">
             {MODES.map((m) => (
-              <Button
+              <button
                 key={m.mode}
-                variant={mode === m.mode ? "default" : "outline"}
-                size="sm"
+                type="button"
+                className={mode === m.mode ? "is-on" : undefined}
                 onClick={() => setMode(m.mode)}
                 title={m.hint}
+                role="radio"
+                aria-checked={mode === m.mode}
               >
                 {m.label}
-              </Button>
+              </button>
             ))}
           </div>
 
