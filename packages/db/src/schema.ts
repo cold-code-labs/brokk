@@ -436,6 +436,10 @@ export const chatSessions = pgTable(
     model: text("model").notNull().default("sonnet"),
     /** Reasoning effort: low | medium | high (null = provider default). */
     effort: text("effort"),
+    /** Turn engine: afl (native loop, default) | cli (Claude Code CLI lane). */
+    engine: text("engine").notNull().default("afl"),
+    /** The CLI's own session id (`--resume` continuity). engine=cli only. */
+    cliSessionId: text("cli_session_id"),
     createdBy: text("created_by"),
     /** idle | running — whether a turn is live (so the UI knows to attach). */
     turnState: text("turn_state").notNull().default("idle"),

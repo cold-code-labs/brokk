@@ -749,6 +749,10 @@ export interface ChatSession {
   model: string;
   /** Reasoning effort: "low" | "medium" | "high" (null = provider default). */
   effort: string | null;
+  /** Turn engine: "afl" (native loop, default) | "cli" (Claude Code CLI lane). */
+  engine: string;
+  /** The CLI's own session id (`--resume` continuity). engine=cli only. */
+  cliSessionId: string | null;
   createdBy: string | null;
   turnState: ChatTurnState;
   lastTurnAt: string | null;

@@ -57,6 +57,10 @@ RUN apk add --no-cache git github-cli openssh-client nftables su-exec \
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
+# Claude Code CLI — the opt-in second engine (BROKK_FORGE_ENGINE=cli). Pinned;
+# auth is CLAUDE_CODE_OAUTH_TOKEN at runtime. Default (afl) never invokes it.
+RUN npm install -g @anthropic-ai/claude-code@2.1.207
+
 # Isolation Nível 3 (egress uid-split). A second unprivileged uid (1002, same gid as
 # the worker's 1001) that the bash hand drops to; the nft ruleset firewalls it off
 # RFC1918. HOME is shared + group-writable (setgid dir) so both uids write the

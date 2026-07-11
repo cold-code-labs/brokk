@@ -9,6 +9,13 @@
  */
 
 export { type AflConfig, loadAflConfig, resolveModel } from "@brokk/afl";
+export {
+  type CliTurnHooks,
+  type CliTurnInput,
+  type CliTurnOutcome,
+  claudeCliAvailable,
+  runClaudeCliTurn,
+} from "@brokk/afl";
 export { buildSystemPrompt, type ContextInput } from "./context.js";
 export { GatewayError, streamAssistant } from "@brokk/afl";
 export { runTurn, type RunTurnInput } from "./loop.js";

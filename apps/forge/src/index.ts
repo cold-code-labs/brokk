@@ -9,13 +9,14 @@
  */
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import type { AcceptanceReceipt, Plan, Project, RepoMemory, RunEvent, Repository, Run, RunResult, Task } from "@brokk/core";
+import type { AcceptanceReceipt, AgentEngine, Plan, Project, RepoMemory, RunEvent, Repository, Run, RunResult, Task } from "@brokk/core";
 import { runBranch } from "@brokk/core";
 import { loadRunnerConfig, type RunnerConfig } from "./config.js";
 
 const execAsync = promisify(exec);
 import { GhProvider } from "./git.js";
-import { ForgeEngine } from "@brokk/forge";
+import { ClaudeCliEngine, ForgeEngine } from "@brokk/forge";
+import { claudeCliAvailable } from "@brokk/afl";
 import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
 import { HauldrClient } from "./hauldr.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
@@ -46,12 +47,23 @@ async function main() {
   // Native forge over @brokk/afl (no Agent SDK). Two credential modes (ADR 0027
   // §3.1): bearer (base url → LiteLLM/Ratatoskr, the CCL seat — wins when both
   // are set) or a plain ANTHROPIC_API_KEY straight to Anthropic.
-  const engine = new ForgeEngine({
-    gatewayUrl: cfg.anthropicBaseUrl || (cfg.anthropicAuthToken ? "" : "https://api.anthropic.com"),
-    authToken: cfg.anthropicAuthToken || cfg.anthropicApiKey,
-    authKind: cfg.anthropicAuthToken ? "bearer" : cfg.anthropicApiKey ? "apikey" : "bearer",
-    browser: cfg.browser,
-  });
+  //
+  // BROKK_FORGE_ENGINE=cli swaps in the Claude Code CLI lane (genuine client,
+  // seat OAuth direct — no gateway hop). Falls back to the native engine when
+  // the binary/token isn't present, so a misconfig can never brick the runner.
+  const wantCli = (process.env.BROKK_FORGE_ENGINE || "afl").toLowerCase() === "cli";
+  if (wantCli && !claudeCliAvailable()) {
+    console.error("[forge] BROKK_FORGE_ENGINE=cli but claude binary/CLAUDE_CODE_OAUTH_TOKEN missing — falling back to the native engine");
+  }
+  const engine = wantCli && claudeCliAvailable()
+    ? new ClaudeCliEngine({ browser: cfg.browser })
+    : new ForgeEngine({
+        gatewayUrl: cfg.anthropicBaseUrl || (cfg.anthropicAuthToken ? "" : "https://api.anthropic.com"),
+        authToken: cfg.anthropicAuthToken || cfg.anthropicApiKey,
+        authKind: cfg.anthropicAuthToken ? "bearer" : cfg.anthropicApiKey ? "apikey" : "bearer",
+        browser: cfg.browser,
+      });
+  console.log(`[forge] engine: ${engine instanceof ClaudeCliEngine ? "cli (Claude Code)" : "afl (native)"}`);
 
   const runnerId = await register(cfg);
   console.log(`[forge] registered as ${runnerId} → ${cfg.controlUrl}`);
@@ -121,7 +133,7 @@ async function main() {
 async function handleRun(
   cfg: RunnerConfig,
   git: GhProvider,
-  engine: ForgeEngine,
+  engine: AgentEngine,
   { task, run, repository, project, plan, auth, memory }: Claimed,
 ): Promise<void> {
   console.log(
@@ -388,7 +400,7 @@ function devCheckoutSlug(appName: string): string {
 async function runDevLane(
   cfg: RunnerConfig,
   git: GhProvider,
-  engine: ForgeEngine,
+  engine: AgentEngine,
   supervisor: PreviewSupervisor,
   { task, run, repository, auth, memory }: Claimed,
 ): Promise<void> {

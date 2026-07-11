@@ -386,6 +386,8 @@ function rowToChatSession(row: typeof chatSessions.$inferSelect): ChatSession {
     branch: row.branch,
     model: row.model,
     effort: row.effort,
+    engine: row.engine ?? "afl",
+    cliSessionId: row.cliSessionId ?? null,
     createdBy: row.createdBy,
     turnState: row.turnState as ChatTurnState,
     lastTurnAt: iso(row.lastTurnAt),
@@ -2168,6 +2170,13 @@ export async function ensureChatSchema(db: Db): Promise<void> {
   await db.execute(
     sql`CREATE INDEX IF NOT EXISTS chat_sessions_project_idx ON chat_sessions (project_id);`,
   );
+  // CLI engine lane (opt-in): which engine drives the session's turns + the CLI's
+  // own session id for --resume continuity. Self-healed ADD COLUMNs (push hangs
+  // on db_brokk); default 'afl' keeps every existing session on the native loop.
+  await db.execute(
+    sql`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'afl';`,
+  );
+  await db.execute(sql`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS cli_session_id text;`);
   await db.execute(sql`CREATE TABLE IF NOT EXISTS chat_messages (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id uuid NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,

@@ -24,6 +24,8 @@ export interface ChatSession {
   branch: string | null;
   model: string;
   effort: string | null;
+  /** afl (native loop, default) | cli (Claude Code CLI lane). Fixed at creation. */
+  engine?: string;
   turnState: "idle" | "running";
   lastTurnAt: string | null;
   createdAt: string;
@@ -79,7 +81,7 @@ export const chat = {
       "GET",
       `/sessions?stats=1&projectId=${encodeURIComponent(projectId)}`,
     ).then((r) => r.sessions),
-  createSession: (input: { projectId: string; model?: string; effort?: string }) =>
+  createSession: (input: { projectId: string; model?: string; effort?: string; engine?: string }) =>
     j<{ session: ChatSession }>("POST", "/sessions", input).then((r) => r.session),
   getSession: (id: string) =>
     j<{ session: ChatSession; messages: ChatMessage[]; running: boolean }>("GET", `/sessions/${id}`),

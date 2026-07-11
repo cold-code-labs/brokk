@@ -82,6 +82,13 @@ const EFFORTS = [
   { id: "high", label: "Deep" },
 ];
 
+// Turn engine — fixed at session creation (the engine owns the continuity):
+// afl = the native lean loop (default), cli = the genuine Claude Code CLI lane.
+const ENGINES = [
+  { id: "afl", label: "Sindri" },
+  { id: "cli", label: "Claude Code" },
+];
+
 // Split (chat fraction) — persisted per-browser, so the balance you set survives
 // reloads and session switches. Default is an even 50/50 so the conversation gets
 // real width; snap points give a magnetic 50/60/68 without pixel-hunting, and
@@ -139,6 +146,7 @@ export default function Chat() {
   const mobileOnly = projects.find((p) => p.id === projectId)?.runtime?.id === "expo";
   const [model, setModel] = useState("sonnet");
   const [effort, setEffort] = useState("medium");
+  const [engine, setEngine] = useState("afl");
   const [sessions, setSessions] = useState<ChatSessionWithStats[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -195,7 +203,7 @@ export default function Chat() {
       // Empty project → create the first chat (once).
       if (creatingRef.current.has(projectId)) return;
       creatingRef.current.add(projectId);
-      const s = await chat.createSession({ projectId, model, effort }).catch(() => null);
+      const s = await chat.createSession({ projectId, model, effort, engine }).catch(() => null);
       creatingRef.current.delete(projectId);
       if (!active || !s) return;
       const withStats: ChatSessionWithStats = {
@@ -298,6 +306,7 @@ export default function Chat() {
     // Reflect the session's saved model + effort (all tiers are selectable now).
     setModel(MODELS.some((m) => m.id === session.model) ? session.model : "sonnet");
     setEffort(session.effort && EFFORTS.some((e) => e.id === session.effort) ? session.effort : "medium");
+    setEngine(session.engine === "cli" ? "cli" : "afl");
     setMessages(msgs);
     liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
     if (live) {
@@ -311,7 +320,7 @@ export default function Chat() {
   async function newChat() {
     if (!projectId) return;
     setError("");
-    const s = await chat.createSession({ projectId, model, effort });
+    const s = await chat.createSession({ projectId, model, effort, engine });
     const withStats: ChatSessionWithStats = {
       ...s,
       stats: { messages: 0, tokensIn: 0, tokensOut: 0, lastMessageAt: null },
@@ -689,6 +698,22 @@ export default function Chat() {
                         }}
                       >
                         {MODELS.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={12} className="sindri-chip-caret" />
+                    </label>
+                    {/* Engine is fixed at creation (continuity lives in it) — the
+                        select reflects the open session and applies to NEW chats. */}
+                    <label className="sindri-chip sindri-model" title="Motor (vale para novos chats)">
+                      <select
+                        className="sindri-chip-select"
+                        value={engine}
+                        onChange={(e) => setEngine(e.target.value)}
+                      >
+                        {ENGINES.map((m) => (
                           <option key={m.id} value={m.id}>
                             {m.label}
                           </option>

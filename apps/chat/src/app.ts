@@ -1,10 +1,12 @@
 import {
   buildSystemPrompt,
+  claudeCliAvailable,
   type AflConfig,
   type AgentEvent,
   type ToolContext,
   runTurn,
 } from "@brokk/chat";
+import { runCliSessionTurn } from "./cli-turn.js";
 import { detectRuntime, runDiscovery, runMeetingScout, runResolve } from "@brokk/scout";
 import { buildDetectCtx, resolveRuntime } from "@brokk/core/runtime";
 import type { Store } from "@brokk/db";
@@ -36,6 +38,8 @@ const CreateSession = z.object({
   title: z.string().optional(),
   model: z.string().optional(),
   effort: z.enum(["low", "medium", "high"]).optional(),
+  /** afl (native loop, default) | cli (Claude Code CLI lane, opt-in). */
+  engine: z.enum(["afl", "cli"]).optional(),
   createdBy: z.string().optional(),
 });
 
@@ -92,12 +96,19 @@ export function buildSindri(deps: SindriDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const project = await deps.store.getProject(parsed.data.projectId);
     if (!project) return c.json({ error: "project not found" }, 404);
+    if (parsed.data.engine === "cli" && !claudeCliAvailable()) {
+      return c.json(
+        { error: "CLI engine unavailable: claude binary or CLAUDE_CODE_OAUTH_TOKEN missing" },
+        400,
+      );
+    }
 
     const created = await deps.store.insertChatSession({
       projectId: project.id,
       title: parsed.data.title ?? "New chat",
       model: parsed.data.model ?? "haiku",
       effort: parsed.data.effort ?? null,
+      engine: parsed.data.engine ?? "afl",
       createdBy: parsed.data.createdBy ?? null,
     });
     // Branch is derived from the (db-assigned) id so it's stable + collision-free.
@@ -461,6 +472,27 @@ async function runSessionTurn(
   });
 
   await deps.store.updateChatSession(session.id, { turnState: "running", lastTurnAt: new Date() }).catch(() => {});
+
+  // CLI engine lane (opt-in per session): the genuine Claude Code CLI runs the
+  // turn in the same checkout — no Afl loop, no gateway/Ratatoskr hop. The afl
+  // path below stays the default and is untouched.
+  if (session.engine === "cli") {
+    try {
+      await runCliSessionTurn({
+        session: { ...session, branch },
+        userText: text,
+        cfg: deps.cfg,
+        store: deps.store,
+        cwd: path,
+        repoFullName: repo.fullName,
+        emit,
+        signal,
+      });
+    } finally {
+      await deps.store.updateChatSession(session.id, { turnState: "idle" }).catch(() => {});
+    }
+    return;
+  }
 
   const toolCtx: ToolContext = {
     cwd: path,

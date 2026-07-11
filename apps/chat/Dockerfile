@@ -46,6 +46,11 @@ ENV NODE_ENV=production
 # ruleset then drops to the worker uid). See tools/brokk-egress.
 RUN apk add --no-cache git github-cli openssh-client ripgrep grep findutils coreutils sed nftables su-exec
 
+# Claude Code CLI — the opt-in second engine lane (sessions created with
+# engine=cli). Pinned; auth is CLAUDE_CODE_OAUTH_TOKEN at runtime. The default
+# afl lane never invokes it.
+RUN npm install -g @anthropic-ai/claude-code@2.1.207
+
 # Isolation Nível 3 (egress uid-split). Second unprivileged uid (1002, gid 1001) the
 # bash hand drops to; nft firewalls it off RFC1918. HOME shared + group-writable so
 # both uids write caches; git safe.directory='*' so the shell (1002) works 1001 repos.

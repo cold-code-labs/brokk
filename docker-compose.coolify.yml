@@ -184,6 +184,8 @@ services:
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
       BROKK_VERIFY_CMD: ${BROKK_VERIFY_CMD:-}
+      # Engine lane: afl (native loop, default) | cli (Claude Code CLI, opt-in).
+      BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-afl}
       # ADR 0017 Fase 3b: apps whose implement cards commit straight to dev (pilot).
       BROKK_DEVLANE_APPS: ${BROKK_DEVLANE_APPS:-}
     depends_on:
@@ -219,6 +221,8 @@ services:
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
       BROKK_VERIFY_CMD: ${BROKK_VERIFY_CMD:-}
+      # Engine lane: afl (native loop, default) | cli (Claude Code CLI, opt-in).
+      BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-afl}
       # ADR 0017 Fase 3b: apps whose implement cards commit straight to dev (pilot).
       BROKK_DEVLANE_APPS: ${BROKK_DEVLANE_APPS:-}
     depends_on:
@@ -323,6 +327,8 @@ services:
       BROKK_EMBED_BASE_URL: ${BROKK_EMBED_BASE_URL:-}
       BROKK_EMBED_API_KEY: ${BROKK_EMBED_API_KEY:-}
       BROKK_EMBED_MODEL: ${BROKK_EMBED_MODEL:-}
+      # Cross-session cap on concurrent CLI-lane turns (engine=cli sessions).
+      BROKK_CLI_MAX_CONCURRENT: ${BROKK_CLI_MAX_CONCURRENT:-2}
     depends_on:
       brokk-api:
         condition: service_healthy

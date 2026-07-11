@@ -10,6 +10,13 @@
  * carry persona-neutral names (AflConfig, AgentEvent) — the kernel knows no Sindri.
  */
 
+export {
+  type CliTurnHooks,
+  type CliTurnInput,
+  type CliTurnOutcome,
+  claudeCliAvailable,
+  runClaudeCliTurn,
+} from "./claude-cli.js";
 export { type CompactionResult, type CompactOptions, compactTranscript } from "./compact.js";
 export { type AflConfig, loadAflConfig, resolveModel } from "./config.js";
 export {
