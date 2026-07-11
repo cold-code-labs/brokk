@@ -25,6 +25,13 @@ export interface RunnerConfig {
   /** Max self-heal rounds (#1): on a red verify, re-prompt the agent with the
    *  failure and forge a fix, up to this many times. 0 = verify once, no heal. */
   healAttempts: number;
+  /** Deterministic pre-heal (#2): before a model heal, apply compiler-authored
+   *  "Did you mean" fixes + an optional project fixer. On by default; BROKK_AUTOFIX=0
+   *  disables. Re-verified, so it can only save a heal, never mask a red. */
+  autofix: boolean;
+  /** Optional project fixer command (BROKK_AUTOFIX_CMD, e.g. "pnpm lint --fix") run
+   *  in the worktree after the tsc-suggestion pass. Empty = compiler pass only. */
+  autofixCmd: string;
   /** ADR 0017 dev-lane (Fase 3b): apps whose standalone `implement` cards forge in
    *  the shared persistent `dev` checkout and commit+push straight to `dev` (no
    *  per-card PR) — the Coolify dev-build is the hard gate. Matched on the repo
@@ -94,6 +101,11 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     githubToken: env.GITHUB_TOKEN ?? "",
     verifyCmd: env.BROKK_VERIFY_CMD ?? "",
     healAttempts: Number(env.BROKK_HEAL_ATTEMPTS ?? 2),
+    // Deterministic pre-heal (#2). On by default (safe: re-verified, compiler-
+    // authored edits only); BROKK_AUTOFIX=0 disables. BROKK_AUTOFIX_CMD adds an
+    // optional project fixer (e.g. "pnpm lint --fix") run after the tsc pass.
+    autofix: env.BROKK_AUTOFIX !== "0",
+    autofixCmd: env.BROKK_AUTOFIX_CMD ?? "",
     devLaneApps: new Set(
       (env.BROKK_DEVLANE_APPS ?? "")
         .split(",")

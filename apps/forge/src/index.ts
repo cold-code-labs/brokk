@@ -19,6 +19,7 @@ import { ForgeEngine } from "@brokk/forge";
 import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
 import { HauldrClient } from "./hauldr.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
+import { makeAutofix } from "./autofix.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
 import { distillHealLesson } from "./memory.js";
 import { buildRepoMap } from "./repomap.js";
@@ -195,6 +196,8 @@ async function handleRun(
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
       verify: cfg.verifyCmd ? () => runVerify(cfg.verifyCmd, wt.path) : undefined,
       maxHealAttempts: cfg.healAttempts,
+      autofix:
+        cfg.verifyCmd && cfg.autofix ? makeAutofix({ cwd: wt.path, cmd: cfg.autofixCmd || undefined }) : undefined,
       emit: (e) => {
         buffer.emit(e);
         trace?.onEvent(e);
@@ -437,6 +440,8 @@ async function runDevLane(
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
       verify: cfg.verifyCmd ? () => runVerify(cfg.verifyCmd, wt.path) : undefined,
       maxHealAttempts: cfg.healAttempts,
+      autofix:
+        cfg.verifyCmd && cfg.autofix ? makeAutofix({ cwd: wt.path, cmd: cfg.autofixCmd || undefined }) : undefined,
       // Dev-lane schema capability (ADR 0017 §6b): unlock apply_migration against
       // this app's `<app>_dev` DB when the control plane is configured. Same project
       // + endpoint the deploy migrates through → the file the agent writes and the

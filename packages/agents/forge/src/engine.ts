@@ -122,6 +122,7 @@ export class ForgeEngine implements AgentEngine {
 
     let verify: VerifyOutcome | null = null;
     let healAttempts = 0;
+    let autofixResolved = 0;
     let lastHealFailure: string | undefined;
     const maxHeal = ctx.verify ? Math.max(0, ctx.maxHealAttempts ?? 0) : 0;
 
@@ -143,6 +144,23 @@ export class ForgeEngine implements AgentEngine {
             payload: { level: verify.ok ? "info" : "error", verify: verify.output.slice(-4000) },
           });
           if (verify.ok || round >= maxHeal) break;
+          // Deterministic pre-heal (#2): before spending a model heal, try cheap
+          // mechanical fixes (compiler "Did you mean" suggestions, project fixer).
+          // If they turn verify green, we skip the expensive model pass entirely;
+          // if they only help, the model heal below still runs on the improved
+          // tree. Re-verified either way, so a bad edit can never mask a red.
+          if (ctx.autofix) {
+            const fix = await ctx.autofix(verify.output);
+            if (fix.changed) {
+              ctx.emit({ type: "status", payload: { phase: "autofix", round, note: fix.note } });
+              verify = await ctx.verify!();
+              ctx.emit({ type: "status", payload: { phase: "verify_done", ok: verify.ok, round, after: "autofix" } });
+              if (verify.ok) {
+                autofixResolved++;
+                break;
+              }
+            }
+          }
           healAttempts++;
           lastHealFailure = verify.output.slice(-4000);
           ctx.emit({ type: "status", payload: { phase: "heal", attempt: healAttempts, of: maxHeal } });
@@ -158,8 +176,8 @@ export class ForgeEngine implements AgentEngine {
       throw err;
     }
 
-    ctx.emit({ type: "status", payload: { phase: "agent_done", usage, healAttempts } });
-    return { usage, verify, healAttempts, lastHealFailure };
+    ctx.emit({ type: "status", payload: { phase: "agent_done", usage, healAttempts, autofixResolved } });
+    return { usage, verify, healAttempts, lastHealFailure, autofixResolved };
   }
 
   /** Map the loop's hooks onto the runner's RunEvent stream, keeping the SDK-era

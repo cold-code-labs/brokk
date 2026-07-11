@@ -401,6 +401,15 @@ export interface VerifyOutcome {
   output: string;
 }
 
+/** Outcome of the deterministic pre-heal pass (ADR 0027 / the v0-autofixer
+ *  lesson): cheap mechanical fixes applied to the worktree with NO model call. */
+export interface AutofixResult {
+  /** Whether any file was changed (→ the engine re-verifies before healing). */
+  changed: boolean;
+  /** Short human note for the event log, e.g. "3 tsc suggestions". */
+  note?: string;
+}
+
 /** What an engine run produces: token usage, the FINAL verify outcome after any
  *  self-heal iterations, and how many heal rounds it took. */
 export interface RunResult {
@@ -412,6 +421,9 @@ export interface RunResult {
   /** Tail of the verify failure that triggered the LAST heal, when any — the
    *  raw material for the runner's repo-memory lesson (ADR 0027 §5.3). */
   lastHealFailure?: string;
+  /** Verify rounds turned green by the deterministic pre-heal alone, i.e. model
+   *  heal passes AVOIDED (#2 measurement). 0 = autofix off or never resolved. */
+  autofixResolved?: number;
 }
 
 /** What the runner needs to execute one task. */
@@ -436,6 +448,13 @@ export interface AgentRunContext {
   /** Max self-heal iterations after a failed verify (#1). 0 = verify once, no
    *  heal. Ignored when `verify` is undefined. */
   maxHealAttempts?: number;
+  /** Deterministic pre-heal (#2, the v0-autofixer lesson): given the verify
+   *  failure text, apply cheap mechanical fixes (compiler "Did you mean"
+   *  suggestions, an optional project fixer) to the worktree WITHOUT a model
+   *  call. The engine re-verifies after; a green result skips the expensive
+   *  model heal (10–40× cheaper than re-running the model on an obvious typo).
+   *  Undefined = straight to model heal (the prior behaviour). */
+  autofix?: (verifyOutput: string) => Promise<AutofixResult>;
   /** Dev-lane schema capability (ADR 0017 §6b). Present only when the run has a
    *  `<app>_dev` database to migrate against (the dev lane), which unlocks the
    *  agent's `apply_migration` tool: write db/migrations/NNNN.sql AND apply it to
