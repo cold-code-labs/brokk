@@ -78,13 +78,18 @@ export async function streamAssistant(
       model: req.model,
       max_tokens: maxTokens,
       stream: true,
-      system: [
-        {
-          type: "text",
-          text: req.system,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
+      // Prompt caching only pays off on the direct-Anthropic (apikey) path. On the
+      // CCL subscription seat (bearer → LiteLLM → Ratatoskr) the cache is WRITTEN but
+      // never READ back — verified end-to-end: cache_creation_input_tokens>0 yet
+      // cache_read_input_tokens is always 0, even for byte-identical back-to-back
+      // requests, independent of LiteLLM vs Ratatoskr-direct, marker placement, or
+      // prompt-caching beta headers. So on the seat cache_control is net-negative (it
+      // pays the ~25% cache-write premium for zero read benefit). Emit it only under
+      // apikey, where reads work; send a plain system string on the seat.
+      system:
+        cfg.authKind === "apikey"
+          ? [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }]
+          : req.system,
       messages: req.messages,
     };
     if (req.tools.length) body.tools = req.tools;
