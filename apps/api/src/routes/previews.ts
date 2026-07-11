@@ -180,6 +180,55 @@ export function previewsRoutes(deps: AppDeps): Hono {
     return c.json({ healed: true, sessionId: target.id });
   });
 
+  /** POST /previews/runtime-error — a preview app hit a RUNTIME error on the
+   *  device (crash/unhandled rejection), which the bundle self-heal can't see (it
+   *  only checks that the bundle compiles, not that it runs). The app reports it
+   *  here; we hand it to the project's newest active+idle Sindri session to fix +
+   *  republish. Same guards as /heal: no session / running turn / no Sindri → no-op.
+   *  Reachable by the mobile bearer (mutation) via the web proxy. */
+  r.post("/runtime-error", async (c) => {
+    const Body = z.object({
+      projectId: z.string().uuid(),
+      message: z.string().min(1).max(2000),
+      stack: z.string().max(6000).optional(),
+      componentStack: z.string().max(4000).optional(),
+      kind: z.string().max(40).optional(),
+    });
+    const parsed = Body.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const { projectId, message, stack, componentStack, kind } = parsed.data;
+
+    const base = (deps.sindriUrl ?? "").replace(/\/$/, "");
+    if (!base) return c.json({ reported: false, reason: "no sindri url" });
+
+    const sessions = await deps.store.listChatSessions({ projectId, status: "active" });
+    const target = sessions
+      .filter((s) => s.turnState !== "running")
+      .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))[0];
+    if (!target) return c.json({ reported: false, reason: "no idle active session" });
+
+    const detail = [stack, componentStack].filter(Boolean).join("\n\n").slice(0, 4000);
+    const text = [
+      `⚠️ Erro de runtime no app (${kind ?? "runtime"}) — o preview compila mas quebrou na execução, na mão do usuário.`,
+      "",
+      `Mensagem: ${message}`,
+      detail ? "\nStack:\n```\n" + detail + "\n```" : "",
+      "",
+      "Encontre a causa no código, corrija e publique como você normalmente faz para atualizar o preview.",
+    ].join("\n");
+
+    void fetch(`${base}/sessions/${target.id}/messages`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(deps.runnerSecret ? { authorization: `Bearer ${deps.runnerSecret}` } : {}),
+      },
+      body: JSON.stringify({ text }),
+    }).catch(() => {});
+
+    return c.json({ reported: true, sessionId: target.id });
+  });
+
   /** DELETE /previews/:id — stop a preview (mark stopped, clear pid). */
   r.delete("/:id", async (c) => {
     try {

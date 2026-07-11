@@ -7,6 +7,7 @@ import {
   runTurn,
 } from "@brokk/chat";
 import { runCliSessionTurn } from "./cli-turn.js";
+import { autoTitle } from "./titler.js";
 import { detectRuntime, runDiscovery, runMeetingScout, runResolve } from "@brokk/scout";
 import { buildDetectCtx, resolveRuntime } from "@brokk/core/runtime";
 import type { Store } from "@brokk/db";
@@ -462,6 +463,9 @@ async function runSessionTurn(
   const repo = await deps.store.getRepository(project.repositoryId);
   if (!repo) throw new Error("repository not found");
 
+  // First exchange? (no messages yet) → auto-name the thread after the turn.
+  const isFirstTurn = (await deps.store.listChatMessages(session.id)).length === 0;
+
   const branch = session.branch ?? `sindri/${session.id.slice(0, 8)}`;
   emit({ type: "status", phase: "checkout", detail: { branch } });
   const { path } = await deps.checkouts.ensure({
@@ -490,6 +494,9 @@ async function runSessionTurn(
       });
     } finally {
       await deps.store.updateChatSession(session.id, { turnState: "idle" }).catch(() => {});
+    }
+    if (isFirstTurn) {
+      void autoTitle(deps.store, deps.cfg, session.id, text, (title) => emit({ type: "title", title }));
     }
     return;
   }
@@ -536,6 +543,9 @@ async function runSessionTurn(
     });
   } finally {
     await deps.store.updateChatSession(session.id, { turnState: "idle" }).catch(() => {});
+  }
+  if (isFirstTurn) {
+    void autoTitle(deps.store, deps.cfg, session.id, text, (title) => emit({ type: "title", title }));
   }
 }
 
