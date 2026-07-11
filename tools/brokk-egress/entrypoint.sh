@@ -42,6 +42,16 @@ if [ "$(id -u)" = "0" ]; then
 		[ -e "/home/brokk/$d" ] && chmod -R g+rwX "/home/brokk/$d" 2>/dev/null
 	done
 
+	# The bare-clone store must be SETGID so a clone/commit created by EITHER the
+	# worker (1001:brokk) or the gVisor enclave (root, gid 0) inherits group `brokk`
+	# on its object dirs. Without setgid, root-created objects land in group `root`
+	# and the worker (gid brokk) can't add to them → `git add` fails with
+	# "insufficient permission for adding an object" on the FIRST card of a freshly
+	# connected repo. setgid + `core.sharedRepository=group` (set at clone time) makes
+	# every object group-brokk group-writable regardless of which uid wrote it.
+	mkdir -p /home/brokk/work/repos 2>/dev/null || true
+	chmod 2775 /home/brokk/work /home/brokk/work/repos 2>/dev/null || true
+
 	if [ "${BROKK_EGRESS:-0}" = "1" ]; then
 		if command -v nft >/dev/null 2>&1 && nft -f /etc/brokk/egress.nft 2>/dev/null; then
 			echo "[entrypoint] egress jail installed (bash uid 1002 denied RFC1918)" >&2
