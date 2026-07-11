@@ -158,7 +158,7 @@ async function handleRun(
 
     // Per-forge Langfuse trace (path-b): folds the engine's emit() stream into one
     // trace (spans per phase, heal events, usage, verify/heal scores). Best-effort.
-    const model = run.model ?? process.env.BROKK_DEFAULT_MODEL ?? "sonnet";
+    const model = run.model || process.env.BROKK_DEFAULT_MODEL || "sonnet";
     trace = startForgeTrace({
       title: task.title,
       body: task.body,
@@ -399,7 +399,7 @@ async function runDevLane(
     `[forge] dev-lane: "${task.title}" (run ${run.id}) → ${repo.name} @ dev [${workName}]`,
   );
   const buffer = new EventBuffer(cfg, run.id);
-  const model = run.model ?? process.env.BROKK_DEFAULT_MODEL ?? "sonnet";
+  const model = run.model || process.env.BROKK_DEFAULT_MODEL || "sonnet";
   let trace: ForgeTrace | null = null;
   try {
     // Refresh the private card checkout to the dev tip — DETACHED so it never collides

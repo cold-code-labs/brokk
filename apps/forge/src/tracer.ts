@@ -64,13 +64,19 @@ export class ForgeTrace {
         }
       } else if (e.type === "usage") {
         const u = e.payload ?? {};
+        // Prefer the concrete model id the loop actually called (aliases already
+        // resolved) so Langfuse can map cost; fall back to the run's meta model.
+        // Empty string ("") from an unset run.model must not win over the fallback.
+        const model = (typeof u.model === "string" && u.model) || this.model || undefined;
         this.trace
           .generation({
             name: "llm",
-            model: this.model,
+            model,
             usage: {
               input: Number(u.input_tokens ?? 0),
               output: Number(u.output_tokens ?? 0),
+              cache_read_input_tokens: Number(u.cache_read_input_tokens ?? 0),
+              cache_creation_input_tokens: Number(u.cache_creation_input_tokens ?? 0),
               unit: "TOKENS",
             },
           })
