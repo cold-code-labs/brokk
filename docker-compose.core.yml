@@ -39,6 +39,8 @@ services:
       MIMIR_ENHANCE_MODEL: ${MIMIR_ENHANCE_MODEL:-}
       HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       HAULDR_TOKEN: ${HAULDR_TOKEN:-}
+      HEIMDALL_API_URL: ${HEIMDALL_API_URL:-http://heimdall-api:8787}
+      HEIMDALL_TOKEN: ${HEIMDALL_TOKEN:-}
     healthcheck:
       test:
       - CMD-SHELL
