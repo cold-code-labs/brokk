@@ -170,6 +170,8 @@ function rowToProject(row: typeof projects.$inferSelect): Project {
     authMode: row.authMode,
     allowedTools: row.allowedTools,
     baseBranch: row.baseBranch,
+    devFirst: row.devFirst ?? false,
+    heimdallAppId: row.heimdallAppId ?? null,
     runtime: row.runtime ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -2210,6 +2212,8 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     // without a push (which hangs on db_brokk).
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS lease_run_id uuid;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz;`);
+    await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS dev_first boolean NOT NULL DEFAULT false;`);
+    await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS heimdall_app_id text;`);
     // Add the 'unsupported' preview status. ADD VALUE can't run inside a txn block,
     // so it's its own statement; IF NOT EXISTS makes it idempotent on reboot.
     await db.execute(sql`ALTER TYPE preview_status ADD VALUE IF NOT EXISTS 'unsupported';`);

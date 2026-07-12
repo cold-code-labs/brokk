@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -145,6 +146,15 @@ export const projects = pgTable("projects", {
   // Forge PRs target `dev` so Eitri can auto-merge them (it refuses `main` — the
   // prod rail). Promotion dev→main stays a human merge. See docs/DEV-PREVIEW.md §7.
   baseBranch: text("base_branch").notNull().default("dev"),
+  // ADR 0038 (v0 face): true when this app was born dev-first via Brokk's "Nova
+  // Conversa" (Heimdall provisioned only the dev side; prod is born on the first
+  // Publish). Drives the preview host — dev-first apps drop the "-dev" suffix
+  // (<app>.preview…). Forward-only: legacy projects stay false and keep <app>-dev.
+  devFirst: boolean("dev_first").notNull().default(false),
+  // ADR 0038: the Heimdall AppRecord id this project was provisioned as — the
+  // handle Publish/rollback call Heimdall with (POST /apps/:id/publish). Null for
+  // legacy projects connected before the v0 face.
+  heimdallAppId: text("heimdall_app_id"),
   // Sleipnir: pinned RuntimeSpec — how the preview supervisor boots this project's
   // checkout. Decided once at connect (Huginn skill / fast-path), reused per boot.
   // Null = resolve each boot (legacy projects fall through to the Next fast-path).

@@ -26,6 +26,12 @@ const Env = z.object({
   // Both empty = /studio disabled (overview reports connected:false, reads → 503).
   HAULDR_CONTROL_URL: z.string().default(""),
   HAULDR_TOKEN: z.string().default(""),
+
+  // Heimdall control-plane — the provisioning engine "Nova Conversa" (ADR 0038)
+  // calls to birth a dev-first app (POST /apps {mode:"dev"}). Both empty =
+  // /conversations disabled (503).
+  HEIMDALL_API_URL: z.string().default(""),
+  HEIMDALL_TOKEN: z.string().default(""),
 });
 
 export type Config = z.infer<typeof Env>;

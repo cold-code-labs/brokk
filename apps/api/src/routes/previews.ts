@@ -49,17 +49,23 @@ export function previewsRoutes(deps: AppDeps): Hono {
     const repo = await deps.store.getRepository(project.repositoryId);
     if (!repo) return c.json({ error: "repository not found" }, 404);
 
-    // ADR 0017: the dev-lane HMR singleton lives at <app>-dev.preview.coldcodelabs.com,
-    // matching its sibling Coolify dev-build at <app>-dev.coldcodelabs.com (both on the
-    // shared <app>_dev Hauldr project). The explicit "-dev" reads as an environment, not
-    // a bare app clone. Non-default branches keep an "<app>-<branch>" slug so
-    // feature-branch previews don't collide. The Hauldr DB is ALWAYS a distinct
-    // "<app>-dev" project — never the app's prod Hauldr project — so a preview can
-    // never touch production data.
+    // The dev-lane HMR singleton's preview host. ADR 0038 (v0 face) drops the
+    // "-dev" suffix for dev-first apps — the ".preview" already implies dev, so
+    // <app>.preview.coldcodelabs.com is the dev URL and <app>.coldcodelabs.com is
+    // prod (born on Publish). Forward-only: legacy apps (devFirst=false) keep the
+    // ADR-0017 "<app>-dev.preview" host so live previews don't change URL.
+    // Non-default branches always keep an "<app>-<branch>" slug so feature-branch
+    // previews don't collide. The Hauldr DB is ALWAYS a distinct "<app>_dev"
+    // project — never the app's prod Hauldr project — so a preview can never touch
+    // production data.
     const app = repo.name;
     const branchSlug = branch.replace(/[^a-z0-9]+/gi, "-").replace(/(^-|-$)/g, "").toLowerCase() || "dev";
     const isDevBranch = branchSlug === "dev" || branch === project.baseBranch;
-    const subdomain = isDevBranch ? `${app}-dev` : `${app}-${branchSlug}`;
+    const subdomain = isDevBranch
+      ? project.devFirst
+        ? app
+        : `${app}-dev`
+      : `${app}-${branchSlug}`;
     const url = `https://${subdomain}.preview.coldcodelabs.com`;
     // Hauldr project names allow only [a-z0-9_] and must start with a letter, so
     // sanitize hyphens → underscores (the DNS subdomain keeps its hyphens).

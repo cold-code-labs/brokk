@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { version } from "../package.json";
 import { chatRoutes } from "./routes/chat.js";
+import { conversationsRoutes } from "./routes/conversations.js";
 import { mimirRoutes } from "./routes/mimir.js";
 import { missionsRoutes } from "./routes/missions.js";
 import { previewsRoutes } from "./routes/previews.js";
@@ -36,6 +37,11 @@ export interface AppDeps {
    *  preview's Hauldr project → dbUrl → introspect). Both empty = /studio off. */
   hauldrControlUrl?: string;
   hauldrToken?: string;
+  /** Heimdall control-plane base URL + bearer — the provisioning engine "Nova
+   *  Conversa" (ADR 0038) calls to birth a dev-first app. Both empty =
+   *  /conversations → 503. */
+  heimdallUrl?: string;
+  heimdallToken?: string;
 }
 
 /** Assemble the control-plane HTTP app from its dependencies. Pure wiring — no
@@ -90,6 +96,7 @@ export function buildApp(deps: AppDeps): Hono {
   });
 
   app.route("/repositories", repositoriesRoutes(deps));
+  app.route("/conversations", conversationsRoutes(deps));
   app.route("/projects", projectsRoutes(deps));
   app.route("/previews", previewsRoutes(deps));
   app.route("/mimir", mimirRoutes(deps));

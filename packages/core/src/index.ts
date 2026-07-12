@@ -151,6 +151,13 @@ export interface Project {
   allowedTools: string[];
   /** Branch new worktrees fork from. */
   baseBranch: string;
+  /** ADR 0038 (v0 face): born dev-first via "Nova Conversa" — its preview host
+   *  drops the "-dev" suffix (`<app>.preview…`). Legacy projects are false and
+   *  keep `<app>-dev.preview…`. */
+  devFirst: boolean;
+  /** ADR 0038: the Heimdall AppRecord id this project was provisioned as — the
+   *  handle Publish/rollback call Heimdall with. Null for legacy projects. */
+  heimdallAppId: string | null;
   /** Pinned runtime (Sleipnir) — how the preview supervisor boots this project's
    *  checkout. Decided once at connect (Huginn skill / fast-path) and reused
    *  deterministically. Null = resolve each boot (legacy / not yet scouted). */

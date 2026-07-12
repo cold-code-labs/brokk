@@ -117,7 +117,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
     const out = [];
     for (const repo of parsed.data.repos) {
       const connected = await connectOne(deps, repo, parsed.data.createProject);
-      out.push(connected);
+      out.push(connected.repo);
     }
     return c.json(out, 201);
   });
@@ -127,7 +127,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
     const parsed = ConnectBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const connected = await connectOne(deps, parsed.data, parsed.data.createProject);
-    return c.json(connected, 201);
+    return c.json(connected.repo, 201);
   });
 
   return r;
@@ -137,6 +137,7 @@ export async function connectOne(
   deps: AppDeps,
   input: { fullName: string; defaultBranch: string },
   createProject: boolean,
+  opts?: { devFirst?: boolean; baseBranch?: string; heimdallAppId?: string },
 ) {
   const existing = await deps.store.getRepositoryByFullName(input.fullName);
   const repo =
@@ -149,23 +150,23 @@ export async function connectOne(
       cloneUrl: `https://github.com/${input.fullName}.git`,
     }));
 
-  if (createProject) {
-    const projects = await deps.store.listProjects();
-    const has = projects.some((p) => p.repositoryId === repo.id);
-    if (!has) {
-      const project = await deps.store.insertProject({
-        name: repo.name,
-        repositoryId: repo.id,
-        model: DEFAULT_MODEL,
-        authMode: "subscription",
-        baseBranch: repo.defaultBranch,
-      });
-      // Huginn scouts the freshly-connected project (async, best-effort) so a
-      // brief is waiting by the time the user opens it. Never blocks the import.
-      fireDiscovery(deps, project.id);
-    }
+  let project = (await deps.store.listProjects()).find((p) => p.repositoryId === repo.id) ?? null;
+  if (createProject && !project) {
+    project = await deps.store.insertProject({
+      name: repo.name,
+      repositoryId: repo.id,
+      model: DEFAULT_MODEL,
+      authMode: "subscription",
+      // Dev-first (ADR 0038) forges on `dev`; classic connect tracks the repo default.
+      baseBranch: opts?.baseBranch ?? repo.defaultBranch,
+      devFirst: opts?.devFirst ?? false,
+      heimdallAppId: opts?.heimdallAppId ?? null,
+    });
+    // Huginn scouts the freshly-connected project (async, best-effort) so a
+    // brief is waiting by the time the user opens it. Never blocks the import.
+    fireDiscovery(deps, project.id);
   }
-  return repo;
+  return { repo, project };
 }
 
 /** Fire-and-forget: ask Sindri to scout a project. Failures are swallowed (the

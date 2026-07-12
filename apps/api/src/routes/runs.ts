@@ -73,9 +73,8 @@ export function runsRoutes(deps: AppDeps): Hono {
       if (!project) return c.json({ error: "project not found" }, 404);
     } else {
       // Ensure the repo is connected and has a project (creates both + scouts it).
-      const repo = await connectOne(deps, { fullName: repoFullName!, defaultBranch }, true);
-      const projects = await deps.store.listProjects();
-      project = projects.find((p) => p.repositoryId === repo.id) ?? null;
+      const connected = await connectOne(deps, { fullName: repoFullName!, defaultBranch }, true);
+      project = connected.project;
     }
     if (!project) return c.json({ error: "could not resolve a project for the repo" }, 502);
 
