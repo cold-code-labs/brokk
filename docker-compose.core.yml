@@ -1,0 +1,89 @@
+# GENERATED from docker-compose.coolify.yml — deploy-type split (ADR 0034 / Phase 3).
+# Do not hand-edit; regenerate. See midgard compose/brokk/README.md.
+name: brokk-core
+networks:
+  default: null
+  coolify:
+    external: true
+  litellm:
+    external: true
+    name: cbte3k2aufcrd3o664v33y7g
+services:
+  brokk-api:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
+    image: brokk-api:coolify
+    mem_limit: 1g
+    cpus: 1.0
+    environment:
+      BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:?set in Coolify}
+      BROKK_API_PORT: '8789'
+      BROKK_SECRETS_KEY: ${BROKK_SECRETS_KEY:-}
+      BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
+      BROKK_API_SECRET: ${BROKK_API_SECRET:-}
+      BROKK_GITHUB_WEBHOOK_SECRET: ${BROKK_GITHUB_WEBHOOK_SECRET:-}
+      BROKK_SINDRI_URL: ${BROKK_SINDRI_URL:-http://brokk-chat:8795}
+      BROKK_DEFAULT_REPO: ${BROKK_DEFAULT_REPO:-}
+      BROKK_DEFAULT_BRANCH: ${BROKK_DEFAULT_BRANCH:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      MIMIR_MODEL: ${MIMIR_MODEL:-gpt-4.1-mini}
+      MIMIR_BASE_URL: ${MIMIR_BASE_URL:-}
+      MIMIR_API_KEY: ${MIMIR_API_KEY:-}
+      MIMIR_PROVIDER: ${MIMIR_PROVIDER:-}
+      MIMIR_PLANNER_MODEL: ${MIMIR_PLANNER_MODEL:-}
+      MIMIR_TRIAGE_MODEL: ${MIMIR_TRIAGE_MODEL:-}
+      MIMIR_ENHANCE_MODEL: ${MIMIR_ENHANCE_MODEL:-}
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
+      HAULDR_TOKEN: ${HAULDR_TOKEN:-}
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - node -e "fetch('http://127.0.0.1:8789/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    expose:
+    - '8789'
+    networks:
+    - default
+    - coolify
+    - litellm
+  web:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
+    image: brokk-web:coolify
+    mem_limit: 1g
+    cpus: 1.0
+    environment:
+      BROKK_API_INTERNAL_URL: ${BROKK_API_INTERNAL_URL:-http://brokk-api:8789}
+      BROKK_API_SECRET: ${BROKK_API_SECRET:-}
+      BROKK_MOBILE_TOKEN: ${BROKK_MOBILE_TOKEN:-}
+      LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
+      LOGTO_APP_ID: ${LOGTO_APP_ID:-}
+      LOGTO_APP_SECRET: ${LOGTO_APP_SECRET:-}
+      LOGTO_BASE_URL: ${LOGTO_BASE_URL:-https://brokk.coldcodelabs.com}
+      LOGTO_COOKIE_SECRET: ${LOGTO_COOKIE_SECRET:-}
+    depends_on:
+      brokk-api:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - node -e "fetch('http://127.0.0.1:3000/brokk.svg').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    expose:
+    - '3000'
+    ports:
+    - 127.0.0.1:3010:3000
+    networks:
+    - default
