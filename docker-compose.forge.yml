@@ -63,9 +63,9 @@ services:
     volumes:
     - brokk_home:/home/brokk
     networks:
-      default: null
-      coolify: null
-      litellm: null
+    - default
+    - coolify
+    - litellm
   forge-b:
     restart: unless-stopped
     build:
@@ -117,9 +117,9 @@ services:
     volumes:
     - brokk_home:/home/brokk
     networks:
-      default: null
-      coolify: null
-      litellm: null
+    - default
+    - coolify
+    - litellm
   reviewer:
     restart: unless-stopped
     build:
@@ -168,9 +168,9 @@ services:
     volumes:
     - brokk_home:/home/brokk
     networks:
-      default: null
-      coolify: null
-      litellm: null
+    - default
+    - coolify
+    - litellm
   enclave-manager:
     restart: unless-stopped
     build:
@@ -191,7 +191,7 @@ services:
     - /var/run/docker.sock:/var/run/docker.sock
     - brokk_home:/home/brokk
     networks:
-      default: null
+    - default
   preview-proxy:
     restart: unless-stopped
     build:
@@ -212,8 +212,8 @@ services:
     ports:
     - 127.0.0.1:3020:3020
     networks:
-      default: null
-      coolify: null
+    - default
+    - coolify
   chat:
     restart: unless-stopped
     build:
@@ -266,8 +266,8 @@ services:
     expose:
     - '8795'
     networks:
-      default: null
+      default: {}
       coolify:
         aliases:
         - brokk-chat
-      litellm: null
+      litellm: {}
