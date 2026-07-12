@@ -49,6 +49,14 @@ x-restart: &restart
 # on a service are harmless — better that than a missing one.
 x-worker-env: &worker-env
   HOME: /home/brokk
+  # Fresh preview installs (new app, ADR 0038) run as a dropped uid; the image's
+  # default pnpm store (/pnpm) is root-owned → EPERM chmod'ing hardlinked bins.
+  # Point store + caches at the 1001-owned work volume.
+  COREPACK_HOME: /home/brokk/work/.cache/corepack
+  XDG_CACHE_HOME: /home/brokk/work/.cache
+  XDG_DATA_HOME: /home/brokk/work/.local
+  npm_config_cache: /home/brokk/work/.cache/npm
+  npm_config_store_dir: /home/brokk/work/.pnpm-store
   BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://brokk-api:8789}
   BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:?set in Coolify}
   BROKK_RUNNER_WORKDIR: ${BROKK_RUNNER_WORKDIR:-/home/brokk/work}
