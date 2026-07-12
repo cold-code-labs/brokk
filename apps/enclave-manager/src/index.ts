@@ -17,6 +17,7 @@
  */
 import { execFile } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { hostname } from "node:os";
 import { promisify } from "node:util";
 import { RunscEnclave } from "@brokk/afl";
 
@@ -50,6 +51,42 @@ async function ensureBaseImage(): Promise<void> {
     console.log(`[enclave-manager] ${BASE_IMAGE} built`);
   } catch (e: any) {
     console.error(`[enclave-manager] base image build failed (best-effort): ${e?.message ?? e}`);
+  }
+}
+
+// Discover our REAL brokk_home volume from our own container mounts, and pin it into
+// BROKK_ENCLAVE_HOME_VOLUME (which RunscEnclave reads at construct time). Why: Coolify
+// prefixes the volume with the app's uuid, and that uuid CHANGES when the app is
+// recreated — the hardcoded env then points at an orphaned volume, so every enclave's
+// `--mount volume-subpath` lstat-fails ("no such file or directory") and ALL bash dies
+// while the checkout sits safe on the new volume. We hold the Docker socket, so our own
+// mounts are the authoritative source. Self-inspection > a value a human has to keep in
+// sync. Best-effort: if inspection fails we keep whatever env was set.
+const HOME_MOUNT = process.env.BROKK_ENCLAVE_HOME_MOUNT || "/home/brokk";
+async function discoverHomeVolume(): Promise<void> {
+  try {
+    const { stdout } = await execFileAsync(
+      "docker",
+      ["inspect", hostname(), "--format", "{{json .Mounts}}"],
+      { timeout: 15_000 },
+    );
+    const mounts = JSON.parse(stdout) as Array<{ Type?: string; Name?: string; Destination?: string }>;
+    const hit = mounts.find((m) => m.Type === "volume" && m.Destination === HOME_MOUNT && m.Name);
+    if (!hit?.Name) {
+      console.warn(
+        `[enclave-manager] no named volume mounted at ${HOME_MOUNT}; keeping BROKK_ENCLAVE_HOME_VOLUME=${process.env.BROKK_ENCLAVE_HOME_VOLUME ?? "(unset)"}`,
+      );
+      return;
+    }
+    const prev = process.env.BROKK_ENCLAVE_HOME_VOLUME;
+    process.env.BROKK_ENCLAVE_HOME_VOLUME = hit.Name;
+    console.log(
+      prev === hit.Name
+        ? `[enclave-manager] home volume: ${hit.Name}`
+        : `[enclave-manager] home volume: ${hit.Name} (corrected drifted env=${prev ?? "unset"})`,
+    );
+  } catch (e: any) {
+    console.error(`[enclave-manager] home-volume discovery failed (best-effort): ${e?.message ?? e}`);
   }
 }
 
@@ -195,9 +232,14 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => console.log(`[enclave-manager] listening on :${PORT}`));
-// Ensure the default runtime image exists (best-effort, non-blocking).
-void ensureBaseImage();
-// Reap orphans left by a previous life (deploy), then sweep idle enclaves.
-void reapOrphans();
-setInterval(() => void sweepIdle(), SWEEP_MS).unref();
+// Boot: pin the real home volume FIRST (a lazily-constructed RunscEnclave reads the
+// env at first exec, so discovery must win before we accept requests), then serve.
+void (async () => {
+  await discoverHomeVolume();
+  server.listen(PORT, () => console.log(`[enclave-manager] listening on :${PORT}`));
+  // Ensure the default runtime image exists (best-effort, non-blocking).
+  void ensureBaseImage();
+  // Reap orphans left by a previous life (deploy), then sweep idle enclaves.
+  void reapOrphans();
+  setInterval(() => void sweepIdle(), SWEEP_MS).unref();
+})();

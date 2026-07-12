@@ -206,9 +206,23 @@ export function makeFsExecutor(ctx: FsToolContext): PartialExecutor {
             timeoutMs: Number(input.timeout_ms ?? 120_000),
             gitCommonDir: await gitCommonDir(),
           });
-          return code === 0
-            ? { ok: true, content: clip(out || "(no output)") }
-            : { ok: false, content: clip(`exit ${code ?? "?"}\n${out}`) };
+          if (code === 0) return { ok: true, content: clip(out || "(no output)") };
+          // The enclave signals an infra fault (not a command failure) with code=null
+          // and an "enclave unavailable" prefix. Don't dress it as "exit ?": say plainly
+          // that the execution environment is DOWN so the agent stops silently routing
+          // around it via file-tools and, crucially, never implies a change is verified
+          // when it could not run a single command. This is an environment fault to
+          // surface to the user, not a task step to work past.
+          if (code === null && /^enclave unavailable/i.test(out)) {
+            return {
+              ok: false,
+              content: clip(
+                `EXECUTION ENVIRONMENT UNAVAILABLE — cannot run commands (tests, builds, typecheck, git/gh) in this session.\n${out}\n\n` +
+                  `Do NOT keep working as if this succeeded: any file edits cannot be verified or committed. Stop and tell the user their execution environment is down (an infra/enclave fault, not a code problem) instead of presenting changes as ready.`,
+              ),
+            };
+          }
+          return { ok: false, content: clip(`exit ${code ?? "?"}\n${out}`) };
         }
         default:
           return null; // not a generic tool — let a domain executor try
