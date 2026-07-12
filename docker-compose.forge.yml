@@ -9,7 +9,9 @@ networks:
     external: true
     name: cbte3k2aufcrd3o664v33y7g
 volumes:
-  brokk_home: null
+  brokk_home:
+    external: true
+    name: mhhtrgxatztqumegd9k00f9v_brokk-home
 services:
   forge:
     restart: unless-stopped
