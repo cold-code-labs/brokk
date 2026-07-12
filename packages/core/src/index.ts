@@ -158,6 +158,10 @@ export interface Project {
   /** ADR 0038: the Heimdall AppRecord id this project was provisioned as — the
    *  handle Publish/rollback call Heimdall with. Null for legacy projects. */
   heimdallAppId: string | null;
+  /** ADR 0038: true once prod exists (first "Publicar" done). Drives the primary
+   *  action: false → "Publicar" (birth prod); true → "Create PR" (promotion PR
+   *  dev→main, reviewed by Eitri). */
+  published: boolean;
   /** Pinned runtime (Sleipnir) — how the preview supervisor boots this project's
    *  checkout. Decided once at connect (Huginn skill / fast-path) and reused
    *  deterministically. Null = resolve each boot (legacy / not yet scouted). */

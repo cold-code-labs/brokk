@@ -155,6 +155,10 @@ export const projects = pgTable("projects", {
   // handle Publish/rollback call Heimdall with (POST /apps/:id/publish). Null for
   // legacy projects connected before the v0 face.
   heimdallAppId: text("heimdall_app_id"),
+  // ADR 0038: true once prod has been born (the first "Publicar" graduated the
+  // app). Flips the primary action from "Publicar" (first = provision prod) to
+  // "Create PR" (subsequent = promotion PR dev→main that Eitri reviews).
+  published: boolean("published").notNull().default(false),
   // Sleipnir: pinned RuntimeSpec — how the preview supervisor boots this project's
   // checkout. Decided once at connect (Huginn skill / fast-path), reused per boot.
   // Null = resolve each boot (legacy projects fall through to the Next fast-path).

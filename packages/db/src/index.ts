@@ -172,6 +172,7 @@ function rowToProject(row: typeof projects.$inferSelect): Project {
     baseBranch: row.baseBranch,
     devFirst: row.devFirst ?? false,
     heimdallAppId: row.heimdallAppId ?? null,
+    published: row.published ?? false,
     runtime: row.runtime ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -509,6 +510,11 @@ export interface Store {
   setProjectRuntime(
     id: string,
     runtime: RuntimeSpec | null,
+  ): Promise<typeof projects.$inferSelect | null>;
+  /** Flip a project's published flag (ADR 0038 — first Publicar births prod). */
+  setProjectPublished(
+    id: string,
+    published: boolean,
   ): Promise<typeof projects.$inferSelect | null>;
 
   // tasks
@@ -865,6 +871,14 @@ export function createStore(db: Db): Store {
       const rows = await db
         .update(projects)
         .set({ runtime: runtime ?? null, updatedAt: new Date() })
+        .where(eq(projects.id, id))
+        .returning();
+      return rows[0] ?? null;
+    },
+    async setProjectPublished(id, published) {
+      const rows = await db
+        .update(projects)
+        .set({ published, updatedAt: new Date() })
         .where(eq(projects.id, id))
         .returning();
       return rows[0] ?? null;
@@ -2214,6 +2228,7 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS dev_first boolean NOT NULL DEFAULT false;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS heimdall_app_id text;`);
+    await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS published boolean NOT NULL DEFAULT false;`);
     // Add the 'unsupported' preview status. ADD VALUE can't run inside a txn block,
     // so it's its own statement; IF NOT EXISTS makes it idempotent on reboot.
     await db.execute(sql`ALTER TYPE preview_status ADD VALUE IF NOT EXISTS 'unsupported';`);

@@ -1071,11 +1071,8 @@ function SindriPreview({
           <span className="sindri-preview-dot" style={{ background: statusColor }} />
           {statusLabel}
         </span>
-        {branch ? (
-          <span className="sindri-preview-branch" title={`Session worktree: ${branch}`}>
-            <GitBranch size={12} /> {branch}
-          </span>
-        ) : null}
+        {/* branch chip hidden (ADR 0038): the session worktree is dev-lane
+            plumbing — noise in the v0-face preview cockpit. */}
         {tokensIn > 0 && tokensOut > 0 ? (
           <span className="sindri-preview-tok" title="Session tokens (in · out)">
             {fmtTokens(tokensIn)} · {fmtTokens(tokensOut)}
@@ -1083,7 +1080,6 @@ function SindriPreview({
         ) : null}
         <span className="sindri-preview-spacer" />
         <div className="sindri-preview-actions">
-          <PublishControls projectId={projectId} />
           {mobileOnly ? (
             // Projeto mobile: sem toggle desktop, sem drag — troca-se de aparelho.
             <select
@@ -1139,6 +1135,7 @@ function SindriPreview({
           >
             <ExternalLink size={15} />
           </a>
+          <PublishControls projectId={projectId} />
         </div>
       </div>
 

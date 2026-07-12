@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Rocket, History, RotateCcw, Loader2 } from "lucide-react";
-import { Button } from "@cold-code-labs/yggdrasil-react";
+import { Rocket, GitPullRequest, ChevronDown, RotateCcw, Loader2 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import { useToast } from "./Toaster";
 
@@ -12,26 +11,30 @@ interface Version {
   committedAt: string | null;
 }
 
+const spin = { animation: "sindri-spin 0.7s linear infinite" } as const;
+
 /**
- * Publicar + Versões (ADR 0038 — the v0 face). For a dev-first app the user
- * iterates on the dev preview, then **Publicar** promotes dev→prod (the first
- * time, it gives birth to prod). **Versões** lists the published commits on main;
- * "Republicar" rolls prod back to an earlier one (forward-only). Renders nothing
- * for legacy (non-dev-first) projects. Posts to the BFF (/api/*), which injects
- * the API secret.
+ * The one hot action of the preview cockpit (ADR 0038 — the v0 face).
+ *   - **Publicar** — shown until prod exists. The first publish gives birth to
+ *     prod (provisions the prod Hauldr + Coolify app on main).
+ *   - **Create PR** — shown once published. Further promotions open a PR dev→main
+ *     that Eitri reviews (a `dev` head is never auto-merged) and the operator
+ *     approves — the functions start to marry (forge → review → ship).
+ * The ▾ opens the published-versions menu (rollback). Renders nothing for legacy
+ * (non-dev-first) projects. Posts to the BFF (/api/*), which injects the secret.
  */
 export default function PublishControls({ projectId }: { projectId: string }) {
   const { projects, refresh } = useProject();
   const project = projects.find((p) => p.id === projectId);
   const toast = useToast();
-  const [publishing, setPublishing] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [versions, setVersions] = useState<Version[] | null>(null);
   const [loadingV, setLoadingV] = useState(false);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
 
-  // Only dev-first apps (born via Nova Conversa) get the v0 publish flow.
   if (!project?.devFirst) return null;
+  const published = project.published;
 
   async function loadVersions() {
     setLoadingV(true);
@@ -46,20 +49,29 @@ export default function PublishControls({ projectId }: { projectId: string }) {
     }
   }
 
-  async function publish() {
-    if (publishing) return;
-    setPublishing(true);
+  // Primary gesture: first time births prod (Publicar); after, opens the review PR.
+  async function primary() {
+    if (busy) return;
+    setBusy(true);
     try {
-      const r = await fetch(`/api/conversations/${projectId}/publish`, { method: "POST" });
-      const b = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(typeof b?.error === "string" ? b.error : "falha ao publicar");
-      toast("Publicado — prod atualizado.", { tone: "ok" });
-      refresh();
-      if (open) loadVersions();
+      if (!published) {
+        const r = await fetch(`/api/conversations/${projectId}/publish`, { method: "POST" });
+        const b = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(typeof b?.error === "string" ? b.error : "falha ao publicar");
+        toast("Publicado — prod no ar.", { tone: "ok" });
+        refresh();
+        if (open) loadVersions();
+      } else {
+        const r = await fetch(`/api/conversations/${projectId}/pr`, { method: "POST" });
+        const b = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(typeof b?.error === "string" ? b.error : "falha ao abrir PR");
+        toast(`PR #${b.number} ${b.created ? "aberto" : "já aberto"} — Eitri vai revisar.`, { tone: "ok" });
+        if (b.url) window.open(b.url, "_blank", "noopener");
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), { tone: "err" });
     } finally {
-      setPublishing(false);
+      setBusy(false);
     }
   }
 
@@ -90,85 +102,47 @@ export default function PublishControls({ projectId }: { projectId: string }) {
   }
 
   return (
-    <span style={{ position: "relative", display: "inline-flex", gap: 6, alignItems: "center" }}>
+    <span className="sindri-publish-wrap">
+      <button type="button" className="sindri-publish" onClick={primary} disabled={busy}>
+        {busy ? (
+          <Loader2 size={14} style={spin} />
+        ) : published ? (
+          <GitPullRequest size={14} />
+        ) : (
+          <Rocket size={14} />
+        )}
+        {published ? "Create PR" : "Publicar"}
+      </button>
       <button
         type="button"
-        className={`sindri-preview-icon ${open ? "is-on" : ""}`}
+        className="sindri-publish-caret"
         title="Versões publicadas"
         onClick={toggle}
+        aria-expanded={open}
       >
-        <History size={15} />
+        <ChevronDown size={14} />
       </button>
-      <Button variant="default" size="sm" onClick={publish} disabled={publishing}>
-        {publishing ? <Loader2 size={14} style={{ animation: "sindri-spin 0.7s linear infinite" }} /> : <Rocket size={14} />}
-        <span style={{ marginLeft: 6 }}>Publicar</span>
-      </Button>
 
       {open && (
-        <div
-          style={{
-            position: "absolute",
-            top: "calc(100% + 8px)",
-            right: 0,
-            zIndex: 60,
-            width: 340,
-            maxHeight: 360,
-            overflowY: "auto",
-            background: "var(--surface, #12161d)",
-            border: "1px solid var(--border, #2a3340)",
-            borderRadius: 10,
-            boxShadow: "0 12px 40px rgba(0,0,0,.45)",
-            padding: 10,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 600,
-              color: "var(--fg, #e6edf3)",
-              padding: "2px 4px 8px",
-              display: "flex",
-              justifyContent: "space-between",
-            }}
-          >
+        <div className="sindri-publish-menu">
+          <div className="sindri-publish-menu-title">
             Versões publicadas
-            <span style={{ color: "var(--muted, #8b98a5)", fontWeight: 400 }}>
-              {(versions ?? []).length || ""}
-            </span>
+            <span>{(versions ?? []).length || ""}</span>
           </div>
           {loadingV ? (
-            <div style={{ padding: 12, color: "var(--muted, #8b98a5)", fontSize: 12 }}>
-              <Loader2 size={13} style={{ animation: "sindri-spin 0.7s linear infinite" }} /> carregando…
+            <div className="sindri-publish-empty">
+              <Loader2 size={13} style={spin} /> carregando…
             </div>
           ) : (versions ?? []).length === 0 ? (
-            <div style={{ padding: 12, color: "var(--muted, #8b98a5)", fontSize: 12 }}>
-              Nenhuma versão em prod ainda — clique em Publicar.
+            <div className="sindri-publish-empty">
+              {published ? "Nenhuma versão listada." : "Nenhuma versão em prod ainda — clique em Publicar."}
             </div>
           ) : (
             (versions ?? []).map((v, i) => (
-              <div
-                key={v.sha}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "7px 4px",
-                  borderTop: i === 0 ? "none" : "1px solid var(--border, #222a34)",
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 12.5,
-                      color: "var(--fg, #e6edf3)",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {v.message || v.sha.slice(0, 7)}
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--muted, #8b98a5)", fontFamily: "var(--font-mono, monospace)" }}>
+              <div key={v.sha} className="sindri-publish-ver">
+                <div className="sindri-publish-ver-main">
+                  <div className="sindri-publish-ver-msg">{v.message || v.sha.slice(0, 7)}</div>
+                  <div className="sindri-publish-ver-sha">
                     {v.sha.slice(0, 7)}
                     {i === 0 ? " · atual (prod)" : v.committedAt ? " · " + v.committedAt.slice(0, 10) : ""}
                   </div>
@@ -179,9 +153,8 @@ export default function PublishControls({ projectId }: { projectId: string }) {
                   title={i === 0 ? "Já é a versão em prod" : `Republicar ${v.sha.slice(0, 7)}`}
                   onClick={() => rollback(v.sha)}
                   disabled={i === 0 || rollingBack === v.sha}
-                  style={{ opacity: i === 0 ? 0.4 : 1 }}
                 >
-                  {rollingBack === v.sha ? <Loader2 size={14} style={{ animation: "sindri-spin 0.7s linear infinite" }} /> : <RotateCcw size={14} />}
+                  {rollingBack === v.sha ? <Loader2 size={14} style={spin} /> : <RotateCcw size={14} />}
                 </button>
               </div>
             ))

@@ -1,8 +1,48 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
 import { connectOne } from "./repositories.js";
+
+const run = promisify(execFile);
+const GH_BIN = process.env.BROKK_GH_BIN ?? "gh";
+const GH_OPTS = { maxBuffer: 8 * 1024 * 1024, timeout: 25_000, killSignal: "SIGKILL" as const };
+
+/** Open (or reuse) the promotion PR dev→main. After the first Publicar births
+ *  prod, further promotions go through this PR so Eitri reviews them (a `dev`
+ *  head is never auto-merged) and the operator approves. Idempotent. ADR 0038. */
+async function ensurePromotionPr(
+  repoFullName: string,
+): Promise<{ number: number; url: string; created: boolean }> {
+  const owner = repoFullName.split("/")[0]!;
+  const { stdout: found } = await run(
+    GH_BIN,
+    ["api", `repos/${repoFullName}/pulls?head=${owner}:dev&base=main&state=open`],
+    GH_OPTS,
+  );
+  const open = JSON.parse(found) as Array<{ number: number; html_url: string }>;
+  if (open.length > 0) return { number: open[0]!.number, url: open[0]!.html_url, created: false };
+  const { stdout: created } = await run(
+    GH_BIN,
+    [
+      "api",
+      `repos/${repoFullName}/pulls`,
+      "-f",
+      "title=Publicar: dev → main",
+      "-f",
+      "head=dev",
+      "-f",
+      "base=main",
+      "-f",
+      "body=Promoção da dev para produção (ADR 0038). O Eitri revisa; aprove para publicar.",
+    ],
+    GH_OPTS,
+  );
+  const pr = JSON.parse(created) as { number: number; html_url: string };
+  return { number: pr.number, url: pr.html_url, created: true };
+}
 
 const NewConversationBody = z.object({
   /** the app name the user typed, e.g. "MarkupLab". Heimdall slugifies it into
@@ -134,7 +174,9 @@ export function conversationsRoutes(deps: AppDeps): Hono {
   });
 
   /** Resolve a Brokk project to its Heimdall app id (or a JSON error response). */
-  async function resolveApp(c: Context): Promise<{ appId: string } | Response> {
+  async function resolveApp(
+    c: Context,
+  ): Promise<{ appId: string; projectId: string; repoFullName: string } | Response> {
     if (!deps.heimdallUrl || !deps.heimdallToken) {
       return c.json({ error: "provisioning disabled (no HEIMDALL_API_URL/TOKEN)" }, 503);
     }
@@ -145,16 +187,35 @@ export function conversationsRoutes(deps: AppDeps): Hono {
     if (!project.heimdallAppId) {
       return c.json({ error: "project has no Heimdall app (not born via Nova Conversa)" }, 400);
     }
-    return { appId: project.heimdallAppId };
+    const repo = await deps.store.getRepository(project.repositoryId);
+    if (!repo) return c.json({ error: "repository not found" }, 404);
+    return { appId: project.heimdallAppId, projectId, repoFullName: repo.fullName };
   }
 
-  // B4 — Publicar: merge dev→main and, on the first Publish, give birth to prod.
+  // B4 — Publicar (só a 1ª vez): merge dev→main + dá à luz o prod. Marca published
+  // → o próximo gesto vira "Create PR" (promoção revisada pelo Eitri).
   r.post("/:projectId/publish", async (c) => {
     const resolved = await resolveApp(c);
     if (resolved instanceof Response) return resolved;
     const out = await heimdall(deps, "POST", `/apps/${resolved.appId}/publish`);
     if (!out.ok) return c.json({ error: `heimdall: ${JSON.stringify(out.body?.error ?? out.body)}` }, 502);
+    if (out.body?.laneStage && out.body.laneStage !== "dev") {
+      await deps.store.setProjectPublished(resolved.projectId, true).catch(() => {});
+    }
     return c.json(out.body);
+  });
+
+  // B4' — Create PR: após o 1º Publicar, promoções viram um PR dev→main que o
+  // Eitri revisa (head=dev nunca é auto-mergeado) e o operador aprova. Idempotente.
+  r.post("/:projectId/pr", async (c) => {
+    const resolved = await resolveApp(c);
+    if (resolved instanceof Response) return resolved;
+    try {
+      const pr = await ensurePromotionPr(resolved.repoFullName);
+      return c.json(pr, pr.created ? 201 : 200);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 502);
+    }
   });
 
   // B5 — Versões publicadas (commits da main, mais recente primeiro).

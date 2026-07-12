@@ -1144,6 +1144,112 @@ body:has(.sindri) {
   gap: 0.2rem;
   flex-shrink: 0;
 }
+/* Publicar / Create PR — the one hot action in the preview cockpit (soul: the
+   only warmth in the frame is the gesture that ships). Amber-filled, anchored
+   far right, split by a hairline ▾ that opens the published-versions menu. */
+.sindri-publish-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.35rem;
+}
+.sindri-publish {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 1.8rem;
+  padding: 0 0.7rem;
+  border-radius: var(--radius-sm, 6px) 0 0 var(--radius-sm, 6px);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  color: var(--accent);
+  font-size: 0.76rem;
+  font-weight: 650;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.sindri-publish:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 26%, var(--panel));
+  border-color: var(--accent);
+}
+.sindri-publish:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.sindri-publish-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.8rem;
+  border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-left: none;
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  color: var(--accent);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.sindri-publish-caret:hover {
+  background: color-mix(in srgb, var(--accent) 26%, var(--panel));
+}
+.sindri-publish-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 20rem;
+  max-height: 22rem;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  padding: 0.5rem;
+}
+.sindri-publish-menu-title {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--fg);
+  padding: 0.1rem 0.3rem 0.5rem;
+}
+.sindri-publish-menu-title span {
+  color: var(--fg-dim);
+  font-weight: 400;
+}
+.sindri-publish-ver {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.3rem;
+}
+.sindri-publish-ver + .sindri-publish-ver {
+  border-top: 1px solid var(--border);
+}
+.sindri-publish-ver-main {
+  flex: 1;
+  min-width: 0;
+}
+.sindri-publish-ver-msg {
+  font-size: 0.78rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sindri-publish-ver-sha {
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  font-family: var(--font-mono, monospace);
+}
+.sindri-publish-empty {
+  padding: 0.75rem 0.3rem;
+  font-size: 0.74rem;
+  color: var(--fg-dim);
+}
 .sindri-preview-icon {
   display: inline-flex;
   align-items: center;
