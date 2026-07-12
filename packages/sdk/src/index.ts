@@ -180,15 +180,39 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
   const baseUrl = opts.baseUrl.replace(/\/$/, "");
   const fetchImpl = opts.fetch ?? fetch;
 
+  // Transient upstream states seen while the API container is mid-restart
+  // (Traefik/Cloudflare answer 502/503/504 or the socket refuses). GETs are
+  // idempotent, so retry a few times with backoff before surfacing the error.
+  const TRANSIENT = new Set([502, 503, 504]);
+
   async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetchImpl(`${baseUrl}${path}`, {
-      method,
-      headers: {
-        ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    const idempotent = method === "GET";
+    const attempts = idempotent ? 4 : 1;
+    let res!: Awaited<ReturnType<typeof fetchImpl>>;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        res = await fetchImpl(`${baseUrl}${path}`, {
+          method,
+          headers: {
+            ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
+            ...(body ? { "Content-Type": "application/json" } : {}),
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      } catch (err) {
+        // Network-level failure (refused/reset) — same restart window.
+        if (idempotent && attempt < attempts - 1) {
+          await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
+          continue;
+        }
+        throw err;
+      }
+      if (idempotent && TRANSIENT.has(res.status) && attempt < attempts - 1) {
+        await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
+        continue;
+      }
+      break;
+    }
     if (!res.ok) {
       let detail = await res.text().catch(() => "");
       // A reverse-proxy/CDN (Cloudflare, Traefik) answers an unreachable origin
