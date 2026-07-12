@@ -17,8 +17,8 @@
  */
 import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import type { Preview, Repository, RuntimeSpec } from "@brokk/core";
 import { buildDetectCtx, composeCommand, PACKAGE_MANAGERS, resolveRuntime } from "@brokk/core/runtime";
@@ -542,6 +542,18 @@ export class PreviewSupervisor {
       `[preview-supervisor] ${preview.subdomain}: port=${port} cwd=${wtPath}`,
     );
     console.log(`[preview-supervisor] ${preview.subdomain}: cmd=${cmd}`);
+
+    // Materialise runtime-declared prepare files into the checkout before boot
+    // (e.g. Vite's allowedHosts wrapper config). Framework-agnostic: the forge
+    // just writes what the spec declares, under appRoot, then the dev command
+    // opts them in. Untracked, so `reset --hard` on refresh leaves them in place.
+    const appDir = spec.appRoot && spec.appRoot !== "." ? join(wtPath, spec.appRoot) : wtPath;
+    for (const f of spec.prepareFiles ?? []) {
+      const dest = join(appDir, f.path);
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, f.contents);
+      console.log(`[preview-supervisor] ${preview.subdomain}: wrote prepare file ${f.path}`);
+    }
 
     const proc = spawn("sh", ["-c", cmd], {
       cwd: wtPath,

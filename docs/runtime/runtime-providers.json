@@ -102,10 +102,11 @@
    },
    "commands": {
     "install": "{install}",
-    "dev": "{exec} vite --port $PORT --host 0.0.0.0",
+    "dev": "{exec} vite --port $PORT --host 0.0.0.0 --config .brokk/vite.preview.config.mjs",
     "build": "{exec} vite build",
-    "start": "{exec} vite preview --port $PORT --host 0.0.0.0"
+    "start": "{exec} vite preview --port $PORT --host 0.0.0.0 --config .brokk/vite.preview.config.mjs"
    },
+   "prepareFiles": [".brokk/vite.preview.config.mjs"],
    "health": "/"
   },
   "astro": {

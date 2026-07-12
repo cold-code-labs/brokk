@@ -238,6 +238,7 @@ export function fastPath(ctx: DetectCtx): RuntimeSpec | null {
       health: p.health ?? "/",
       bundleProbe: p.bundleProbe,
       env: p.env,
+      prepareFiles: p.prepareFiles,
       supported: true,
       evidence,
       confidence: 1,

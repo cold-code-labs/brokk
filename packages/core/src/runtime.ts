@@ -35,6 +35,12 @@ export interface RuntimeSpec {
   bundleProbe?: string;
   /** Extra env injected into the process. */
   env?: Record<string, string>;
+  /** Files the forge materialises into <appRoot> before running dev/build, to
+   *  inject preview-only settings a framework can't take via CLI or env — e.g.
+   *  Vite's `server.allowedHosts`, which otherwise 403s the proxied preview host.
+   *  Written verbatim; the dev/start command opts them in (e.g. `vite --config`).
+   *  Framework-agnostic to the supervisor: it just writes what the spec declares. */
+  prepareFiles?: Array<{ path: string; contents: string }>;
   /** Whether Sleipnir can actually boot this stack today (v1: only nextjs). */
   supported: boolean;
   /** Reason, when supported=false ("Vite app at apps/web — not promoted yet"). */

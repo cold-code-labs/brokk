@@ -58,7 +58,30 @@ export interface Provider {
   /** Extra env for the dev process. `$PUBLIC_URL` expands to the preview's public
    *  URL at boot (supervisor-side), so no framework knowledge leaks into the forge. */
   env?: Record<string, string>;
+  /** Files the forge writes into appRoot before boot (see RuntimeSpec.prepareFiles). */
+  prepareFiles?: Array<{ path: string; contents: string }>;
 }
+
+// Vite 5.4+ rejects any request whose Host header isn't in `server.allowedHosts`
+// (403 "This host is not allowed"). Dev-lane previews are served through the
+// gateway at <app>-dev.preview.coldcodelabs.com, so every Vite app 403s unless it
+// opts that host in — and Vite exposes NO CLI flag or env for it, only config.
+// So the forge writes this wrapper into the checkout and points `vite --config`
+// at it: it loads the app's OWN config (loadConfigFromFile finds vite.config.* in
+// cwd; the wrapper lives under .brokk/ so it never matches itself) and merges in
+// the preview host allowlist for both the dev server and `vite preview`. No
+// app-repo edit required; the app keeps its plugins/aliases/port untouched.
+const VITE_PREVIEW_CONFIG_PATH = ".brokk/vite.preview.config.mjs";
+const VITE_PREVIEW_CONFIG = `import { loadConfigFromFile, mergeConfig } from "vite";
+const PREVIEW_HOSTS = [".preview.coldcodelabs.com"];
+export default async (env) => {
+  const loaded = await loadConfigFromFile(env, undefined, process.cwd());
+  return mergeConfig(loaded?.config ?? {}, {
+    server: { allowedHosts: PREVIEW_HOSTS },
+    preview: { allowedHosts: PREVIEW_HOSTS },
+  });
+};
+`;
 
 export const PROVIDERS: Provider[] = [
   {
@@ -89,12 +112,19 @@ export const PROVIDERS: Provider[] = [
       anyScriptMatches: "vite( build| preview)?",
     },
     commands: {
-      dev: "{exec} vite --port $PORT --host 0.0.0.0",
+      dev: `{exec} vite --port $PORT --host 0.0.0.0 --config ${VITE_PREVIEW_CONFIG_PATH}`,
       build: "{exec} vite build",
-      start: "{exec} vite preview --port $PORT --host 0.0.0.0",
+      start: `{exec} vite preview --port $PORT --host 0.0.0.0 --config ${VITE_PREVIEW_CONFIG_PATH}`,
     },
+    prepareFiles: [{ path: VITE_PREVIEW_CONFIG_PATH, contents: VITE_PREVIEW_CONFIG }],
     health: "/",
   },
+  // ⚠️ Astro's dev server is Vite under the hood and host-checks the same way, so
+  // an Astro app served through the gateway will also 403. Astro has no
+  // loadConfigFromFile export, so the Vite wrapper above can't be reused verbatim
+  // — an Astro app needs its own prepareFiles wrapper (astro.config with
+  // `vite: { server: { allowedHosts } }` passthrough). Wire it when the first
+  // Astro app is ingested into the dev-lane (none today). See the Viken write-up.
   {
     id: "astro",
     label: "Astro",
