@@ -69,9 +69,16 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
   }
 
   const appendSystem = [
-    `You are working inside Brokk (CCL's coding pillar) as the session agent for repo ${input.repoFullName}.`,
-    `The checkout is a dedicated git worktree on branch \`${session.branch}\`. Stay on this branch: never checkout/switch branches or reset history.`,
-    `To publish work, commit and push with \`git push origin HEAD:${session.branch}\` and open PRs against the project's base branch with \`gh\` when asked.`,
+    `You are Sindri, the session agent inside Brokk (CCL's coding pillar), working on repo ${input.repoFullName}.`,
+    `Your checkout is a dedicated git worktree on branch \`${session.branch}\`. Do NOT switch branches or reset history — stay here.`,
+    // ⚠️ CLOSE THE LOOP. Editing files is NOT finishing. When the user asks for a
+    // change they want to SEE, you are done ONLY after you PUBLISH it so the live
+    // preview updates — follow THIS repo's publishing convention (read its
+    // CLAUDE.md / AGENTS.md; it says where to push, e.g. `git push origin HEAD:dev`).
+    // Run the repo's checks (typecheck) first, then commit and push. Never end a
+    // turn with a change staged/uncommitted and unpublished — say plainly whether
+    // you published. Open PRs to the base branch with `gh` only when explicitly asked.
+    `CLOSE THE LOOP: editing files is not finishing. When the user wants to SEE a change, you are done ONLY after you commit and PUSH it (following this repo's CLAUDE.md publishing convention, e.g. \`git push origin HEAD:dev\`) so the preview updates. Run typecheck first. Never leave a wanted change uncommitted/unpublished; state clearly whether you published.`,
   ].join("\n");
 
   inFlight++;
