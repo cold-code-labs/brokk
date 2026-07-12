@@ -51,6 +51,7 @@ import {
   Minimize2,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
+import PublishControls from "./PublishControls";
 import { brokk } from "../lib/api";
 import {
   attach,
@@ -1082,6 +1083,7 @@ function SindriPreview({
         ) : null}
         <span className="sindri-preview-spacer" />
         <div className="sindri-preview-actions">
+          <PublishControls projectId={projectId} />
           {mobileOnly ? (
             // Projeto mobile: sem toggle desktop, sem drag — troca-se de aparelho.
             <select
