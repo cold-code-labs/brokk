@@ -398,6 +398,12 @@ export const previews = pgTable(
      *  would sort by the SLOT's created_at (ancient) instead of the build. */
     builtAt: timestamp("built_at", { withTimezone: true }),
     pid: integer("pid"),
+    /** Redacted snapshot of the env the supervisor actually loaded into this
+     *  preview process (data-provider vars + app secrets + runtime env), with
+     *  secret-looking values masked. Powers the "Env" inspector in the preview
+     *  bar so an operator can see what a dev preview is wired to — e.g. that it
+     *  points at the isolated <app>_dev Hauldr backend, never prod. */
+    loadedEnv: jsonb("loaded_env").$type<Record<string, string>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

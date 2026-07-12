@@ -43,6 +43,16 @@ export function makeHauldrDataProvider(client: HauldrClient, controlUrl: string)
     name: "hauldr",
     async ensureEnv(project) {
       const hp = await client.ensureProject(project);
+      // A browser-safe anon key: a JWT signed with the project secret carrying
+      // role=anon — NOT the raw secret. Vite/SPA apps ship this to the browser as
+      // the publishable key, so it must never be the signing secret itself.
+      const anonKey = mintAnonToken(hp.jwtSecret);
+      // Public https base for a browser client: the internal gotrueUrl is
+      // `http://<ns>.hauldr.coldcodelabs.com/auth`; a browser needs the https
+      // namespace root (the gateway routes /auth/v1 + /rest/v1 under it).
+      const publicUrl = hp.gotrueUrl
+        .replace(/^http:/, "https:")
+        .replace(/\/auth\/?$/, "");
       const env: Record<string, string> = {
         // Full Supabase-compatible set so any Supabase/Hauldr client works.
         DATABASE_URL: hp.dbUrl,
@@ -68,6 +78,19 @@ export function makeHauldrDataProvider(client: HauldrClient, controlUrl: string)
         HAULDR_GOTRUE_URL: hp.gotrueUrl,
         HAULDR_JWT_SECRET: hp.jwtSecret,
         DATA_API_URL: hp.postgrestUrl,
+        // Vite SPA contract (browser-side, additive — never read by the Next
+        // template). A Vite app (e.g. a migrated Supabase SPA) reads these at
+        // dev-server start via import.meta.env; ships the anon key, not the
+        // secret, and the public https namespace. Both VITE_HAULDR_* (fleet
+        // rebrand) and VITE_SUPABASE_* (pre-rebrand apps) so either wires up
+        // automatically — no per-app preview-secret needed.
+        VITE_HAULDR_URL: publicUrl,
+        VITE_HAULDR_PUBLISHABLE_KEY: anonKey,
+        VITE_HAULDR_PROJECT_ID: project,
+        VITE_SUPABASE_URL: publicUrl,
+        VITE_SUPABASE_PUBLISHABLE_KEY: anonKey,
+        VITE_SUPABASE_ANON_KEY: anonKey,
+        VITE_SUPABASE_PROJECT_ID: project,
         // Dev previews are throwaway demo environments — turn on the template's
         // one-click "Entrar como demo" login (the app gates it DEV/DEMO-only via
         // DEMO_LOGIN). We seed the matching user below so the click logs in.
@@ -113,6 +136,23 @@ function mintServiceToken(jwtSecret: string): string {
     iss: "brokk-preview",
     iat: now,
     exp: now + 300,
+  })}`;
+  const sig = createHmac("sha256", jwtSecret).update(data).digest("base64url");
+  return `${data}.${sig}`;
+}
+
+/** Mint a long-lived anon JWT (HS256) from the project's GoTrue secret — the
+ *  browser-safe publishable key (role=anon). Unlike the service token this is
+ *  meant to reach the browser, so it never carries the secret itself, only a
+ *  signature over it. 10-year exp: a dev preview's key shouldn't expire mid-use. */
+function mintAnonToken(jwtSecret: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  const enc = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const data = `${enc({ alg: "HS256", typ: "JWT" })}.${enc({
+    role: "anon",
+    iss: "brokk-preview",
+    iat: now,
+    exp: now + 10 * 365 * 24 * 3600,
   })}`;
   const sig = createHmac("sha256", jwtSecret).update(data).digest("base64url");
   return `${data}.${sig}`;

@@ -367,6 +367,10 @@ export interface Preview {
   builtAt: string | null;
   /** OS PID of the preview process on the runner host, if running. */
   pid: number | null;
+  /** Redacted snapshot of the env the supervisor loaded into this preview
+   *  (secret values masked) — powers the "Env" inspector in the preview bar.
+   *  Null until the supervisor stamps it on boot. */
+  loadedEnv: Record<string, string> | null;
   createdAt: string;
   updatedAt: string;
 }

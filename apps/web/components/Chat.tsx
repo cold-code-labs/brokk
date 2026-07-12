@@ -43,6 +43,7 @@ import {
   Database,
   Eye,
   Code2,
+  KeyRound,
   ExternalLink,
   PanelRightClose,
   PanelRightOpen,
@@ -805,6 +806,51 @@ const PHONE_PRESETS = [
   { id: "galaxy-s24", label: "Galaxy S24", w: 360, h: 780 },
 ] as const;
 
+/** Read-only inspector for the env the supervisor loaded into a preview. Shows
+ *  which backend a dev preview is actually wired to (isolated <app>_dev, never
+ *  prod); secret values arrive already masked from the runner. */
+function EnvPanel({ env }: { env: Record<string, string> | null }) {
+  const entries = env ? Object.entries(env).sort(([a], [b]) => a.localeCompare(b)) : [];
+  return (
+    <div style={{ height: "100%", overflow: "auto", padding: "12px 14px", fontSize: 12.5 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, opacity: 0.75, marginBottom: 10 }}>
+        <KeyRound size={14} />
+        <strong>Environment loaded into this preview</strong>
+        <span style={{ opacity: 0.6 }}>— secrets masked; backend URLs shown</span>
+      </div>
+      {entries.length === 0 ? (
+        <div style={{ opacity: 0.6 }}>No env captured yet — the preview stamps it on boot.</div>
+      ) : (
+        <table
+          style={{
+            borderCollapse: "collapse",
+            width: "100%",
+            fontFamily: "var(--font-mono, ui-monospace, monospace)",
+          }}
+        >
+          <tbody>
+            {entries.map(([k, v]) => (
+              <tr key={k}>
+                <td
+                  style={{
+                    padding: "3px 12px 3px 0",
+                    verticalAlign: "top",
+                    whiteSpace: "nowrap",
+                    opacity: 0.8,
+                  }}
+                >
+                  {k}
+                </td>
+                <td style={{ padding: "3px 0", wordBreak: "break-all", opacity: 0.95 }}>{v}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function SindriPreview({
   sessionId,
   projectId,
@@ -837,7 +883,7 @@ function SindriPreview({
   const [err, setErr] = useState("");
   const [iframeKey, setIframeKey] = useState(0);
   // The stage shows either the live preview iframe or the read-only DB Studio.
-  const [view, setView] = useState<"preview" | "code" | "database">("preview");
+  const [view, setView] = useState<"preview" | "code" | "database" | "env">("preview");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageW, setStageW] = useState(0);
   const [stageH, setStageH] = useState(0);
@@ -1010,6 +1056,14 @@ function SindriPreview({
           >
             <Database size={15} />
           </button>
+          <button
+            type="button"
+            className={`sindri-preview-icon ${view === "env" ? "is-on" : ""}`}
+            title="Environment variables"
+            onClick={() => setView("env")}
+          >
+            <KeyRound size={15} />
+          </button>
         </div>
         <span className="sindri-preview-sep" />
         <span className="sindri-preview-statuschip">
@@ -1091,6 +1145,8 @@ function SindriPreview({
           <FileViewer sessionId={sessionId} />
         ) : view === "database" ? (
           <StudioPanel previewId={preview?.id ?? null} />
+        ) : view === "env" ? (
+          <EnvPanel env={preview?.loadedEnv ?? null} />
         ) : live && preview ? (
           mobileOnly ? (
             // Aparelho real: o iframe roda no px exato do device escolhido e a

@@ -78,6 +78,25 @@ export function loadAppSecrets(dir: string, project: string): Record<string, str
   return out;
 }
 
+/** Keys whose VALUE is a secret and must never be shown in the Env inspector. */
+const SECRET_KEY_RE =
+  /(secret|token|password|passwd|jwt|service_role|_key$|apikey|api_key|credential)/i;
+
+/** Redact an env map for display: mask secret-keyed values (keep a 4-char tail
+ *  for identification) and strip the password out of any connection string, but
+ *  leave URLs, modes, emails and other non-secret values legible — those are the
+ *  point of the inspector (which backend the preview is wired to). */
+export function redactEnv(env: Record<string, string>): Record<string, string> {
+  const mask = (v: string) => (v ? `••••${v.length > 4 ? v.slice(-4) : ""}` : v);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    out[k] = SECRET_KEY_RE.test(k)
+      ? mask(v)
+      : v.replace(/:\/\/([^:@/]+):[^@/]+@/, (_m, user) => `://${user}:••••@`);
+  }
+  return out;
+}
+
 export class PreviewSupervisor {
   /** Locally-managed running preview processes keyed by preview id. */
   private readonly live = new Map<string, LivePreview>();
@@ -525,18 +544,35 @@ export class PreviewSupervisor {
         v.replaceAll("$PUBLIC_URL", preview.url ?? ""),
       ]),
     );
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
+    // The APP-relevant env: data backend + per-app secrets + runtime-declared
+    // env + PORT/NODE_ENV. Curated (NOT the forge's own process.env) so it's both
+    // what the app is wired to AND what the Env inspector reports — the forge's
+    // internal secrets never leak into the snapshot.
+    const appEnv: Record<string, string> = {
       ...dataEnv,
       ...appSecrets,
       ...specEnv,
-      HOME: home,
-      COREPACK_HOME: `${home}/.cache/corepack`,
       PORT: String(port),
-      // The forge preview always runs `next dev` (HMR), so development mode across
-      // the board (ADR 0017 — the production build lives in the Coolify dev-build).
+      // The forge preview always runs the HMR dev server, so development mode
+      // across the board (ADR 0017 — the production build lives in the dev-build).
       NODE_ENV: "development",
     };
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...appEnv,
+      HOME: home,
+      COREPACK_HOME: `${home}/.cache/corepack`,
+    };
+
+    // Report a redacted snapshot of what we loaded, so the preview bar's Env
+    // inspector can show an operator what this dev preview is wired to (e.g. that
+    // its backend URLs point at the isolated <app>_dev Hauldr project, never
+    // prod). Secret-looking values are masked; URLs/modes stay legible. The keys
+    // that matter for onboarding — VITE_HAULDR_URL, DATA_API_URL, HAULDR_GOTRUE_URL
+    // — are non-secret, so they read in clear. Fire-and-forget.
+    void this.controlPatch(`/previews/${preview.id}`, { loadedEnv: redactEnv(appEnv) }).catch(
+      () => {},
+    );
 
     console.log(
       `[preview-supervisor] ${preview.subdomain}: port=${port} cwd=${wtPath}`,

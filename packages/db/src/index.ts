@@ -372,6 +372,7 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
     commitSha: row.commitSha ?? null,
     builtAt: iso(row.builtAt),
     pid: row.pid,
+    loadedEnv: row.loadedEnv ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -645,6 +646,7 @@ export interface Store {
       builtAt?: Date | null;
       pid?: number | null;
       port?: number | null;
+      loadedEnv?: Record<string, string> | null;
     },
   ): Promise<Preview>;
   /** Bump last_seen_at to now and slide expires_at forward by 24 hours. */
@@ -1634,6 +1636,7 @@ export function createStore(db: Db): Store {
       if (patch.builtAt !== undefined) set.builtAt = patch.builtAt ?? null;
       if (patch.pid !== undefined) set.pid = patch.pid;
       if (patch.port !== undefined) set.port = patch.port;
+      if (patch.loadedEnv !== undefined) set.loadedEnv = patch.loadedEnv ?? null;
       const rows = await db
         .update(previews)
         .set(set)
