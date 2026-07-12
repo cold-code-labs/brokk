@@ -207,13 +207,16 @@ export function makeFsExecutor(ctx: FsToolContext): PartialExecutor {
             gitCommonDir: await gitCommonDir(),
           });
           if (code === 0) return { ok: true, content: clip(out || "(no output)") };
-          // The enclave signals an infra fault (not a command failure) with code=null
-          // and an "enclave unavailable" prefix. Don't dress it as "exit ?": say plainly
-          // that the execution environment is DOWN so the agent stops silently routing
-          // around it via file-tools and, crucially, never implies a change is verified
-          // when it could not run a single command. This is an environment fault to
-          // surface to the user, not a task step to work past.
-          if (code === null && /^enclave unavailable/i.test(out)) {
+          // code === null is the enclave's INFRA-FAULT signal, distinct from a command
+          // that ran and exited non-zero (which always carries a numeric code). Every
+          // enclave-down shape lands here: RunscEnclave "enclave unavailable: …" (boot/
+          // mount failure) AND BrokeredEnclave "enclave manager unreachable/NNN: …"
+          // (the sidecar is down or erroring). Don't dress any of them as "exit ?": say
+          // plainly the execution environment is DOWN, so the agent stops silently
+          // routing around it via file-tools and never implies a change is verified when
+          // it could not run a single command. An environment fault to surface to the
+          // user, not a task step to work past.
+          if (code === null) {
             return {
               ok: false,
               content: clip(
@@ -222,7 +225,7 @@ export function makeFsExecutor(ctx: FsToolContext): PartialExecutor {
               ),
             };
           }
-          return { ok: false, content: clip(`exit ${code ?? "?"}\n${out}`) };
+          return { ok: false, content: clip(`exit ${code}\n${out}`) };
         }
         default:
           return null; // not a generic tool — let a domain executor try
