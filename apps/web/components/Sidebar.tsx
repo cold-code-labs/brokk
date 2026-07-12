@@ -70,6 +70,7 @@ function ProjectSwitcher() {
 }
 
 const MANAGE = [
+  { href: "/new", label: "Nova Conversa", icon: <Feather /> },
   { href: "/connect", label: "Connect", icon: <Plus /> },
   { href: "/history", label: "History", icon: <List /> },
   { href: "/users", label: "Crew", icon: <Users /> },

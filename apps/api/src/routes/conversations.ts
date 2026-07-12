@@ -37,7 +37,9 @@ async function heimdall(
       ...(body ? { "content-type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(180_000),
+    // Publish can wait on cold prod-Hauldr provisioning (up to ~300s in Heimdall)
+    // before it even creates the Coolify app — give the proxy a wider ceiling.
+    signal: AbortSignal.timeout(330_000),
   });
   const payload = await res.json().catch(() => ({}));
   return { ok: res.ok, status: res.status, body: payload };
