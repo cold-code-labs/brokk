@@ -112,6 +112,10 @@ services:
       MIMIR_ENHANCE_MODEL: ${MIMIR_ENHANCE_MODEL:-}
       HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       HAULDR_TOKEN: ${HAULDR_TOKEN:-}
+      # ADR 0038: Nova Conversa calls the Heimdall provisioning engine over the
+      # shared `coolify` net. heimdall-api is on that net (alias = service name).
+      HEIMDALL_API_URL: ${HEIMDALL_API_URL:-http://heimdall-api:8787}
+      HEIMDALL_TOKEN: ${HEIMDALL_TOKEN:-}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8789/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 5s
