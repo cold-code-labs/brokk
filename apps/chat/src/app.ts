@@ -661,6 +661,10 @@ function heimdallInfra(emit: (e: AgentEvent) => void): ToolContext["infra"] {
   const client = new HeimdallAgentClient(baseUrl, token);
   const status = (phase: string) => emit({ type: "status", phase });
   return {
+    listEnv: (app) => {
+      status("infra: list_env");
+      return client.listEnv(app);
+    },
     setEnv: (app, key, value, opts) => {
       status("infra: set_env");
       return client.setEnv(app, key, value, opts);

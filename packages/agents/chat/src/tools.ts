@@ -59,6 +59,7 @@ export interface ToolContext {
    *  infra actions are unavailable). Mutations are confirmation-gated at the tool
    *  layer — see the `confirm` flag in makeDomainExecutor. */
   infra?: {
+    listEnv(app: string): Promise<{ ok: boolean; content: string }>;
     setEnv(
       app: string,
       key: string,
@@ -157,6 +158,18 @@ const DOMAIN_TOOL_DEFS: ToolDef[] = [
     description:
       "List this project's Regin missions with their status and latest detail (blocked reason / outcome summary).",
     input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "list_env",
+    description:
+      "SHOW the environment variables of a DEPLOYED app via the control plane (Heimdall). Read-only — values come back MASKED (never the full secret). Use when the user asks what env vars an app has, or to check a key is set before/after set_env.",
+    input_schema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: 'app name or slug, e.g. "logcheck"' },
+      },
+      required: ["app"],
+    },
   },
   {
     name: "set_env",
@@ -319,6 +332,12 @@ function makeDomainExecutor(ctx: ToolContext): PartialExecutor {
             })
             .join("\n");
           return { ok: true, content: out };
+        }
+        case "list_env": {
+          if (!ctx.infra) return { ok: false, content: "infra actions are not available in this context" };
+          const app = String(input.app ?? "").trim();
+          if (!app) return { ok: false, content: "list_env needs app" };
+          return await ctx.infra.listEnv(app);
         }
         case "set_env": {
           if (!ctx.infra) return { ok: false, content: "infra actions are not available in this context" };

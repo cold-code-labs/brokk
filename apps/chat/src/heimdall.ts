@@ -86,6 +86,40 @@ export class HeimdallAgentClient {
     return json as T;
   }
 
+  private async get<T>(path: string): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      headers: { Authorization: `Bearer ${this.token}` },
+    });
+    const text = await res.text().catch(() => "");
+    let json: unknown = {};
+    try {
+      json = text ? JSON.parse(text) : {};
+    } catch {
+      json = { error: text };
+    }
+    if (!res.ok) throw new Error((json as { error?: string }).error || `HTTP ${res.status}`);
+    return json as T;
+  }
+
+  /** SHOW a deployed app's env vars (values masked by Heimdall). Read-only. */
+  async listEnv(app: string): Promise<{ ok: boolean; content: string }> {
+    try {
+      const r = await this.get<{
+        app?: string;
+        vars?: { key: string; target: string; buildtime: boolean; value: string }[];
+        error?: string;
+      }>(`/api/agent/env?app=${encodeURIComponent(app)}`);
+      const vars = r.vars ?? [];
+      if (!vars.length) return { ok: true, content: `${r.app ?? app} has no env vars` };
+      const lines = vars
+        .map((v) => `- ${v.key}=${v.value} [${v.target}${v.buildtime ? ", buildtime" : ""}]`)
+        .join("\n");
+      return { ok: true, content: `env for ${r.app ?? app} (values masked):\n${lines}` };
+    } catch (e) {
+      return { ok: false, content: `list_env failed: ${(e as Error).message}` };
+    }
+  }
+
   async setEnv(
     app: string,
     key: string,
