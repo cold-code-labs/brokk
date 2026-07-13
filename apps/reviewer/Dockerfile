@@ -14,13 +14,17 @@ FROM base AS build
 # Read-only GitHub Packages token for the private @cold-code-labs/* deps, passed
 # as a build ARG (NODE_AUTH_TOKEN; Coolify is_buildtime). Visible in image
 # history — acceptable for this internal tool (same posture as Heimdall OSS).
-COPY . .
 ARG NODE_AUTH_TOKEN
-# BuildKit cache mount for pnpm's content-addressable store (PNPM_HOME=/pnpm →
-# store at /pnpm/store). Persists across deploys: this stage does `COPY . .`
-# before install, so every source change busts the install layer — the store
-# mount makes that reinstall hard-link packages instead of refetching them.
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --no-frozen-lockfile
+# ── Deps fetched from the lockfile alone, cached across source-only commits ──
+# (rationale in apps/web/Dockerfile): copy only what pnpm needs to resolve the
+# closure, `pnpm fetch` fills the store keyed on the lockfile, then an offline
+# install links from it. A source-only commit reuses the fetch layer wholesale.
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc ./
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm fetch
+COPY . .
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    NODE_AUTH_TOKEN="$NODE_AUTH_TOKEN" pnpm install --prefer-offline --no-frozen-lockfile
 RUN pnpm --filter @brokk/reviewer-app build
 RUN pnpm --filter @brokk/reviewer-app deploy --prod /out
 
