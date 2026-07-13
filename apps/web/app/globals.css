@@ -2602,3 +2602,31 @@ html.dark .fv-hl .shiki span {
 .ygg-shell .sindri-head {
   border-color: var(--line-soft);
 }
+
+/* 5 · Composer — the model/effort/engine chips stop reading as a second footer
+   (crit #12): borderless, embedded, quiet — they sit IN the input, Claude-style,
+   not as a competing bar. The input frame itself softens to --line-soft. */
+.ygg-shell .sindri-composer {
+  border-color: var(--line-soft);
+  border-radius: 12px;
+}
+.ygg-shell .sindri-chip {
+  border-color: transparent;
+  background: transparent;
+  padding: 0.2rem 0.35rem;
+  color: var(--fg-dim);
+}
+.ygg-shell .sindri-chip:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  color: var(--fg-soft);
+}
+.ygg-shell .sindri-chip > svg {
+  color: var(--fg-dim);
+  opacity: 0.8;
+}
+/* 6 · Placeholder legible (crit #11 "quase some") — a readable muted, not a
+   whisper the eye loses. */
+.ygg-shell .sindri-input::placeholder {
+  color: color-mix(in srgb, var(--fg-soft) 78%, var(--fg-dim));
+}
