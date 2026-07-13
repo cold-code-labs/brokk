@@ -59,6 +59,20 @@
 /* Atmosphere: forge-light rising from below the frame, cold sky above.
    Fixed + pointer-transparent; sits under all content. */
 .ygg-shell { position: relative; isolation: isolate; }
+/* One ladder for spacing + radius — múltiplos de 4/8 (crit: escala fixa, nunca
+   um valor solto). Everything steps through these. */
+.ygg-shell {
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+}
 .ygg-shell::before {
   content: "";
   position: fixed;

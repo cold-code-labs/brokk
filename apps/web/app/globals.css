@@ -2547,3 +2547,58 @@ html.dark .fv-hl .shiki span {
 .ygg-shell .ygg-banner[data-tone="ok"]::before { background: var(--ok); }
 .ygg-shell .ygg-banner[data-tone="err"]::before { background: var(--err, #e5484d); }
 .ygg-shell .ygg-banner[data-tone="warn"]::before { background: var(--gold, #d98a1f); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Design-refinement pass (2026-07) — hierarchy over uniformity.
+   Crit (v0/Linear/Cursor): "peso visual distribuído igualmente; o olho não
+   sabe onde começar." Fix = fewer lines, one focus. Only the active element
+   carries contrast; everything else recedes. Brokk-local overrides of the
+   Yggdrasil shell — promote to the design system once settled.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 1 · Only the active nav item has contrast (the Linear rule). Inactive recedes
+   to --fg-dim; the active one alone is bright, bold, and carries the accent bar.
+   This is the single biggest "where does my eye start" win. */
+.ygg-shell .ygg-nav-link {
+  color: var(--fg-dim);
+  font-weight: 450;
+  transition: color 0.13s ease, background 0.13s ease;
+}
+.ygg-shell .ygg-nav-link:hover {
+  color: var(--fg-soft);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+}
+.ygg-shell .ygg-nav-link[aria-current="page"],
+.ygg-shell .ygg-nav-link.is-active {
+  color: var(--fg);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: var(--accent) 2px 0 0 0 inset;
+}
+
+/* 2 · Fewer lines (crit: "tudo vira uma caixa"). The sidebar reads by its
+   deeper background + a soft edge shadow, not a hard border; the foot plate
+   drops its rule. Menos linhas = mais premium. */
+.ygg-shell .ygg-sidebar {
+  border-right: none;
+  box-shadow: 8px 0 22px -14px rgba(0, 0, 0, 0.55);
+}
+.ygg-shell .brokk-user-plate,
+.ygg-shell .brokk-user {
+  border-top: none;
+}
+
+/* 3 · Section labels recede — a whisper, not a shout (crit: "uppercase pesado").
+   Lower opacity + gentler tracking so they organize without competing. */
+.ygg-shell .ygg-nav-group-label {
+  opacity: 0.5;
+  letter-spacing: 0.13em;
+  font-size: 0.62rem;
+}
+
+/* 4 · The panel seam softens (crit #22 "chat | preview colado"): a hair of
+   breathing room and a soft line, not a hard border. */
+.ygg-shell .sindri-preview-bar,
+.ygg-shell .sindri-head {
+  border-color: var(--line-soft);
+}
