@@ -541,7 +541,7 @@ export default function Chat() {
           className={`sindri-body ${!previewOpen ? "is-solo" : ""} ${chatCollapsed ? "is-zen" : ""}`}
           style={
             previewOpen && !chatCollapsed
-              ? { gridTemplateColumns: `minmax(0, ${split}fr) 12px minmax(0, ${1 - split}fr)` }
+              ? { gridTemplateColumns: `minmax(0, ${split}fr) 1px minmax(0, ${1 - split}fr)` }
               : undefined
           }
         >

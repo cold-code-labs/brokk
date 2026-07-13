@@ -60,6 +60,11 @@ export interface ToolContext {
    *  layer — see the `confirm` flag in makeDomainExecutor. */
   infra?: {
     listEnv(app: string): Promise<{ ok: boolean; content: string }>;
+    rotateEnv(
+      app: string,
+      key: string,
+      opts?: { target?: string; redeploy?: boolean },
+    ): Promise<{ ok: boolean; content: string }>;
     setEnv(
       app: string,
       key: string,
@@ -169,6 +174,25 @@ const DOMAIN_TOOL_DEFS: ToolDef[] = [
         app: { type: "string", description: 'app name or slug, e.g. "logcheck"' },
       },
       required: ["app"],
+    },
+  },
+  {
+    name: "rotate_env",
+    description:
+      "Rotate a secret on a DEPLOYED app via the central secrets plane (Fulla, through Heimdall): mint a fresh random value, record it, and (optionally) redeploy so the app picks it up. The new value is stored in Fulla and returned MASKED — never the full secret. MUTATING + INFRA: first show the user the app, key and target and that it will replace the current value (and whether you'll redeploy), get explicit approval, and only THEN call again with confirm:true. Without confirm:true it returns a dry-run preview and rotates nothing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        app: { type: "string", description: 'app name or slug, e.g. "logcheck"' },
+        key: { type: "string", description: "the secret's env var name" },
+        target: { type: "string", description: '"production" (default) or "preview"' },
+        redeploy: {
+          type: "boolean",
+          description: "redeploy the app right after rotating so it picks up the new value",
+        },
+        confirm: { type: "boolean", description: "must be true to APPLY; omit/false for a preview" },
+      },
+      required: ["app", "key"],
     },
   },
   {
@@ -338,6 +362,23 @@ function makeDomainExecutor(ctx: ToolContext): PartialExecutor {
           const app = String(input.app ?? "").trim();
           if (!app) return { ok: false, content: "list_env needs app" };
           return await ctx.infra.listEnv(app);
+        }
+        case "rotate_env": {
+          if (!ctx.infra) return { ok: false, content: "infra actions are not available in this context" };
+          const app = String(input.app ?? "").trim();
+          const key = String(input.key ?? "").trim();
+          if (!app || !key) return { ok: false, content: "rotate_env needs app and key" };
+          const target = input.target === "preview" ? "preview" : "production";
+          const redeploy = input.redeploy === true;
+          if (input.confirm !== true) {
+            return {
+              ok: true,
+              content: `PREVIEW (nothing applied): rotate secret \`${key}\` on app "${app}" [${target}] — mints a NEW value and replaces the current one${redeploy ? ", then redeploys" : " (no redeploy)"}. Show this to the user and call rotate_env again with confirm:true ONLY after they approve.`,
+            };
+          }
+          const res = await ctx.infra.rotateEnv(app, key, { target, redeploy });
+          if (res.ok) ctx.onDomainEvent?.({ kind: "infra_mutation", detail: { action: "rotate_env", app, key } });
+          return res;
         }
         case "set_env": {
           if (!ctx.infra) return { ok: false, content: "infra actions are not available in this context" };

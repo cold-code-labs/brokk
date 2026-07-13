@@ -665,6 +665,10 @@ function heimdallInfra(emit: (e: AgentEvent) => void): ToolContext["infra"] {
       status("infra: list_env");
       return client.listEnv(app);
     },
+    rotateEnv: (app, key, opts) => {
+      status("infra: rotate_env");
+      return client.rotateEnv(app, key, opts);
+    },
     setEnv: (app, key, value, opts) => {
       status("infra: set_env");
       return client.setEnv(app, key, value, opts);

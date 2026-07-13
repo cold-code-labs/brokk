@@ -194,11 +194,10 @@ body:has(.sindri) {
   height: 100%;
   box-sizing: border-box;
   overflow: hidden;
-  /* hug the viewport — this is a mission-critical workspace, every px goes to
-     the chat + preview panes, not to chrome margins. Left padding trimmed so the
-     chat pane sits right against the sidebar. */
-  padding: 0.35rem 0.4rem 0.4rem 0.25rem;
-  gap: 0.45rem;
+  /* Edge-to-edge: the chat + preview panes own every pixel, flush to the app
+     window on all sides. The only division is the hairline gutter between them. */
+  padding: 0;
+  gap: 0;
   max-width: none;
   min-width: 0;
 }
@@ -324,7 +323,7 @@ body:has(.sindri) {
   /* bound the row to the container height so the panes (not the page) own the
      overflow — without this the auto row grows to content and clips the composer */
   grid-template-rows: minmax(0, 1fr);
-  gap: 0.2rem;
+  gap: 0;
   flex: 1;
   min-height: 0;
 }
@@ -336,21 +335,34 @@ body:has(.sindri) {
   display: flex;
 }
 
-/* draggable gutter between the two panes */
+/* draggable gutter between the two panes — the ONLY thing separating them. It
+   occupies a 1px grid track (see Chat.tsx gridTemplateColumns) so the panes sit
+   flush; a wider invisible ::before keeps it comfortably grabbable to resize. */
 .sindri-gutter {
   position: relative;
   align-self: stretch;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 1px;
   cursor: col-resize;
   touch-action: none;
 }
-/* the divider is ALWAYS visible: a full-height hairline at rest so the two panes
-   never look like they bump. On hover/drag it thickens into a primary pill. */
+.sindri-gutter::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+  z-index: 3;
+}
+/* the divider is ALWAYS visible: a full-height hairline at rest. On hover/drag it
+   thickens into a primary pill (absolutely centered, so it never shifts layout). */
 .sindri-gutter-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
   width: 1px;
-  height: 100%;
   border-radius: 0;
   background: color-mix(in srgb, var(--fg) 15%, transparent);
   transition: background 0.12s, width 0.12s, border-radius 0.12s;
@@ -384,8 +396,7 @@ body:has(.sindri) {
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius, 12px);
+  /* edge-to-edge: no frame, the gutter hairline is the only seam */
   background: var(--bg-soft, var(--card));
   overflow: hidden;
 }
@@ -1063,8 +1074,7 @@ body:has(.sindri) {
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius, 12px);
+  /* edge-to-edge: no frame, the gutter hairline is the only seam */
   background: var(--bg-soft, var(--card));
   overflow: hidden;
 }
@@ -2666,6 +2676,15 @@ html.dark .fv-hl .shiki span {
   padding: var(--sp-2) var(--sp-3);
   border-bottom-color: var(--line-soft);
 }
+/* Chat and preview headers read as one strip: identical padding + height. */
+.ygg-shell .sindri-head {
+  padding: var(--sp-2) var(--sp-3);
+}
+.ygg-shell .sindri-head,
+.ygg-shell .sindri-preview-bar {
+  min-height: 2.75rem;
+  box-sizing: border-box;
+}
 /* secondary icons stay near-invisible until hovered (Linear rule extended to
    the toolbar) — was --fg-dim already, but the hover fill is calmer now. */
 .ygg-shell .sindri-preview-icon:hover {
@@ -2748,7 +2767,7 @@ html.dark .fv-hl .shiki span {
 /* ── Passe 6 · chat, tabs, typography, micro ────────────────────────────────
    #22 the two panes breathe (the inline gutter widened to 12px in Chat.tsx);
    the grid gap follows so nothing reads as glued. */
-.ygg-shell .sindri-body { gap: var(--sp-2); }
+.ygg-shell .sindri-body { gap: 0; }
 /* #8 tabs read like a browser's: compact, less horizontal padding, the active
    one differentiated by tone rather than a heavy box. */
 .ygg-shell .sindri-tab {

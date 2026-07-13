@@ -120,6 +120,38 @@ export class HeimdallAgentClient {
     }
   }
 
+  /** Rotate a secret — mint a new value on the central plane (Fulla), optionally
+   *  redeploy. The new value is masked in the response (never echoed to chat). */
+  async rotateEnv(
+    app: string,
+    key: string,
+    opts?: { target?: string; redeploy?: boolean },
+  ): Promise<{ ok: boolean; content: string }> {
+    try {
+      const r = await this.post<{
+        app?: string;
+        key?: string;
+        target?: string;
+        value?: string;
+        redeployed?: boolean;
+        error?: string;
+      }>("/api/agent/env/rotate", {
+        app,
+        key,
+        target: opts?.target === "preview" ? "preview" : "production",
+        generate: true,
+        redeploy: opts?.redeploy === true,
+      });
+      const tail = r.redeployed ? " and redeployed" : " — redeploy for it to take effect";
+      return {
+        ok: true,
+        content: `rotated \`${r.key}\` on ${r.app} [${r.target}] → ${r.value}${tail}`,
+      };
+    } catch (e) {
+      return { ok: false, content: `rotate_env failed: ${(e as Error).message}` };
+    }
+  }
+
   async setEnv(
     app: string,
     key: string,
