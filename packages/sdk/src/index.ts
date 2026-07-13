@@ -146,10 +146,14 @@ export interface BrokkClient {
   listUsers(): Promise<User[]>;
   createUser(input: { name: string; email: string; githubLogin?: string }): Promise<User>;
   listSubscriptions(userId?: string): Promise<Subscription[]>;
-  /** Step 1 of connecting a Max seat: returns the authorize URL to open. */
+  /** Step 1 of the legacy in-browser connect: returns the authorize URL to open. */
   connectStart(): Promise<{ sessionId: string; url: string }>;
-  /** Step 2: exchange the pasted code → seals & stores the seat. */
+  /** Step 2 of the legacy flow: exchange the pasted code → seals & stores the seat. */
   connectComplete(input: { sessionId: string; code: string; userId: string; label?: string }): Promise<Subscription>;
+  /** Simplest path: the member ran `claude setup-token` on their own machine and
+   *  pastes the resulting sk-ant-oat token; we just seal & store it. No server-side
+   *  CLI needed. */
+  connectToken(input: { userId: string; token: string; label?: string }): Promise<Subscription>;
 
   // mímir — the counselor (prompt bank + triador + enhancer)
   listMimirPrompts(authorId?: string): Promise<MimirPrompt[]>;
@@ -320,6 +324,9 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     },
     connectComplete(input) {
       return req<Subscription>("POST", "/subscriptions/connect/complete", input);
+    },
+    connectToken(input) {
+      return req<Subscription>("POST", "/subscriptions/connect/token", input);
     },
     listMimirPrompts(authorId) {
       const q = authorId ? `?authorId=${encodeURIComponent(authorId)}` : "";

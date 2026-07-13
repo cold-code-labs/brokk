@@ -140,7 +140,7 @@ export default function Users() {
                     <span className="forge-row-mono" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right" }}>
                       {u.email}{u.githubLogin ? ` · @${u.githubLogin}` : ""}
                     </span>
-                    <Button variant="outline" size="sm" onClick={() => setConnect({ userId: u.id, step: "idle" })}>
+                    <Button variant="outline" size="sm" onClick={() => setConnect({ userId: u.id })}>
                       Connect seat
                     </Button>
                   </div>
@@ -163,9 +163,7 @@ export default function Users() {
   );
 }
 
-type ConnectState =
-  | { userId: string; step: "idle" }
-  | { userId: string; step: "started"; sessionId: string; url: string };
+type ConnectState = { userId: string };
 
 function ConnectFlow({
   state, setState, onDone,
@@ -174,28 +172,14 @@ function ConnectFlow({
   setState: (s: ConnectState | null) => void;
   onDone: () => void;
 }) {
-  const [code, setCode] = useState("");
+  const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  async function start() {
-    setBusy(true); setErr(null);
-    try {
-      const { sessionId, url } = await brokk.connectStart();
-      window.open(url, "_blank", "noopener");
-      setState({ userId: state.userId, step: "started", sessionId, url });
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function finish() {
-    if (state.step !== "started") return;
     setBusy(true); setErr(null);
     try {
-      await brokk.connectComplete({ sessionId: state.sessionId, code: code.trim(), userId: state.userId });
+      await brokk.connectToken({ userId: state.userId, token: token.trim() });
       onDone();
     } catch (e) {
       setErr(String(e));
@@ -204,35 +188,27 @@ function ConnectFlow({
     }
   }
 
+  const looksValid = /^sk-ant-oat01-/.test(token.trim());
+
   return (
     <div>
-      {state.step === "idle" ? (
-        <>
-          <p style={pTxt}>
-            Opens Claude&rsquo;s authorize page. Sign in with this member&rsquo;s <strong>Max</strong> account,
-            approve, and paste the code back here.
-          </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <Button onClick={start} disabled={busy}>{busy ? "Opening…" : "Open authorize page"}</Button>
-            <Button variant="outline" onClick={() => setState(null)}>Cancel</Button>
-          </div>
-        </>
-      ) : (
-        <>
-          <p style={pTxt}>
-            Authorize page opened —{" "}
-            <a href={state.url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>reopen ↗</a>.{" "}
-            Paste the code (looks like <code style={codeS}>abc…#xyz</code>):
-          </p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="paste code here" style={{ ...field, flex: "1 1 280px" }} />
-            <Button onClick={finish} disabled={busy || code.trim().length < 4}>
-              {busy ? "Connecting…" : "Connect seat"}
-            </Button>
-            <Button variant="outline" onClick={() => setState(null)}>Cancel</Button>
-          </div>
-        </>
-      )}
+      <p style={pTxt}>
+        On your own machine, run <code style={codeS}>claude setup-token</code>, sign in with this
+        member&rsquo;s <strong>Max</strong> account, and paste the token it prints (starts with{" "}
+        <code style={codeS}>sk-ant-oat01…</code>). We seal it at rest — it&rsquo;s never shown again.
+      </p>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <input
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="paste sk-ant-oat01-… token"
+          style={{ ...field, flex: "1 1 320px" }}
+        />
+        <Button onClick={finish} disabled={busy || !looksValid}>
+          {busy ? "Connecting…" : "Connect seat"}
+        </Button>
+        <Button variant="outline" onClick={() => setState(null)}>Cancel</Button>
+      </div>
       {err && <Banner tone="err" style={{ marginBottom: 0, marginTop: 8 }}>{err}</Banner>}
     </div>
   );
