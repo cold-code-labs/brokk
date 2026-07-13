@@ -940,15 +940,22 @@ body:has(.sindri) {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  margin: 0.5rem;
-  padding: 0.45rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  /* The input is a recessed tray at the foot of the chat panel — NOT a second
+     boxed card floating inside it (crit: "composer cheio de overlays"). Flush to
+     the panel edges, parted from the thread by a single hairline; its darker
+     --bg well already reads as inset, so it carries no border/radius of its own.
+     One frame (the panel), not two. */
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
   background: var(--bg);
-  transition: border-color 0.12s;
+  transition: border-color 0.12s, background 0.12s;
 }
+/* focus lives on the seam, not a full ring — the tray warms a touch at the top. */
 .sindri-composer:focus-within {
-  border-color: var(--primary);
+  border-top-color: color-mix(in srgb, var(--accent) 42%, var(--line-soft));
 }
 .sindri-input {
   width: 100%;
@@ -2605,10 +2612,23 @@ html.dark .fv-hl .shiki span {
 
 /* 5 · Composer — the model/effort/engine chips stop reading as a second footer
    (crit #12): borderless, embedded, quiet — they sit IN the input, Claude-style,
-   not as a competing bar. The input frame itself softens to --line-soft. */
-.ygg-shell .sindri-composer {
-  border-color: var(--line-soft);
-  border-radius: 12px;
+   not as a competing bar. (Composer framing now lives on the base rule — a flush
+   recessed tray, one hairline; the old bordered-box override was removed so it
+   stops reading as a second card inside the chat panel.) */
+/* The send arrow — the composer's primary gesture ("hand it the next task in one
+   line"). A clean FLAT accent square, not the forged-primary gradient+shadow that
+   made a 2rem icon read as a plastic pill. Ember stays reserved for Publicar, so
+   this is the cold accent, not heat. */
+.ygg-shell .sindri-send {
+  background: var(--accent);
+  background-image: none;
+  box-shadow: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: #fff;
+}
+.ygg-shell .sindri-send:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 .ygg-shell .sindri-chip {
   border-color: transparent;
