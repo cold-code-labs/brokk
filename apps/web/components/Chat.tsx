@@ -96,7 +96,7 @@ const ENGINES = [
 // real width; snap points give a magnetic 50/60/68 without pixel-hunting, and
 // double-clicking the gutter restores the default.
 const SPLIT_KEY = "sindri-split";
-const SPLIT_DEFAULT = 0.5;
+const SPLIT_DEFAULT = 0.46;
 const SPLIT_MIN = 0.3;
 const SPLIT_MAX = 0.72;
 const SPLIT_SNAP = [0.4, 0.5, 0.6];
@@ -541,7 +541,7 @@ export default function Chat() {
           className={`sindri-body ${!previewOpen ? "is-solo" : ""} ${chatCollapsed ? "is-zen" : ""}`}
           style={
             previewOpen && !chatCollapsed
-              ? { gridTemplateColumns: `minmax(0, ${split}fr) 6px minmax(0, ${1 - split}fr)` }
+              ? { gridTemplateColumns: `minmax(0, ${split}fr) 12px minmax(0, ${1 - split}fr)` }
               : undefined
           }
         >
@@ -1095,7 +1095,9 @@ function SindriPreview({
               ))}
             </select>
           ) : (
-            <>
+            // device = a single segmented control (one paradigm), not two loose
+            // buttons — matches the view switcher on the far left.
+            <div className="sindri-viewswitch sindri-devswitch" role="group" aria-label="Device width">
               <button
                 type="button"
                 className={`sindri-preview-icon ${device === "desktop" ? "is-on" : ""}`}
@@ -1112,9 +1114,10 @@ function SindriPreview({
               >
                 <Smartphone size={15} />
               </button>
-            </>
+            </div>
           )}
-          <span className="sindri-preview-dim" title="Viewport">
+          {/* viewport width is a READOUT, not a control (crit #9) */}
+          <span className="sindri-preview-dim" title="Viewport" aria-live="polite">
             {dimLabel}
           </span>
           <button
@@ -1135,6 +1138,8 @@ function SindriPreview({
           >
             <ExternalLink size={15} />
           </a>
+          {/* separator splits the browser-chrome group from the one hot action */}
+          <span className="sindri-preview-sep" />
           <PublishControls projectId={projectId} />
         </div>
       </div>

@@ -88,6 +88,20 @@ function initials(name: string): string {
   return (first + last).toUpperCase();
 }
 
+// Role shown in the identity pod — kept short and in the app's language (English),
+// so the pod reads as one quiet line (crit #6: "PROPRIETÁRIO" was a shout).
+function roleLabel(role: string | undefined): string {
+  if (!role) return "";
+  const map: Record<string, string> = {
+    proprietário: "Owner",
+    proprietario: "Owner",
+    owner: "Owner",
+    admin: "Admin",
+    member: "Member",
+  };
+  return map[role.trim().toLowerCase()] ?? role;
+}
+
 export default function Sidebar({ user }: { user?: SidebarUserProps }) {
   const path = usePathname();
   const { currentId } = useProject();
@@ -175,7 +189,7 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
           <span className="brokk-user-id">
             <span className="brokk-user-name">{user.name}</span>
             <span className="brokk-user-role">
-              {user.authDisabled ? "auth off" : user.role}
+              {user.authDisabled ? "auth off" : roleLabel(user.role)}
             </span>
           </span>
           <a href="/sign-out" className="brokk-user-out" aria-label="Sign out" title="Sign out">

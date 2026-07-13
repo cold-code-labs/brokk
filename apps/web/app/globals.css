@@ -2630,3 +2630,130 @@ html.dark .fv-hl .shiki span {
 .ygg-shell .sindri-input::placeholder {
   color: color-mix(in srgb, var(--fg-soft) 78%, var(--fg-dim));
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Design-refinement pass II (2026-07) — passes 3–6 (docs/litr/refinement-backlog).
+   Same doctrine as pass I: Brokk-local overrides of the Yggdrasil shell, fewer
+   lines, one focus, everything on the 4/8 ladder. Promote to the DS once settled.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Passe 3 · preview toolbar — three quiet groups + one hot action ─────────
+   The cockpit reads left→right as [view] · status · [browser-chrome] · [ship].
+   Only Create PR carries warmth; the rest recedes to --fg-dim and lights only
+   on intent. */
+.ygg-shell .sindri-preview-bar {
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom-color: var(--line-soft);
+}
+/* secondary icons stay near-invisible until hovered (Linear rule extended to
+   the toolbar) — was --fg-dim already, but the hover fill is calmer now. */
+.ygg-shell .sindri-preview-icon:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+  color: var(--fg-soft);
+}
+/* device toggle reuses the segmented pill (one paradigm with the view switch) */
+.ygg-shell .sindri-devswitch {
+  margin-right: var(--sp-1);
+}
+/* the viewport width is INFO, not a button (crit #9): a tabular readout with no
+   click affordance — it sits between the device pill and the actions, quiet. */
+.ygg-shell .sindri-preview-dim {
+  min-width: 3.4rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--fg) 3.5%, transparent);
+  color: var(--fg-dim);
+  font-size: 0.66rem;
+  letter-spacing: 0.02em;
+  cursor: default;
+  user-select: none;
+}
+/* the seam before Create PR (crit #23): softer than a full rule */
+.ygg-shell .sindri-preview-actions .sindri-preview-sep,
+.ygg-shell .sindri-preview-bar .sindri-preview-sep {
+  background: var(--line-soft);
+}
+
+/* ── Passe 4 · sidebar compaction ───────────────────────────────────────────
+   The rail carries a whole header for the logo and a card-tall identity pod;
+   both shrink so the nav (the actual work) owns the vertical rhythm. */
+/* #5 wordmark ~30% quieter: the mark and name step down, less header height. */
+.ygg-shell .brokk-brand .ygg-brand-mark img {
+  width: 30px;
+  height: auto;
+}
+.ygg-shell .brokk-brand .ygg-brand-name {
+  font-size: 1.02rem;
+  letter-spacing: 0.08em;
+}
+/* #14 density: a touch more air between groups, a touch less inside each item. */
+.ygg-shell .ygg-nav { gap: var(--sp-4); }
+.ygg-shell .ygg-nav-link { padding-top: 0.32rem; padding-bottom: 0.32rem; }
+/* #6 identity pod → one calm line: smaller plate, tighter padding, no card feel. */
+.ygg-shell .brokk-user {
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-1) 0;
+}
+.ygg-shell .brokk-user-plate {
+  width: 1.7rem;
+  height: 1.7rem;
+  font-size: 0.68rem;
+}
+.ygg-shell .brokk-user-name { font-size: 0.78rem; }
+.ygg-shell .brokk-user-role {
+  font-size: 0.56rem;
+  letter-spacing: 0.12em;
+  opacity: 0.85;
+}
+
+/* ── Passe 5 · system — one radius scale, one blue, honest surfaces ──────────
+   #21 radius: reconcile the legacy --radius/--radius-sm (0.7/0.4rem) with the
+   4/8 ladder so cards=12 · inputs=12 · buttons=10 · modals=16 across the shell.
+   Everything that reads var(--radius*) inherits the corrected step. */
+.ygg-shell {
+  --radius-sm: 10px;
+  --radius: 12px;
+  --radius-lg: 16px;
+}
+/* #25 one blue: --primary already aliases --accent at the token layer, but a
+   handful of surfaces reach for --primary directly at a different weight. Pin
+   them to the single accent so selection/submit/“+” all read as one hue. */
+.ygg-shell { --primary: var(--accent); }
+/* #18 surface contrast: the night's floors were within ~2% of each other. Nudge
+   the panel a hair lighter than the canvas so sidebar/chat/preview separate by
+   tone, not just by a line (still subtle — a step, not a stripe). */
+.dark .ygg-shell { --panel: #0d121e; }
+
+/* ── Passe 6 · chat, tabs, typography, micro ────────────────────────────────
+   #22 the two panes breathe (the inline gutter widened to 12px in Chat.tsx);
+   the grid gap follows so nothing reads as glued. */
+.ygg-shell .sindri-body { gap: var(--sp-2); }
+/* #8 tabs read like a browser's: compact, less horizontal padding, the active
+   one differentiated by tone rather than a heavy box. */
+.ygg-shell .sindri-tab {
+  height: 1.6rem;
+  padding: 0 0.2rem 0 0.4rem;
+  border-radius: var(--r-sm);
+  font-size: 0.76rem;
+}
+.ygg-shell .sindri-tab.is-active {
+  border-color: var(--line-soft);
+  background: color-mix(in srgb, var(--accent) 9%, var(--panel));
+}
+/* #26 microinteractions — one transition curve, one focus ring, only on things
+   that are actually interactive. Hover lifts luminance ~3%, never shifts layout. */
+.ygg-shell .sindri-preview-icon,
+.ygg-shell .sindri-tab,
+.ygg-shell .sindri-chip {
+  transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
+}
+.ygg-shell .sindri-preview-icon:focus-visible,
+.ygg-shell .sindri-tab:focus-visible,
+.ygg-shell .sindri-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+/* #10 the preview canvas over-breathes — pull the empty/env states off the dead
+   center so “Environment loaded…” isn't lost in the middle of the void. */
+.ygg-shell .sindri-preview-msg { padding: var(--sp-5) var(--sp-4); }

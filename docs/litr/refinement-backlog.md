@@ -45,7 +45,33 @@ Promover ao design system (`~/ccl/yggdrasil`, `yggdrasil-react`) quando assentar
 
 ---
 
-## ⬜ Pendente — próximos passes
+## ✅ Feito (2026-07-13) — passes 3 a 6
+
+Shipados como pass II no bloco marcado de `apps/web/app/globals.css`
+("Design-refinement pass II") + edições pontuais em `Chat.tsx`/`Sidebar.tsx`.
+Todos os overrides passam pela `.ygg-shell` e usam a escala `--sp-*`/`--r-*`.
+
+- **P3 toolbar:** device desktop/mobile viraram segmented control (`.sindri-devswitch`
+  reusa `.sindri-viewswitch`); `800px` agora é readout (chip tabular, `cursor:default`,
+  sem afford); separador (`.sindri-preview-sep`) antes do Create PR; ícones secundários
+  com hover calmo (`--fg` 5%).
+- **P4 sidebar:** logo −30% (img 44→30px, name 1.28→1.02rem); pod de identidade em 1
+  linha (plate 2→1.7rem, padding menor); `PROPRIETÁRIO`→`Owner` (roleLabel em Sidebar.tsx);
+  `--sp-4` entre grupos, itens mais baixos.
+- **P5 sistema:** radius reconciliado (`--radius-sm:10 --radius:12 --radius-lg:16` na
+  `.ygg-shell`); `--primary` pinado em `--accent` (azul único); `--panel` da noite
+  clareado p/ `#0d121e` (step de superfície perceptível).
+- **P6 chat/tabs/micro:** split default 0.5→0.46 + gutter 6→12px (mais peso ao preview,
+  `--sp-2` de gap); tabs estilo browser (1.6rem, menos padding, ativo por tom);
+  transição única 0.14s + focus-ring 2px só em interativos; `.sindri-preview-msg`
+  puxado do centro morto.
+
+⚠️ **Gate de render real (A/B no Chrome, dark+light) NÃO foi executado** nesta sessão
+(headless) — validado por typecheck. Revisar ao vivo e ajustar finos se preciso.
+
+---
+
+## ⬜ ~~Pendente~~ — histórico do backlog (já shipado acima)
 
 ### Passe 3 — toolbar do preview (app-próprio, `.sindri-*`) · **começar por aqui**
 - **#23 agrupar em 3 grupos visuais:** `[view: eye/code/db/env]` · `[browser-chrome:
