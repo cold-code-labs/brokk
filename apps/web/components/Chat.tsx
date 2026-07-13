@@ -667,29 +667,32 @@ export default function Chat() {
                 <div className="sindri-cockpit">
                   <div className="sindri-cockpit-controls">
                     {/* effort: a lightning chip whose signal bars fill up with the
-                        reasoning level (low=1 · medium=2 · deep=3). */}
-                    <label className="sindri-chip sindri-effort" title="Reasoning effort">
-                      <Zap size={13} />
-                      <span className="sindri-bars" data-level={effort} aria-hidden="true">
-                        <i />
-                        <i />
-                        <i />
-                      </span>
-                      <select
-                        className="sindri-chip-select"
-                        value={effort}
-                        onChange={(e) => {
-                          setEffort(e.target.value);
-                          if (sessionId) chat.patchSession(sessionId, { effort: e.target.value }).catch(() => {});
-                        }}
-                      >
-                        {EFFORTS.map((x) => (
-                          <option key={x.id} value={x.id}>
-                            {x.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                        reasoning level (low=1 · medium=2 · deep=3). Hidden on the CLI
+                        engine, which manages its own thinking and ignores this. */}
+                    {engine !== "cli" && (
+                      <label className="sindri-chip sindri-effort" title="Reasoning effort">
+                        <Zap size={13} />
+                        <span className="sindri-bars" data-level={effort} aria-hidden="true">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                        <select
+                          className="sindri-chip-select"
+                          value={effort}
+                          onChange={(e) => {
+                            setEffort(e.target.value);
+                            if (sessionId) chat.patchSession(sessionId, { effort: e.target.value }).catch(() => {});
+                          }}
+                        >
+                          {EFFORTS.map((x) => (
+                            <option key={x.id} value={x.id}>
+                              {x.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <label className="sindri-chip sindri-model" title="Model">
                       <select
                         className="sindri-chip-select"
