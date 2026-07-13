@@ -6,6 +6,10 @@
 // sindri / brokk / eitri / mimir). Unknown / null = the human operator ("You").
 // Icon-badges (lucide) are consistent + legible small; swap for portrait art
 // later if wanted.
+//
+// ADR 0039: the conversational persona is *Brokk itself* — the `sindri` actor
+// keys resolve to the "Brokk" label (chat icon kept so chat vs forge turns stay
+// legible). Codename stays as the backend key, never as the face.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ComponentType } from "react";
@@ -19,8 +23,8 @@ interface Member {
 
 const CAST: Record<string, Member> = {
   huginn: { label: "Huginn", color: "#7c6cf0", Icon: Feather },
-  sindri: { label: "Sindri", color: "#2f81f7", Icon: MessageSquare },
-  "sindri-plan": { label: "Sindri", color: "#2f81f7", Icon: MessageSquare },
+  sindri: { label: "Brokk", color: "#2f81f7", Icon: MessageSquare },
+  "sindri-plan": { label: "Brokk", color: "#2f81f7", Icon: MessageSquare },
   brokk: { label: "Brokk", color: "#d98a3d", Icon: Hammer },
   brokkr: { label: "Brokk", color: "#d98a3d", Icon: Hammer },
   eitri: { label: "Eitri", color: "#2ea043", Icon: ShieldCheck },

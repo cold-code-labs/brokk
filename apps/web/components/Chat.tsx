@@ -87,7 +87,7 @@ const EFFORTS = [
 // Turn engine — fixed at session creation (the engine owns the continuity):
 // afl = the native lean loop (default), cli = the genuine Claude Code CLI lane.
 const ENGINES = [
-  { id: "afl", label: "Sindri" },
+  { id: "afl", label: "Brokk" },
   { id: "cli", label: "Claude Code" },
 ];
 
@@ -498,7 +498,7 @@ export default function Chat() {
             </div>
             <h3>{currentProject ? `At the anvil with ${currentProject.name}` : "Pick an environment"}</h3>
             <p>
-              Sindri clones the repo, works a branch of its own, and boots the live preview
+              Brokk clones the repo, works a branch of its own, and boots the live preview
               beside the chat. Describe the first task to light the forge.
             </p>
             <form
@@ -522,7 +522,7 @@ export default function Chat() {
               <input
                 value={blankDraft}
                 onChange={(e) => setBlankDraft(e.target.value)}
-                placeholder={currentProject ? `What should Sindri forge in ${currentProject.name}?` : "Pick a project first"}
+                placeholder={currentProject ? `What should Brokk forge in ${currentProject.name}?` : "Pick a project first"}
                 disabled={!projectId || blankBusy}
                 aria-label="First task"
               />
@@ -1245,7 +1245,7 @@ function SindriPreview({
                   </div>
                   <p>No preview running</p>
                   <span className="sindri-preview-sub">
-                    It boots on Sindri&apos;s first edit — or start it now.
+                    It boots on Brokk&apos;s first edit — or start it now.
                   </span>
                   <Button variant="default" onClick={ensure} disabled={busy || !branch}>
                     {busy ? <span className="sindri-spinner" /> : <Plus size={15} />} Start preview

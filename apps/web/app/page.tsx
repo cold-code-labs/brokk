@@ -224,19 +224,19 @@ export default async function Landing() {
         </div>
       </section>
 
-      {/* ── Sindri band ── */}
+      {/* ── Chat band ── */}
       <section className="lp-section lp-section-alt">
         <div className="lp-shell lp-forge-band">
           <div className="lp-band-copy">
-            <span className="lp-kicker">Talk to the foreman</span>
+            <span className="lp-kicker">Talk to Brokk</span>
             <h2>Not everything starts as a card.</h2>
             <p>
-              Sindri is the smith you speak to. Describe the change in a sentence —
-              watch him plan it, forge it in a live preview, and open the PR while
-              you read along. The whole crew, at the end of a conversation.
+              Brokk is the AI you speak to. Describe the change in a sentence —
+              watch it plan, forge it in a live preview, and open the PR while
+              you read along. One conversation, from intent to merge.
             </p>
             <Link href={primaryHref} className="lp-btn lp-btn-primary">
-              {loggedIn ? "Open Sindri" : "Log in to try it"}
+              {loggedIn ? "Open Brokk Chat" : "Log in to try it"}
               <Arrow />
             </Link>
           </div>
@@ -250,7 +250,7 @@ export default async function Landing() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src="/brokk.svg" alt="" />
                 </span>
-                Sindri
+                Brokk
               </span>
               On it. Worktree up — token-bucket middleware into <b>apps/api</b>,
               the 429 path wired, a test to prove it. I&apos;ll raise the PR the
@@ -335,8 +335,8 @@ const FEATURES = [
     icon: <IconCage />,
   },
   {
-    title: "Talk to the foreman",
-    body: "Sindri is the conversational smith — say what you want and watch it plan, forge, and open the PR in a live preview. Chat in, code out.",
+    title: "Talk to Brokk",
+    body: "Brokk is the conversational AI — say what you want and watch it plan, forge, and open the PR in a live preview. Chat in, code out.",
     icon: <IconChat />,
   },
   {
@@ -354,7 +354,7 @@ const FEATURES = [
 const STEPS = [
   {
     title: "Drop a card",
-    body: "File an issue on the board — or just tell Sindri. Mímir reads the intent, qualifies it, and fans it into a plan of cards ready for the anvil.",
+    body: "File an issue on the board — or just tell Brokk. It reads the intent, qualifies it, and fans it into a plan of cards ready for the anvil.",
   },
   {
     title: "The forge runs",
@@ -370,7 +370,6 @@ const CREW = [
   { name: "Mímir", role: "the counselor", body: "reads your intent and fans it into a plan of cards", icon: <IconScroll /> },
   { name: "Brokkr", role: "the smith", body: "one worktree per card — build, verify, Pull Request", icon: <Anvil /> },
   { name: "Eitri", role: "the inspector", body: "semgrep + trivy + an LLM verdict on every diff", icon: <IconShield /> },
-  { name: "Sindri", role: "the foreman", body: "the conversational build, with a live preview", icon: <IconChat /> },
   { name: "Huginn", role: "the scout", body: "flies a repo read-only, returns a structured map", icon: <IconRaven /> },
   { name: "Afl", role: "the fire", body: "the native kernel every smith works by", icon: <IconFlame /> },
 ];
