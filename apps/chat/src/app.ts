@@ -75,25 +75,27 @@ function canSee(session: { createdBy?: string | null }, actor: string): boolean 
   return session.createdBy.trim().toLowerCase() === actor;
 }
 
-/** Resolve the AflConfig for a turn: the session owner's own active Max seat
- *  (direct-to-Anthropic "oauth" path) when they have one, else the shared gateway
- *  config (Ratatoskr) unchanged. Never throws — a seat lookup/unseal hiccup falls
- *  back to the shared seat so chat never breaks. */
-async function seatCfgFor(deps: SindriDeps, owner: string | null | undefined): Promise<AflConfig> {
-  if (!SEAT_DIRECT || !owner) return deps.cfg;
+/** The session owner's own active Max seat token (unsealed), or null → the turn
+ *  falls back to the shared seat. Keys off the session's owner email. Never throws:
+ *  a lookup/unseal hiccup returns null so chat never breaks. Toggle: BROKK_DIRECT_SEAT=0.
+ *  Powers BOTH lanes — the afl gateway ("oauth" direct path) and the CLI subprocess
+ *  (CLAUDE_CODE_OAUTH_TOKEN in its env). */
+async function seatTokenFor(deps: SindriDeps, owner: string | null | undefined): Promise<string | null> {
+  if (!SEAT_DIRECT || !owner) return null;
   try {
     const seat = await deps.store.activeSeatForEmail(owner);
-    if (!seat) return deps.cfg;
-    return {
-      ...deps.cfg,
-      authKind: "oauth",
-      authToken: unseal(seat.sealedToken),
-      gatewayUrl: ANTHROPIC_DIRECT_URL,
-    };
+    return seat ? unseal(seat.sealedToken) : null;
   } catch (e) {
     console.warn(`[sindri] seat resolve failed for ${owner}: ${e instanceof Error ? e.message : e}`);
-    return deps.cfg;
+    return null;
   }
+}
+
+/** The afl gateway config for a turn: the owner's seat on the direct "oauth" path
+ *  when present, else the shared Ratatoskr config unchanged. */
+function seatCfg(deps: SindriDeps, token: string | null): AflConfig {
+  if (!token) return deps.cfg;
+  return { ...deps.cfg, authKind: "oauth", authToken: token, gatewayUrl: ANTHROPIC_DIRECT_URL };
 }
 
 export function buildSindri(deps: SindriDeps): Hono {
@@ -539,9 +541,10 @@ async function runSessionTurn(
 
   await deps.store.updateChatSession(session.id, { turnState: "running", lastTurnAt: new Date() }).catch(() => {});
 
-  // Bill this turn to the session owner's own Max seat when they have one (direct
-  // to Anthropic); otherwise the shared Ratatoskr seat, unchanged.
-  const turnCfg = await seatCfgFor(deps, session.createdBy);
+  // Bill this turn to the session owner's own Max seat when they have one; else
+  // the shared seat, unchanged. One lookup feeds both lanes: the CLI subprocess
+  // (its CLAUDE_CODE_OAUTH_TOKEN env) and the afl gateway (direct "oauth" path).
+  const seatToken = await seatTokenFor(deps, session.createdBy);
 
   // CLI engine lane (opt-in per session): the genuine Claude Code CLI runs the
   // turn in the same checkout — no Afl loop, no gateway/Ratatoskr hop. The afl
@@ -552,6 +555,7 @@ async function runSessionTurn(
         session: { ...session, branch },
         userText: text,
         cfg: deps.cfg,
+        seatToken: seatToken ?? undefined,
         store: deps.store,
         cwd: path,
         repoFullName: repo.fullName,
@@ -603,7 +607,7 @@ async function runSessionTurn(
     await runTurn({
       session: { ...session, branch },
       userText: text,
-      cfg: turnCfg,
+      cfg: seatCfg(deps, seatToken),
       toolCtx,
       system,
       extraTools: deps.mcp?.toolDefs,

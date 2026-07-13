@@ -33,6 +33,10 @@ export interface CliSessionTurnInput {
   session: ChatSession;
   userText: string;
   cfg: AflConfig;
+  /** The session owner's own Max seat token (unsealed). When set, it overrides the
+   *  container's shared CLAUDE_CODE_OAUTH_TOKEN so the CLI turn bills to the owner's
+   *  seat — the CLI lane's half of per-user seat routing. Absent → shared seat. */
+  seatToken?: string;
   store: Store;
   /** The session checkout (worktree) the CLI works in. */
   cwd: string;
@@ -90,6 +94,9 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
       resume,
       appendSystem,
       gh: true,
+      // Per-user seat: override the container's shared token with the owner's when
+      // we have it (cliEnv layers input.env over its allowlist). Absent → shared.
+      env: input.seatToken ? { CLAUDE_CODE_OAUTH_TOKEN: input.seatToken } : undefined,
       timeoutMs: Math.max(0, Number(process.env.BROKK_CLI_TURN_TIMEOUT_MS ?? 3_600_000) || 0),
       emit,
       signal,
