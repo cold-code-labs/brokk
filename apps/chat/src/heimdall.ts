@@ -106,15 +106,23 @@ export class HeimdallAgentClient {
     try {
       const r = await this.get<{
         app?: string;
-        vars?: { key: string; target: string; buildtime: boolean; value: string }[];
+        vars?: { key: string; target: string; buildtime: boolean; value: string; kind?: string }[];
         error?: string;
       }>(`/api/agent/env?app=${encodeURIComponent(app)}`);
       const vars = r.vars ?? [];
       if (!vars.length) return { ok: true, content: `${r.app ?? app} has no env vars` };
       const lines = vars
-        .map((v) => `- ${v.key}=${v.value} [${v.target}${v.buildtime ? ", buildtime" : ""}]`)
+        .map((v) => {
+          // Only external (owner-supplied) keys are worth flagging — they can't be
+          // minted/auto-rotated. Managed is the unmarked, unremarkable default.
+          const tag = v.kind === "external" ? ", external" : v.kind === "managed" ? ", managed" : "";
+          return `- ${v.key}=${v.value} [${v.target}${v.buildtime ? ", buildtime" : ""}${tag}]`;
+        })
         .join("\n");
-      return { ok: true, content: `env for ${r.app ?? app} (values masked):\n${lines}` };
+      return {
+        ok: true,
+        content: `env for ${r.app ?? app} (values masked; "external" = owner-supplied, not auto-rotated):\n${lines}`,
+      };
     } catch (e) {
       return { ok: false, content: `list_env failed: ${(e as Error).message}` };
     }
