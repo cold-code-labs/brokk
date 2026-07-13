@@ -1263,15 +1263,36 @@ export function createStore(db: Db): Store {
           reason: `claimed by runner ${runnerId}`,
         });
 
-        // Round-robin: grab the least-recently-used active seat and lock it so
-        // two concurrent claims don't both pick the same one.
-        const seat = await tx
-          .select({ id: subscriptions.id, sealed: subscriptions.sealedToken })
-          .from(subscriptions)
-          .where(eq(subscriptions.status, "active"))
-          .orderBy(sql`${subscriptions.lastUsedAt} asc nulls first`)
-          .limit(1)
-          .for("update", { skipLocked: true });
+        // Seat selection: prefer the task owner's own active seat, so each
+        // teammate's runs bill to their own Max subscription. `tasks.created_by`
+        // holds the actor's email (injected by the web proxy from the Logto
+        // session); we join it to `users.email` → their subscription. If the
+        // owner has no active seat (never connected, or deactivated because their
+        // tokens ran dry), we fall back to the least-recently-used active seat of
+        // anyone — so work never stalls and a depleted teammate borrows a peer's.
+        const owner = (taskRow.createdBy ?? "").trim().toLowerCase();
+        let seat: { id: string; sealed: string }[] = [];
+        if (owner.includes("@")) {
+          seat = await tx
+            .select({ id: subscriptions.id, sealed: subscriptions.sealedToken })
+            .from(subscriptions)
+            .innerJoin(users, eq(subscriptions.userId, users.id))
+            .where(and(eq(subscriptions.status, "active"), sql`lower(${users.email}) = ${owner}`))
+            .orderBy(sql`${subscriptions.lastUsedAt} asc nulls first`)
+            .limit(1)
+            .for("update", { skipLocked: true });
+        }
+        if (seat.length === 0) {
+          // Round-robin fallback: least-recently-used active seat, locked so two
+          // concurrent claims don't both pick the same one.
+          seat = await tx
+            .select({ id: subscriptions.id, sealed: subscriptions.sealedToken })
+            .from(subscriptions)
+            .where(eq(subscriptions.status, "active"))
+            .orderBy(sql`${subscriptions.lastUsedAt} asc nulls first`)
+            .limit(1)
+            .for("update", { skipLocked: true });
+        }
         const seatRow = seat[0];
         if (seatRow) {
           await tx

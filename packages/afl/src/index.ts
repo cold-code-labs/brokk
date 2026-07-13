@@ -18,7 +18,14 @@ export {
   runClaudeCliTurn,
 } from "./claude-cli.js";
 export { type CompactionResult, type CompactOptions, compactTranscript } from "./compact.js";
-export { type AflConfig, loadAflConfig, resolveModel } from "./config.js";
+export {
+  type AflConfig,
+  loadAflConfig,
+  resolveModel,
+  ANTHROPIC_DIRECT_URL,
+  CLAUDE_CODE_MARKER,
+  OAUTH_BETA,
+} from "./config.js";
 export {
   type AssistantResult,
   type BlockInterceptor,

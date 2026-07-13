@@ -6,7 +6,7 @@
 // assistant message (blocks + stop_reason + usage) ready to persist and replay.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { AflConfig } from "./config.js";
+import { type AflConfig, CLAUDE_CODE_MARKER, OAUTH_BETA } from "./config.js";
 import type {
   ChatTurnMessage,
   ContentBlock,
@@ -102,7 +102,15 @@ export async function streamAssistant(
       system:
         cfg.authKind === "apikey"
           ? [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }]
-          : req.system,
+          : cfg.authKind === "oauth"
+            ? // Direct seat: Ratatoskr isn't in the loop, so WE prepend the genuine
+              // Claude-Code identity marker as the first system block (the
+              // subscription path validates it). Plain strings, no cache_control.
+              [
+                { type: "text", text: CLAUDE_CODE_MARKER },
+                { type: "text", text: req.system },
+              ]
+            : req.system,
       messages: req.messages,
     };
     if (req.tools.length) body.tools = req.tools;
@@ -120,6 +128,9 @@ export async function streamAssistant(
           ...(cfg.authKind === "apikey"
             ? { "x-api-key": cfg.authToken }
             : { authorization: `Bearer ${cfg.authToken}` }),
+          // The direct seat path needs the subscription OAuth beta flag that
+          // Ratatoskr would otherwise inject upstream.
+          ...(cfg.authKind === "oauth" ? { "anthropic-beta": OAUTH_BETA } : {}),
           "anthropic-version": cfg.anthropicVersion,
           accept: "text/event-stream",
         },

@@ -45,6 +45,11 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
   // Mutations require a logged-in human (Logto session). Otherwise the secret the
   // proxy injects below would let any anonymous caller create/enqueue forge runs
   // through the public origin. Reads stay open. Logto-off (dev) = open shell.
+  // We also capture the caller's email as the actor identity so the control-plane
+  // can attribute the task to a real person (seat routing: a task claims its
+  // owner's Max seat first — see claimNext). The client can't spoof it: we
+  // overwrite any inbound x-brokk-actor from the trusted server-side session.
+  let actor = "";
   if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS" && !bearerOk(req)) {
     const session = await getSession();
     if (!session.isAuthenticated) {
@@ -53,6 +58,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
         headers: { "content-type": "application/json" },
       });
     }
+    actor = session.email ?? "";
   }
 
   const { path = [] } = await ctx.params;
@@ -65,6 +71,9 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
   // Inject the API secret server-side so mutating calls are authorized. The
   // browser never sees it; a direct caller to the API origin can't forge runs.
   if (API_SECRET) headers.set("authorization", `Bearer ${API_SECRET}`);
+  // Trusted actor identity from the Logto session (never client-supplied).
+  if (actor) headers.set("x-brokk-actor", actor);
+  else headers.delete("x-brokk-actor");
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const init: RequestInit & { duplex?: "half" } = {

@@ -14,6 +14,13 @@ import { runBranch } from "@brokk/core";
 import { loadRunnerConfig, type RunnerConfig } from "./config.js";
 
 const execAsync = promisify(exec);
+
+// Per-teammate seat routing (default ON). When a task's owner has a connected Max
+// seat, the control plane claims it and we hand its OAuth token to the engine,
+// which talks DIRECT to Anthropic so the run bills to that seat. Set
+// BROKK_DIRECT_SEAT=0 to force every run back through Ratatoskr (the shared CCL
+// seat) — the global kill-switch for per-user billing.
+const SEAT_DIRECT = process.env.BROKK_DIRECT_SEAT !== "0";
 import { GhProvider } from "./git.js";
 import { ClaudeCliEngine, ForgeEngine } from "@brokk/forge";
 import { claudeCliAvailable } from "@brokk/afl";
@@ -203,7 +210,9 @@ async function handleRun(
       cwd: wt.path,
       model,
       authMode: run.authMode ?? "subscription",
-      authToken: auth?.token ?? undefined,
+      // Toggle: when direct-seat routing is off, drop the seat token so the engine
+      // falls through to the Ratatoskr gateway path (shared seat) for every run.
+      authToken: SEAT_DIRECT ? (auth?.token ?? undefined) : undefined,
       allowedTools: [],
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
       verify: cfg.verifyCmd ? () => runVerify(cfg.verifyCmd, wt.path) : undefined,
@@ -447,7 +456,9 @@ async function runDevLane(
       cwd: wt.path,
       model,
       authMode: run.authMode ?? "subscription",
-      authToken: auth?.token ?? undefined,
+      // Toggle: when direct-seat routing is off, drop the seat token so the engine
+      // falls through to the Ratatoskr gateway path (shared seat) for every run.
+      authToken: SEAT_DIRECT ? (auth?.token ?? undefined) : undefined,
       allowedTools: [],
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
       verify: cfg.verifyCmd ? () => runVerify(cfg.verifyCmd, wt.path) : undefined,

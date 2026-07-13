@@ -26,6 +26,7 @@ import {
   type AgentLoopHooks,
   type AflConfig,
   type ChatTurnMessage,
+  ANTHROPIC_DIRECT_URL,
   composeExecutors,
   resolveEnclave,
   FS_TOOL_DEFS,
@@ -84,7 +85,17 @@ export class ForgeEngine implements AgentEngine {
   }
 
   async run(ctx: AgentRunContext): Promise<RunResult> {
-    const model = resolveModel(this.cfg, ctx.model);
+    // Per-run credential: when the control plane claimed a subscription SEAT for
+    // this task (ctx.authToken, a sk-ant-oat… OAuth token belonging to the task's
+    // owner), talk DIRECT to Anthropic on the "oauth" path so the run bills to
+    // that teammate's own Max seat. No seat → this.cfg is unchanged, i.e. the
+    // Ratatoskr gateway path (shared/ambient seat) exactly as before. This is the
+    // whole toggle: a claimed seat routes direct; its absence routes via Ratatoskr.
+    const cfg: AflConfig =
+      ctx.authMode === "subscription" && ctx.authToken
+        ? { ...this.cfg, authKind: "oauth", authToken: ctx.authToken, gatewayUrl: ANTHROPIC_DIRECT_URL }
+        : this.cfg;
+    const model = resolveModel(cfg, ctx.model);
     const system = this.opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
     // The generic hands are the only executor; compose wraps the partial with the
     // unknown-tool fallback to satisfy the loop's full ToolExecutor.
@@ -109,14 +120,14 @@ export class ForgeEngine implements AgentEngine {
 
     const forgePass = () =>
       runAgentLoop({
-        cfg: this.cfg,
+        cfg,
         model,
         system,
         messages,
         tools,
         exec,
-        maxTokens: this.cfg.maxTokens,
-        maxRounds: this.cfg.maxRounds,
+        maxTokens: cfg.maxTokens,
+        maxRounds: cfg.maxRounds,
         hooks,
       });
 

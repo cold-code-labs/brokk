@@ -14,11 +14,19 @@ export interface AflConfig {
   /** Credential: a gateway bearer (ANTHROPIC_AUTH_TOKEN, LiteLLM virtual key) or
    *  a direct Anthropic API key (ANTHROPIC_API_KEY) — see authKind. */
   authToken: string;
-  /** How the credential is presented: "bearer" (Authorization header, the CCL
-   *  gateway/seat path — the default) or "apikey" (x-api-key, direct Anthropic).
+  /** How the credential is presented:
+   *  - "bearer": Authorization header, the CCL gateway path (LiteLLM → Ratatoskr,
+   *    which injects the OAuth seat + beta flag + Claude-Code marker upstream) —
+   *    the fleet default.
+   *  - "apikey": x-api-key, direct Anthropic (operator with only an API key).
+   *  - "oauth": a per-run subscription SEAT token (sk-ant-oat…) sent DIRECT to
+   *    Anthropic — the gateway client itself adds the `oauth-2025-04-20` beta flag
+   *    and prepends the Claude-Code marker (what Ratatoskr would have injected).
+   *    This is the per-teammate seat path; it bypasses Ratatoskr for that one run
+   *    so the run bills to the seat's own subscription.
    *  ADR 0027 §3.1: ANTHROPIC_AUTH_TOKEN wins when both are set, so the fleet's
    *  seat mode is untouched; an operator with only an API key just works. */
-  authKind: "bearer" | "apikey";
+  authKind: "bearer" | "apikey" | "oauth";
   /** anthropic-version header — mirrors what Claude Code sends. */
   anthropicVersion: string;
   /** alias → concrete model id, from the ANTHROPIC_DEFAULT_*_MODEL env. */
@@ -34,6 +42,17 @@ export interface AflConfig {
    *  Consumers pass it to runAgentLoop's maxTotalTokens. */
   turnTokenBudget: number;
 }
+
+/** The genuine Claude Code identity marker. On the gateway/bearer path Ratatoskr
+ *  prepends this upstream; on the direct "oauth" seat path the gateway client
+ *  prepends it itself so the subscription envelope is well-formed. */
+export const CLAUDE_CODE_MARKER = "You are Claude Code, Anthropic's official CLI for Claude.";
+
+/** anthropic-beta flag the subscription OAuth path requires. */
+export const OAUTH_BETA = "oauth-2025-04-20";
+
+/** Direct Anthropic base for the per-run seat (oauth) path. */
+export const ANTHROPIC_DIRECT_URL = "https://api.anthropic.com";
 
 export function loadAflConfig(env: NodeJS.ProcessEnv = process.env): AflConfig {
   const bearer = env.ANTHROPIC_AUTH_TOKEN ?? "";
