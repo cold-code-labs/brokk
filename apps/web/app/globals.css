@@ -2757,3 +2757,33 @@ html.dark .fv-hl .shiki span {
 /* #10 the preview canvas over-breathes — pull the empty/env states off the dead
    center so “Environment loaded…” isn't lost in the middle of the void. */
 .ygg-shell .sindri-preview-msg { padding: var(--sp-5) var(--sp-4); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Design-refinement pass III (2026-07) — passes #3/#19 (type scale) + #2/#24
+   (8px grid). Closes the backlog. Same doctrine: Brokk-local shell overrides.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── #3/#19 · one typographic scale ─────────────────────────────────────────
+   Before: nearly everything sat at 14/500 — no hierarchy, the eye couldn't
+   rank. The ladder (matches the crit): section 11 · body 14/regular ·
+   title 15/semibold · description 13/regular. Titles alone carry weight. */
+.ygg-shell {
+  --t-section: 0.6875rem; /* 11px — group/section labels, uppercase */
+  --t-body: 0.875rem;     /* 14px — nav items, tabs, message prose */
+  --t-title: 0.9375rem;   /* 15px — panel titles / empty-state headings */
+  --t-desc: 0.8125rem;    /* 13px — secondary descriptions, sub-copy */
+}
+.ygg-shell .ygg-nav-link { font-size: var(--t-body); }
+.ygg-shell .ygg-nav-group-label { font-size: var(--t-section); }
+.ygg-shell .sindri-bubble { font-size: var(--t-body); }
+.ygg-shell .sindri-preview-msg p { font-size: var(--t-title); font-weight: 600; }
+.ygg-shell .sindri-preview-sub { font-size: var(--t-desc); }
+
+/* ── #2/#24 · the 8px grid, applied where the eye reads it ───────────────────
+   The remaining loose values (11/17/29px) on the high-traffic surfaces snap to
+   the --sp-* ladder. Deep leaf components stay as-is — this closes the visible
+   drift, not a machine-exhaustive audit (flagged in the backlog). */
+.ygg-shell .ygg-sidebar { padding: var(--sp-4) var(--sp-3); }
+.ygg-shell .ygg-nav-group-label { margin: 0 0 var(--sp-1); padding: 0 var(--sp-2); }
+.ygg-shell .sindri-bubble { padding: var(--sp-3) var(--sp-4); }
+.ygg-shell .sindri-preview-msg { gap: var(--sp-2); }
