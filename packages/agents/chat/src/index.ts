@@ -8,7 +8,7 @@
  * Sibling to Brokkr (autonomous card→PR), Mímir (intake), Eitri (review).
  */
 
-export { type AflConfig, loadAflConfig, resolveModel } from "@brokk/afl";
+export { type AflConfig, loadAflConfig, resolveModel, ANTHROPIC_DIRECT_URL } from "@brokk/afl";
 export {
   type CliTurnHooks,
   type CliTurnInput,

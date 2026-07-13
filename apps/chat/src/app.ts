@@ -5,9 +5,11 @@ import {
   type AgentEvent,
   type Skill,
   type ToolContext,
+  ANTHROPIC_DIRECT_URL,
   runTurn,
 } from "@brokk/chat";
 import { runCliSessionTurn } from "./cli-turn.js";
+import { unseal } from "./secrets.js";
 import { autoTitle } from "./titler.js";
 import { detectRuntime, runDiscovery, runMeetingScout, runResolve } from "@brokk/scout";
 import { buildDetectCtx, resolveRuntime } from "@brokk/core/runtime";
@@ -54,6 +56,46 @@ const PatchSession = z.object({
 
 const SendMessage = z.object({ text: z.string().min(1) });
 
+// Per-teammate seat routing for the interactive chat (default ON; BROKK_DIRECT_SEAT=0
+// forces every turn back through the shared Ratatoskr seat). Mirrors the forge.
+const SEAT_DIRECT = process.env.BROKK_DIRECT_SEAT !== "0";
+
+/** The trusted caller identity, injected by the web proxy from the Logto session
+ *  (empty for internal/server-side callers, which then see everything). */
+function actorOf(c: Context): string {
+  return (c.req.header("x-brokk-actor") ?? "").trim().toLowerCase();
+}
+
+/** Chat privacy: a human sees only their own sessions. Legacy sessions with no
+ *  owner (created_by null) stay visible to everyone until backfilled. Internal
+ *  callers (no actor header) see all. */
+function canSee(session: { createdBy?: string | null }, actor: string): boolean {
+  if (!actor) return true;
+  if (!session.createdBy) return true;
+  return session.createdBy.trim().toLowerCase() === actor;
+}
+
+/** Resolve the AflConfig for a turn: the session owner's own active Max seat
+ *  (direct-to-Anthropic "oauth" path) when they have one, else the shared gateway
+ *  config (Ratatoskr) unchanged. Never throws — a seat lookup/unseal hiccup falls
+ *  back to the shared seat so chat never breaks. */
+async function seatCfgFor(deps: SindriDeps, owner: string | null | undefined): Promise<AflConfig> {
+  if (!SEAT_DIRECT || !owner) return deps.cfg;
+  try {
+    const seat = await deps.store.activeSeatForEmail(owner);
+    if (!seat) return deps.cfg;
+    return {
+      ...deps.cfg,
+      authKind: "oauth",
+      authToken: unseal(seat.sealedToken),
+      gatewayUrl: ANTHROPIC_DIRECT_URL,
+    };
+  } catch (e) {
+    console.warn(`[sindri] seat resolve failed for ${owner}: ${e instanceof Error ? e.message : e}`);
+    return deps.cfg;
+  }
+}
+
 export function buildSindri(deps: SindriDeps): Hono {
   const app = new Hono();
   app.use("*", cors());
@@ -69,6 +111,20 @@ export function buildSindri(deps: SindriDeps): Hono {
     return c.json({ error: "unauthorized" }, 401);
   });
 
+  // Ownership guard: a human (actor set) can only touch a session they own. Legacy
+  // ownerless sessions and internal callers (no actor) pass through. Applied to
+  // every /sessions/:id route so isolation holds on read, patch, delete, and turns.
+  const ownership = async (c: Context, next: () => Promise<void>) => {
+    const id = c.req.param("id");
+    const actor = actorOf(c);
+    if (!id || !actor) return next();
+    const s = await deps.store.getChatSession(id);
+    if (s && !canSee(s, actor)) return c.json({ error: "not found" }, 404);
+    return next();
+  };
+  app.use("/sessions/:id", ownership);
+  app.use("/sessions/:id/*", ownership);
+
   // ── File viewer (the right-pane "code" tab) ──────────────────────────────────
   // Reads/writes the session's working checkout on disk. Mounted before the
   // session routes below; guarded by the same shared-secret middleware above.
@@ -79,7 +135,10 @@ export function buildSindri(deps: SindriDeps): Hono {
   app.get("/sessions", async (c) => {
     const projectId = c.req.query("projectId") || undefined;
     const status = (c.req.query("status") as "active" | "archived") || undefined;
-    const sessions = await deps.store.listChatSessions({ projectId, status });
+    const actor = actorOf(c);
+    const all = await deps.store.listChatSessions({ projectId, status });
+    // Privacy: a human sees only their own (+ legacy ownerless) sessions.
+    const sessions = all.filter((s) => canSee(s, actor));
     // ?stats=1 decorates each session with its aggregate counters (one grouped
     // query), so the rail can show volume + token spend at a glance.
     if (c.req.query("stats")) {
@@ -111,7 +170,9 @@ export function buildSindri(deps: SindriDeps): Hono {
       model: parsed.data.model ?? "haiku",
       effort: parsed.data.effort ?? null,
       engine: parsed.data.engine ?? "afl",
-      createdBy: parsed.data.createdBy ?? null,
+      // Owner = the trusted Logto identity from the proxy; body value is only a
+      // fallback for internal callers. This is what chat privacy + seat routing key off.
+      createdBy: actorOf(c) || parsed.data.createdBy || null,
     });
     // Branch is derived from the (db-assigned) id so it's stable + collision-free.
     const branch = `sindri/${created.id.slice(0, 8)}`;
@@ -478,6 +539,10 @@ async function runSessionTurn(
 
   await deps.store.updateChatSession(session.id, { turnState: "running", lastTurnAt: new Date() }).catch(() => {});
 
+  // Bill this turn to the session owner's own Max seat when they have one (direct
+  // to Anthropic); otherwise the shared Ratatoskr seat, unchanged.
+  const turnCfg = await seatCfgFor(deps, session.createdBy);
+
   // CLI engine lane (opt-in per session): the genuine Claude Code CLI runs the
   // turn in the same checkout — no Afl loop, no gateway/Ratatoskr hop. The afl
   // path below stays the default and is untouched.
@@ -538,7 +603,7 @@ async function runSessionTurn(
     await runTurn({
       session: { ...session, branch },
       userText: text,
-      cfg: deps.cfg,
+      cfg: turnCfg,
       toolCtx,
       system,
       extraTools: deps.mcp?.toolDefs,

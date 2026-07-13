@@ -561,6 +561,11 @@ export interface Store {
   insertSubscription(values: typeof subscriptions.$inferInsert): Promise<Subscription>;
   /** Raw sealed token for one subscription (server-side decrypt only). */
   getSealedToken(id: string): Promise<string | null>;
+  /** The owner's active Max seat by email (case-insensitive) — for per-user seat
+   *  routing in the interactive chat, which keys off the session's owner email.
+   *  Returns the sealed token (caller unseals). Null when the email has no active
+   *  seat. */
+  activeSeatForEmail(email: string): Promise<{ subscriptionId: string; sealedToken: string } | null>;
 
   // reviews (Eitri)
   hasReview(repo: string, prNumber: number, sha: string): Promise<boolean>;
@@ -1095,6 +1100,18 @@ export function createStore(db: Db): Store {
         .where(eq(subscriptions.id, id))
         .limit(1);
       return rows[0]?.t ?? null;
+    },
+    async activeSeatForEmail(email) {
+      const e = email.trim().toLowerCase();
+      if (!e) return null;
+      const rows = await db
+        .select({ id: subscriptions.id, sealed: subscriptions.sealedToken })
+        .from(subscriptions)
+        .innerJoin(users, eq(subscriptions.userId, users.id))
+        .where(and(eq(subscriptions.status, "active"), sql`lower(${users.email}) = ${e}`))
+        .orderBy(sql`${subscriptions.lastUsedAt} asc nulls first`)
+        .limit(1);
+      return rows[0] ? { subscriptionId: rows[0].id, sealedToken: rows[0].sealed } : null;
     },
 
     async hasReview(repo, prNumber, sha) {
