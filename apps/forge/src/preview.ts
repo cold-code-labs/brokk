@@ -194,6 +194,18 @@ export class PreviewSupervisor {
       const head = (await run("git", ["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
       const fetched = (await run("git", ["rev-parse", "FETCH_HEAD"], { cwd: path })).stdout.trim();
       if (head === fetched) return null;
+      // Live edits guard: if the worktree is dirty (a chat/dev-lane session is
+      // editing it live — BROKK_LIVE_PREVIEW), a hard reset would wipe the
+      // uncommitted work HMR is showing. Skip; the reset lands once the editor
+      // commits+pushes (clean tree). The tip advanced but we defer rather than
+      // clobber. HMR keeps serving the working tree meanwhile.
+      const dirty = (await run("git", ["status", "--porcelain"], { cwd: path })).stdout.trim();
+      if (dirty) {
+        console.log(
+          `[preview-supervisor] ${hauldrProject}: worktree dirty (live edits) — deferring reset to ${fetched.slice(0, 8)}`,
+        );
+        return null;
+      }
       await run("git", ["reset", "--hard", "FETCH_HEAD"], { cwd: path });
       console.log(
         `[preview-supervisor] refreshed ${hauldrProject} worktree → ${branch} tip (${fetched.slice(0, 8)})`,

@@ -8,6 +8,8 @@ import {
   ANTHROPIC_DIRECT_URL,
   runTurn,
 } from "@brokk/chat";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { runCliSessionTurn } from "./cli-turn.js";
 import { unseal } from "./secrets.js";
 import { autoTitle } from "./titler.js";
@@ -59,6 +61,35 @@ const SendMessage = z.object({ text: z.string().min(1) });
 // Per-teammate seat routing for the interactive chat (default ON; BROKK_DIRECT_SEAT=0
 // forces every turn back through the shared Ratatoskr seat). Mirrors the forge.
 const SEAT_DIRECT = process.env.BROKK_DIRECT_SEAT !== "0";
+
+// Live-preview edit mode (ADR 0017 dev-lane, opt-in via BROKK_LIVE_PREVIEW=1).
+// When on, a chat turn edits DIRECTLY in the app's running preview worktree (on
+// `dev`) — the same dir the preview's HMR dev server watches — so edits show live
+// with no push (push becomes an explicit "Publish"). Off by default → each session
+// keeps its own isolated `sindri/<id>` checkout (unchanged behaviour). The preview
+// worktrees live under the runner workdir, on the volume both containers share.
+const LIVE_PREVIEW = process.env.BROKK_LIVE_PREVIEW === "1";
+const RUNNER_WORKDIR = process.env.BROKK_RUNNER_WORKDIR ?? "/home/brokk/work";
+
+/** The live preview worktree for a project (on `dev`), or null → fall back to the
+ *  session's own checkout. Requires a booted preview (its HMR server is what makes
+ *  the edit show live) whose worktree exists on disk. Never throws. */
+async function livePreviewCheckout(
+  deps: SindriDeps,
+  projectId: string,
+): Promise<{ path: string; branch: string } | null> {
+  if (!LIVE_PREVIEW) return null;
+  try {
+    const previews = await deps.store.listPreviews({ projectId });
+    const p = previews.find((x) => x.status === "live") ?? previews.find((x) => x.hauldrProject);
+    if (!p) return null;
+    const path = join(RUNNER_WORKDIR, "preview-worktrees", p.hauldrProject);
+    return existsSync(path) ? { path, branch: p.branch } : null;
+  } catch (e) {
+    console.warn(`[sindri] live-preview resolve failed: ${e instanceof Error ? e.message : e}`);
+    return null;
+  }
+}
 
 /** The trusted caller identity, injected by the web proxy from the Logto session
  *  (empty for internal/server-side callers, which then see everything). */
@@ -530,14 +561,27 @@ async function runSessionTurn(
   // First exchange? (no messages yet) → auto-name the thread after the turn.
   const isFirstTurn = (await deps.store.listChatMessages(session.id)).length === 0;
 
-  const branch = session.branch ?? `sindri/${session.id.slice(0, 8)}`;
-  emit({ type: "status", phase: "checkout", detail: { branch } });
-  const { path } = await deps.checkouts.ensure({
-    sessionId: session.id,
-    branch,
-    repo: repo as Repository,
-    baseBranch: project.baseBranch,
-  });
+  // Live mode: edit the running preview's `dev` worktree directly (HMR shows it
+  // live, no push). Else the session's own isolated checkout, as before.
+  const live = await livePreviewCheckout(deps, project.id);
+  let branch: string;
+  let path: string;
+  if (live) {
+    branch = live.branch;
+    path = live.path;
+    emit({ type: "status", phase: "checkout", detail: { branch, live: true } });
+  } else {
+    branch = session.branch ?? `sindri/${session.id.slice(0, 8)}`;
+    emit({ type: "status", phase: "checkout", detail: { branch } });
+    path = (
+      await deps.checkouts.ensure({
+        sessionId: session.id,
+        branch,
+        repo: repo as Repository,
+        baseBranch: project.baseBranch,
+      })
+    ).path;
+  }
 
   await deps.store.updateChatSession(session.id, { turnState: "running", lastTurnAt: new Date() }).catch(() => {});
 
