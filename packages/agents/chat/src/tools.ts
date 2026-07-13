@@ -21,6 +21,7 @@ import {
   type ToolDef,
   type ToolExecutor,
 } from "@brokk/afl";
+import { dispatchSkill, INVOKE_SKILL_TOOL, type Skill } from "./skills.js";
 
 // shellEnv lives in afl now; re-exported for callers that still import it from here.
 export { shellEnv } from "@brokk/afl";
@@ -45,6 +46,11 @@ export interface ToolContext {
    *  Mímir into proposed backlog cards. Injected by the Sindri app (which owns the
    *  planner config + gateway); absent in contexts without a planner. */
   planWork?: (intent: string) => Promise<{ ok: boolean; content: string }>;
+  /** Host-injected Brokk Skills (ADR 0039), reached via the `invoke_skill` tool.
+   *  The app binds the concrete handlers (Discovery/Enhance need the checkout +
+   *  Mímir/Huginn config); advertise the same list in buildSystemPrompt so the
+   *  model knows the catalogue. Absent/empty = invoke_skill reports none available. */
+  skills?: Skill[];
   /** Host-injected infra-intent bridges (the set_env / redeploy_app /
    *  register_route / register_job tools). Each performs ONE scoped mutation via
    *  Heimdall's Agent API (the scoped agent token, never the god-token) and
@@ -231,8 +237,9 @@ const DOMAIN_TOOL_DEFS: ToolDef[] = [
   },
 ];
 
-/** The full tool set Sindri offers: afl's hands first, then the domain tools. */
-export const TOOL_DEFS: ToolDef[] = [...FS_TOOL_DEFS, ...DOMAIN_TOOL_DEFS];
+/** The full tool set Brokk offers: afl's hands first, the domain tools, then the
+ *  single skills entrypoint (its catalogue is advertised in the system prompt). */
+export const TOOL_DEFS: ToolDef[] = [...FS_TOOL_DEFS, ...DOMAIN_TOOL_DEFS, INVOKE_SKILL_TOOL];
 
 /** Partial executor for the Brokk-domain tools (store + planner bound). Returns
  *  `null` for non-domain tools so afl's fs executor handles them. */
@@ -270,6 +277,15 @@ function makeDomainExecutor(ctx: ToolContext): PartialExecutor {
           const intent = String(input.intent ?? "").trim();
           if (!intent) return { ok: false, content: "plan_work needs an intent" };
           return await ctx.planWork(intent);
+        }
+        case "invoke_skill": {
+          const skill = String(input.skill ?? "").trim();
+          if (!skill) return { ok: false, content: "invoke_skill needs a skill name" };
+          const args = (input.input && typeof input.input === "object" ? input.input : {}) as Record<
+            string,
+            unknown
+          >;
+          return await dispatchSkill(ctx.skills, skill, args);
         }
         case "start_mission": {
           const goal = String(input.goal ?? "").trim();

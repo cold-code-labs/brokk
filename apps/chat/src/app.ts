@@ -3,6 +3,7 @@ import {
   claudeCliAvailable,
   type AflConfig,
   type AgentEvent,
+  type Skill,
   type ToolContext,
   runTurn,
 } from "@brokk/chat";
@@ -12,7 +13,7 @@ import { detectRuntime, runDiscovery, runMeetingScout, runResolve } from "@brokk
 import { buildDetectCtx, resolveRuntime } from "@brokk/core/runtime";
 import type { Store } from "@brokk/db";
 import { featureBranch, type Repository } from "@brokk/core";
-import { planJob, type MimirConfig } from "@brokk/mimir";
+import { enhancePrompt, planJob, type MimirConfig, type MimirMode } from "@brokk/mimir";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
@@ -501,6 +502,7 @@ async function runSessionTurn(
     return;
   }
 
+  const skills = buildSkills(deps, project.id, repo.fullName, path, emit);
   const toolCtx: ToolContext = {
     cwd: path,
     projectId: project.id,
@@ -508,6 +510,7 @@ async function runSessionTurn(
     store: deps.store,
     baseBranch: project.baseBranch,
     extraExec: deps.mcp?.executor,
+    skills,
     onDomainEvent: (e) => emit({ type: "status", phase: e.kind, detail: e.detail }),
     // The plan_work tool bridges to Mímir — Haiku decides to plan, the strong
     // planner decomposes, the cards land in the backlog (proposed) for approval.
@@ -528,6 +531,7 @@ async function runSessionTurn(
     projectName: project.name,
     repoFullName: repo.fullName,
     branch,
+    skills,
   });
 
   try {
@@ -570,6 +574,79 @@ function plannerConfig(): MimirConfig | null {
     authToken: "",
     anthropicBaseUrl: "",
   };
+}
+
+/** The Brokk Skills available in a chat turn (ADR 0039). The former codename
+ *  features become skills reached via `invoke_skill`:
+ *   • discovery (Huginn) — scout the current checkout, return a structured brief.
+ *   • enhance (Mímir)    — rewrite a rough prompt into a sharper one.
+ *  Bound per-turn to the session's checkout + project, mirroring the plan_work
+ *  bridge. More skills (review, migrate, …) slot in here. */
+function buildSkills(
+  deps: SindriDeps,
+  projectId: string,
+  repoFullName: string,
+  cwd: string,
+  emit: (e: AgentEvent) => void,
+): Skill[] {
+  return [
+    {
+      name: "discovery",
+      description:
+        "Scout THIS repository end-to-end (read-only) and return a structured brief — mission, what's built, what's missing, and the stack. Use for a fresh map of an unfamiliar or freshly-connected project. Takes no input.",
+      run: async () => {
+        emit({ type: "status", phase: "discovery" });
+        const brief = await runDiscovery({ cfg: deps.cfg, cwd, repoFullName, model: "haiku" });
+        await deps.store
+          .upsertProjectBrief(projectId, {
+            status: "ready",
+            mission: brief.mission,
+            summary: brief.summary,
+            built: brief.built,
+            missing: brief.missing,
+            stack: brief.stack,
+            model: "haiku",
+            error: null,
+          })
+          .catch(() => {});
+        const out = [
+          `**Mission:** ${brief.mission}`,
+          "",
+          brief.summary,
+          "",
+          "**Built:**",
+          ...brief.built.map((b) => `- ${b}`),
+          "",
+          "**Missing:**",
+          ...brief.missing.map((m) => `- ${m}`),
+          "",
+          `**Stack:** ${brief.stack.join(", ")}`,
+        ].join("\n");
+        return { ok: true, content: out };
+      },
+    },
+    {
+      name: "enhance",
+      description:
+        "Rewrite a rough prompt/spec into a sharper one via Mímir. Pass { input: <prompt to refine>, mode?: 'polish' | 'structure' | 'engineer' }. Use when the user hands you a vague or messy request and wants it tightened before acting.",
+      run: async (input) => {
+        const text = String(input.input ?? input.prompt ?? "").trim();
+        if (!text) return { ok: false, content: "enhance needs an 'input' prompt to refine" };
+        const cfg = plannerConfig();
+        if (!cfg) return { ok: false, content: "enhance unavailable (no gateway credentials)" };
+        const modeRaw = String(input.mode ?? "structure");
+        const mode: MimirMode = (["polish", "structure", "engineer"].includes(modeRaw)
+          ? modeRaw
+          : "structure") as MimirMode;
+        emit({ type: "status", phase: "enhance" });
+        const res = await enhancePrompt(text, mode, cfg);
+        return {
+          ok: true,
+          content: `Enhanced (${res.mode}):\n\n${res.enhanced}\n\n— rationale: ${res.rationale}`,
+        };
+      },
+    },
+  ];
 }
 
 /** Build Sindri's infra-intent bridge over Heimdall's SCOPED Agent API. Returns

@@ -13,7 +13,6 @@ import {
 import {
   LayoutGrid,
   Gauge,
-  BookText,
   MessageSquare,
   Plus,
   List,
@@ -28,12 +27,11 @@ import { useProject } from "../lib/project-context";
 // Global / project-agnostic — always see everything.
 // ADR 0039: nav labels are functional, not codenames. "Projects" (was Fleet),
 // "Chat" (was Sindri). The codenames live on in the packages/logs, not here.
+// Mímir and Discovery left the nav (B3/B4): they're Brokk Skills now, invoked
+// from Chat via `invoke_skill`. Their pages stay routable as break-glass.
 const GLOBAL = [
   { href: "/fleet", label: "Projects", icon: <LayoutGrid /> },
   { href: "/dashboard", label: "Dashboard", icon: <Gauge /> },
-  // Mímir stays reachable until ADR 0039 B3/B4 lands the Brokk Skills system
-  // that absorbs it (and Discovery) as invocable skills.
-  { href: "/mimir", label: "Mímir", icon: <BookText /> },
 ] as const;
 
 // Project-scoped — these operate on the selected project (the anvil). (Board's
@@ -149,14 +147,6 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
             active={path.startsWith("/projects") && !path.endsWith("/descoberta")}
           >
             Board
-          </NavLink>
-          <NavLink
-            as={Link}
-            href={currentId ? `/projects/${currentId}/descoberta` : "/fleet"}
-            icon={<Feather />}
-            active={path.endsWith("/descoberta")}
-          >
-            Discovery
           </NavLink>
           {ENV.map((n) => (
             <NavLink

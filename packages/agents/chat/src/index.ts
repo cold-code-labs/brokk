@@ -20,6 +20,7 @@ export { buildSystemPrompt, type ContextInput } from "./context.js";
 export { GatewayError, streamAssistant } from "@brokk/afl";
 export { runTurn, type RunTurnInput } from "./loop.js";
 export { makeExecutor, TOOL_DEFS, type ToolContext } from "./tools.js";
+export { dispatchSkill, INVOKE_SKILL_TOOL, skillCatalogue, type Skill } from "./skills.js";
 export type {
   ChatTurnMessage,
   ContentBlock,

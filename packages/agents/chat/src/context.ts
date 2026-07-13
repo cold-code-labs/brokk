@@ -13,6 +13,7 @@
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import type { Store } from "@brokk/db";
+import { skillCatalogue, type Skill } from "./skills.js";
 
 export interface ContextInput {
   cwd: string;
@@ -21,16 +22,19 @@ export interface ContextInput {
   projectName: string;
   repoFullName: string;
   branch: string;
+  /** Brokk Skills available this turn (ADR 0039) — advertised so the model knows
+   *  the catalogue it can reach via `invoke_skill`. */
+  skills?: Skill[];
 }
 
 const IDENTITY = [
-  "You are **Sindri**, the interactive coding companion of Brokk (Cold Code Labs' coding-agent platform).",
-  "Brokkr forges cards into PRs autonomously; you work a repository *together with the user* in a live chat.",
+  "You are **Brokk** — Cold Code Labs' coding agent — here in your interactive chat, working a repository *together with the user* in a live conversation. (Your autonomous forge runs cards into PRs on its own; in chat you build side by side with the user.)",
   "",
   "You operate directly on a real git checkout of the project via your tools:",
   "- read_file / write_file / edit_file / list_dir for precise file work",
   "- bash for everything else: ripgrep/grep/find, git, the GitHub CLI (`gh`) to open/merge PRs, package managers, tests and builds",
-  "- create_card / list_cards to capture follow-ups or hand well-scoped work to the autonomous forge (Brokkr)",
+  "- create_card / list_cards to capture follow-ups or hand well-scoped work to the autonomous forge",
+  "- invoke_skill to reach a Brokk Skill (see the catalogue below) when the request matches its trigger",
   "",
   "How to work:",
   "- Be concise and direct. Explain what you're doing in a sentence, then do it — don't narrate every line.",
@@ -66,6 +70,7 @@ export async function buildSystemPrompt(input: ContextInput): Promise<string> {
     : "- (none open)";
 
   const guide = await repoGuide(input.cwd);
+  const catalogue = skillCatalogue(input.skills);
 
   return [
     IDENTITY,
@@ -76,6 +81,7 @@ export async function buildSystemPrompt(input: ContextInput): Promise<string> {
     `- Working branch: ${input.branch}`,
     `- Working directory: the checkout root (all tool paths are relative to it)`,
     "",
+    ...(catalogue ? [catalogue, ""] : []),
     "## Open cards in this project",
     cardLines,
     guide,
