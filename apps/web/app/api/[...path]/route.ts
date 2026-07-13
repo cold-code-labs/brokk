@@ -21,14 +21,43 @@ const API_SECRET = process.env.BROKK_API_SECRET ?? "";
 // nunca vai no bundle do app — o usuário cola 1x e fica no secure-store do device.
 const MOBILE_TOKEN = process.env.BROKK_MOBILE_TOKEN ?? "";
 
+function bearerToken(req: NextRequest): string {
+  const header = req.headers.get("authorization") ?? "";
+  return header.startsWith("Bearer ") ? header.slice(7) : "";
+}
+
 function bearerOk(req: NextRequest): boolean {
   if (!MOBILE_TOKEN) return false;
-  const header = req.headers.get("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const token = bearerToken(req);
   if (!token) return false;
   const a = Buffer.from(token);
   const b = Buffer.from(MOBILE_TOKEN);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// Per-user mobile tokens: BROKK_MOBILE_TOKENS is a JSON map { "<token>": "<email>" }.
+// A native client that presents a mapped token is authenticated AS that user — the
+// email becomes x-brokk-actor, so chat isolation + per-user seat routing work on
+// mobile exactly like the web Logto session. Each teammate pastes their OWN token,
+// so no app change is needed. The legacy single BROKK_MOBILE_TOKEN stays a shared
+// (identity-less) fallback. Constant-time compare per entry.
+const MOBILE_TOKENS: Record<string, string> = (() => {
+  try {
+    return JSON.parse(process.env.BROKK_MOBILE_TOKENS ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+})();
+
+function mobileActor(req: NextRequest): string | null {
+  const token = bearerToken(req);
+  if (!token) return null;
+  const tb = Buffer.from(token);
+  for (const [k, email] of Object.entries(MOBILE_TOKENS)) {
+    const kb = Buffer.from(k);
+    if (kb.length === tb.length && timingSafeEqual(kb, tb)) return email;
+  }
+  return null;
 }
 
 // Hop-by-hop / length headers must not be forwarded verbatim.
@@ -53,7 +82,13 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
   const isMutation =
     req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS";
   let actor = "";
-  if (!bearerOk(req)) {
+  const mobileEmail = mobileActor(req);
+  if (mobileEmail) {
+    // Per-user mobile token → authenticated AS this user (identity carried).
+    actor = mobileEmail;
+  } else if (!bearerOk(req)) {
+    // Not the legacy shared mobile token either → require a Logto session for
+    // mutations; carry its email as the actor (reads stay open in dev).
     const session = await getSession();
     if (isMutation && !session.isAuthenticated) {
       return new Response(JSON.stringify({ error: "unauthorized" }), {

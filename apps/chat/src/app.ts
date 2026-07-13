@@ -71,6 +71,12 @@ const SEAT_DIRECT = process.env.BROKK_DIRECT_SEAT !== "0";
 const LIVE_PREVIEW = process.env.BROKK_LIVE_PREVIEW === "1";
 const RUNNER_WORKDIR = process.env.BROKK_RUNNER_WORKDIR ?? "/home/brokk/work";
 
+// In live mode multiple sessions share ONE dev worktree, and turn concurrency is
+// per-session — so two sessions could edit the same files at once. Serialize turns
+// by worktree path: a second turn on a live worktree already in use is rejected
+// (like the per-session "already running" guard), rather than racing on disk.
+const liveWorktreeLocks = new Set<string>();
+
 /** The live preview worktree for a project (on `dev`), or null → fall back to the
  *  session's own checkout. Requires a booted preview (its HMR server is what makes
  *  the edit show live) whose worktree exists on disk. Never throws. */
@@ -593,6 +599,16 @@ async function runSessionTurn(
     ).path;
   }
 
+  // Serialize concurrent live-worktree edits across sessions (see liveWorktreeLocks).
+  if (live && liveWorktreeLocks.has(path)) {
+    emit({
+      type: "error",
+      message: "Outra sessão está editando este preview ao vivo agora — tente de novo em instantes.",
+    });
+    return;
+  }
+  if (live) liveWorktreeLocks.add(path);
+
   await deps.store.updateChatSession(session.id, { turnState: "running", lastTurnAt: new Date() }).catch(() => {});
 
   // Bill this turn to the session owner's own Max seat when they have one; else
@@ -617,6 +633,7 @@ async function runSessionTurn(
         signal,
       });
     } finally {
+      if (live) liveWorktreeLocks.delete(path);
       await deps.store.updateChatSession(session.id, { turnState: "idle" }).catch(() => {});
     }
     if (isFirstTurn) {
@@ -669,6 +686,7 @@ async function runSessionTurn(
       signal,
     });
   } finally {
+    if (live) liveWorktreeLocks.delete(path);
     await deps.store.updateChatSession(session.id, { turnState: "idle" }).catch(() => {});
   }
   if (isFirstTurn) {

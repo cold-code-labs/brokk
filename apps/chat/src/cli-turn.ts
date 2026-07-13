@@ -50,6 +50,25 @@ function deriveTitle(text: string): string {
   return t.length ? t : "New chat";
 }
 
+/** A compact text transcript of prior turns, to hand the CLI when it has NO
+ *  session of its own to resume (e.g. the conversation started on the afl lane,
+ *  then switched to cli — the CLI keeps context in $HOME/.claude, not our DB, so
+ *  without this it starts blind). Text blocks only; tool noise dropped; tail-capped. */
+function historyPreamble(msgs: { role: string; blocks: unknown[] }[]): string {
+  const lines: string[] = [];
+  for (const m of msgs) {
+    const text = (Array.isArray(m.blocks) ? m.blocks : [])
+      .filter((b): b is { type: string; text: string } =>
+        !!b && typeof b === "object" && (b as { type?: string }).type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+    if (text) lines.push(`${m.role === "user" ? "User" : "Assistant"}: ${text}`);
+  }
+  if (!lines.length) return "";
+  return `Prior conversation in this session (context — continue it, don't restart):\n${lines.join("\n").slice(-6000)}`;
+}
+
 export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<void> {
   const { session, cfg, store, emit, signal } = input;
   if (inFlight >= MAX_CONCURRENT) {
@@ -58,6 +77,14 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
 
   const model = resolveModel(cfg, session.model);
   emit({ type: "status", phase: "turn_start", detail: { model, engine: "cli" } });
+
+  // Context bridge: if there's no CLI session to resume (fresh, or switched over
+  // from the afl lane), the CLI has no memory of prior turns — feed it a compact
+  // transcript so it continues instead of starting blind. Read BEFORE we append
+  // this turn's user message below.
+  const preamble = session.cliSessionId
+    ? ""
+    : historyPreamble(await store.listChatMessages(session.id));
 
   // Persist the user's message + first-turn title, mirroring the afl lane so the
   // workbench transcript looks identical regardless of engine.
@@ -87,9 +114,10 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
 
   inFlight++;
   try {
+    const promptText = preamble ? `${preamble}\n\n---\n\nCurrent request:\n${input.userText}` : input.userText;
     const turnOpts = (resume: string | undefined): CliTurnInput => ({
       cwd: input.cwd,
-      prompt: input.userText,
+      prompt: promptText,
       model,
       resume,
       appendSystem,
