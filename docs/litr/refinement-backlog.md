@@ -66,8 +66,22 @@ Todos os overrides passam pela `.ygg-shell` e usam a escala `--sp-*`/`--r-*`.
   transição única 0.14s + focus-ring 2px só em interativos; `.sindri-preview-msg`
   puxado do centro morto.
 
-⚠️ **Gate de render real (A/B no Chrome, dark+light) NÃO foi executado** nesta sessão
-(headless) — validado por typecheck. Revisar ao vivo e ajustar finos se preciso.
+## ✅ Feito (2026-07-13) — pass III · #3/#19 + #2/#24 (backlog FECHADO)
+
+Últimos dois itens, no bloco "Design-refinement pass III" de `globals.css`:
+- **#3/#19 escala tipográfica:** tokens `--t-section 11 · --t-body 14 · --t-title 15/600 ·
+  --t-desc 13` na `.ygg-shell`, aplicados a nav-link, group-label, sindri-bubble,
+  preview-msg título/sub. (Antes: quase tudo 14/500, sem ranking.)
+- **#2/#24 grid 8px:** valores soltos (11/17/29px) das superfícies de alto tráfego
+  snapados na ladder `--sp-*` (sidebar padding, nav-label margin/padding, bubble
+  padding, preview-msg gap). Leaf components profundos ficam como estão — fecha o
+  drift visível, não é auditoria máquina-exaustiva.
+
+**Gate de render real EXECUTADO:** injeção CSS ao vivo no Chrome (tela do Sindri),
+dark **e** light, ambos coesos — escala tipográfica segura, readout `793px` legível,
+azul único, tabs compactas, nada quebrado.
+
+**Backlog inteiro (passes 1–6, todos os 26 itens da crítica) FECHADO.**
 
 ---
 
