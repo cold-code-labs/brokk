@@ -20,7 +20,7 @@ import type { ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import type { Preview, Repository, RuntimeSpec } from "@brokk/core";
+import { PREVIEW_IDLE_TTL_MS, type Preview, type Repository, type RuntimeSpec } from "@brokk/core";
 import { buildDetectCtx, composeCommand, PACKAGE_MANAGERS, resolveRuntime } from "@brokk/core/runtime";
 import type { RunnerConfig } from "./config.js";
 import type { GhProvider } from "./git.js";
@@ -333,6 +333,24 @@ export class PreviewSupervisor {
           if (lp.proc.exitCode !== null || lp.proc.killed) {
             console.log(
               `[preview-supervisor] ${p.subdomain} exited (code=${lp.proc.exitCode})`,
+            );
+            this.killAndClean(p.id, lp);
+            await this.controlPatch(`/previews/${p.id}`, {
+              status: "stopped",
+              pid: null,
+              port: null,
+            }).catch(() => {});
+            break;
+          }
+
+          // Idle reaper: a live preview with no activity — no UI heartbeat, no
+          // respin, no push — past the TTL goes back to rest, so a dev docker
+          // never runs unattended. Waking is cheap: re-entering the Brokk screen
+          // or hitting the preview URL restarts the same slot.
+          const idleMs = Date.now() - new Date(p.lastActivityAt).getTime();
+          if (idleMs > PREVIEW_IDLE_TTL_MS) {
+            console.log(
+              `[preview-supervisor] ${p.subdomain}: idle ${Math.round(idleMs / 60000)}min → resting`,
             );
             this.killAndClean(p.id, lp);
             await this.controlPatch(`/previews/${p.id}`, {

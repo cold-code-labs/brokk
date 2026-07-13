@@ -382,9 +382,17 @@ export interface Preview {
    *  (secret values masked) — powers the "Env" inspector in the preview bar.
    *  Null until the supervisor stamps it on boot. */
   loadedEnv: Record<string, string> | null;
+  /** ISO time this preview last saw activity (start / UI heartbeat / respin).
+   *  The supervisor rests a live preview idle past PREVIEW_IDLE_TTL_MS. */
+  lastActivityAt: string;
   createdAt: string;
   updatedAt: string;
 }
+
+/** How long a live preview may sit without activity before the supervisor rests
+ *  it (15 min). Activity = a start, a UI heartbeat (interaction while the Brokk
+ *  screen is open), or a respin (a card's push rebuild). */
+export const PREVIEW_IDLE_TTL_MS = 15 * 60 * 1000;
 
 /** Pull request opened by a run. */
 export interface PullRequest {

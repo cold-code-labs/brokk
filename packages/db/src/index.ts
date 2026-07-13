@@ -376,6 +376,7 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
     builtAt: iso(row.builtAt),
     pid: row.pid,
     loadedEnv: row.loadedEnv ?? null,
+    lastActivityAt: row.lastActivityAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -657,7 +658,8 @@ export interface Store {
       loadedEnv?: Record<string, string> | null;
     },
   ): Promise<Preview>;
-  /** Bump last_seen_at to now and slide expires_at forward by 24 hours. */
+  /** Bump last activity to now (idle-reaper heartbeat). Null if the row is gone. */
+  touchPreview(id: string): Promise<Preview | null>;
   /** Mark a preview stopped and clear its pid. */
   stopPreview(id: string): Promise<Preview>;
 
@@ -1607,6 +1609,7 @@ export function createStore(db: Db): Store {
           .set({
             status: "starting",
             updatedAt: new Date(),
+            lastActivityAt: new Date(), // waking the slot counts as activity
             // commitSha/builtAt are deliberately KEPT: the fleet feed shows the
             // slot in place ("Starting" over the previous build) instead of the
             // row vanishing; the supervisor overwrites both right after the
@@ -1653,6 +1656,11 @@ export function createStore(db: Db): Store {
       if (patch.pid !== undefined) set.pid = patch.pid;
       if (patch.port !== undefined) set.port = patch.port;
       if (patch.loadedEnv !== undefined) set.loadedEnv = patch.loadedEnv ?? null;
+      // Activity that should keep a preview warm without a UI heartbeat: a
+      // (re)boot to starting/live, and a fresh build (new commitSha) — a card's
+      // push that drift-refreshes the running HMR server counts as work on it.
+      if (patch.status === "starting" || patch.status === "live" || patch.commitSha !== undefined)
+        set.lastActivityAt = new Date();
       const rows = await db
         .update(previews)
         .set(set)
@@ -1660,6 +1668,15 @@ export function createStore(db: Db): Store {
         .returning();
       if (!rows[0]) throw new Error(`preview ${id} not found`);
       return rowToPreview(rows[0]);
+    },
+    /** Bump last activity — the idle-reaper's heartbeat (frontend interaction). */
+    async touchPreview(id) {
+      const rows = await db
+        .update(previews)
+        .set({ lastActivityAt: new Date() })
+        .where(eq(previews.id, id))
+        .returning();
+      return rows[0] ? rowToPreview(rows[0]) : null;
     },
     async stopPreview(id) {
       const rows = await db
@@ -2104,6 +2121,16 @@ export async function ensureSchema(db: Db): Promise<void> {
     // pgvector not available (extension/type missing) — semantic recall stays
     // dormant; weight-ordered memory still works.
   }
+
+  // Preview idle-reaper anchor. Self-healed onto the existing drizzle `previews`
+  // table (db:push hangs on the shared db_brokk) so the column exists even on a
+  // cluster that hasn't been pushed. Bumped on activity; the supervisor rests a
+  // live preview idle past the TTL.
+  await db
+    .execute(
+      sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS last_activity_at timestamptz NOT NULL DEFAULT now();`,
+    )
+    .catch(() => {});
 
   await ensureChatSchema(db);
   await ensureMissionSchema(db);

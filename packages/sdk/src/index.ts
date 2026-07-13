@@ -172,6 +172,8 @@ export interface BrokkClient {
   createPreview(input: { projectId: string; branch?: string }): Promise<Preview>;
   getPreview(id: string): Promise<Preview>;
   listPreviews(projectId?: string): Promise<Preview[]>;
+  /** Idle-reaper heartbeat: bump the preview's activity so it isn't rested. */
+  pingPreview(id: string): Promise<Preview>;
   /** Stop a running preview (marks it stopped). */
   stopPreview(id: string): Promise<Preview>;
 }
@@ -377,6 +379,9 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     listPreviews(projectId) {
       const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
       return req<Preview[]>("GET", `/previews${q}`);
+    },
+    pingPreview(id) {
+      return req<Preview>("POST", `/previews/${encodeURIComponent(id)}/ping`);
     },
     stopPreview(id) {
       return req<Preview>("DELETE", `/previews/${encodeURIComponent(id)}`);

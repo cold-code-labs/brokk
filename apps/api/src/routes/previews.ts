@@ -98,6 +98,15 @@ export function previewsRoutes(deps: AppDeps): Hono {
     return c.json(preview);
   });
 
+  /** POST /previews/:id/ping — the idle-reaper heartbeat. The Brokk screen calls
+   *  this on interaction while a preview is up; the supervisor rests it only after
+   *  PREVIEW_IDLE_TTL_MS with no ping (and no respin). Cheap + idempotent. */
+  r.post("/:id/ping", async (c) => {
+    const preview = await deps.store.touchPreview(c.req.param("id"));
+    if (!preview) return c.json({ error: "not found" }, 404);
+    return c.json(preview);
+  });
+
   /** PATCH /previews/:id — runner updates status, pid, port.
    *  This is the machine-facing counterpart of DELETE (stop); it lets the
    *  preview supervisor mark a preview 'live'. */

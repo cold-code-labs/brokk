@@ -920,23 +920,53 @@ function SindriPreview({
     brokk.listPreviews(projectId).then(
       (ps) => {
         if (cancelled) return;
-        setPreview(ps.find((x) => x.status === "starting" || x.status === "live") ?? null);
+        const active = ps.find((x) => x.status === "starting" || x.status === "live") ?? null;
+        setPreview(active);
+        // Wake on entry: opening a project's Brokk screen boots its preview (once
+        // per project) so it's warming while you read. The supervisor rests it
+        // after PREVIEW_IDLE_TTL_MS idle; a `stopped` slot wakes via the effect
+        // below, a never-booted project starts here.
+        if (!active && autoTried.current !== projectId) {
+          autoTried.current = projectId;
+          void ensure();
+        }
       },
       () => {},
     );
     return () => {
       cancelled = true;
     };
-  }, [projectId, setDevice, mobileOnly]);
+  }, [projectId, setDevice, mobileOnly, ensure]);
 
-  // Lazy auto-start: once Sindri makes its first file edit, ensure the singleton
-  // is up (once per project). The manual button covers every other case.
+  // Idle-reaper heartbeat: while a preview is up and the operator is actually
+  // interacting with the Brokk screen, ping (throttled 60s) so it stays warm.
+  // No interaction (or the tab hidden/closed) → no pings → the supervisor rests
+  // it after the TTL. `sawEdit` keeps the prop meaningful for a rested slot.
   useEffect(() => {
-    if (sawEdit && !preview && !busy && projectId && autoTried.current !== projectId) {
-      autoTried.current = projectId;
+    const id = preview?.id;
+    const status = preview?.status;
+    if (!id || (status !== "live" && status !== "starting")) return;
+    let last = 0;
+    const beat = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - last < 60_000) return;
+      last = now;
+      void brokk.pingPreview(id).catch(() => {});
+    };
+    beat();
+    const evs: (keyof DocumentEventMap)[] = ["pointerdown", "keydown", "visibilitychange"];
+    evs.forEach((e) => document.addEventListener(e, beat, { passive: true }));
+    return () => evs.forEach((e) => document.removeEventListener(e, beat));
+  }, [preview?.id, preview?.status]);
+
+  // A fresh edit on a rested preview warms it back up (work resumed).
+  useEffect(() => {
+    if (sawEdit && preview?.status === "stopped" && !busy && projectId) {
+      wokeFor.current = "";
       void ensure();
     }
-  }, [sawEdit, preview, busy, projectId, ensure]);
+  }, [sawEdit, preview?.status, busy, projectId, ensure]);
 
   // A stopped singleton (process exit / manual stop): wake it automatically so the
   // pane reflects reality instead of a stale "parado" dead-end. Once per project.

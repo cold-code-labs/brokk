@@ -418,6 +418,11 @@ export const previews = pgTable(
      *  bar so an operator can see what a dev preview is wired to — e.g. that it
      *  points at the isolated <app>_dev Hauldr backend, never prod. */
     loadedEnv: jsonb("loaded_env").$type<Record<string, string>>(),
+    /** Last time this preview saw activity — bumped on start, on a frontend
+     *  heartbeat (interaction while the Brokk screen is open), and by a respin
+     *  (a card's push rebuilds it). The supervisor rests a `live` preview idle
+     *  past PREVIEW_IDLE_TTL_MS so a dev docker never runs unattended. */
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
