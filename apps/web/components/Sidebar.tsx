@@ -26,16 +26,20 @@ import {
 import { useProject } from "../lib/project-context";
 
 // Global / project-agnostic — always see everything.
+// ADR 0039: nav labels are functional, not codenames. "Projects" (was Fleet),
+// "Chat" (was Sindri). The codenames live on in the packages/logs, not here.
 const GLOBAL = [
-  { href: "/fleet", label: "Fleet", icon: <LayoutGrid /> },
+  { href: "/fleet", label: "Projects", icon: <LayoutGrid /> },
   { href: "/dashboard", label: "Dashboard", icon: <Gauge /> },
+  // Mímir stays reachable until ADR 0039 B3/B4 lands the Brokk Skills system
+  // that absorbs it (and Discovery) as invocable skills.
   { href: "/mimir", label: "Mímir", icon: <BookText /> },
 ] as const;
 
 // Project-scoped — these operate on the selected project (the anvil). (Board's
 // href is dynamic, so it's rendered separately.)
 const ENV = [
-  { href: "/chat", label: "Sindri", icon: <MessageSquare /> },
+  { href: "/chat", label: "Chat", icon: <MessageSquare /> },
 ] as const;
 
 /** Environment switcher — the current project drives every project-scoped page.
@@ -70,7 +74,7 @@ function ProjectSwitcher() {
 }
 
 const MANAGE = [
-  { href: "/new", label: "Nova Conversa", icon: <Feather /> },
+  { href: "/new", label: "New Project", icon: <Feather /> },
   { href: "/connect", label: "Connect", icon: <Plus /> },
   { href: "/history", label: "History", icon: <List /> },
   { href: "/users", label: "Crew", icon: <Users /> },
