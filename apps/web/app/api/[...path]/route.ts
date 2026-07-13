@@ -42,17 +42,20 @@ const STRIP = new Set([
 ]);
 
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] }> }) {
-  // Mutations require a logged-in human (Logto session). Otherwise the secret the
-  // proxy injects below would let any anonymous caller create/enqueue forge runs
-  // through the public origin. Reads stay open. Logto-off (dev) = open shell.
-  // We also capture the caller's email as the actor identity so the control-plane
-  // can attribute the task to a real person (seat routing: a task claims its
-  // owner's Max seat first — see claimNext). The client can't spoof it: we
-  // overwrite any inbound x-brokk-actor from the trusted server-side session.
+  // We capture the caller's email as the trusted actor identity on EVERY request
+  // (reads included) so the control-plane can both (a) attribute tasks/chats to a
+  // real person for seat routing (see claimNext / Sindri seatCfgFor) and (b)
+  // enforce chat privacy on GET /sessions (the list must be filtered to the
+  // caller). The client can't spoof it: we overwrite any inbound x-brokk-actor
+  // from the server-side Logto session below. Mutations additionally REQUIRE a
+  // session — otherwise the secret we inject would let an anonymous caller forge
+  // runs through the public origin. Reads stay open (Logto-off dev = open shell).
+  const isMutation =
+    req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS";
   let actor = "";
-  if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS" && !bearerOk(req)) {
+  if (!bearerOk(req)) {
     const session = await getSession();
-    if (!session.isAuthenticated) {
+    if (isMutation && !session.isAuthenticated) {
       return new Response(JSON.stringify({ error: "unauthorized" }), {
         status: 401,
         headers: { "content-type": "application/json" },
