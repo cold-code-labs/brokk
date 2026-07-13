@@ -572,6 +572,16 @@ async function runSessionTurn(
     emit({ type: "status", phase: "checkout", detail: { branch, live: true } });
   } else {
     branch = session.branch ?? `sindri/${session.id.slice(0, 8)}`;
+    // Live mode is on but no preview is running for this app → we can't edit the
+    // live worktree, so we fall back to this session's isolated branch. Tell the
+    // user, otherwise their edit silently lands off-preview and looks like a no-op.
+    if (LIVE_PREVIEW) {
+      emit({
+        type: "status",
+        phase: "live_unavailable",
+        detail: { branch, reason: "sem preview rodando — editando o branch isolado da sessão (inicie o preview p/ editar ao vivo)" },
+      });
+    }
     emit({ type: "status", phase: "checkout", detail: { branch } });
     path = (
       await deps.checkouts.ensure({
