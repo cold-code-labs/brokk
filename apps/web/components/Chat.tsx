@@ -1356,7 +1356,7 @@ function SindriPreview({
           </a>
           {/* separator splits the browser-chrome group from the one hot action */}
           <span className="sindri-preview-sep" />
-          <CommitControls projectId={projectId} sessionId={sessionId} nudge={sawEdit} />
+          <CommitControls projectId={projectId} sessionId={sessionId} nudge={sawEdit ? 1 : 0} />
           <PublishControls projectId={projectId} />
         </div>
       </div>
