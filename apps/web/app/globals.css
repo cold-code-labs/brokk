@@ -39,25 +39,277 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* Sidebar density — market rhythm: narrower rail, 13.5px labels, tight link
-   rows, icons that sit quiet until touched. Collapsed rail = icon strip. */
+/* ── Wall Rail ────────────────────────────────────────────────────────────────
+   Forever a 3.5rem icon strip (v0/Lovable workbench form). No fat labels column,
+   no Forge/Anvil/Bench groups. Ember lives in work, not chrome. Hot spot: wall. */
 :root {
-  --sidebar-w: 14.5rem;
-  --sidebar-w-collapsed: 3.75rem;
+  --sidebar-w: 3.5rem;
+  --wall-w: 3.5rem;
 }
 .ygg-shell {
-  transition: grid-template-columns 0.18s ease;
+  transition: none;
 }
-.ygg-shell:has(.ygg-sidebar.is-collapsed) {
-  --sidebar-w: var(--sidebar-w-collapsed);
+.ygg-sidebar.wall-rail {
+  width: var(--wall-w);
+  min-width: var(--wall-w);
+  max-width: var(--wall-w);
+  box-sizing: border-box;
+  overflow: visible;
+  padding: 0.65rem 0.4rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  border-right: 1px solid var(--line-soft);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fg) 2.5%, transparent), transparent 28%),
+    var(--bg-soft, var(--bg));
 }
-.ygg-sidebar { padding: 1.1rem 0.75rem; }
-.ygg-sidebar.brokk-rail {
-  transition: padding 0.18s ease;
+.wall-mark {
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  margin-bottom: 0.45rem;
+  border-radius: 0.55rem;
+  text-decoration: none;
+  transition: background 0.15s ease;
 }
-.ygg-sidebar.brokk-rail:not(.is-ready) {
-  /* avoid flash of wrong width before localStorage hydrates */
+.wall-mark:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
+.wall-mark img {
+  width: 1.35rem;
+  height: auto;
+  display: block;
+}
+.wall-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+.wall-rule {
+  display: block;
+  width: 1.25rem;
+  height: 1px;
+  margin: 0.45rem 0;
+  background: var(--line);
+}
+.wall-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.wall-btn:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.wall-btn.is-on {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 2px 0 0 var(--ember, var(--accent));
+}
+.wall-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.wall-slot {
+  position: relative;
+  z-index: 6;
+}
+.wall-slot .sindri-menu {
+  left: calc(100% + 0.55rem);
+  right: auto;
+  top: 0;
+  bottom: auto;
+  min-width: 14rem;
+}
+.wall-bench .sindri-menu,
+.wall-anvil .sindri-menu {
+  /* fly out into the canvas */
+}
+.wall-foot {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line-soft);
+  width: 100%;
+}
+.wall-user-btn {
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.wall-user-btn:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+.wall-user-plate {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%),
+    color-mix(in srgb, var(--fg) 4%, transparent);
+  font-family: var(--font-display, inherit);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--fg-soft);
+}
+.wall-user .sindri-menu {
+  bottom: 0;
+  top: auto;
+}
+/* Tips fly right off the wall (not up into the void) */
+.wall-rail [data-tip]:after {
+  left: calc(100% + 0.55rem);
+  right: auto;
+  bottom: 50%;
+  top: auto;
+  transform: translateY(50%) translateX(-2px);
+  white-space: nowrap;
+}
+.wall-rail [data-tip]:hover:after,
+.wall-rail [data-tip]:focus-visible:after {
+  transform: translateY(50%) translateX(0);
+}
+
+/* ⌘K palette */
+.cmdk-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: color-mix(in srgb, #000 55%, transparent);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: start center;
+  padding: 12vh 1rem 1rem;
+}
+.cmdk {
+  width: min(34rem, 100%);
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fg) 3%, transparent), transparent 40%),
+    var(--panel);
+  box-shadow: 0 30px 80px -28px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+  animation: forge-toast-in 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.cmdk-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+.cmdk-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.95rem;
+  outline: none;
+}
+.cmdk-kbd {
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  padding: 0.15rem 0.4rem;
+}
+.cmdk-list {
+  max-height: min(22rem, 50vh);
+  overflow-y: auto;
+  padding: 0.4rem;
+}
+.cmdk-group {
+  margin: 0.45rem 0.4rem 0.25rem;
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--fg);
+  padding: 0.55rem 0.6rem;
+  cursor: pointer;
+  font: inherit;
+}
+.cmdk-item:hover,
+.cmdk-item.is-active {
+  background: color-mix(in srgb, var(--ember, var(--accent)) 12%, transparent);
+  box-shadow: inset 2px 0 0 var(--ember, var(--accent));
+}
+.cmdk-item-ico {
+  display: grid;
+  place-items: center;
+  color: var(--fg-dim);
+  flex-shrink: 0;
+}
+.cmdk-item.is-active .cmdk-item-ico { color: var(--fg); }
+.cmdk-item-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.cmdk-item-label {
+  font-size: 0.86rem;
+  font-weight: 550;
+}
+.cmdk-item-hint {
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+}
+.cmdk-empty {
+  padding: 1.2rem 0.8rem;
+  text-align: center;
+  color: var(--fg-dim);
+  font-size: 0.85rem;
+}
+
+/* Legacy density leftovers for non-rail surfaces — keep nav overrides quiet */
+.ygg-sidebar:not(.wall-rail) { padding: 1.1rem 0.75rem; }
 .ygg-nav { gap: 1.15rem; }
 .ygg-nav-group-label {
   font-size: 0.64rem;
@@ -73,156 +325,6 @@ body {
   gap: 0.55rem;
 }
 .ygg-nav-link svg { width: 0.95rem; height: 0.95rem; flex-shrink: 0; }
-
-/* Rail head — brand + collapse toggle share one row */
-.brokk-rail-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.25rem;
-  margin-bottom: 0.15rem;
-}
-.brokk-rail-head .brokk-brand {
-  flex: 1;
-  min-width: 0;
-  padding-bottom: 1rem;
-}
-.brokk-rail-toggle {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 1.85rem;
-  height: 1.85rem;
-  margin-top: 0.15rem;
-  border: 0;
-  border-radius: 0.45rem;
-  background: transparent;
-  color: var(--fg-dim);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.brokk-rail-toggle:hover {
-  color: var(--fg);
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
-}
-
-/* Collapsed = icon rail: gain canvas for the Sindri cockpit */
-.ygg-sidebar.is-collapsed {
-  padding: 0.85rem 0.4rem;
-  align-items: stretch;
-}
-.ygg-sidebar.is-collapsed .brokk-rail-head {
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-}
-.ygg-sidebar.is-collapsed .brokk-rail-head .brokk-brand {
-  padding: 0 0 0.35rem;
-  justify-content: center;
-}
-.ygg-sidebar.is-collapsed .ygg-brand-mark {
-  width: 2.1rem;
-  height: 2.1rem;
-  padding: 0.2rem;
-}
-.ygg-sidebar.is-collapsed .ygg-brand-mark img {
-  width: 100%;
-  height: auto;
-}
-.ygg-sidebar.is-collapsed .ygg-nav-group-label,
-.ygg-sidebar.is-collapsed .ygg-nav-link > span,
-.ygg-sidebar.is-collapsed .ygg-sidebar-foot,
-.ygg-sidebar.is-collapsed .brokk-user-id,
-.ygg-sidebar.is-collapsed .brokk-user-out,
-.ygg-sidebar.is-collapsed .brokk-switch-label,
-.ygg-sidebar.is-collapsed .brokk-switch-caret {
-  display: none;
-}
-.ygg-sidebar.is-collapsed .ygg-nav-link {
-  justify-content: center;
-  padding: 0.55rem 0.4rem;
-  gap: 0;
-}
-.ygg-sidebar.is-collapsed .brokk-user {
-  justify-content: center;
-  padding: 0.55rem 0.2rem 0.1rem;
-  gap: 0;
-}
-.ygg-sidebar.is-collapsed .brokk-user-plate {
-  width: 1.85rem;
-  height: 1.85rem;
-  font-size: 0.68rem;
-}
-.ygg-sidebar.is-collapsed .brokk-switch-btn {
-  justify-content: center;
-  padding: 0.5rem 0.35rem;
-}
-
-/* The anvil switcher — forged button + ComposerMenu, never a native select. */
-.brokk-switch {
-  position: relative;
-  margin: 0 0 0.35rem;
-  z-index: 5;
-}
-.brokk-switch-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  width: 100%;
-  padding: 0.44rem 0.55rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--line-soft);
-  background: color-mix(in srgb, var(--fg) 3%, transparent);
-  color: var(--fg);
-  font: inherit;
-  font-size: 0.845rem;
-  font-weight: 600;
-  cursor: pointer;
-  text-align: left;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.brokk-switch-btn:hover:not(:disabled),
-.brokk-switch.is-open .brokk-switch-btn {
-  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
-  border-color: color-mix(in srgb, var(--accent) 25%, var(--line));
-}
-.brokk-switch-btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-.brokk-switch-btn:focus-visible {
-  outline: none;
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
-}
-.brokk-switch-mark {
-  flex-shrink: 0;
-  color: var(--fg-dim);
-}
-.brokk-switch-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.brokk-switch-caret {
-  flex-shrink: 0;
-  color: var(--fg-dim);
-  transition: transform 0.15s ease;
-}
-.brokk-switch.is-open .brokk-switch-caret {
-  transform: rotate(180deg);
-}
-.brokk-switch .sindri-menu {
-  min-width: 14rem;
-  right: 0;
-}
-.ygg-sidebar.is-collapsed .brokk-switch .sindri-menu {
-  left: calc(100% + 0.45rem);
-  right: auto;
-  top: 0;
-  bottom: auto;
-  min-width: 13rem;
-}
 
 /* Sidebar foot — one quiet layer, not three boxes. The user row loses its
    panel chrome; sign-out is a ghost that appears on intent. */
@@ -622,9 +724,10 @@ body:has(.sindri) {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.35rem 0.45rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel, transparent);
+  padding: 0.3rem 0.55rem;
+  border-bottom: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: blur(8px);
   min-width: 0;
 }
 .sindri-title {

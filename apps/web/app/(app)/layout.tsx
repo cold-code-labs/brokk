@@ -19,7 +19,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AppShell>
+    <AppShell className="forge-shell">
       <Sidebar
         user={{ name: session.name, role: session.role, authDisabled: session.authDisabled }}
       />
