@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
 
 export type ComposerMenuItem = {
   id: string;
@@ -20,9 +28,17 @@ type Props = {
   /** Above the composer by default */
   placement?: "above" | "below";
   emptyHint?: string;
+  /**
+   * Escape overflow (forge-bar / sticky shells): portal to body + fixed coords
+   * from the anchor. Required when a parent uses overflow:hidden.
+   */
+  portal?: boolean;
+  anchorRef?: RefObject<HTMLElement | null>;
+  /** Align the fixed menu to the anchor's right edge (Bench / User). */
+  align?: "start" | "end";
 };
 
-/** Forge-flavoured popover for cockpit chips and `/` skill slash. */
+/** Forge-flavoured popover for cockpit chips, slash skills, and forge-bar pops. */
 export function ComposerMenu({
   open,
   items,
@@ -32,17 +48,67 @@ export function ComposerMenu({
   onClose,
   placement = "above",
   emptyHint = "Nothing matches",
+  portal = false,
+  anchorRef,
+  align = "start",
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const [fixedStyle, setFixedStyle] = useState<CSSProperties | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  useLayoutEffect(() => {
+    if (!open || !portal || !anchorRef?.current) {
+      setFixedStyle(null);
+      return;
+    }
+    function place() {
+      const el = anchorRef?.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const gap = 6;
+      const style: CSSProperties = {
+        position: "fixed",
+        zIndex: 200,
+        minWidth: Math.max(r.width, 14 * 16),
+        maxWidth: "min(22rem, calc(100vw - 1.5rem))",
+        maxHeight: "min(16rem, calc(100vh - 4rem))",
+        top: placement === "below" ? r.bottom + gap : undefined,
+        bottom: placement === "above" ? window.innerHeight - r.top + gap : undefined,
+        left: align === "start" ? Math.min(r.left, window.innerWidth - 16 - 14 * 16) : undefined,
+        right: align === "end" ? Math.max(8, window.innerWidth - r.right) : undefined,
+      };
+      setFixedStyle(style);
+    }
+    place();
+    window.addEventListener("resize", place);
+    // capture scroll from any pane (Sindri thread, etc.)
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, portal, anchorRef, placement, align]);
 
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) onClose();
+      const t = e.target as Node;
+      if (rootRef.current?.contains(t)) return;
+      if (anchorRef?.current?.contains(t)) return;
+      onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
     };
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open, onClose]);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose, anchorRef]);
 
   useEffect(() => {
     if (!open || activeIndex < 0) return;
@@ -51,13 +117,16 @@ export function ComposerMenu({
   }, [open, activeIndex]);
 
   if (!open) return null;
+  if (portal && !mounted) return null;
+  if (portal && !fixedStyle) return null;
 
-  return (
+  const node = (
     <div
       ref={rootRef}
-      className={`sindri-menu sindri-menu--${placement}`}
+      className={`sindri-menu${portal ? " is-portaled" : ` sindri-menu--${placement}`}`}
       role="listbox"
       aria-label="Options"
+      style={portal ? fixedStyle ?? undefined : undefined}
     >
       <div className="sindri-menu-glow" aria-hidden="true" />
       {items.length === 0 ? (
@@ -87,4 +156,6 @@ export function ComposerMenu({
       )}
     </div>
   );
+
+  return portal ? createPortal(node, document.body) : node;
 }
