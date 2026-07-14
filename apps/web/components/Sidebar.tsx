@@ -18,11 +18,11 @@ import {
   Users,
   Settings,
   Columns3,
-  Feather,
   Anvil,
   Ellipsis,
   Gauge,
   Search,
+  Link2,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import { ComposerMenu } from "./ComposerMenu";
@@ -37,8 +37,7 @@ const PRIMARY = [
 
 const BENCH = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge },
-  { href: "/new", label: "New project", icon: Feather },
-  { href: "/connect", label: "Connect", icon: Plus },
+  { href: "/connect", label: "Connect", icon: Link2 },
   { href: "/history", label: "History", icon: List },
   { href: "/users", label: "Crew", icon: Users },
   { href: "/settings", label: "Settings", icon: Settings },
@@ -223,6 +222,16 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
       </Link>
 
       <nav className="wall-nav" aria-label="Primary">
+        <Link
+          href="/new"
+          className={`wall-btn wall-new${path === "/new" || path.startsWith("/new/") ? " is-on" : ""}`}
+          aria-current={path === "/new" || path.startsWith("/new/") ? "page" : undefined}
+          data-tip="New project"
+          title="New project"
+        >
+          <Plus size={18} strokeWidth={1.75} />
+        </Link>
+
         {PRIMARY.map((n) => {
           const Icon = n.icon;
           const on = n.match(path);

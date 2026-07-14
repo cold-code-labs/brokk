@@ -108,6 +108,9 @@
    Sindri owns edge-to-edge. Other rooms share one gutter + nameplate baseline
    so Fleet / Board / Settings stop drifting (docs/litr/DESIGN.md product). */
 .forge-canvas {
+  /* Stay under the wall rail so Anvil/Bench tips & menus paint over the room. */
+  position: relative;
+  z-index: 0;
   min-width: 0;
   flex: 1;
   display: flex;
