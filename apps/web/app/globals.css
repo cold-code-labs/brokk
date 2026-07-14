@@ -1056,6 +1056,7 @@ body:has(.sindri) {
 .sindri-chip > svg.sindri-chip-caret {
   color: var(--fg-dim);
   opacity: 0.7;
+  margin-left: -0.2rem;
   transition: transform 0.16s ease;
 }
 .sindri-chip-wrap.is-open .sindri-chip-caret {
@@ -1228,21 +1229,6 @@ body:has(.sindri) {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-size: 0.62rem;
-}
-  -webkit-appearance: none;
-  background: transparent;
-  border: 0;
-  outline: none;
-  color: inherit;
-  font-size: 0.76rem;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-}
-.sindri-chip > svg.sindri-chip-caret {
-  color: var(--fg-dim);
-  opacity: 0.7;
-  margin-left: -0.2rem;
 }
 /* effort signal bars — fill up with the reasoning level (leve/médio/profundo),
    like equalizer/signal bars: taller AND fuller as the effort grows. */
