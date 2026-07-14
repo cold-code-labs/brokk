@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { AppShell } from "@cold-code-labs/yggdrasil-react";
 
-import Sidebar from "../../components/Sidebar";
+import Topbar from "../../components/Topbar";
 import { authEnabled, getSession } from "../../lib/logto";
 
 // Auth is enforced per-request for the whole console (getSession reads cookies +
@@ -19,8 +19,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AppShell className="forge-shell">
-      <Sidebar
+    <AppShell className="forge-shell forge-shell--lintel">
+      <Topbar
         user={{ name: session.name, role: session.role, authDisabled: session.authDisabled }}
       />
       <div className="forge-canvas">{children}</div>
