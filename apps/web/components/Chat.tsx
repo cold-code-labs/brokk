@@ -45,10 +45,9 @@ import {
   Code2,
   KeyRound,
   ExternalLink,
-  PanelRightClose,
-  PanelRightOpen,
-  Maximize2,
-  Minimize2,
+  PanelLeft,
+  PanelRight,
+  Columns2,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import PublishControls from "./PublishControls";
@@ -205,12 +204,28 @@ export default function Chat() {
   const [error, setError] = useState("");
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
-  // Right-pane preview can be collapsed to give the chat full width.
+  // Layout triad: chat-full · split · preview-full (mutually exclusive).
   const [previewOpen, setPreviewOpen] = useState(true);
-  // Zen/focus: collapse the chat so the preview goes full-bleed (demo mode).
   const [chatCollapsed, setChatCollapsed] = useState(false);
   // Draggable split ratio (chat fraction) when both panes are open.
   const [split, setSplit] = useState(SPLIT_DEFAULT);
+  const layout: "chat" | "split" | "preview" = !previewOpen
+    ? "chat"
+    : chatCollapsed
+      ? "preview"
+      : "split";
+  const setLayout = useCallback((mode: "chat" | "split" | "preview") => {
+    if (mode === "chat") {
+      setPreviewOpen(false);
+      setChatCollapsed(false);
+    } else if (mode === "split") {
+      setPreviewOpen(true);
+      setChatCollapsed(false);
+    } else {
+      setPreviewOpen(true);
+      setChatCollapsed(true);
+    }
+  }, []);
   const [dragging, setDragging] = useState(false);
   // Preview viewport (lifted here so the gutter drag can flip it to mobile at the
   // narrow edge); the preview's own toggles also drive it.
@@ -780,15 +795,33 @@ export default function Chat() {
                     })
                   )}
                 </div>
-                {!previewOpen ? (
-                  <button
-                    type="button"
-                    className="sindri-preview-toggle"
-                    title="Show preview"
-                    onClick={() => setPreviewOpen(true)}
-                  >
-                    <PanelRightOpen size={15} />
-                  </button>
+                {layout === "chat" ? (
+                  <div className="sindri-layoutswitch" role="group" aria-label="Layout">
+                    <button
+                      type="button"
+                      className="sindri-preview-icon is-on"
+                      title="Chat em tela cheia"
+                      aria-pressed="true"
+                    >
+                      <PanelLeft size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="sindri-preview-icon"
+                      title="Dividir chat e preview"
+                      onClick={() => setLayout("split")}
+                    >
+                      <Columns2 size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="sindri-preview-icon"
+                      title="Preview em tela cheia"
+                      onClick={() => setLayout("preview")}
+                    >
+                      <PanelRight size={15} />
+                    </button>
+                  </div>
                 ) : null}
               </header>
 
@@ -961,9 +994,8 @@ export default function Chat() {
               projectId={projectId}
               branch={currentSession?.branch ?? null}
               sawEdit={sawEdit}
-              zen={chatCollapsed}
-              onToggleZen={() => setChatCollapsed((c) => !c)}
-              onHide={() => setPreviewOpen(false)}
+              layout={chatCollapsed ? "preview" : "split"}
+              onLayout={setLayout}
               device={device}
               setDevice={setDevice}
               mobileOnly={mobileOnly}
@@ -1043,9 +1075,8 @@ function SindriPreview({
   projectId,
   branch,
   sawEdit,
-  zen,
-  onToggleZen,
-  onHide,
+  layout,
+  onLayout,
   device,
   setDevice,
   mobileOnly,
@@ -1056,9 +1087,8 @@ function SindriPreview({
   projectId: string;
   branch: string | null;
   sawEdit: boolean;
-  zen: boolean;
-  onToggleZen: () => void;
-  onHide: () => void;
+  layout: "split" | "preview";
+  onLayout: (mode: "chat" | "split" | "preview") => void;
   device: "desktop" | "mobile";
   setDevice: (d: "desktop" | "mobile") => void;
   mobileOnly: boolean;
@@ -1230,23 +1260,35 @@ function SindriPreview({
   return (
     <section className="sindri-preview">
       <div className="sindri-preview-bar">
-        {/* far left: collapse/expand-chat toggles, then the view switcher */}
-        <button
-          type="button"
-          className="sindri-preview-icon"
-          title="Hide preview"
-          onClick={onHide}
-        >
-          <PanelRightClose size={15} />
-        </button>
-        <button
-          type="button"
-          className={`sindri-preview-icon ${zen ? "is-on" : ""}`}
-          title={zen ? "Restore chat" : "Preview full-screen"}
-          onClick={onToggleZen}
-        >
-          {zen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-        </button>
+        {/* Layout triad: chat full · split · preview full */}
+        <div className="sindri-layoutswitch" role="group" aria-label="Layout">
+          <button
+            type="button"
+            className="sindri-preview-icon"
+            title="Chat em tela cheia"
+            onClick={() => onLayout("chat")}
+          >
+            <PanelLeft size={15} />
+          </button>
+          <button
+            type="button"
+            className={`sindri-preview-icon ${layout === "split" ? "is-on" : ""}`}
+            title="Dividir chat e preview"
+            aria-pressed={layout === "split"}
+            onClick={() => onLayout("split")}
+          >
+            <Columns2 size={15} />
+          </button>
+          <button
+            type="button"
+            className={`sindri-preview-icon ${layout === "preview" ? "is-on" : ""}`}
+            title="Preview em tela cheia"
+            aria-pressed={layout === "preview"}
+            onClick={() => onLayout("preview")}
+          >
+            <PanelRight size={15} />
+          </button>
+        </div>
         <span className="sindri-preview-sep" />
         <div className="sindri-viewswitch" role="tablist" aria-label="View">
           <button
