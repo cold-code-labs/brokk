@@ -2,13 +2,13 @@
 
 /**
  * Forge lintel (verga) — Brokk product chrome.
- * Hauldr-like topbar form: brand + rooms + Anvil context + utils.
- * Soul stays Forge at Night — chrome quiet; ember only in work.
+ * Hauldr-like topbar: brand + rooms + Anvil context + utils.
+ * Menus portal to body (escape Sindri overflow:hidden).
  */
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   LayoutGrid,
   MessageSquare,
@@ -57,6 +57,7 @@ function AnvilMenu() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const current = projects.find((p) => p.id === currentId);
   const label = current?.name ?? (projects.length ? "Pick project" : "No project");
 
@@ -69,8 +70,9 @@ function AnvilMenu() {
   return (
     <div className={`forge-slot${open ? " is-open" : ""}`}>
       <button
+        ref={btnRef}
         type="button"
-        className={`forge-anvil${open ? " is-open" : ""}`}
+        className={`forge-ctrl forge-anvil${open ? " is-open" : ""}`}
         aria-label={`Project on the anvil: ${label}`}
         aria-expanded={open}
         aria-haspopup="listbox"
@@ -82,13 +84,16 @@ function AnvilMenu() {
           setOpen((v) => !v);
         }}
       >
-        <Anvil size={15} strokeWidth={1.75} aria-hidden />
+        <Anvil size={15} strokeWidth={1.75} aria-hidden className="forge-ctrl-ico" />
         <span className="forge-anvil-name">{label}</span>
-        <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
+        <ChevronDown size={14} strokeWidth={1.75} aria-hidden className="forge-ctrl-caret" />
       </button>
       <ComposerMenu
         open={open}
         placement="below"
+        portal
+        anchorRef={btnRef}
+        align="end"
         items={projects.map((p) => ({
           id: p.id,
           label: p.name,
@@ -110,6 +115,7 @@ function BenchMenu({ onSearch }: { onSearch: () => void }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const btnRef = useRef<HTMLButtonElement>(null);
   const items = [
     { id: "cmdk", label: "Search…", hint: "⌘K", tag: "goto" },
     ...BENCH.map((n) => ({
@@ -122,10 +128,11 @@ function BenchMenu({ onSearch }: { onSearch: () => void }) {
   const onBench = BENCH.some((n) => path.startsWith(n.href));
 
   return (
-    <div className={`forge-slot forge-slot-end${open ? " is-open" : ""}`}>
+    <div className={`forge-slot${open ? " is-open" : ""}`}>
       <button
+        ref={btnRef}
         type="button"
-        className={`forge-icon${onBench ? " is-on" : ""}`}
+        className={`forge-ctrl forge-icon${onBench || open ? " is-on" : ""}`}
         aria-label="Bench"
         aria-expanded={open}
         title="Bench"
@@ -139,6 +146,9 @@ function BenchMenu({ onSearch }: { onSearch: () => void }) {
       <ComposerMenu
         open={open}
         placement="below"
+        portal
+        anchorRef={btnRef}
+        align="end"
         items={items}
         activeIndex={active}
         onActiveIndex={setActive}
@@ -156,11 +166,13 @@ function BenchMenu({ onSearch }: { onSearch: () => void }) {
 function UserMenu({ user }: { user: TopbarUserProps }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const btnRef = useRef<HTMLButtonElement>(null);
   return (
-    <div className={`forge-slot forge-slot-end${open ? " is-open" : ""}`}>
+    <div className={`forge-slot${open ? " is-open" : ""}`}>
       <button
+        ref={btnRef}
         type="button"
-        className="forge-avatar"
+        className={`forge-ctrl forge-avatar${open ? " is-open" : ""}`}
         aria-label={user.name}
         aria-expanded={open}
         title={user.name}
@@ -171,6 +183,9 @@ function UserMenu({ user }: { user: TopbarUserProps }) {
       <ComposerMenu
         open={open}
         placement="below"
+        portal
+        anchorRef={btnRef}
+        align="end"
         items={[
           {
             id: "who",
@@ -215,64 +230,65 @@ export default function Topbar({ user }: { user?: TopbarUserProps }) {
 
   return (
     <header className="forge-bar" aria-label="Brokk forge bar">
-      <Link href="/fleet" className="forge-brand" aria-label="Brokk">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brokk.svg" alt="" width={22} height={30} className="forge-brand-mark" />
-        <span className="forge-brand-word">Brokk</span>
-      </Link>
-
-      <nav className="forge-rooms" aria-label="Primary">
-        {PRIMARY.map((n) => {
-          const Icon = n.icon;
-          const on = n.match(path);
-          return (
-            <Link
-              key={n.href}
-              href={n.href}
-              className={`forge-room-link${on ? " is-on" : ""}`}
-              aria-current={on ? "page" : undefined}
-            >
-              <Icon size={15} strokeWidth={1.75} aria-hidden />
-              <span>{n.label}</span>
-            </Link>
-          );
-        })}
-        <Link
-          href={boardHref}
-          className={`forge-room-link${boardOn ? " is-on" : ""}`}
-          aria-current={boardOn ? "page" : undefined}
-        >
-          <Columns3 size={15} strokeWidth={1.75} aria-hidden />
-          <span>Board</span>
+      <div className="forge-bar-inner">
+        <Link href="/fleet" className="forge-brand" aria-label="Brokk">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brokk.svg" alt="" width={22} height={30} className="forge-brand-mark" />
+          <span className="forge-brand-word">Brokk</span>
         </Link>
 
-        <Link
-          href="/new"
-          className={`forge-new${newOn ? " is-on" : ""}`}
-          aria-current={newOn ? "page" : undefined}
-          title="New project"
-        >
-          <Plus size={15} strokeWidth={2} aria-hidden />
-          <span>New</span>
-        </Link>
-      </nav>
+        <nav className="forge-rooms" aria-label="Primary">
+          {PRIMARY.map((n) => {
+            const Icon = n.icon;
+            const on = n.match(path);
+            return (
+              <Link
+                key={n.href}
+                href={n.href}
+                className={`forge-ctrl forge-room-link${on ? " is-on" : ""}`}
+                aria-current={on ? "page" : undefined}
+              >
+                <Icon size={15} strokeWidth={1.75} aria-hidden />
+                <span>{n.label}</span>
+              </Link>
+            );
+          })}
+          <Link
+            href={boardHref}
+            className={`forge-ctrl forge-room-link${boardOn ? " is-on" : ""}`}
+            aria-current={boardOn ? "page" : undefined}
+          >
+            <Columns3 size={15} strokeWidth={1.75} aria-hidden />
+            <span>Board</span>
+          </Link>
 
-      <div className="forge-bar-spacer" aria-hidden />
+          <Link
+            href="/new"
+            className={`forge-ctrl forge-new${newOn ? " is-on" : ""}`}
+            aria-current={newOn ? "page" : undefined}
+            title="New project"
+          >
+            <Plus size={15} strokeWidth={2} aria-hidden />
+            <span>New</span>
+          </Link>
+        </nav>
 
-      <AnvilMenu />
+        <div className="forge-bar-spacer" aria-hidden />
 
-      <div className="forge-utils">
-        <button
-          type="button"
-          className="forge-icon"
-          onClick={openPalette}
-          title="Search ⌘K"
-          aria-label="Search"
-        >
-          <Search size={16} strokeWidth={1.75} />
-        </button>
-        <BenchMenu onSearch={openPalette} />
-        {user ? <UserMenu user={user} /> : null}
+        <div className="forge-trailing">
+          <AnvilMenu />
+          <button
+            type="button"
+            className="forge-ctrl forge-icon"
+            onClick={openPalette}
+            title="Search ⌘K"
+            aria-label="Search"
+          >
+            <Search size={16} strokeWidth={1.75} />
+          </button>
+          <BenchMenu onSearch={openPalette} />
+          {user ? <UserMenu user={user} /> : null}
+        </div>
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

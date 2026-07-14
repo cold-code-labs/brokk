@@ -40,10 +40,11 @@ body {
 }
 
 /* ── Forge bar (verga / lintel) ───────────────────────────────────────────────
-   Hauldr-form topbar: brand + rooms + Anvil context + utils. Canvas is everything
-   below. Ember stays out of chrome. Hot spot: forge bar. */
+   Fixed like Hauldr AppBar — menus portal to body (overflow:hidden on Sindri
+   shell must never clip Anvil/Bench/User). Hot spot: forge bar. */
 :root {
   --forge-bar-h: 2.75rem;
+  --forge-ctrl-h: 1.85rem;
   --sidebar-w: 0px;
 }
 .ygg-shell {
@@ -54,41 +55,53 @@ body {
   flex-direction: column;
   grid-template-columns: none;
   min-height: 100vh;
+  /* Clear the fixed lintel (menus live in portaled body, not clipped here). */
+  padding-top: var(--forge-bar-h);
+  box-sizing: border-box;
 }
 .forge-bar {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 60;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
   height: var(--forge-bar-h);
-  padding: 0 0.85rem;
   box-sizing: border-box;
   border-bottom: 1px solid var(--line-soft);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--fg) 2.5%, transparent), transparent 70%),
     var(--bg-soft, var(--bg));
+  /* pops are portaled — bar itself can stay tight */
   overflow: visible;
+}
+.forge-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 100%;
+  padding: 0 0.85rem;
+  box-sizing: border-box;
 }
 .forge-brand {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
   flex-shrink: 0;
+  height: var(--forge-ctrl-h);
   text-decoration: none;
   color: var(--fg);
-  padding: 0.15rem 0.25rem 0.15rem 0;
-  border-radius: 0.4rem;
+  padding: 0 0.35rem 0 0.1rem;
+  border-radius: 0.45rem;
+  box-sizing: border-box;
 }
 .forge-brand:hover {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
 }
 .forge-brand-mark {
   display: block;
-  width: 1.15rem;
-  height: auto;
+  height: 1.25rem;
+  width: auto;
+  flex-shrink: 0;
 }
 .forge-brand-word {
   font-family: var(--font-display, inherit);
@@ -102,22 +115,33 @@ body {
   align-items: center;
   gap: 0.15rem;
   min-width: 0;
+  height: var(--forge-ctrl-h);
 }
-.forge-room-link {
+/* Shared control rhythm — every chrome act shares the same box */
+.forge-ctrl {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.35rem;
-  height: 1.85rem;
+  height: var(--forge-ctrl-h);
+  margin: 0;
   padding: 0 0.55rem;
   border-radius: 0.45rem;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 550;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.forge-room-link {
   border: 0;
   background: transparent;
   color: var(--fg-dim);
-  text-decoration: none;
-  font-size: 0.8rem;
-  font-weight: 550;
-  white-space: nowrap;
-  transition: background 0.12s, color 0.12s;
+  padding: 0 0.55rem;
 }
 .forge-room-link:hover {
   color: var(--fg);
@@ -129,21 +153,12 @@ body {
   box-shadow: inset 0 -2px 0 var(--ember, var(--accent));
 }
 .forge-new {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  height: 1.85rem;
-  padding: 0 0.55rem;
-  margin-left: 0.25rem;
-  border-radius: 0.45rem;
+  margin-left: 0.2rem;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
   color: var(--accent);
-  text-decoration: none;
   font-size: 0.78rem;
   font-weight: 650;
-  white-space: nowrap;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 .forge-new:hover,
 .forge-new.is-on {
@@ -155,22 +170,31 @@ body {
   flex: 1;
   min-width: 0.5rem;
 }
-.forge-anvil {
+.forge-trailing {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  height: var(--forge-ctrl-h);
+}
+.forge-slot {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  height: var(--forge-ctrl-h);
+}
+.forge-anvil {
   max-width: 14rem;
-  height: 1.85rem;
-  padding: 0 0.55rem 0 0.5rem;
-  border-radius: 0.45rem;
+  gap: 0.4rem;
+  padding: 0 0.45rem 0 0.5rem;
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--fg) 3.5%, transparent);
   color: var(--fg-soft);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.78rem;
-  font-weight: 550;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.forge-anvil .forge-ctrl-ico,
+.forge-anvil .forge-ctrl-caret {
+  flex-shrink: 0;
+  display: block;
 }
 .forge-anvil:hover:not(:disabled),
 .forge-anvil.is-open {
@@ -187,24 +211,14 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.forge-utils {
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-  flex-shrink: 0;
+  line-height: 1;
 }
 .forge-icon {
-  display: grid;
-  place-items: center;
-  width: 1.85rem;
-  height: 1.85rem;
+  width: var(--forge-ctrl-h);
+  padding: 0;
   border: 0;
-  border-radius: 0.45rem;
   background: transparent;
   color: var(--fg-dim);
-  cursor: pointer;
-  transition: background 0.12s, color 0.12s;
 }
 .forge-icon:hover,
 .forge-icon.is-on {
@@ -212,13 +226,10 @@ body {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .forge-avatar {
-  display: grid;
-  place-items: center;
-  width: 1.7rem;
-  height: 1.7rem;
-  margin-left: 0.15rem;
-  border-radius: 50%;
+  width: var(--forge-ctrl-h);
+  padding: 0;
   border: 1px solid var(--line);
+  border-radius: 50%;
   background:
     radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%),
     color-mix(in srgb, var(--fg) 4%, transparent);
@@ -227,37 +238,25 @@ body {
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--fg-soft);
-  cursor: pointer;
-  padding: 0;
 }
-.forge-avatar:hover {
+.forge-avatar:hover,
+.forge-avatar.is-open {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
 }
-.forge-slot {
-  position: relative;
-  z-index: 2;
-}
-.forge-slot.is-open {
-  z-index: 70;
-}
-.forge-bar .sindri-menu {
-  left: 0;
-  right: auto;
-  top: calc(100% + 0.4rem);
-  bottom: auto;
-  min-width: 14rem;
-  z-index: 80;
-}
-.forge-slot-end .sindri-menu {
-  left: auto;
-  right: 0;
+/* Portaled forge pops — position comes only from inline fixed coords */
+.sindri-menu.is-portaled {
+  /* no absolute top/left from placement modifiers */
 }
 @media (max-width: 720px) {
   .forge-brand-word { display: none; }
   .forge-room-link span,
   .forge-new span { display: none; }
   .forge-room-link,
-  .forge-new { padding: 0; width: 1.85rem; justify-content: center; }
+  .forge-new {
+    width: var(--forge-ctrl-h);
+    padding: 0;
+    justify-content: center;
+  }
   .forge-anvil { max-width: 8.5rem; }
   .forge-anvil-name { max-width: 5.5rem; }
 }
@@ -467,15 +466,17 @@ body {
 body:has(.sindri) {
   overflow: hidden;
 }
-.ygg-shell:has(.sindri) {
+.ygg-shell.forge-shell--lintel:has(.sindri) {
   height: 100vh;
   min-height: 0;
   overflow: hidden;
 }
-.ygg-shell:has(.sindri) > .forge-canvas {
+.ygg-shell.forge-shell--lintel:has(.sindri) > .forge-canvas {
   flex: 1;
   min-height: 0;
   height: auto;
+  /* remaining viewport under the fixed bar (shell already has padding-top) */
+  max-height: calc(100vh - var(--forge-bar-h));
   overflow: hidden;
   z-index: 0;
 }
