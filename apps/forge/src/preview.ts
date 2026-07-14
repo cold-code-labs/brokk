@@ -194,12 +194,20 @@ export class PreviewSupervisor {
       const head = (await run("git", ["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
       const fetched = (await run("git", ["rev-parse", "FETCH_HEAD"], { cwd: path })).stdout.trim();
       if (head === fetched) return null;
-      // Live edits guard: if the worktree is dirty (a chat/dev-lane session is
-      // editing it live — BROKK_LIVE_PREVIEW), a hard reset would wipe the
-      // uncommitted work HMR is showing. Skip; the reset lands once the editor
+      // Live edits guard: if the worktree has uncommitted TRACKED changes (a
+      // chat/dev-lane session editing it live — BROKK_LIVE_PREVIEW), a hard reset
+      // would wipe the work HMR is showing. Skip; the reset lands once the editor
       // commits+pushes (clean tree). The tip advanced but we defer rather than
       // clobber. HMR keeps serving the working tree meanwhile.
-      const dirty = (await run("git", ["status", "--porcelain"], { cwd: path })).stdout.trim();
+      // `--untracked-files=no` is deliberate: the supervisor writes its OWN
+      // untracked prepare file into the worktree (e.g. .brokk/vite.preview.config.mjs),
+      // which a bare `git status --porcelain` reports as dirty — that false-positive
+      // pinned the guard on forever, so a plain `git push` to dev never landed
+      // (the reported bug). `git reset --hard` never touches untracked files anyway,
+      // so ignoring them here is safe as well as necessary.
+      const dirty = (
+        await run("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: path })
+      ).stdout.trim();
       if (dirty) {
         console.log(
           `[preview-supervisor] ${hauldrProject}: worktree dirty (live edits) — deferring reset to ${fetched.slice(0, 8)}`,
