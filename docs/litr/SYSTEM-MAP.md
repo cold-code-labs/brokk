@@ -89,7 +89,8 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 ### L4 Components
 | Word | Status | Where |
 |---|---|---|
-| Masthead / stamped nameplate | ✓ | `.forge-head*` |
+| Masthead / stamped nameplate | ✓ | `.forge-head*` (+ `.forge-head-copy` / `.forge-head-actions` baseline) |
+| Workshop room frame | ✓ | `.forge-room` + `.ygg-main` gutter; Sindri stays edge-to-edge |
 | Section heading | ✓ | `.forge-h*` |
 | Vitals strip | ✓ | `.forge-tiles/tile` |
 | Ledger (+ running row, table-hosted) | ✓ | `.forge-ledger/row` |
@@ -115,16 +116,16 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Notification stack | ✓ | `.forge-toasts` (top-right, stacking) |
 | Route loading state | ✓ | `app/(app)/loading.tsx` skeleton (nav never feels dead) |
 
-### L6 Pages (each = one mission, gate-walked 2026-07-11)
-Fleet ✓ · Dashboard ✓ · Board ✓ (cards in vocabulary; populated-board gate pending live cards) · Discovery ✓ · Sindri ✓
-(blank; live-session surfaces walked only via shared CSS — debt) · Mímir ✓ ·
+### L6 Pages (each = one mission; product frame pass 2026-07-14)
+Fleet ✓ (nameplate, not boxed hero) · Dashboard ✓ · Board ✓ (forge-toolbar +
+forge-seg) · Discovery ✓ · Sindri ✓ (edge-to-edge reference) · Mímir ✓ ·
 Connect ✓ · History ✓ · Crew ✓ · Settings ✓ · Landing ✓ (own art, kept).
 
 ### Known debt (next rounds)
 1. Board drawer/modal style constants → vocabulary (token-driven today, inline in form; heavy SSE logic — convert with care).
 2. Sindri live-session surfaces (thread, Studio, FileViewer) gate-walked with a real open session.
 3. Populated-board gate shot once real cards exist on any project.
-4. Sindri live-session gate walk with a real open session (Studio, FileViewer).
+4. Gate A/B dark+light shots for this workshop-frame pass on the real preview (auth).
 5. Fleet-wide: extract the product-agnostic halves of this map into
    `@cold-code-labs/yggdrasil-litr` METHOD.md when Heimdall builds its soul.
 

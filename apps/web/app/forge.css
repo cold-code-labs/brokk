@@ -104,59 +104,149 @@
 /* Preflight is OFF — links styled as controls must not underline. */
 .forge-head a, .forge-ledger a, .forge-empty a, .forge-tile a { text-decoration: none; }
 
+/* ── Workshop room — shared frame for every non-Sindri surface ──────────────
+   Sindri owns edge-to-edge. Other rooms share one gutter + nameplate baseline
+   so Fleet / Board / Settings stop drifting (docs/litr/DESIGN.md product). */
+.forge-canvas {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.forge-room {
+  --forge-room-max: 74rem;
+  width: 100%;
+  max-width: var(--forge-room-max);
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  min-width: 0;
+}
+.forge-room.is-wide { --forge-room-max: 94rem; }
+.forge-room.is-narrow { --forge-room-max: 52rem; }
+.forge-room.is-tight { --forge-room-max: 42rem; }
+.forge-room.is-crew { --forge-room-max: 54rem; }
+/* Fleet (raw <main>) needs its own pad; Yggdrasil Main already pads via .ygg-main. */
+main.forge-room:not(.ygg-main) {
+  padding: var(--sp-5, 1.5rem) var(--sp-5, 1.5rem) var(--sp-7, 3rem);
+}
+.forge-section { margin-bottom: var(--sp-6, 2rem); }
+.forge-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2, 0.5rem);
+  margin-bottom: var(--sp-4, 1rem);
+}
+.forge-toolbar-grow {
+  position: relative;
+  flex: 1 1 15rem;
+  min-width: 0;
+}
+.forge-toolbar-grow > svg {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--fg-dim);
+  pointer-events: none;
+}
+.forge-toolbar-grow input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-left: 2rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 8px);
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.875rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  padding-right: 0.75rem;
+  outline: none;
+}
+.forge-toolbar-grow input:focus {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Yggdrasil Main — workshop frame (was 2.5rem · 80rem; airy & skewed vs Sindri). */
+.ygg-shell .ygg-main {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: var(--sp-5, 1.5rem) var(--sp-5, 1.5rem) var(--sp-7, 3rem);
+  box-sizing: border-box;
+}
+/* When Main also carries .forge-room, room max-width centers the column. */
+.ygg-shell .ygg-main.forge-room {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 /* ── Page masthead — the stamped nameplate ──────────────────────────────────
-   Display caps at real scale; the eyebrow is mono with a hot tick; the rule
-   cools left→right like a bar of steel pulled from the fire. */
-.forge-head { margin-bottom: 1.7rem; }
+   Display caps; eyebrow mono + hot tick; actions share the title baseline
+   (not flex-end — that skewed every room vs Sindri). Rule cools L→R. */
+.forge-head { margin-bottom: var(--sp-5, 1.5rem); }
 .forge-head-top {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--sp-4, 1rem);
   flex-wrap: wrap;
+}
+.forge-head-copy { min-width: 0; flex: 1 1 16rem; }
+.forge-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2, 0.5rem);
+  flex-shrink: 0;
 }
 .forge-eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.55rem;
   font-family: var(--font-jetbrains, monospace);
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   font-weight: 600;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--fg-dim);
-  margin-bottom: 0.55rem;
+  margin-bottom: var(--sp-2, 0.5rem);
 }
 .forge-eyebrow::before {
   content: "";
-  width: 1.15em;
+  width: 1.1em;
   height: 2px;
   background: var(--heat);
   border-radius: 1px;
 }
 .forge-title {
   font-family: var(--font-display, inherit);
-  font-size: clamp(2.1rem, 4.5vw, 3.1rem);
+  /* Console: stamped plate, not a landing shout (was up to 3.1rem). */
+  font-size: clamp(1.7rem, 3.2vw, 2.35rem);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.015em;
-  line-height: 0.95;
+  letter-spacing: 0.02em;
+  line-height: 1;
   margin: 0;
   color: var(--fg);
 }
 .forge-sub {
-  margin: 0.55rem 0 0;
+  margin: var(--sp-2, 0.5rem) 0 0;
   color: var(--fg-soft);
-  font-size: 0.92rem;
-  max-width: 60ch;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  max-width: 56ch;
 }
 .forge-head-rule {
-  margin-top: 1.15rem;
+  margin-top: var(--sp-4, 1rem);
   height: 1px;
   background: linear-gradient(90deg,
-    color-mix(in srgb, var(--ember) 55%, var(--line)),
-    color-mix(in srgb, var(--accent) 35%, var(--line)) 22%,
-    var(--line) 45%, transparent);
+    color-mix(in srgb, var(--ember) 45%, var(--line)),
+    color-mix(in srgb, var(--accent) 28%, var(--line)) 20%,
+    var(--line) 42%, transparent);
 }
 
 /* ── Section heading ──────────────────────────────────────────────────────── */

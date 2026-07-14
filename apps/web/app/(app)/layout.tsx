@@ -23,7 +23,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       <Sidebar
         user={{ name: session.name, role: session.role, authDisabled: session.authDisabled }}
       />
-      <div style={{ minWidth: 0 }}>{children}</div>
+      <div className="forge-canvas">{children}</div>
     </AppShell>
   );
 }

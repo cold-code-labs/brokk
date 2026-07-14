@@ -20,11 +20,11 @@ export default function Settings() {
   if (!mounted) return null;
 
   return (
-    <Main style={{ maxWidth: "52rem" }}>
+    <Main className="forge-room is-narrow">
       {/* masthead — the toolbench */}
       <header className="forge-head">
         <div className="forge-head-top">
-          <div>
+          <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the toolbench</span>
             <h1 className="forge-title">Settings</h1>
             <p className="forge-sub">Appearance, and each project&rsquo;s model, auth mode, and base branch.</p>
@@ -33,7 +33,7 @@ export default function Settings() {
         <div className="forge-head-rule" />
       </header>
 
-      <section style={{ marginBottom: "2.2rem" }}>
+      <section className="forge-section">
         <div className="forge-h">
           <span className="forge-h-title">Appearance</span>
           <span className="forge-h-rule" />

@@ -143,11 +143,11 @@ export default function Mimir() {
   }
 
   return (
-    <Main style={{ maxWidth: "58rem" }}>
+    <Main className="forge-room is-narrow">
       {/* ── masthead: the well ── */}
       <header className="forge-head">
         <div className="forge-head-top">
-          <div>
+          <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the well</span>
             <h1 className="forge-title">Mímir</h1>
             <p className="forge-sub">

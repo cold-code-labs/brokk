@@ -150,15 +150,14 @@ export default function Discovery({ projectId }: { projectId?: string }) {
   const status = running ? "pending" : brief?.status;
 
   return (
-    <Main style={{ maxWidth: "72rem" }}>
+    <Main className="forge-room">
       {/* ── masthead: the scout ── */}
       <header className="forge-head">
+        <Link href={projectId ? `/projects/${projectId}` : "/"} className="forge-crumb">
+          ← Board
+        </Link>
         <div className="forge-head-top">
-          <div>
-            <Link href={projectId ? `/projects/${projectId}` : "/"} className="forge-crumb">
-              ← Board
-            </Link>
-            <br />
+          <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the scout</span>
             <h1 className="forge-title">{project ? project.name : "Discovery"}</h1>
             <p className="forge-sub">
@@ -171,7 +170,7 @@ export default function Discovery({ projectId }: { projectId?: string }) {
               </span>
             )}
           </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div className="forge-head-actions">
             {proposedCount > 0 && (
               <Button type="button" size="sm" onClick={approveAll} disabled={appBusy}>
                 {appBusy ? "Queueing…" : `Approve ${proposedCount}`}

@@ -60,11 +60,11 @@ export default function Dashboard() {
   const recent = tasks.slice(0, 12);
 
   return (
-    <Main style={{ maxWidth: "74rem" }}>
+    <Main className="forge-room">
       {/* ── masthead: the forge floor ── */}
       <header className="forge-head">
         <div className="forge-head-top">
-          <div>
+          <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the forge floor</span>
             <h1 className="forge-title">{project ? project.name : "The floor"}</h1>
             <p className="forge-sub">
@@ -75,10 +75,12 @@ export default function Dashboard() {
                   : "Connect a repo to light the floor."}
             </p>
           </div>
-          <span className={`forge-pulse${running > 0 ? "" : " is-quiet"}`}>
-            <span className="forge-ember" />
-            {running > 0 ? `Forging now · ${running} in the fire` : "The forge is quiet"}
-          </span>
+          <div className="forge-head-actions">
+            <span className={`forge-pulse${running > 0 ? "" : " is-quiet"}`}>
+              <span className="forge-ember" />
+              {running > 0 ? `Forging now · ${running} in the fire` : "The forge is quiet"}
+            </span>
+          </div>
         </div>
         <div className="forge-head-rule" />
       </header>

@@ -48,11 +48,11 @@ export default function Users() {
   const activeSeats = subs.filter((s) => s.status === "active").length;
 
   return (
-    <Main style={{ maxWidth: "54rem" }}>
+    <Main className="forge-room is-crew">
       {/* masthead — the crew */}
       <header className="forge-head">
         <div className="forge-head-top">
-          <div>
+          <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the crew</span>
             <h1 className="forge-title">Crew</h1>
             <p className="forge-sub">Each member lends a Max seat. The forge spreads runs across them.</p>

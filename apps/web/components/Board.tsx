@@ -260,13 +260,13 @@ export default function Board({ projectId }: { projectId?: string }) {
   if (!mounted) return null;
 
   return (
-    <Main style={{ maxWidth: "94rem" }}>
+    <Main className="forge-room is-wide">
       <header className="forge-head">
         <Link href="/fleet" className="forge-crumb">
           ← Fleet
         </Link>
         <div className="forge-head-top">
-          <div>
+          <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the anvil</span>
             <h1 className="forge-title">{project ? project.name : "Board"}</h1>
             <p className="forge-sub">
@@ -274,7 +274,7 @@ export default function Board({ projectId }: { projectId?: string }) {
               {project && <span className="ygg-dim">model {project.model}</span>}
             </p>
           </div>
-          <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div className="forge-head-actions">
             {project && (
               <Button size="sm" type="button" onClick={() => setShowNew(true)}>
                 <Plus size={14} style={{ marginRight: 4, verticalAlign: "-2px" }} />
@@ -289,16 +289,15 @@ export default function Board({ projectId }: { projectId?: string }) {
                   {previewBusy ? "Starting…" : "Preview dev"}
                 </Button>
               ))}
-          </span>
+          </div>
         </div>
         <div className="forge-head-rule" />
       </header>
 
-      {/* Toolbar: search + owner lane filter + view toggle — the "ver todos os
-          cards facilmente" surface. */}
-      <div style={toolbar}>
-        <div style={{ position: "relative", flex: "1 1 240px", minWidth: 0 }}>
-          <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: t.textFaint }} />
+      {/* Toolbar: search + owner lane filter + view toggle */}
+      <div className="forge-toolbar">
+        <div className="forge-toolbar-grow">
+          <Search size={14} />
           <input
             ref={searchRef}
             value={query}
@@ -307,18 +306,18 @@ export default function Board({ projectId }: { projectId?: string }) {
             style={{ ...field, width: "100%", paddingLeft: 30 }}
           />
         </div>
-        <div style={segGroup}>
+        <div className="forge-seg" role="group" aria-label="Owner">
           {(["all", "brokk", "human"] as const).map((o) => (
-            <button key={o} type="button" onClick={() => setOwnerFilter(o)} style={segBtn(ownerFilter === o)}>
+            <button key={o} type="button" onClick={() => setOwnerFilter(o)} className={ownerFilter === o ? "is-on" : undefined}>
               {o === "all" ? "All" : o === "brokk" ? "Brokk" : `Mine${mineCount ? ` (${mineCount})` : ""}`}
             </button>
           ))}
         </div>
-        <div style={segGroup}>
-          <button type="button" onClick={() => setView("board")} style={segBtn(view === "board")} aria-label="Board" title="Board">
+        <div className="forge-seg" role="group" aria-label="View">
+          <button type="button" onClick={() => setView("board")} className={view === "board" ? "is-on" : undefined} aria-label="Board" title="Board">
             <Columns3 size={15} />
           </button>
-          <button type="button" onClick={() => setView("list")} style={segBtn(view === "list")} aria-label="List" title="List">
+          <button type="button" onClick={() => setView("list")} className={view === "list" ? "is-on" : undefined} aria-label="List" title="List">
             <Rows3 size={15} />
           </button>
         </div>

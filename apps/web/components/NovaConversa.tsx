@@ -51,10 +51,10 @@ export default function NovaConversa() {
   }
 
   return (
-    <Main style={{ maxWidth: "42rem" }}>
+    <Main className="forge-room is-tight">
       <header className="forge-head">
         <div className="forge-head-top">
-          <div>
+          <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · nova conversa</span>
             <h1 className="forge-title">Novo projeto</h1>
             <p className="forge-sub">
@@ -63,9 +63,11 @@ export default function NovaConversa() {
               você clicar em Publicar.
             </p>
           </div>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/fleet">← Fleet</Link>
-          </Button>
+          <div className="forge-head-actions">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/fleet">← Fleet</Link>
+            </Button>
+          </div>
         </div>
         <div className="forge-head-rule" />
       </header>

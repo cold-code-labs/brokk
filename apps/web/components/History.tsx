@@ -48,11 +48,11 @@ export default function History() {
   if (!mounted) return null;
 
   return (
-    <Main style={{ maxWidth: "74rem" }}>
+    <Main className="forge-room">
       {/* ── masthead: the ledger ── */}
       <header className="forge-head">
         <div className="forge-head-top">
-          <div>
+          <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the ledger</span>
             <h1 className="forge-title">History</h1>
             <p className="forge-sub">Every task the forge has touched — outcome, seat, tokens, PR. Newest first.</p>

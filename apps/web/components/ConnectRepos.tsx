@@ -88,11 +88,11 @@ export default function ConnectRepos() {
   );
 
   return (
-    <Main style={{ maxWidth: "52rem" }}>
+    <Main className="forge-room is-narrow">
       {/* ── masthead: the doors ── */}
       <header className="forge-head">
         <div className="forge-head-top">
-          <div>
+          <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the doors</span>
             <h1 className="forge-title">Connect repos</h1>
             <p className="forge-sub">
@@ -100,9 +100,11 @@ export default function ConnectRepos() {
               forge. Each connected repo gets a default project.
             </p>
           </div>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/fleet">← Fleet</Link>
-          </Button>
+          <div className="forge-head-actions">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/fleet">← Fleet</Link>
+            </Button>
+          </div>
         </div>
         <div className="forge-head-rule" />
       </header>

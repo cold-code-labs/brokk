@@ -2559,12 +2559,12 @@ html.dark .fv-hl .shiki span {
   background: color-mix(in srgb, var(--bg) 60%, var(--panel));
 }
 
-/* Wordmark: stamped steel, matching the mastheads. */
+/* Wordmark: stamped steel, matching the mastheads — compact, not a landing shout. */
 .brokk-brand .ygg-brand-name {
   font-family: var(--font-display, inherit);
-  font-size: 1.28rem;
+  font-size: 1.05rem;
   font-weight: 700;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -3024,3 +3024,12 @@ html.dark .fv-hl .shiki span {
 .ygg-shell .ygg-nav-group-label { margin: 0 0 var(--sp-1); padding: 0 var(--sp-2); }
 .ygg-shell .sindri-bubble { padding: var(--sp-3) var(--sp-4); }
 .ygg-shell .sindri-preview-msg { gap: var(--sp-2); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Design-refinement pass IV (2026-07-14) — workshop frame
+   litr-frontend-design product: unify room gutters + nameplate baseline across
+   Fleet/Board/Settings/… so only Sindri stays edge-to-edge by design.
+   Vocab lives in forge.css (.forge-room / .forge-head-*). See docs/litr/DESIGN.md.
+   ══════════════════════════════════════════════════════════════════════════ */
+.ygg-shell .forge-head-copy .forge-pulse { margin-top: var(--sp-3); }
+

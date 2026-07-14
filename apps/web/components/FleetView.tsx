@@ -196,26 +196,27 @@ export interface FleetViewProps {
 export default function FleetView(p: FleetViewProps) {
   const running = p.counts.running;
   return (
-    <main className="fleet" style={{ maxWidth: "74rem", margin: "0 auto", padding: "1.6rem 1.5rem 4rem" }}>
-      {/* hero */}
+    <main className="fleet forge-room">
+      {/* hero — stamped nameplate (product); aurora is atmosphere only */}
       <header className="fleet-hero">
-        <div className="fleet-aurora" />
-        <div className="fleet-grid" />
+        <div className="fleet-aurora" aria-hidden />
         <div className="fleet-hero-inner">
-          <div>
+          <div className="fleet-hero-copy">
             <span className="fleet-eyebrow">Brokk · the forge</span>
             <h1 className="fleet-title">Fleet</h1>
             <p className="fleet-subtitle">Every CCL repo, its queue, and the global forge — one board, live.</p>
+          </div>
+          <div className="fleet-hero-actions">
             <span className={`fleet-pulse${running > 0 ? "" : " is-quiet"}`}>
               <span className="fleet-ember" />
               {running > 0
                 ? `Forging now · ${running} task${running > 1 ? "s" : ""} in the fire`
                 : "The forge is quiet"}
             </span>
+            <Button asChild>
+              <Link href="/connect">+ Connect repos</Link>
+            </Button>
           </div>
-          <Button asChild>
-            <Link href="/connect">+ Connect repos</Link>
-          </Button>
         </div>
       </header>
 
@@ -251,7 +252,7 @@ export default function FleetView(p: FleetViewProps) {
       </form>
 
       {/* projects */}
-      <section style={{ marginBottom: "2.4rem" }}>
+      <section className="forge-section">
         <div className="fleet-h">
           <span className="fleet-h-title">Projects</span>
           <span className="fleet-h-meta">{p.projects.length}</span>
