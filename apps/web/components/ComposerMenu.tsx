@@ -68,16 +68,18 @@ export function ComposerMenu({
       if (!el) return;
       const r = el.getBoundingClientRect();
       const gap = 6;
+      const minW = Math.max(r.width, 14 * 16);
+      // Always set left/right explicitly — base `.sindri-menu { left: 0 }` must not win.
       const style: CSSProperties = {
         position: "fixed",
         zIndex: 200,
-        minWidth: Math.max(r.width, 14 * 16),
+        minWidth: minW,
         maxWidth: "min(22rem, calc(100vw - 1.5rem))",
         maxHeight: "min(16rem, calc(100vh - 4rem))",
-        top: placement === "below" ? r.bottom + gap : undefined,
-        bottom: placement === "above" ? window.innerHeight - r.top + gap : undefined,
-        left: align === "start" ? Math.min(r.left, window.innerWidth - 16 - 14 * 16) : undefined,
-        right: align === "end" ? Math.max(8, window.innerWidth - r.right) : undefined,
+        top: placement === "below" ? r.bottom + gap : "auto",
+        bottom: placement === "above" ? window.innerHeight - r.top + gap : "auto",
+        left: align === "start" ? Math.max(gap, Math.min(r.left, window.innerWidth - gap - minW)) : "auto",
+        right: align === "end" ? Math.max(gap, window.innerWidth - r.right) : "auto",
       };
       setFixedStyle(style);
     }

@@ -486,7 +486,6 @@
 .fleet-run-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--ember); animation: fleet-ember-pulse 1.7s ease-out infinite; }
 .fleet-card-repo { margin: 0.35rem 0 0.95rem; font-size: 0.78rem; color: var(--fg-dim); font-family: var(--font-mono, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet-card-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 1rem; }
-.fleet-card-foot { display: flex; align-items: center; }
 
 .fleet-card.is-add {
   display: grid;

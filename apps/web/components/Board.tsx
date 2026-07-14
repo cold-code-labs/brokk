@@ -1,7 +1,6 @@
 "use client";
 
-import type { Preview, Project, Run, RunEvent, Task, TaskEvent, TaskOwner } from "@brokk/sdk";
-import Link from "next/link";
+import type { Project, Run, RunEvent, Task, TaskEvent, TaskOwner } from "@brokk/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bot,
@@ -38,7 +37,6 @@ import { analysis as analysisApi, type AnalysisQuestion, type TaskAnalysis } fro
 import { useProject } from "../lib/project-context";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
 import { AgentAvatar } from "./AgentAvatar";
-import { PreviewChip } from "./PreviewChip";
 
 const COLUMNS = ["backlog", "analysis", "queued", "running", "review", "done", "failed"] as const;
 
@@ -74,10 +72,6 @@ export default function Board({ projectId }: { projectId?: string }) {
     if (projectId) setCurrentId(projectId);
   }, [projectId, setCurrentId]);
 
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [previewBusy, setPreviewBusy] = useState(false);
-  const [previewErr, setPreviewErr] = useState<string | null>(null);
-
   const refresh = useCallback(async (pid?: string) => {
     if (!pid) return;
     try {
@@ -110,59 +104,6 @@ export default function Board({ projectId }: { projectId?: string }) {
     const i = setInterval(() => refresh(project.id), 3000);
     return () => clearInterval(i);
   }, [project?.id, refresh]);
-
-  // Load the most-recent active preview when the project becomes known.
-  useEffect(() => {
-    if (!project?.id) return;
-    brokk
-      .listPreviews(project.id)
-      .then((ps) => {
-        const active = ps.find((x) => x.status === "starting" || x.status === "live");
-        setPreview(active ?? null);
-      })
-      .catch(() => {});
-  }, [project?.id]);
-
-  // Poll the preview status every 2 s while it is still starting.
-  const previewId = preview?.id;
-  const previewStatus = preview?.status;
-  useEffect(() => {
-    if (!previewId || previewStatus !== "starting") return;
-    const id = previewId;
-    const i = setInterval(() => {
-      brokk.getPreview(id).then(setPreview).catch(() => {});
-    }, 2000);
-    return () => clearInterval(i);
-  }, [previewId, previewStatus]);
-
-  async function handlePreview() {
-    if (!project) return;
-    setPreviewBusy(true);
-    setPreviewErr(null);
-    try {
-      const pv = await brokk.createPreview({ projectId: project.id });
-      setPreview(pv);
-    } catch (e) {
-      setPreviewErr(String(e));
-    } finally {
-      setPreviewBusy(false);
-    }
-  }
-
-  async function handleStopPreview() {
-    if (!preview) return;
-    // Failed previews are just dismissed locally; live/starting ones are stopped via API.
-    if (preview.status === "failed") {
-      setPreview(null);
-      return;
-    }
-    try {
-      await brokk.stopPreview(preview.id);
-      setPreview(null);
-    } catch (e) {
-      setPreviewErr(String(e));
-    }
-  }
 
   // Create a manual card. owner='brokk' + queue → straight to the forge; owner
   // ='human' → it stays a backlog card you own (the runner never claims it).
@@ -262,9 +203,6 @@ export default function Board({ projectId }: { projectId?: string }) {
   return (
     <Main className="forge-room is-wide">
       <header className="forge-head">
-        <Link href="/fleet" className="forge-crumb">
-          ← Fleet
-        </Link>
         <div className="forge-head-top">
           <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the anvil</span>
@@ -281,14 +219,6 @@ export default function Board({ projectId }: { projectId?: string }) {
                 New card
               </Button>
             )}
-            {project &&
-              (preview && preview.status !== "stopped" ? (
-                <PreviewChip preview={preview} onStop={handleStopPreview} />
-              ) : (
-                <Button variant="outline" size="sm" type="button" onClick={handlePreview} disabled={previewBusy}>
-                  {previewBusy ? "Starting…" : "Preview dev"}
-                </Button>
-              ))}
           </div>
         </div>
         <div className="forge-head-rule" />
@@ -324,7 +254,6 @@ export default function Board({ projectId }: { projectId?: string }) {
       </div>
 
       {err && <Banner tone="err">{err}</Banner>}
-      {previewErr && <Banner tone="err">Preview failed: {previewErr}</Banner>}
 
       {view === "board" ? (
         visible.length === 0 ? (

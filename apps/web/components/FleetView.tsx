@@ -5,9 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { Flame, FolderGit2 } from "lucide-react";
 import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
 import { STATUS_COLOR } from "../lib/theme";
-import { PreviewChip } from "./PreviewChip";
 import { discovery, type BriefStatus } from "../lib/chat";
-import type { Preview, Project, Repository, Task } from "@brokk/sdk";
+import type { Project, Repository, Task } from "@brokk/sdk";
 
 /** A per-project "environment is being prepared" chip. Right after a repo is
  *  connected, Huginn clones it and detects its runtime (the discovery brief:
@@ -113,19 +112,11 @@ function ProjectCard({
   repo,
   running,
   counts,
-  preview,
-  previewBusy,
-  onPreview,
-  onStopPreview,
 }: {
   project: Project;
   repo?: Repository;
   running: number;
   counts: (s: string) => number;
-  preview?: Preview;
-  previewBusy?: boolean;
-  onPreview: (id: string) => void;
-  onStopPreview: (id: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   function move(e: React.MouseEvent) {
@@ -158,15 +149,6 @@ function ProjectCard({
         <span className="ygg-badge" data-tone={counts("queued") ? "warn" : undefined}>{counts("queued")} queued</span>
         <span className="ygg-badge" data-tone={counts("review") ? "info" : undefined}>{counts("review")} PR</span>
       </div>
-      <div className="fleet-card-foot">
-        {preview ? (
-          <PreviewChip preview={preview} onStop={() => onStopPreview(preview.id)} />
-        ) : (
-          <Button variant="outline" size="sm" type="button" onClick={() => onPreview(project.id)} disabled={previewBusy}>
-            {previewBusy ? "starting…" : "Preview dev"}
-          </Button>
-        )}
-      </div>
     </div>
   );
 }
@@ -177,8 +159,6 @@ export interface FleetViewProps {
   projectById: Map<string, Project>;
   tasksByProject: Map<string, Task[]>;
   queue: Task[];
-  previewsByProject: Map<string, Preview>;
-  previewBusy: Record<string, boolean>;
   counts: { running: number; queued: number; review: number; seats: number };
   err: string | null;
   pid: string;
@@ -187,8 +167,6 @@ export interface FleetViewProps {
   onPid: (v: string) => void;
   onTitle: (v: string) => void;
   onSubmit: (e: React.FormEvent) => void;
-  onPreview: (projectId: string) => void;
-  onStopPreview: (previewId: string) => void;
 }
 
 /** Pure presentational Fleet. All data arrives as props so it renders identically
@@ -281,10 +259,6 @@ export default function FleetView(p: FleetViewProps) {
                   repo={p.repoById.get(proj.repositoryId)}
                   running={c("running")}
                   counts={c}
-                  preview={p.previewsByProject.get(proj.id)}
-                  previewBusy={p.previewBusy[proj.id]}
-                  onPreview={p.onPreview}
-                  onStopPreview={p.onStopPreview}
                 />
               );
             })}

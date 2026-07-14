@@ -2,8 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import Link from "next/link";
-import { Main, Banner, Button } from "@cold-code-labs/yggdrasil-react";
+import { Main, Banner } from "@cold-code-labs/yggdrasil-react";
 import { useToast } from "./Toaster";
 import { useProject } from "../lib/project-context";
 
@@ -62,11 +61,6 @@ export default function NovaConversa() {
               Hauldr + preview) e a conversa abre. O <span style={{ color: "var(--fg)" }}>prod</span> nasce quando
               você clicar em Publicar.
             </p>
-          </div>
-          <div className="forge-head-actions">
-            <Button asChild variant="outline" size="sm">
-              <Link href="/fleet">← Fleet</Link>
-            </Button>
           </div>
         </div>
         <div className="forge-head-rule" />

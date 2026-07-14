@@ -39,11 +39,11 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* ── Forge bar (verga / lintel) ───────────────────────────────────────────────
+/* ── Forge lintel (verga) ───────────────────────────────────────────────
    Fixed like Hauldr AppBar — menus portal to body (overflow:hidden on Sindri
-   shell must never clip Anvil/Bench/User). Hot spot: forge bar. */
+   shell must never clip Anvil/Bench/User). Hot spot: forge lintel. */
 :root {
-  --forge-bar-h: 2.75rem;
+  --forge-lintel-h: 2.75rem;
   --forge-ctrl-h: 1.85rem;
   --sidebar-w: 0px;
 }
@@ -56,16 +56,16 @@ body {
   grid-template-columns: none;
   min-height: 100vh;
   /* Clear the fixed lintel (menus live in portaled body, not clipped here). */
-  padding-top: var(--forge-bar-h);
+  padding-top: var(--forge-lintel-h);
   box-sizing: border-box;
 }
-.forge-bar {
+.forge-lintel {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 60;
-  height: var(--forge-bar-h);
+  height: var(--forge-lintel-h);
   box-sizing: border-box;
   border-bottom: 1px solid var(--line-soft);
   background:
@@ -74,7 +74,7 @@ body {
   /* pops are portaled — bar itself can stay tight */
   overflow: visible;
 }
-.forge-bar-inner {
+.forge-lintel-inner {
   display: flex;
   align-items: center;
   gap: 0.55rem;
@@ -116,6 +116,32 @@ body {
   gap: 0.15rem;
   min-width: 0;
   height: var(--forge-ctrl-h);
+}
+.forge-bench {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  min-width: 0;
+  height: var(--forge-ctrl-h);
+  margin-left: 0.15rem;
+  padding-left: 0.45rem;
+  border-left: 1px solid var(--line-soft);
+}
+.forge-bench-link {
+  border: 0;
+  background: transparent;
+  color: var(--fg-dim);
+  padding: 0 0.5rem;
+  font-size: 0.78rem;
+}
+.forge-bench-link:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.forge-bench-link.is-on {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 /* Shared control rhythm — every chrome act shares the same box */
 .forge-ctrl {
@@ -166,22 +192,19 @@ body {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
-.forge-bar-spacer {
+.forge-lintel-spacer {
   flex: 1;
   min-width: 0.5rem;
 }
-.forge-trailing {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-shrink: 0;
-  height: var(--forge-ctrl-h);
+.forge-user-slot {
+  margin-left: 0.25rem;
 }
 .forge-slot {
   position: relative;
   display: inline-flex;
   align-items: center;
   height: var(--forge-ctrl-h);
+  flex-shrink: 0;
 }
 .forge-anvil {
   max-width: 14rem;
@@ -243,9 +266,21 @@ body {
 .forge-avatar.is-open {
   border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
 }
-/* Portaled forge pops — position comes only from inline fixed coords */
+/* Portaled forge pops — left/right/top come only from inline fixed coords.
+   Base `.sindri-menu { left:0 }` must not pin menus to the viewport edge. */
 .sindri-menu.is-portaled {
-  /* no absolute top/left from placement modifiers */
+  left: auto;
+  right: auto;
+  top: auto;
+  bottom: auto;
+}
+@media (max-width: 1100px) {
+  .forge-bench-link span { display: none; }
+  .forge-bench-link {
+    width: var(--forge-ctrl-h);
+    padding: 0;
+    justify-content: center;
+  }
 }
 @media (max-width: 720px) {
   .forge-brand-word { display: none; }
@@ -259,115 +294,6 @@ body {
   }
   .forge-anvil { max-width: 8.5rem; }
   .forge-anvil-name { max-width: 5.5rem; }
-}
-
-/* ⌘K palette */
-.cmdk-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: color-mix(in srgb, #000 55%, transparent);
-  backdrop-filter: blur(4px);
-  display: grid;
-  place-items: start center;
-  padding: 12vh 1rem 1rem;
-}
-.cmdk {
-  width: min(34rem, 100%);
-  border: 1px solid var(--line);
-  border-radius: 0.85rem;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--fg) 3%, transparent), transparent 40%),
-    var(--panel);
-  box-shadow: 0 30px 80px -28px rgba(0, 0, 0, 0.65);
-  overflow: hidden;
-  animation: forge-toast-in 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-.cmdk-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.75rem 0.9rem;
-  border-bottom: 1px solid var(--line-soft);
-}
-.cmdk-input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  font-size: 0.95rem;
-  outline: none;
-}
-.cmdk-kbd {
-  font-family: var(--font-jetbrains, monospace);
-  font-size: 0.65rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-  border: 1px solid var(--line);
-  border-radius: 0.35rem;
-  padding: 0.15rem 0.4rem;
-}
-.cmdk-list {
-  max-height: min(22rem, 50vh);
-  overflow-y: auto;
-  padding: 0.4rem;
-}
-.cmdk-group {
-  margin: 0.45rem 0.4rem 0.25rem;
-  font-family: var(--font-jetbrains, monospace);
-  font-size: 0.62rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-}
-.cmdk-item {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-radius: 0.5rem;
-  background: transparent;
-  color: var(--fg);
-  padding: 0.55rem 0.6rem;
-  cursor: pointer;
-  font: inherit;
-}
-.cmdk-item:hover,
-.cmdk-item.is-active {
-  background: color-mix(in srgb, var(--ember, var(--accent)) 12%, transparent);
-  box-shadow: inset 2px 0 0 var(--ember, var(--accent));
-}
-.cmdk-item-ico {
-  display: grid;
-  place-items: center;
-  color: var(--fg-dim);
-  flex-shrink: 0;
-}
-.cmdk-item.is-active .cmdk-item-ico { color: var(--fg); }
-.cmdk-item-body {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-.cmdk-item-label {
-  font-size: 0.86rem;
-  font-weight: 550;
-}
-.cmdk-item-hint {
-  font-size: 0.72rem;
-  color: var(--fg-dim);
-}
-.cmdk-empty {
-  padding: 1.2rem 0.8rem;
-  text-align: center;
-  color: var(--fg-dim);
-  font-size: 0.85rem;
 }
 
 /* Legacy density leftovers for non-rail surfaces — keep nav overrides quiet */
@@ -476,7 +402,7 @@ body:has(.sindri) {
   min-height: 0;
   height: auto;
   /* remaining viewport under the fixed bar (shell already has padding-top) */
-  max-height: calc(100vh - var(--forge-bar-h));
+  max-height: calc(100vh - var(--forge-lintel-h));
   overflow: hidden;
   z-index: 0;
 }

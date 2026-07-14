@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 import type { Project } from "@brokk/sdk";
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Bird } from "lucide-react";
 import { Main, Banner, Button } from "@cold-code-labs/yggdrasil-react";
@@ -153,9 +152,6 @@ export default function Discovery({ projectId }: { projectId?: string }) {
     <Main className="forge-room">
       {/* ── masthead: the scout ── */}
       <header className="forge-head">
-        <Link href={projectId ? `/projects/${projectId}` : "/"} className="forge-crumb">
-          ← Board
-        </Link>
         <div className="forge-head-top">
           <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the scout</span>
