@@ -100,11 +100,6 @@ export default function ConnectRepos() {
               forge. Each connected repo gets a default project.
             </p>
           </div>
-          <div className="forge-head-actions">
-            <Button asChild variant="outline" size="sm">
-              <Link href="/fleet">← Fleet</Link>
-            </Button>
-          </div>
         </div>
         <div className="forge-head-rule" />
       </header>

@@ -1,6 +1,6 @@
 "use client";
 
-import type { Preview, Project, Repository, Subscription, Task } from "@brokk/sdk";
+import type { Project, Repository, Subscription, Task } from "@brokk/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { brokk } from "../lib/api";
 import { useProject } from "../lib/project-context";
@@ -14,8 +14,6 @@ export default function Fleet() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [seats, setSeats] = useState<Subscription[]>([]);
-  const [previews, setPreviews] = useState<Preview[]>([]);
-  const [previewBusy, setPreviewBusy] = useState<Record<string, boolean>>({});
   const [err, setErr] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -30,18 +28,16 @@ export default function Fleet() {
 
   async function load() {
     try {
-      const [r, p, ts, s, pv] = await Promise.all([
+      const [r, p, ts, s] = await Promise.all([
         brokk.listRepositories(),
         brokk.listProjects(),
         brokk.listTasks(),
         brokk.listSubscriptions().catch(() => [] as Subscription[]),
-        brokk.listPreviews().catch(() => [] as Preview[]),
       ]);
       setRepos(r);
       setProjects(p);
       setTasks(ts);
       setSeats(s);
-      setPreviews(pv);
       if (!pid && p[0]) {
         const active = currentId && p.some((x) => x.id === currentId) ? currentId : p[0].id;
         setPid(active);
@@ -70,18 +66,6 @@ export default function Fleet() {
     return m;
   }, [tasks]);
 
-  /** Most-recent active (starting|live) preview per project. */
-  const previewsByProject = useMemo(() => {
-    const m = new Map<string, Preview>();
-    for (const pv of previews) {
-      if (pv.status === "starting" || pv.status === "live") {
-        const existing = m.get(pv.projectId);
-        if (!existing || pv.createdAt > existing.createdAt) m.set(pv.projectId, pv);
-      }
-    }
-    return m;
-  }, [previews]);
-
   const count = (s: string) => tasks.filter((x) => x.status === s).length;
   const queue = useMemo(
     () =>
@@ -90,30 +74,6 @@ export default function Fleet() {
         .sort((a, b) => (a.status === "running" ? -1 : 1) - (b.status === "running" ? -1 : 1)),
     [tasks],
   );
-
-  async function handlePreview(projectId: string) {
-    setPreviewBusy((prev) => ({ ...prev, [projectId]: true }));
-    try {
-      const pv = await brokk.createPreview({ projectId });
-      setPreviews((prev) => [
-        ...prev.filter((x) => !(x.projectId === projectId && (x.status === "starting" || x.status === "live"))),
-        pv,
-      ]);
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setPreviewBusy((prev) => ({ ...prev, [projectId]: false }));
-    }
-  }
-
-  async function handleStopPreview(previewId: string) {
-    try {
-      await brokk.stopPreview(previewId);
-      setPreviews((prev) => prev.filter((x) => x.id !== previewId));
-    } catch (e) {
-      setErr(String(e));
-    }
-  }
 
   async function createTask(e: React.FormEvent) {
     e.preventDefault();
@@ -141,8 +101,6 @@ export default function Fleet() {
       projectById={projectById}
       tasksByProject={tasksByProject}
       queue={queue}
-      previewsByProject={previewsByProject}
-      previewBusy={previewBusy}
       counts={{
         running: count("running"),
         queued: count("queued"),
@@ -156,8 +114,6 @@ export default function Fleet() {
       onPid={setPid}
       onTitle={setTitle}
       onSubmit={createTask}
-      onPreview={handlePreview}
-      onStopPreview={handleStopPreview}
     />
   );
 }

@@ -81,8 +81,8 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Checkbox / radio (accent) | ✓ | globals input[type=checkbox/radio] |
 | Eyebrow + hot tick | ✓ | forge.css `.forge-eyebrow` |
 | Cooling rule / section rule | ✓ | `.forge-head-rule` / `.forge-h-rule` |
-| Crumb (mono breadcrumb) | ✓ | forge.css `.forge-crumb` |
-| Identity plate (initials) | ✓ | globals `.brokk-user-plate` |
+| Crumb (← Fleet / ← Board) | ✗ retired | nav vive na forge lintel |
+| Identity plate (initials) | ✓ | globals `.forge-avatar` / Topbar UserMenu |
 | Skeleton (metal heating shimmer) | ✓ | forge.css `.forge-skeleton` |
 | Tooltip | ✓ | `[data-tip]` etched mono plate (CSS-only); rich/positioned tips promote to component later |
 
@@ -92,10 +92,10 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Masthead / stamped nameplate | ✓ | `.forge-head*` (+ `.forge-head-copy` / `.forge-head-actions` baseline) |
 | Workshop room frame | ✓ | `.forge-room` + `.ygg-main` gutter; Sindri stays edge-to-edge |
 | Collapsible rail | ✗ replaced | wall-rail (2026-07) |
-| Wall rail | ✗ replaced | → **Forge bar** (verga / lintel) |
-| Forge bar (verga) | ✓ | `.forge-bar` + Anvil chip + Bench/User pops |
-| ⌘K command palette | ✓ | `CommandPalette.tsx` / `.cmdk*` |
-| Anvil switcher (forged menu) | ✓ | wall Anvil button + ComposerMenu |
+| Wall rail | ✗ replaced | → **Forge lintel** (verga) |
+| Forge lintel (verga) | ✓ | `.forge-lintel` + rooms + Bench visível + Anvil + User |
+| ⌘K command palette | ✗ retired | over-engineering; Bench/rooms na barra |
+| Anvil switcher (forged menu) | ✓ | Topbar Anvil + ComposerMenu portal sob âncora |
 | Growing composer tray | ✓ | `.sindri-input` auto-grow + `--sindri-input-max` |
 | Section heading | ✓ | `.forge-h*` |
 | Vitals strip | ✓ | `.forge-tiles/tile` |
