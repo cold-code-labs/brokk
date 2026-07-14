@@ -37,10 +37,13 @@ interface Skill {
 ## How the model reaches them
 
 1. **Catalogue** — name + trigger in the system prompt; model calls `invoke_skill`.
-2. **Pinned** — composer Skill chip at session create stores `chat_sessions.skill`;
-   instructions inject as `## Active skill (pinned)` every turn (API + CLI lanes).
+2. **Slash `/` in the Chat composer** — type `/` to pick a skill; the token stays in
+   the draft (e.g. `/litr-frontend-design redesign the landing`). On send, the
+   skill is stripped from the user text, pinned on the session, and injected as
+   `## Active skill (pinned)` for API + CLI lanes.
+3. **Pinned badge** — after the first slash use, the session shows `/{skill} pinned`.
 
-`GET /skills` returns the catalogue for the UI chip.
+`GET /skills` feeds the `/` menu. There is no Skill chip in the cockpit.
 
 ## Adding an instruction skill
 

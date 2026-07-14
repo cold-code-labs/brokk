@@ -66,18 +66,15 @@ import {
 import { STATUS_COLOR, t as theme } from "../lib/theme";
 import { StudioPanel } from "./StudioPanel";
 import { FileViewer } from "./FileViewer";
+import { ComposerChip } from "./ComposerChip";
+import { ComposerMenu } from "./ComposerMenu";
 
-// Full model choice. The subscription-seat gate that used to 429 Sonnet/Opus is
-// fixed at the gateway (Ratatoskr shapes the Claude Code system marker so the
-// premium tiers serve reliably), so all three are selectable. Default is Sonnet;
-// Opus for hard work, Haiku for cheap/fast turns.
+// Full model choice (Claude engines only). Cursor seat is always Auto.
 const MODELS = [
   { id: "sonnet", label: "Sonnet" },
   { id: "opus", label: "Opus" },
   { id: "haiku", label: "Haiku" },
 ];
-
-// Reasoning effort → extended-thinking budget (backend: low=off, medium, high).
 const EFFORTS = [
   { id: "low", label: "Low" },
   { id: "medium", label: "Medium" },
@@ -87,10 +84,10 @@ const EFFORTS = [
 // Turn engine — fixed at session creation (the engine owns the continuity).
 // IDs: claude-api | claude-cli | cursor-api | cursor-cli (legacy afl/cli still accepted).
 const ENGINES = [
-  { id: "claude-api", label: "Claude API" },
-  { id: "claude-cli", label: "Claude CLI" },
-  { id: "cursor-api", label: "Cursor API" },
-  { id: "cursor-cli", label: "Cursor CLI" },
+  { id: "claude-api", label: "Claude API", hint: "LiteLLM → Ratatoskr Max seat" },
+  { id: "claude-cli", label: "Claude CLI", hint: "Official Claude Code headless" },
+  { id: "cursor-api", label: "Cursor API", hint: "Ratatoskr cursor sidecar · always Auto" },
+  { id: "cursor-cli", label: "Cursor CLI", hint: "agent CLI · always Auto" },
 ];
 
 function normalizeEngineUi(raw: string | undefined): string {
@@ -111,7 +108,26 @@ function normalizeEngineUi(raw: string | undefined): string {
   }
 }
 
+function isCursorEngine(engine: string): boolean {
+  return engine === "cursor-api" || engine === "cursor-cli";
+}
+
 type SkillOption = { name: string; description: string; kind: string };
+
+/** Pull `/skill-name` tokens that match the catalogue; leave the rest as the prompt. */
+function extractSkillSlash(
+  text: string,
+  known: Set<string>,
+): { skill: string | null; text: string } {
+  let skill: string | null = null;
+  const cleaned = text.replace(/(^|\s)\/([a-z][a-z0-9-]*)\b/gi, (full, lead: string, name: string) => {
+    const id = name.toLowerCase();
+    if (!known.has(id)) return full;
+    skill = id;
+    return lead === " " ? " " : "";
+  });
+  return { skill, text: cleaned.replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim() };
+}
 
 // Split (chat fraction) — persisted per-browser, so the balance you set survives
 // reloads and session switches. Default is an even 50/50 so the conversation gets
@@ -171,8 +187,10 @@ export default function Chat() {
   const [model, setModel] = useState("sonnet");
   const [effort, setEffort] = useState("medium");
   const [engine, setEngine] = useState("claude-api");
-  const [skill, setSkill] = useState("");
   const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
+  const [slashOpen, setSlashOpen] = useState(false);
+  const [slashActive, setSlashActive] = useState(0);
+  const [slashQuery, setSlashQuery] = useState("");
   const [sessions, setSessions] = useState<ChatSessionWithStats[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -199,6 +217,7 @@ export default function Chat() {
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const liveSeqRef = useRef(-1); // highest seq we've persisted into messages
   // Projects we're already minting a first chat for — guards against a double
   // create from React Strict-Mode's mount/remount or a fast environment re-select.
@@ -236,7 +255,14 @@ export default function Chat() {
       // Empty project → create the first chat (once).
       if (creatingRef.current.has(projectId)) return;
       creatingRef.current.add(projectId);
-      const s = await chat.createSession({ projectId, model, effort, engine, skill: skill || null }).catch(() => null);
+      const s = await chat
+        .createSession({
+          projectId,
+          model: isCursorEngine(engine) ? "auto" : model,
+          effort,
+          engine,
+        })
+        .catch(() => null);
       creatingRef.current.delete(projectId);
       if (!active || !s) return;
       const withStats: ChatSessionWithStats = {
@@ -337,10 +363,15 @@ export default function Chat() {
     liveSeqRef.current = -1;
     const { session, messages: msgs, running: live } = await chat.getSession(id);
     // Reflect the session's saved model + effort (all tiers are selectable now).
-    setModel(MODELS.some((m) => m.id === session.model) ? session.model : "sonnet");
+    setModel(
+      isCursorEngine(normalizeEngineUi(session.engine))
+        ? "auto"
+        : MODELS.some((m) => m.id === session.model)
+          ? session.model
+          : "sonnet",
+    );
     setEffort(session.effort && EFFORTS.some((e) => e.id === session.effort) ? session.effort : "medium");
     setEngine(normalizeEngineUi(session.engine));
-    setSkill(session.skill ?? "");
     setMessages(msgs);
     liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
     if (live) {
@@ -354,7 +385,12 @@ export default function Chat() {
   async function newChat() {
     if (!projectId) return;
     setError("");
-    const s = await chat.createSession({ projectId, model, effort, engine, skill: skill || null });
+    const s = await chat.createSession({
+      projectId,
+      model: isCursorEngine(engine) ? "auto" : model,
+      effort,
+      engine,
+    });
     const withStats: ChatSessionWithStats = {
       ...s,
       stats: { messages: 0, tokensIn: 0, tokensOut: 0, lastMessageAt: null },
@@ -366,20 +402,29 @@ export default function Chat() {
 
   async function send(sidOverride?: string, textOverride?: string) {
     const sid = sidOverride ?? sessionId;
-    const text = (textOverride ?? input).trim();
-    if (!text || !sid || running) return;
+    const raw = (textOverride ?? input).trim();
+    if (!raw || !sid || running) return;
+    const known = new Set(skillOptions.map((s) => s.name));
+    const { skill: slashSkill, text } = extractSkillSlash(raw, known);
+    if (!text) return;
     setInput("");
+    setSlashOpen(false);
     setError("");
     setLiveText("");
     setLiveThinking("");
     setRunning(true);
     setPhase("starting");
+    if (slashSkill) {
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sid ? { ...s, skill: slashSkill } : s)),
+      );
+    }
     // optimistic user bubble at the next seq
-    upsert({ seq: liveSeqRef.current + 1, role: "user", blocks: [{ type: "text", text }] });
+    upsert({ seq: liveSeqRef.current + 1, role: "user", blocks: [{ type: "text", text: raw }] });
     const ac = new AbortController();
     abortRef.current = ac;
     try {
-      await sendMessage(sid, text, handleEvent, ac.signal);
+      await sendMessage(sid, text, handleEvent, ac.signal, slashSkill);
     } catch (e) {
       if (!ac.signal.aborted) setError(String(e));
       setRunning(false);
@@ -414,10 +459,79 @@ export default function Chat() {
   }
 
   function onKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    const filtered = slashFiltered;
+    if (slashOpen && filtered.length) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashActive((i) => (i + 1) % filtered.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashActive((i) => (i - 1 + filtered.length) % filtered.length);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashOpen(false);
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        const pick = filtered[slashActive];
+        if (pick) applySlashSkill(pick.name);
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const pick = filtered[slashActive];
+        if (pick) applySlashSkill(pick.name);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void send();
     }
+  }
+
+  const slashFiltered = useMemo(() => {
+    const q = slashQuery.toLowerCase();
+    return skillOptions.filter(
+      (s) => !q || s.name.includes(q) || s.description.toLowerCase().includes(q),
+    );
+  }, [skillOptions, slashQuery]);
+
+  function syncSlashFromInput(next: string, caret: number) {
+    const before = next.slice(0, caret);
+    const m = before.match(/(?:^|\s)\/([a-z0-9-]*)$/i);
+    if (!m) {
+      setSlashOpen(false);
+      setSlashQuery("");
+      return;
+    }
+    setSlashQuery(m[1]!.toLowerCase());
+    setSlashOpen(true);
+    setSlashActive(0);
+  }
+
+  function applySlashSkill(name: string) {
+    const el = inputRef.current;
+    const caret = el?.selectionStart ?? input.length;
+    const before = input.slice(0, caret);
+    const after = input.slice(caret);
+    const replaced = before.replace(/(?:^|\s)\/[a-z0-9-]*$/i, (m) => {
+      const lead = m.startsWith(" ") || m.startsWith("\n") ? m[0]! : "";
+      return `${lead}/${name} `;
+    });
+    const next = replaced + after;
+    setInput(next);
+    setSlashOpen(false);
+    requestAnimationFrame(() => {
+      const pos = replaced.length;
+      el?.focus();
+      el?.setSelectionRange(pos, pos);
+    });
   }
 
   // Drag the gutter between chat and preview to re-balance the split. Clamped so
@@ -687,95 +801,97 @@ export default function Chat() {
 
               {/* composer = cockpit: the controls live where the hand acts */}
               <div className="sindri-composer">
-                <textarea
-                  className="sindri-input"
-                  placeholder="Describe the work…  (Enter sends · Shift+Enter for a new line)"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={onKey}
-                  rows={2}
-                  disabled={running}
-                />
+                <div className="sindri-composer-stack">
+                  <ComposerMenu
+                    open={slashOpen}
+                    items={slashFiltered.map((s) => ({
+                      id: s.name,
+                      label: `/${s.name}`,
+                      hint: s.description,
+                      tag: s.kind === "capability" ? "run" : "playbook",
+                    }))}
+                    activeIndex={slashActive}
+                    onActiveIndex={setSlashActive}
+                    onPick={applySlashSkill}
+                    onClose={() => setSlashOpen(false)}
+                    emptyHint={skillOptions.length ? "No skill matches" : "No skills loaded"}
+                  />
+                  <textarea
+                    ref={inputRef}
+                    className="sindri-input"
+                    placeholder="Describe the work…  (/ for skills · Enter sends · Shift+Enter for a new line)"
+                    value={input}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setInput(v);
+                      syncSlashFromInput(v, e.target.selectionStart ?? v.length);
+                    }}
+                    onKeyDown={onKey}
+                    onClick={(e) =>
+                      syncSlashFromInput(input, (e.target as HTMLTextAreaElement).selectionStart)
+                    }
+                    rows={2}
+                    disabled={running}
+                  />
+                </div>
+                {currentSession?.skill ? (
+                  <div className="sindri-skill-pin" title="Skill pinned for this session">
+                    <span className="sindri-skill-pin-mark" aria-hidden="true" />
+                    <code>/{currentSession.skill}</code>
+                    <span className="sindri-skill-pin-lab">pinned</span>
+                  </div>
+                ) : null}
                 <div className="sindri-cockpit">
                   <div className="sindri-cockpit-controls">
-                    {/* effort: a lightning chip whose signal bars fill up with the
-                        reasoning level (low=1 · medium=2 · deep=3). Hidden on the CLI
-                        engine, which manages its own thinking and ignores this. */}
                     {engine !== "claude-cli" && engine !== "cursor-cli" && (
-                      <label className="sindri-chip sindri-effort" title="Reasoning effort">
-                        <Zap size={13} />
-                        <span className="sindri-bars" data-level={effort} aria-hidden="true">
-                          <i />
-                          <i />
-                          <i />
-                        </span>
-                        <select
-                          className="sindri-chip-select"
-                          value={effort}
-                          onChange={(e) => {
-                            setEffort(e.target.value);
-                            if (sessionId) chat.patchSession(sessionId, { effort: e.target.value }).catch(() => {});
-                          }}
-                        >
-                          {EFFORTS.map((x) => (
-                            <option key={x.id} value={x.id}>
-                              {x.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                    <label className="sindri-chip sindri-model" title="Model">
-                      <select
-                        className="sindri-chip-select"
-                        value={model}
-                        onChange={(e) => {
-                          setModel(e.target.value);
-                          if (sessionId) chat.patchSession(sessionId, { model: e.target.value }).catch(() => {});
+                      <ComposerChip
+                        title="Reasoning effort"
+                        className="sindri-effort"
+                        value={effort}
+                        icon={<Zap size={13} />}
+                        trigger={
+                          <span className="sindri-bars" data-level={effort} aria-hidden="true">
+                            <i />
+                            <i />
+                            <i />
+                          </span>
+                        }
+                        items={EFFORTS.map((x) => ({ id: x.id, label: x.label }))}
+                        onChange={(id) => {
+                          setEffort(id);
+                          if (sessionId) chat.patchSession(sessionId, { effort: id }).catch(() => {});
                         }}
-                      >
-                        {MODELS.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={12} className="sindri-chip-caret" />
-                    </label>
-                    {/* Engine is fixed at creation (continuity lives in it) — the
-                        select reflects the open session and applies to NEW chats. */}
-                    <label className="sindri-chip sindri-model" title="Motor (vale para novos chats)">
-                      <select
-                        className="sindri-chip-select"
-                        value={engine}
-                        onChange={(e) => setEngine(e.target.value)}
-                      >
-                        {ENGINES.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={12} className="sindri-chip-caret" />
-                    </label>
-                    <label
-                      className="sindri-chip sindri-model"
-                      title="Skill Brokk (fixixa no chat novo; playbooks em skills/)"
-                    >
-                      <select
-                        className="sindri-chip-select"
-                        value={skill}
-                        onChange={(e) => setSkill(e.target.value)}
-                      >
-                        <option value="">Sem skill</option>
-                        {skillOptions.map((s) => (
-                          <option key={s.name} value={s.name} title={s.description}>
-                            {s.name}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown size={12} className="sindri-chip-caret" />
-                    </label>
+                      />
+                    )}
+                    {isCursorEngine(engine) ? (
+                      <span className="sindri-chip sindri-chip-static" title="Cursor always uses Auto">
+                        Auto
+                      </span>
+                    ) : (
+                      <ComposerChip
+                        title="Model"
+                        value={model}
+                        items={MODELS.map((m) => ({ id: m.id, label: m.label }))}
+                        onChange={(id) => {
+                          setModel(id);
+                          if (sessionId) chat.patchSession(sessionId, { model: id }).catch(() => {});
+                        }}
+                      />
+                    )}
+                    <ComposerChip
+                      title="Motor (vale para novos chats)"
+                      value={engine}
+                      items={ENGINES.map((m) => ({
+                        id: m.id,
+                        label: m.label,
+                        hint: m.hint,
+                        tag: m.id.startsWith("cursor") ? "cursor" : "claude",
+                      }))}
+                      onChange={(id) => {
+                        setEngine(id);
+                        if (isCursorEngine(id)) setModel("auto");
+                      }}
+                    />
                   </div>
                   {running ? (
                     <Button

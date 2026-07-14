@@ -92,7 +92,11 @@ const PatchSession = z.object({
   effort: z.enum(["low", "medium", "high"]).nullable().optional(),
 });
 
-const SendMessage = z.object({ text: z.string().min(1) });
+const SendMessage = z.object({
+  text: z.string().min(1),
+  /** Optional Brokk Skill for this turn (slash `/skill` from the composer). */
+  skill: z.string().min(1).max(80).optional().nullable(),
+});
 
 // Per-teammate seat routing for the interactive chat (default ON; BROKK_DIRECT_SEAT=0
 // forces every turn back through the shared Ratatoskr seat). Mirrors the forge.
@@ -337,7 +341,11 @@ export function buildSindri(deps: SindriDeps): Hono {
     if (deps.turns.isRunning(id)) return c.json({ error: "a turn is already running" }, 409);
 
     try {
-      deps.turns.start(id, (emit, signal) => runSessionTurn(deps, id, parsed.data.text, emit, signal));
+      deps.turns.start(id, (emit, signal) =>
+        runSessionTurn(deps, id, parsed.data.text, emit, signal, {
+          skill: parsed.data.skill?.trim() || null,
+        }),
+      );
     } catch (e) {
       return c.json({ error: (e as Error).message }, 409);
     }
@@ -627,9 +635,27 @@ async function runSessionTurn(
   text: string,
   emit: (e: AgentEvent) => void,
   signal: AbortSignal,
+  opts?: { skill?: string | null },
 ): Promise<void> {
-  const session = await deps.store.getChatSession(sessionId);
+  let session = await deps.store.getChatSession(sessionId);
   if (!session) throw new Error("session not found");
+  // Slash-picked skill: persist on the session so later turns keep the pin,
+  // and so CLI/API lanes both see session.skill.
+  if (opts?.skill) {
+    const known = new Set(
+      skillMetaList([
+        { name: "discovery", description: "", kind: "capability" },
+        { name: "enhance", description: "", kind: "capability" },
+      ]).map((s) => s.name),
+    );
+    if (known.has(opts.skill) && session.skill !== opts.skill) {
+      session =
+        (await deps.store.updateChatSession(session.id, { skill: opts.skill })) ?? {
+          ...session,
+          skill: opts.skill,
+        };
+    }
+  }
   const project = await deps.store.getProject(session.projectId);
   if (!project) throw new Error("project not found");
   const repo = await deps.store.getRepository(project.repositoryId);

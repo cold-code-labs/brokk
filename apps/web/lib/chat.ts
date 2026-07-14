@@ -190,11 +190,12 @@ export async function sendMessage(
   text: string,
   onEvent: (e: AgentEvent) => void,
   signal?: AbortSignal,
+  skill?: string | null,
 ): Promise<void> {
   const res = await fetch(`${BASE}/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, ...(skill ? { skill } : {}) }),
     signal,
   });
   if (!res.ok) throw new Error(`send → ${res.status} ${await res.text().catch(() => "")}`);
