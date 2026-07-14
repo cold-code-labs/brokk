@@ -100,6 +100,32 @@ export const chat = {
     j<{ session: ChatSession }>("PATCH", `/sessions/${id}`, patch).then((r) => r.session),
   deleteSession: (id: string) => j<{ ok: true }>("DELETE", `/sessions/${id}`),
   stop: (id: string) => j<{ stopped: boolean }>("POST", `/sessions/${id}/stop`),
+  devtreeStatus: (projectId: string, sessionId?: string | null) =>
+    j<{
+      dirty: boolean;
+      branch: string;
+      files: string[];
+      path: string | null;
+      ahead: number | null;
+      missing?: boolean;
+    }>(
+      "GET",
+      `/projects/${encodeURIComponent(projectId)}/devtree${
+        sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""
+      }`,
+    ),
+  devtreeCommit: (
+    projectId: string,
+    opts?: { message?: string; sessionId?: string | null },
+  ) =>
+    j<{ ok: true; sha: string; pushed: boolean; branch: string }>(
+      "POST",
+      `/projects/${encodeURIComponent(projectId)}/devtree/commit`,
+      {
+        message: opts?.message,
+        sessionId: opts?.sessionId || undefined,
+      },
+    ),
 };
 
 export type { Preview };
