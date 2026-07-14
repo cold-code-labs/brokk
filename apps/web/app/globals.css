@@ -39,161 +39,184 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* ── Wall Rail ────────────────────────────────────────────────────────────────
-   Forever a 3.5rem icon strip (v0/Lovable workbench form). No fat labels column,
-   no Forge/Anvil/Bench groups. Ember lives in work, not chrome. Hot spot: wall. */
+/* ── Forge bar (verga / lintel) ───────────────────────────────────────────────
+   Hauldr-form topbar: brand + rooms + Anvil context + utils. Canvas is everything
+   below. Ember stays out of chrome. Hot spot: forge bar. */
 :root {
-  --sidebar-w: 3.5rem;
-  --wall-w: 3.5rem;
+  --forge-bar-h: 2.75rem;
+  --sidebar-w: 0px;
 }
 .ygg-shell {
   transition: none;
 }
-.ygg-sidebar.wall-rail {
-  /* Sit above the canvas so flyouts/tips never paint under page chrome. */
+.ygg-shell.forge-shell--lintel {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+  min-height: 100vh;
+}
+.forge-bar {
   position: sticky;
   top: 0;
   z-index: 60;
-  width: var(--wall-w);
-  min-width: var(--wall-w);
-  max-width: var(--wall-w);
-  box-sizing: border-box;
-  overflow: visible;
-  padding: 0.65rem 0.4rem 0.75rem;
+  flex-shrink: 0;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  height: var(--forge-bar-h);
+  padding: 0 0.85rem;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--line-soft);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--fg) 2.5%, transparent), transparent 70%),
+    var(--bg-soft, var(--bg));
+  overflow: visible;
+}
+.forge-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+  text-decoration: none;
+  color: var(--fg);
+  padding: 0.15rem 0.25rem 0.15rem 0;
+  border-radius: 0.4rem;
+}
+.forge-brand:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+.forge-brand-mark {
+  display: block;
+  width: 1.15rem;
+  height: auto;
+}
+.forge-brand-word {
+  font-family: var(--font-display, inherit);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+.forge-rooms {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.forge-room-link {
+  display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  border-right: 1px solid var(--line-soft);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--fg) 2.5%, transparent), transparent 28%),
-    var(--bg-soft, var(--bg));
-}
-/* Don't let the 8px-grid sidebar padding override the strip. */
-.ygg-shell .ygg-sidebar.wall-rail {
-  padding: 0.65rem 0.4rem 0.75rem;
-  border-right: 1px solid var(--line-soft);
-}
-.wall-mark {
-  display: grid;
-  place-items: center;
-  width: 2.35rem;
-  height: 2.35rem;
-  margin-bottom: 0.45rem;
-  border-radius: 0.55rem;
-  text-decoration: none;
-  transition: background 0.15s ease;
-}
-.wall-mark:hover {
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
-}
-.wall-mark img {
-  width: 1.35rem;
-  height: auto;
-  display: block;
-}
-.wall-nav {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.2rem;
-  width: 100%;
-  flex: 1;
-  min-height: 0;
-}
-.wall-rule {
-  display: block;
-  width: 1.25rem;
-  height: 1px;
-  margin: 0.45rem 0;
-  background: var(--line);
-}
-.wall-btn {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 2.35rem;
-  height: 2.35rem;
+  height: 1.85rem;
+  padding: 0 0.55rem;
+  border-radius: 0.45rem;
   border: 0;
-  border-radius: 0.55rem;
   background: transparent;
   color: var(--fg-dim);
-  cursor: pointer;
   text-decoration: none;
-  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  font-size: 0.8rem;
+  font-weight: 550;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
 }
-.wall-btn:hover {
+.forge-room-link:hover {
   color: var(--fg);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
-.wall-btn.is-on {
+.forge-room-link.is-on {
   color: var(--fg);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  box-shadow: inset 2px 0 0 var(--ember, var(--accent));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 -2px 0 var(--ember, var(--accent));
 }
-.wall-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-/* New project — first gesture on the wall */
-.wall-btn.wall-new {
-  color: var(--accent);
+.forge-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 1.85rem;
+  padding: 0 0.55rem;
+  margin-left: 0.25rem;
+  border-radius: 0.45rem;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 650;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
-.wall-btn.wall-new:hover {
+.forge-new:hover,
+.forge-new.is-on {
   color: var(--fg);
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
-.wall-btn.wall-new.is-on {
-  box-shadow: inset 2px 0 0 var(--accent);
+.forge-bar-spacer {
+  flex: 1;
+  min-width: 0.5rem;
 }
-.wall-slot {
-  position: relative;
-  z-index: 2;
-}
-.wall-slot.is-open {
-  z-index: 70;
-}
-.wall-slot .sindri-menu,
-.wall-rail .sindri-menu {
-  left: calc(100% + 0.55rem);
-  right: auto;
-  top: 0;
-  bottom: auto;
-  min-width: 14rem;
-  z-index: 80;
-}
-.wall-foot {
-  margin-top: auto;
-  display: flex;
-  flex-direction: column;
+.forge-anvil {
+  display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--line-soft);
-  width: 100%;
+  gap: 0.4rem;
+  max-width: 14rem;
+  height: 1.85rem;
+  padding: 0 0.55rem 0 0.5rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--fg) 3.5%, transparent);
+  color: var(--fg-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 550;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
-.wall-user-btn {
+.forge-anvil:hover:not(:disabled),
+.forge-anvil.is-open {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.forge-anvil:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.forge-anvil-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.forge-utils {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+.forge-icon {
   display: grid;
   place-items: center;
-  width: 2.35rem;
-  height: 2.35rem;
+  width: 1.85rem;
+  height: 1.85rem;
   border: 0;
-  border-radius: 0.55rem;
+  border-radius: 0.45rem;
   background: transparent;
+  color: var(--fg-dim);
   cursor: pointer;
-  padding: 0;
+  transition: background 0.12s, color 0.12s;
 }
-.wall-user-btn:hover {
-  background: color-mix(in srgb, var(--fg) 6%, transparent);
+.forge-icon:hover,
+.forge-icon.is-on {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
-.wall-user-plate {
+.forge-avatar {
   display: grid;
   place-items: center;
   width: 1.7rem;
   height: 1.7rem;
+  margin-left: 0.15rem;
   border-radius: 50%;
   border: 1px solid var(--line);
   background:
@@ -204,24 +227,39 @@ body {
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--fg-soft);
+  cursor: pointer;
+  padding: 0;
 }
-.wall-user .sindri-menu {
-  bottom: 0;
-  top: auto;
+.forge-avatar:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
 }
-/* Tips fly right off the wall (not up into the void) */
-.wall-rail [data-tip]:after {
-  left: calc(100% + 0.55rem);
+.forge-slot {
+  position: relative;
+  z-index: 2;
+}
+.forge-slot.is-open {
+  z-index: 70;
+}
+.forge-bar .sindri-menu {
+  left: 0;
   right: auto;
-  bottom: 50%;
-  top: auto;
-  transform: translateY(50%) translateX(-2px);
-  white-space: nowrap;
-  z-index: 90;
+  top: calc(100% + 0.4rem);
+  bottom: auto;
+  min-width: 14rem;
+  z-index: 80;
 }
-.wall-rail [data-tip]:hover:after,
-.wall-rail [data-tip]:focus-visible:after {
-  transform: translateY(50%) translateX(0);
+.forge-slot-end .sindri-menu {
+  left: auto;
+  right: 0;
+}
+@media (max-width: 720px) {
+  .forge-brand-word { display: none; }
+  .forge-room-link span,
+  .forge-new span { display: none; }
+  .forge-room-link,
+  .forge-new { padding: 0; width: 1.85rem; justify-content: center; }
+  .forge-anvil { max-width: 8.5rem; }
+  .forge-anvil-name { max-width: 5.5rem; }
 }
 
 /* ⌘K palette */
@@ -334,7 +372,7 @@ body {
 }
 
 /* Legacy density leftovers for non-rail surfaces — keep nav overrides quiet */
-.ygg-sidebar:not(.wall-rail) { padding: 1.1rem 0.75rem; }
+.ygg-sidebar { padding: 1.1rem 0.75rem; }
 .ygg-nav { gap: 1.15rem; }
 .ygg-nav-group-label {
   font-size: 0.64rem;
@@ -412,17 +450,6 @@ body {
   overflow: hidden;
   box-sizing: border-box;
 }
-/* Wall rail must spill flyouts into the canvas column. */
-.ygg-sidebar.wall-rail,
-.ygg-shell .ygg-sidebar.wall-rail {
-  overflow: visible;
-}
-.ygg-sidebar.wall-rail .wall-nav {
-  /* no scroll clip — strip is short; menus/tips need to escape */
-  overflow: visible;
-  flex: 1;
-  min-height: 0;
-}
 .ygg-nav {
   flex: 1;
   min-height: 0;
@@ -443,12 +470,13 @@ body:has(.sindri) {
 .ygg-shell:has(.sindri) {
   height: 100vh;
   min-height: 0;
+  overflow: hidden;
 }
 .ygg-shell:has(.sindri) > .forge-canvas {
-  height: 100vh;
+  flex: 1;
   min-height: 0;
+  height: auto;
   overflow: hidden;
-  /* Explicit: canvas may not climb above the wall flyouts. */
   z-index: 0;
 }
 .sindri {
@@ -3363,12 +3391,7 @@ html.dark .fv-hl .shiki span {
    The remaining loose values (11/17/29px) on the high-traffic surfaces snap to
    the --sp-* ladder. Deep leaf components stay as-is — this closes the visible
    drift, not a machine-exhaustive audit (flagged in the backlog). */
-.ygg-shell .ygg-sidebar:not(.wall-rail) { padding: var(--sp-4) var(--sp-3); }
-.ygg-shell .ygg-sidebar.wall-rail {
-  padding: 0.65rem 0.4rem 0.75rem;
-  overflow: visible;
-  z-index: 60;
-}
+.ygg-shell .ygg-sidebar { padding: var(--sp-4) var(--sp-3); }
 .ygg-shell .ygg-nav-group-label { margin: 0 0 var(--sp-1); padding: 0 var(--sp-2); }
 .ygg-shell .sindri-bubble { padding: var(--sp-3) var(--sp-4); }
 .ygg-shell .sindri-preview-msg { gap: var(--sp-2); }

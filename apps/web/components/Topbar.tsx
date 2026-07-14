@@ -1,15 +1,14 @@
 "use client";
 
 /**
- * Wall Rail — Brokk chrome (litr-frontend-design remolho).
- * Form borrowed from v0/Lovable workbench (icon strip + overflow), soul stays
- * Forge at Night. Forever a 3.5rem strip — no fat SaaS sidebar with Forge/Anvil/Bench.
+ * Forge lintel (verga) — Brokk product chrome.
+ * Hauldr-like topbar form: brand + rooms + Anvil context + utils.
+ * Soul stays Forge at Night — chrome quiet; ember only in work.
  */
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { NavSidebar } from "@cold-code-labs/yggdrasil-react";
 import {
   LayoutGrid,
   MessageSquare,
@@ -23,12 +22,13 @@ import {
   Gauge,
   Search,
   Link2,
+  ChevronDown,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import { ComposerMenu } from "./ComposerMenu";
 import { CommandPalette } from "./CommandPalette";
 
-type SidebarUserProps = { name: string; role?: string; authDisabled: boolean };
+type TopbarUserProps = { name: string; role?: string; authDisabled: boolean };
 
 const PRIMARY = [
   { href: "/fleet", label: "Projects", icon: LayoutGrid, match: (p: string) => p === "/fleet" },
@@ -58,7 +58,7 @@ function AnvilMenu() {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const current = projects.find((p) => p.id === currentId);
-  const tip = current?.name ?? (projects.length ? "Pick project" : "No projects");
+  const label = current?.name ?? (projects.length ? "Pick project" : "No project");
 
   function pick(id: string) {
     setCurrentId(id);
@@ -67,23 +67,24 @@ function AnvilMenu() {
   }
 
   return (
-    <div className={`wall-slot wall-anvil${open ? " is-open" : ""}`}>
+    <div className={`forge-slot${open ? " is-open" : ""}`}>
       <button
         type="button"
-        className="wall-btn"
-        aria-label={`Project: ${tip}`}
+        className={`forge-anvil${open ? " is-open" : ""}`}
+        aria-label={`Project on the anvil: ${label}`}
         aria-expanded={open}
         aria-haspopup="listbox"
         disabled={projects.length === 0}
-        data-tip={tip}
-        title={tip}
+        title={label}
         onClick={() => {
           if (!projects.length) return;
           setActive(Math.max(0, projects.findIndex((p) => p.id === currentId)));
           setOpen((v) => !v);
         }}
       >
-        <Anvil size={18} strokeWidth={1.75} />
+        <Anvil size={15} strokeWidth={1.75} aria-hidden />
+        <span className="forge-anvil-name">{label}</span>
+        <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
       </button>
       <ComposerMenu
         open={open}
@@ -118,22 +119,22 @@ function BenchMenu({ onSearch }: { onSearch: () => void }) {
       tag: path.startsWith(n.href) ? "here" : undefined,
     })),
   ];
+  const onBench = BENCH.some((n) => path.startsWith(n.href));
 
   return (
-    <div className={`wall-slot wall-bench${open ? " is-open" : ""}`}>
+    <div className={`forge-slot forge-slot-end${open ? " is-open" : ""}`}>
       <button
         type="button"
-        className={`wall-btn${BENCH.some((n) => path.startsWith(n.href)) ? " is-on" : ""}`}
+        className={`forge-icon${onBench ? " is-on" : ""}`}
         aria-label="Bench"
         aria-expanded={open}
-        data-tip="Bench"
         title="Bench"
         onClick={() => {
           setActive(0);
           setOpen((v) => !v);
         }}
       >
-        <Ellipsis size={18} strokeWidth={1.75} />
+        <Ellipsis size={16} strokeWidth={1.75} />
       </button>
       <ComposerMenu
         open={open}
@@ -152,27 +153,24 @@ function BenchMenu({ onSearch }: { onSearch: () => void }) {
   );
 }
 
-function UserMenu({ user }: { user: SidebarUserProps }) {
+function UserMenu({ user }: { user: TopbarUserProps }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   return (
-    <div className={`wall-slot wall-user${open ? " is-open" : ""}`}>
+    <div className={`forge-slot forge-slot-end${open ? " is-open" : ""}`}>
       <button
         type="button"
-        className="wall-user-btn"
+        className="forge-avatar"
         aria-label={user.name}
         aria-expanded={open}
-        data-tip={user.name}
         title={user.name}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="wall-user-plate" aria-hidden>
-          {initials(user.name)}
-        </span>
+        {initials(user.name)}
       </button>
       <ComposerMenu
         open={open}
-        placement="above"
+        placement="below"
         items={[
           {
             id: "who",
@@ -193,7 +191,7 @@ function UserMenu({ user }: { user: SidebarUserProps }) {
   );
 }
 
-export default function Sidebar({ user }: { user?: SidebarUserProps }) {
+export default function Topbar({ user }: { user?: TopbarUserProps }) {
   const path = usePathname();
   const { currentId } = useProject();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -213,25 +211,17 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
 
   const boardHref = currentId ? `/projects/${currentId}` : "/fleet";
   const boardOn = path.startsWith("/projects") && !path.endsWith("/descoberta");
+  const newOn = path === "/new" || path.startsWith("/new/");
 
   return (
-    <NavSidebar className="wall-rail" aria-label="Brokk wall rail">
-      <Link href="/fleet" className="wall-mark" aria-label="Brokk" data-tip="Brokk" title="Brokk">
+    <header className="forge-bar" aria-label="Brokk forge bar">
+      <Link href="/fleet" className="forge-brand" aria-label="Brokk">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brokk.svg" alt="" width={28} height={38} />
+        <img src="/brokk.svg" alt="" width={22} height={30} className="forge-brand-mark" />
+        <span className="forge-brand-word">Brokk</span>
       </Link>
 
-      <nav className="wall-nav" aria-label="Primary">
-        <Link
-          href="/new"
-          className={`wall-btn wall-new${path === "/new" || path.startsWith("/new/") ? " is-on" : ""}`}
-          aria-current={path === "/new" || path.startsWith("/new/") ? "page" : undefined}
-          data-tip="New project"
-          title="New project"
-        >
-          <Plus size={18} strokeWidth={1.75} />
-        </Link>
-
+      <nav className="forge-rooms" aria-label="Primary">
         {PRIMARY.map((n) => {
           const Icon = n.icon;
           const on = n.match(path);
@@ -239,48 +229,53 @@ export default function Sidebar({ user }: { user?: SidebarUserProps }) {
             <Link
               key={n.href}
               href={n.href}
-              className={`wall-btn${on ? " is-on" : ""}`}
+              className={`forge-room-link${on ? " is-on" : ""}`}
               aria-current={on ? "page" : undefined}
-              data-tip={n.label}
-              title={n.label}
             >
-              <Icon size={18} strokeWidth={1.75} />
+              <Icon size={15} strokeWidth={1.75} aria-hidden />
+              <span>{n.label}</span>
             </Link>
           );
         })}
-
         <Link
           href={boardHref}
-          className={`wall-btn${boardOn ? " is-on" : ""}`}
+          className={`forge-room-link${boardOn ? " is-on" : ""}`}
           aria-current={boardOn ? "page" : undefined}
-          data-tip="Board"
-          title="Board"
         >
-          <Columns3 size={18} strokeWidth={1.75} />
+          <Columns3 size={15} strokeWidth={1.75} aria-hidden />
+          <span>Board</span>
         </Link>
 
-        <AnvilMenu />
+        <Link
+          href="/new"
+          className={`forge-new${newOn ? " is-on" : ""}`}
+          aria-current={newOn ? "page" : undefined}
+          title="New project"
+        >
+          <Plus size={15} strokeWidth={2} aria-hidden />
+          <span>New</span>
+        </Link>
+      </nav>
 
-        <span className="wall-rule" aria-hidden />
+      <div className="forge-bar-spacer" aria-hidden />
 
+      <AnvilMenu />
+
+      <div className="forge-utils">
         <button
           type="button"
-          className="wall-btn"
+          className="forge-icon"
           onClick={openPalette}
-          data-tip="Search ⌘K"
           title="Search ⌘K"
           aria-label="Search"
         >
-          <Search size={18} strokeWidth={1.75} />
+          <Search size={16} strokeWidth={1.75} />
         </button>
-
         <BenchMenu onSearch={openPalette} />
-      </nav>
+        {user ? <UserMenu user={user} /> : null}
+      </div>
 
-      <div className="wall-foot">{user ? <UserMenu user={user} /> : null}</div>
-
-      {/* Fixed scrim: keep inside the rail so AppShell grid stays 2 columns. */}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-    </NavSidebar>
+    </header>
   );
 }

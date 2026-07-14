@@ -91,8 +91,9 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 |---|---|---|
 | Masthead / stamped nameplate | ✓ | `.forge-head*` (+ `.forge-head-copy` / `.forge-head-actions` baseline) |
 | Workshop room frame | ✓ | `.forge-room` + `.ygg-main` gutter; Sindri stays edge-to-edge |
-| Collapsible rail | ✗ replaced | → **Wall rail** (always icon strip) |
-| Wall rail | ✓ | `.wall-rail` + flyouts Anvil/Bench + tips |
+| Collapsible rail | ✗ replaced | wall-rail (2026-07) |
+| Wall rail | ✗ replaced | → **Forge bar** (verga / lintel) |
+| Forge bar (verga) | ✓ | `.forge-bar` + Anvil chip + Bench/User pops |
 | ⌘K command palette | ✓ | `CommandPalette.tsx` / `.cmdk*` |
 | Anvil switcher (forged menu) | ✓ | wall Anvil button + ComposerMenu |
 | Growing composer tray | ✓ | `.sindri-input` auto-grow + `--sindri-input-max` |
@@ -113,7 +114,7 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 ### L5 Patterns
 | Word | Status | Where |
 |---|---|---|
-| Sidebar chrome (rail, groups, active, switcher) | ✓ | globals + shell.css |
+| Sidebar chrome (rail, groups, active, switcher) | ✗ replaced | → forge bar |
 | Kanban board (anvil, columns, snap-scroll) | ✓ | `.anvil-*` incl. `.anvil-card*` (selected/running states, act buttons, PR link); drawer stays inline by design |
 | Chat cockpit (bubbles, composer, chips) | ✓ | globals `.sindri-*` (bespoke layer, in-language) |
 | Data table | ✓ | `.forge-ledger table` (History) |
