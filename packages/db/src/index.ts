@@ -391,7 +391,7 @@ function rowToChatSession(row: typeof chatSessions.$inferSelect): ChatSession {
     branch: row.branch,
     model: row.model,
     effort: row.effort,
-    engine: row.engine ?? "afl",
+    engine: row.engine ?? "claude-api",
     cliSessionId: row.cliSessionId ?? null,
     createdBy: row.createdBy,
     turnState: row.turnState as ChatTurnState,

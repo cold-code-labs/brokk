@@ -1,16 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// The CLI engine lane for a Sindri session (engine=cli, opt-in per session).
-//
-// One turn = one headless run of the genuine Claude Code CLI in the session's
-// checkout (packages/afl/src/claude-cli.ts). Continuity is the CLI's own
-// (--resume via chat_sessions.cli_session_id), NOT a chat_messages replay — we
-// persist assistant/tool_result blocks only so the workbench renders the same
-// transcript either lane. The afl lane (runTurn) stays the default; Ratatoskr
-// and its callers are untouched by this file.
-//
-// Unlike the afl lane, the CLI brings its own tool surface (Read/Edit/Bash/...)
-// and its own system prompt; we append only session grounding. The repo's
-// CLAUDE.md/AGENTS.md are read by the CLI natively from the checkout.
+// The CLI engine lane for a Sindri session (claude-cli | cursor-cli).
+// Continuity is the CLI's own session id (--resume), not chat_messages replay.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { ChatSession } from "@brokk/core";
@@ -22,12 +12,15 @@ import {
   type ContentBlock,
   resolveModel,
   runClaudeCliTurn,
+  runCursorCliTurn,
 } from "@brokk/chat";
 
 /** Cross-session cap on concurrent CLI turns — the one real cost on the shared
  *  seat is concurrency (NORTH-STAR §9), and this lane bypasses Ratatoskr's gate. */
 const MAX_CONCURRENT = Math.max(1, Number(process.env.BROKK_CLI_MAX_CONCURRENT ?? 2) || 2);
 let inFlight = 0;
+
+export type CliKind = "claude" | "cursor";
 
 export interface CliSessionTurnInput {
   session: ChatSession;
@@ -43,6 +36,8 @@ export interface CliSessionTurnInput {
   repoFullName: string;
   emit: (e: AgentEvent) => void;
   signal?: AbortSignal;
+  /** Claude Code vs Cursor Agent CLI. Default claude. */
+  kind?: CliKind;
 }
 
 function deriveTitle(text: string): string {
@@ -71,12 +66,18 @@ function historyPreamble(msgs: { role: string; blocks: unknown[] }[]): string {
 
 export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<void> {
   const { session, cfg, store, emit, signal } = input;
+  const kind: CliKind = input.kind ?? "claude";
+  const engineLabel = kind === "cursor" ? "cursor-cli" : "claude-cli";
   if (inFlight >= MAX_CONCURRENT) {
     throw new Error(`CLI lane at capacity (${MAX_CONCURRENT} concurrent turns) — try again shortly`);
   }
 
-  const model = resolveModel(cfg, session.model);
-  emit({ type: "status", phase: "turn_start", detail: { model, engine: "cli" } });
+  const model =
+    kind === "cursor"
+      ? process.env.BROKK_CURSOR_MODEL ||
+        (session.model === "opus" ? "composer-2.5" : "auto")
+      : resolveModel(cfg, session.model);
+  emit({ type: "status", phase: "turn_start", detail: { model, engine: engineLabel } });
 
   // Context bridge: if there's no CLI session to resume (fresh, or switched over
   // from the afl lane), the CLI has no memory of prior turns — feed it a compact
@@ -115,6 +116,7 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
   inFlight++;
   try {
     const promptText = preamble ? `${preamble}\n\n---\n\nCurrent request:\n${input.userText}` : input.userText;
+    const runTurn = kind === "cursor" ? runCursorCliTurn : runClaudeCliTurn;
     const turnOpts = (resume: string | undefined): CliTurnInput => ({
       cwd: input.cwd,
       prompt: promptText,
@@ -122,9 +124,11 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
       resume,
       appendSystem,
       gh: true,
-      // Per-user seat: override the container's shared token with the owner's when
-      // we have it (cliEnv layers input.env over its allowlist). Absent → shared.
-      env: input.seatToken ? { CLAUDE_CODE_OAUTH_TOKEN: input.seatToken } : undefined,
+      // Per-user seat (Claude only): override shared OAT with the owner's when set.
+      env:
+        kind === "claude" && input.seatToken
+          ? { CLAUDE_CODE_OAUTH_TOKEN: input.seatToken }
+          : undefined,
       timeoutMs: Math.max(0, Number(process.env.BROKK_CLI_TURN_TIMEOUT_MS ?? 3_600_000) || 0),
       emit,
       signal,
@@ -133,7 +137,7 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
           const msg = await store.appendChatMessage(session.id, {
             role: "assistant",
             blocks,
-            meta: { model, engine: "cli", stopReason: meta.stopReason, usage: meta.usage },
+            meta: { model, engine: engineLabel, stopReason: meta.stopReason, usage: meta.usage },
           });
           emit({ type: "message", seq: msg.seq, role: "assistant", blocks });
         },
@@ -144,7 +148,7 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
       },
     });
 
-    let outcome = await runClaudeCliTurn(turnOpts(session.cliSessionId ?? undefined));
+    let outcome = await runTurn(turnOpts(session.cliSessionId ?? undefined));
     // Stored CLI session lost (e.g. transcript never persisted, volume reset):
     // fall back to a FRESH CLI session once instead of bricking the chat. The
     // conversation context is gone, but the turn proceeds and re-anchors.
@@ -154,7 +158,7 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
       /no conversation found/i.test(outcome.resultText)
     ) {
       emit({ type: "status", phase: "cli_resume_lost", detail: { lost: session.cliSessionId } });
-      outcome = await runClaudeCliTurn(turnOpts(undefined));
+      outcome = await runTurn(turnOpts(undefined));
     }
 
     // Store the CLI session id the first time (and if the CLI ever rotates it).
@@ -172,7 +176,10 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
         emit({ type: "done" });
         return;
       case "error":
-        emit({ type: "error", message: outcome.resultText || "claude CLI turn failed" });
+        emit({
+          type: "error",
+          message: outcome.resultText || `${kind} CLI turn failed`,
+        });
         return;
       default:
         emit({ type: "status", phase: "turn_done" });

@@ -15,6 +15,8 @@ export {
   type CliTurnOutcome,
   claudeCliAvailable,
   runClaudeCliTurn,
+  cursorCliAvailable,
+  runCursorCliTurn,
 } from "@brokk/afl";
 export { buildSystemPrompt, type ContextInput } from "./context.js";
 export { GatewayError, streamAssistant } from "@brokk/afl";

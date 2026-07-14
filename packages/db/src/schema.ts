@@ -461,8 +461,8 @@ export const chatSessions = pgTable(
     model: text("model").notNull().default("sonnet"),
     /** Reasoning effort: low | medium | high (null = provider default). */
     effort: text("effort"),
-    /** Turn engine: afl (native loop, default) | cli (Claude Code CLI lane). */
-    engine: text("engine").notNull().default("afl"),
+    /** Turn engine: claude-api | claude-cli | cursor-api | cursor-cli (legacy: afl/cli). */
+    engine: text("engine").notNull().default("claude-api"),
     /** The CLI's own session id (`--resume` continuity). engine=cli only. */
     cliSessionId: text("cli_session_id"),
     createdBy: text("created_by"),

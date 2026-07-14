@@ -84,12 +84,32 @@ const EFFORTS = [
   { id: "high", label: "Deep" },
 ];
 
-// Turn engine — fixed at session creation (the engine owns the continuity):
-// afl = the native lean loop (default), cli = the genuine Claude Code CLI lane.
+// Turn engine — fixed at session creation (the engine owns the continuity).
+// IDs: claude-api | claude-cli | cursor-api | cursor-cli (legacy afl/cli still accepted).
 const ENGINES = [
-  { id: "afl", label: "Brokk" },
-  { id: "cli", label: "Claude Code" },
+  { id: "claude-api", label: "Claude API" },
+  { id: "claude-cli", label: "Claude CLI" },
+  { id: "cursor-api", label: "Cursor API" },
+  { id: "cursor-cli", label: "Cursor CLI" },
 ];
+
+function normalizeEngineUi(raw: string | undefined): string {
+  switch ((raw ?? "claude-api").toLowerCase()) {
+    case "cli":
+    case "claude-cli":
+      return "claude-cli";
+    case "cursor-cli":
+      return "cursor-cli";
+    case "cursor-api":
+    case "cursor":
+      return "cursor-api";
+    case "afl":
+    case "brokk":
+    case "claude-api":
+    default:
+      return "claude-api";
+  }
+}
 
 // Split (chat fraction) — persisted per-browser, so the balance you set survives
 // reloads and session switches. Default is an even 50/50 so the conversation gets
@@ -148,7 +168,7 @@ export default function Chat() {
   const mobileOnly = projects.find((p) => p.id === projectId)?.runtime?.id === "expo";
   const [model, setModel] = useState("sonnet");
   const [effort, setEffort] = useState("medium");
-  const [engine, setEngine] = useState("afl");
+  const [engine, setEngine] = useState("claude-api");
   const [sessions, setSessions] = useState<ChatSessionWithStats[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -308,7 +328,7 @@ export default function Chat() {
     // Reflect the session's saved model + effort (all tiers are selectable now).
     setModel(MODELS.some((m) => m.id === session.model) ? session.model : "sonnet");
     setEffort(session.effort && EFFORTS.some((e) => e.id === session.effort) ? session.effort : "medium");
-    setEngine(session.engine === "cli" ? "cli" : "afl");
+    setEngine(normalizeEngineUi(session.engine));
     setMessages(msgs);
     liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
     if (live) {
@@ -669,7 +689,7 @@ export default function Chat() {
                     {/* effort: a lightning chip whose signal bars fill up with the
                         reasoning level (low=1 · medium=2 · deep=3). Hidden on the CLI
                         engine, which manages its own thinking and ignores this. */}
-                    {engine !== "cli" && (
+                    {engine !== "claude-cli" && engine !== "cursor-cli" && (
                       <label className="sindri-chip sindri-effort" title="Reasoning effort">
                         <Zap size={13} />
                         <span className="sindri-bars" data-level={effort} aria-hidden="true">

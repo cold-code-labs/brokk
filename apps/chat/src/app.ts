@@ -1,6 +1,7 @@
 import {
   buildSystemPrompt,
   claudeCliAvailable,
+  cursorCliAvailable,
   type AflConfig,
   type AgentEvent,
   type Skill,
@@ -28,6 +29,37 @@ import type { McpToolProvider } from "@brokk/mcp";
 import { HeimdallAgentClient } from "./heimdall.js";
 import { TurnManager } from "./turns.js";
 
+/** Canonical engine ids + legacy aliases (afl/cli). */
+export type ChatEngine = "claude-api" | "claude-cli" | "cursor-api" | "cursor-cli";
+
+export function normalizeEngine(raw: string | null | undefined): ChatEngine {
+  switch ((raw ?? "claude-api").toLowerCase()) {
+    case "cli":
+    case "claude-cli":
+      return "claude-cli";
+    case "cursor-cli":
+      return "cursor-cli";
+    case "cursor-api":
+    case "cursor":
+      return "cursor-api";
+    case "afl":
+    case "claude-api":
+    case "brokk":
+    default:
+      return "claude-api";
+  }
+}
+
+const ENGINE_ENUM = z.enum([
+  "claude-api",
+  "claude-cli",
+  "cursor-api",
+  "cursor-cli",
+  // legacy
+  "afl",
+  "cli",
+]);
+
 export interface SindriDeps {
   store: Store;
   cfg: AflConfig;
@@ -44,8 +76,8 @@ const CreateSession = z.object({
   title: z.string().optional(),
   model: z.string().optional(),
   effort: z.enum(["low", "medium", "high"]).optional(),
-  /** afl (native loop, default) | cli (Claude Code CLI lane, opt-in). */
-  engine: z.enum(["afl", "cli"]).optional(),
+  /** claude-api | claude-cli | cursor-api | cursor-cli (legacy: afl, cli). */
+  engine: ENGINE_ENUM.optional(),
   createdBy: z.string().optional(),
 });
 
@@ -196,9 +228,16 @@ export function buildSindri(deps: SindriDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const project = await deps.store.getProject(parsed.data.projectId);
     if (!project) return c.json({ error: "project not found" }, 404);
-    if (parsed.data.engine === "cli" && !claudeCliAvailable()) {
+    const engine = normalizeEngine(parsed.data.engine);
+    if (engine === "claude-cli" && !claudeCliAvailable()) {
       return c.json(
-        { error: "CLI engine unavailable: claude binary or CLAUDE_CODE_OAUTH_TOKEN missing" },
+        { error: "Claude CLI unavailable: claude binary or CLAUDE_CODE_OAUTH_TOKEN missing" },
+        400,
+      );
+    }
+    if (engine === "cursor-cli" && !cursorCliAvailable()) {
+      return c.json(
+        { error: "Cursor CLI unavailable: agent binary or CURSOR_API_KEY/CURSOR_AUTH_TOKEN missing" },
         400,
       );
     }
@@ -208,7 +247,7 @@ export function buildSindri(deps: SindriDeps): Hono {
       title: parsed.data.title ?? "New chat",
       model: parsed.data.model ?? "haiku",
       effort: parsed.data.effort ?? null,
-      engine: parsed.data.engine ?? "afl",
+      engine,
       // Owner = the trusted Logto identity from the proxy; body value is only a
       // fallback for internal callers. This is what chat privacy + seat routing key off.
       createdBy: actorOf(c) || parsed.data.createdBy || null,
@@ -612,14 +651,13 @@ async function runSessionTurn(
   await deps.store.updateChatSession(session.id, { turnState: "running", lastTurnAt: new Date() }).catch(() => {});
 
   // Bill this turn to the session owner's own Max seat when they have one; else
-  // the shared seat, unchanged. One lookup feeds both lanes: the CLI subprocess
-  // (its CLAUDE_CODE_OAUTH_TOKEN env) and the afl gateway (direct "oauth" path).
+  // the shared seat, unchanged. One lookup feeds both Claude lanes: the CLI
+  // subprocess (CLAUDE_CODE_OAUTH_TOKEN) and the API gateway (direct "oauth" path).
   const seatToken = await seatTokenFor(deps, session.createdBy);
+  const engine = normalizeEngine(session.engine);
 
-  // CLI engine lane (opt-in per session): the genuine Claude Code CLI runs the
-  // turn in the same checkout — no Afl loop, no gateway/Ratatoskr hop. The afl
-  // path below stays the default and is untouched.
-  if (session.engine === "cli") {
+  // CLI lanes (Claude Code / Cursor Agent) — genuine headless clients, no Afl loop.
+  if (engine === "claude-cli" || engine === "cursor-cli") {
     try {
       await runCliSessionTurn({
         session: { ...session, branch },
@@ -631,6 +669,7 @@ async function runSessionTurn(
         repoFullName: repo.fullName,
         emit,
         signal,
+        kind: engine === "cursor-cli" ? "cursor" : "claude",
       });
     } finally {
       if (live) liveWorktreeLocks.delete(path);
@@ -674,11 +713,27 @@ async function runSessionTurn(
     skills,
   });
 
+  // Cursor API → Ratatoskr cursor sidecar (Messages-compat). Claude API → seat
+  // (oauth direct or LiteLLM/Ratatoskr Anthropic) as before.
+  const turnCfg =
+    engine === "cursor-api"
+      ? cursorApiCfg(deps)
+      : seatCfg(deps, seatToken);
+
   try {
     await runTurn({
-      session: { ...session, branch },
+      session: {
+        ...session,
+        branch,
+        // Cursor seat likes concrete "auto"/composer ids; map Brokk aliases.
+        model:
+          engine === "cursor-api"
+            ? process.env.BROKK_CURSOR_MODEL ||
+              (session.model === "opus" ? "composer-2.5" : "auto")
+            : session.model,
+      },
       userText: text,
-      cfg: seatCfg(deps, seatToken),
+      cfg: turnCfg,
       toolCtx,
       system,
       extraTools: deps.mcp?.toolDefs,
@@ -692,6 +747,26 @@ async function runSessionTurn(
   if (isFirstTurn) {
     void autoTitle(deps.store, deps.cfg, session.id, text, (title) => emit({ type: "title", title }));
   }
+}
+
+/** Cursor API = Messages (or OpenAI via LiteLLM) against the Ratatoskr cursor
+ *  sidecar. Prefer CURSOR_SEAT_URL (direct :8791) or fall through LiteLLM. */
+function cursorApiCfg(deps: SindriDeps): AflConfig {
+  const base =
+    process.env.CURSOR_SEAT_URL ||
+    process.env.CURSOR_BRIDGE_URL ||
+    "http://127.0.0.1:8791";
+  const token =
+    process.env.CURSOR_SEAT_INGRESS ||
+    process.env.CURSOR_INGRESS_KEYS?.split(",")[0]?.trim() ||
+    process.env.ANTHROPIC_AUTH_TOKEN ||
+    deps.cfg.authToken;
+  return {
+    ...deps.cfg,
+    authKind: "bearer",
+    authToken: token,
+    gatewayUrl: base.replace(/\/$/, ""),
+  };
 }
 
 /** Mímir config for Sindri's plan_work — openai-mode against the CCL gateway

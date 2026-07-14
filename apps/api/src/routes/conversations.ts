@@ -161,7 +161,7 @@ export function conversationsRoutes(deps: AppDeps): Hono {
       projectId: project.id,
       title: "New chat",
       model: project.model,
-      engine: "afl",
+      engine: "claude-api",
     });
     const withBranch = await deps.store.updateChatSession(session.id, {
       branch: `sindri/${session.id.slice(0, 8)}`,
