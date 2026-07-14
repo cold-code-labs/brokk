@@ -204,7 +204,7 @@ async function resolveCache(): Promise<Map<string, CacheEntry>> {
       if (
         !next.has(subdomain) &&
         "status" in p &&
-        p.status === "live" &&
+        (p.status === "live" || p.status === "starting") &&
         "port" in p &&
         typeof p.port === "number" &&
         "id" in p &&

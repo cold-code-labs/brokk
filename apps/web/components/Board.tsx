@@ -596,45 +596,61 @@ function NewCardModal({
   }
 
   return (
-    <div style={overlay} onClick={onClose}>
-      <div style={modalCard} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>New card</h2>
+    <div className="forge-scrim" onClick={onClose} role="presentation">
+      <div
+        className="forge-dialog is-form"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="forge-new-card-title"
+      >
+        <div className="forge-dialog-head">
+          <h2 id="forge-new-card-title" className="forge-dialog-title">New card</h2>
           <Button variant="outline" size="icon" onClick={onClose} aria-label="Close">✕</Button>
         </div>
         {err && <Banner tone="err">{err}</Banner>}
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Title…"
-          // biome-ignore lint/a11y/noAutofocus: modal opened on explicit action
-          autoFocus
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submit()}
-          style={{ ...field, width: "100%", marginBottom: 8 }}
-        />
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="What needs doing…"
-          rows={4}
-          style={{ ...field, width: "100%", resize: "vertical", marginBottom: 14 }}
-        />
-        <div className="ygg-dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 7 }}>
-          Who forges it
-        </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-          <button type="button" onClick={() => setOwner("brokk")} style={ownerPick(owner === "brokk")}>
+        <label className="forge-field">
+          <span className="forge-field-label">Title</span>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Title…"
+            // biome-ignore lint/a11y/noAutofocus: modal opened on explicit action
+            autoFocus
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submit()}
+          />
+        </label>
+        <label className="forge-field">
+          <span className="forge-field-label">Work</span>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="What needs doing…"
+            rows={4}
+          />
+        </label>
+        <p className="forge-field-label">Who forges it</p>
+        <div className="forge-owner-picks">
+          <button
+            type="button"
+            className={`forge-owner-pick${owner === "brokk" ? " is-on" : ""}`}
+            onClick={() => setOwner("brokk")}
+          >
             <Bot size={16} />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>Brokk</span>
-            <span className="ygg-dim" style={{ fontSize: 11 }}>goes to the forge queue</span>
+            <span className="forge-owner-pick-title">Brokk</span>
+            <span className="forge-owner-pick-sub">goes to the forge queue</span>
           </button>
-          <button type="button" onClick={() => setOwner("human")} style={ownerPick(owner === "human")}>
+          <button
+            type="button"
+            className={`forge-owner-pick${owner === "human" ? " is-on" : ""}`}
+            onClick={() => setOwner("human")}
+          >
             <UserIcon size={16} />
-            <span style={{ fontWeight: 600, fontSize: 13 }}>Me</span>
-            <span className="ygg-dim" style={{ fontSize: 11 }}>stays yours — the runner skips it</span>
+            <span className="forge-owner-pick-title">Me</span>
+            <span className="forge-owner-pick-sub">stays yours — the runner skips it</span>
           </button>
         </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <div className="forge-dialog-actions">
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button onClick={submit} disabled={busy || !title.trim()}>
             {busy ? "Creating…" : owner === "brokk" ? "Create → queue" : "Create card"}
@@ -1503,21 +1519,6 @@ const ownerChip = (color: string): React.CSSProperties => ({
   color,
   background: `${color}14`,
   whiteSpace: "nowrap",
-});
-const modalCard: React.CSSProperties = { width: "min(520px, 100%)", margin: "auto", alignSelf: "center", background: t.bg, border: `1px solid ${t.border}`, borderRadius: 12, padding: 22, boxShadow: "var(--shadow-2)" };
-const ownerPick = (active: boolean): React.CSSProperties => ({
-  flex: 1,
-  display: "flex",
-  flexDirection: "column",
-  gap: 3,
-  alignItems: "flex-start",
-  textAlign: "left",
-  padding: "11px 13px",
-  borderRadius: 9,
-  cursor: "pointer",
-  border: `1px solid ${active ? t.borderActive : t.border}`,
-  background: active ? t.surface3 : t.surface2,
-  color: t.text,
 });
 const handoffBar: React.CSSProperties = { display: "flex", gap: 8, margin: "14px 0 4px", flexWrap: "wrap" };
 // Per-card ⋯ menu: a flat icon button + a fixed-positioned popover (escapes the

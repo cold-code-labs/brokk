@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import PublishControls from "./PublishControls";
+import CommitControls from "./CommitControls";
 import { brokk } from "../lib/api";
 import {
   attach,
@@ -218,6 +219,18 @@ export default function Chat() {
 
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  /** Grow the tray with the prompt; thread keeps scroll for long chats. */
+  function resizeComposer(el: HTMLTextAreaElement | null = inputRef.current) {
+    if (!el) return;
+    el.style.height = "0px";
+    const cs = getComputedStyle(el);
+    const max =
+      parseFloat(cs.maxHeight) ||
+      parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sindri-input-max")) ||
+      192;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  }
   const liveSeqRef = useRef(-1); // highest seq we've persisted into messages
   // Projects we're already minting a first chat for — guards against a double
   // create from React Strict-Mode's mount/remount or a fast environment re-select.
@@ -409,6 +422,7 @@ export default function Chat() {
     if (!text) return;
     setInput("");
     setSlashOpen(false);
+    requestAnimationFrame(() => resizeComposer());
     setError("");
     setLiveText("");
     setLiveThinking("");
@@ -531,6 +545,7 @@ export default function Chat() {
       const pos = replaced.length;
       el?.focus();
       el?.setSelectionRange(pos, pos);
+      resizeComposer(el);
     });
   }
 
@@ -825,7 +840,9 @@ export default function Chat() {
                       const v = e.target.value;
                       setInput(v);
                       syncSlashFromInput(v, e.target.selectionStart ?? v.length);
+                      resizeComposer(e.target);
                     }}
+                    onInput={(e) => resizeComposer(e.currentTarget)}
                     onKeyDown={onKey}
                     onClick={(e) =>
                       syncSlashFromInput(input, (e.target as HTMLTextAreaElement).selectionStart)
@@ -1339,6 +1356,7 @@ function SindriPreview({
           </a>
           {/* separator splits the browser-chrome group from the one hot action */}
           <span className="sindri-preview-sep" />
+          <CommitControls projectId={projectId} sessionId={sessionId} nudge={sawEdit ? 1 : 0} />
           <PublishControls projectId={projectId} />
         </div>
       </div>

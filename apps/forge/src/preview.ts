@@ -14,6 +14,10 @@
  * manual DELETE /previews/:id marks the row 'stopped'; the next tick kills the
  * local process. A dev-lane push refreshes the worktree in place via
  * refreshCheckout() (HMR reflects it) instead of restarting the server.
+ *
+ * Soft cutover on respin: when a live process must restart (heal N1, etc.), the
+ * outgoing process keeps serving until the replacement is healthy on a new port;
+ * only then do we flip the control-plane port and SIGTERM the old one.
  */
 import { execFile, spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
@@ -100,6 +104,8 @@ export function redactEnv(env: Record<string, string>): Record<string, string> {
 export class PreviewSupervisor {
   /** Locally-managed running preview processes keyed by preview id. */
   private readonly live = new Map<string, LivePreview>();
+  /** Incoming process during soft cutover (old still in `live` until flip). */
+  private readonly pending = new Map<string, LivePreview>();
   /** Previews currently in the process of being booted (fire-and-forget guard). */
   private readonly booting = new Set<string>();
   /** Ports currently in use by running preview processes. */
@@ -312,32 +318,34 @@ export class PreviewSupervisor {
     for (const p of previews) {
       switch (p.status) {
         case "starting": {
-          if (this.booting.has(p.id)) break;
+          if (this.booting.has(p.id) || this.pending.has(p.id)) break;
           const stale = this.live.get(p.id);
           if (stale) {
-            // A 'starting' row with a registered process = a respin (push
-            // rebuild / external stop→start) landed between ticks. Retire the
-            // old process and fall through to a fresh boot — breaking here
-            // wedged the slot forever ('starting' + old proc serving). Guard:
-            // a just-spawned proc (<60s) is a fresh boot whose 'live' patch
-            // simply hasn't landed in this tick's snapshot yet — leave it.
+            // Fresh boot still settling (<60s) — leave it; its live patch is in flight.
             if (Date.now() - stale.startedAt < 60_000) break;
+            // Soft cutover: keep stale serving until the replacement is healthy.
             console.log(
-              `[preview-supervisor] ${p.subdomain}: respin — retiring the old process (pid=${stale.proc.pid})`,
+              `[preview-supervisor] ${p.subdomain}: soft-respin — keeping :${stale.port} until replacement is healthy`,
             );
-            this.killAndClean(p.id, stale);
           }
           this.booting.add(p.id);
-          void this.boot(p)
+          void this.boot(p, { retain: stale ?? undefined })
             .catch((err) => {
               console.error(`[preview-supervisor] boot ${p.id} error:`, err);
-              // Keep the reason on the row: a permanent cause (e.g. the branch
-              // was deleted — "couldn't find remote ref") must read as a hard
-              // 'failed', not silently retry forever.
               const detail = (err instanceof Error ? err.message : String(err)).slice(0, 300);
-              void this.controlPatch(`/previews/${p.id}`, { status: "failed", detail }).catch(
-                () => {},
-              );
+              // Soft-respin failed: restore live on the retained process if any.
+              if (stale && this.live.get(p.id)?.proc === stale.proc) {
+                void this.controlPatch(`/previews/${p.id}`, {
+                  status: "live",
+                  detail: null,
+                  pid: stale.proc.pid ?? null,
+                  port: stale.port,
+                }).catch(() => {});
+              } else {
+                void this.controlPatch(`/previews/${p.id}`, { status: "failed", detail }).catch(
+                  () => {},
+                );
+              }
             })
             .finally(() => {
               this.booting.delete(p.id);
@@ -434,9 +442,14 @@ export class PreviewSupervisor {
 
   // ── Boot ────────────────────────────────────────────────────────────────────
 
-  private async boot(preview: Preview): Promise<void> {
+  private async boot(
+    preview: Preview,
+    opts?: { retain?: LivePreview },
+  ): Promise<void> {
+    const retain = opts?.retain;
     console.log(
-      `[preview-supervisor] booting ${preview.subdomain} (${preview.id})`,
+      `[preview-supervisor] booting ${preview.subdomain} (${preview.id})` +
+        (retain ? ` soft-over :${retain.port}` : ""),
     );
 
     // Resolve project → repository from the control plane
@@ -641,8 +654,9 @@ export class PreviewSupervisor {
     proc.stderr?.on("data", (d: Buffer) => process.stderr.write(`${tag} ${d}`));
 
     // Register locally BEFORE the first await so concurrent ticks don't
-    // double-boot (the `this.live` check in tick() gates further starts).
-    this.live.set(preview.id, {
+    // double-boot. Soft cutover: keep the outgoing process in `live` and park
+    // the incoming one in `pending` until health flips the pointer.
+    const entry: LivePreview = {
       proc,
       port,
       startedAt: Date.now(),
@@ -650,29 +664,50 @@ export class PreviewSupervisor {
       wtPath,
       hauldrProject: preview.hauldrProject,
       branch: preview.branch,
-    });
+    };
+    if (retain) {
+      this.pending.set(preview.id, entry);
+    } else {
+      this.live.set(preview.id, entry);
+    }
 
     // Don't flip to 'live' the instant the process spawns — that's why the iframe
     // used to render a broken page while `pnpm install` + the first compile were
     // still running (status was 'live' but nothing was listening yet). Hold
     // 'starting' with a phase until the server actually answers, so the pane
     // shows the spinner through install/compile and the iframe only appears when
-    // there's really something to render.
+    // there's really something to render. Soft cutover keeps the OLD port on the
+    // row so the gateway can keep serving until we flip.
     await this.controlPatch(`/previews/${preview.id}`, {
-      detail: "Instalando dependências e compilando…",
+      detail: retain
+        ? "Reiniciando preview (o atual segue no ar)…"
+        : "Instalando dependências e compilando…",
+      // Keep serving the retained port while status is starting (gateway accepts it).
+      ...(retain ? { port: retain.port, pid: retain.proc.pid ?? null } : {}),
     }).catch(() => {});
 
     const outcome = await this.waitHealthy(preview, proc, port, spec.health ?? "/");
     if (outcome === "exited") {
-      // Process died during startup (install/build error). We return here BEFORE
-      // the success-path `proc.on("exit")` handler is wired, so clean up + mark
-      // 'failed' ourselves — otherwise the dead proc leaks in `this.live` (its
-      // port too) and the row is stranded in 'starting' forever, which the fleet
-      // view then mirrors as a perpetual "Starting" for a preview that never came
-      // up. 'failed' is honest and still re-triggerable by a push.
       console.log(
         `[preview-supervisor] ${preview.subdomain}: exited before serving`,
       );
+      this.pending.delete(preview.id);
+      this.usedPorts.delete(port);
+      try {
+        proc.kill("SIGTERM");
+      } catch {
+        /* already dead */
+      }
+      if (retain && this.live.get(preview.id)?.proc === retain.proc) {
+        // Soft-respin failed — keep the old process as the live preview.
+        await this.controlPatch(`/previews/${preview.id}`, {
+          status: "live",
+          detail: null,
+          pid: retain.proc.pid ?? null,
+          port: retain.port,
+        }).catch(() => {});
+        return;
+      }
       const lp = this.live.get(preview.id);
       if (lp && lp.proc === proc) this.killAndClean(preview.id, lp);
       await this.controlPatch(`/previews/${preview.id}`, {
@@ -684,13 +719,27 @@ export class PreviewSupervisor {
       return;
     }
 
-    // Update the control plane: live + pid + port.
+    // Flip: new process is healthy — point traffic, then retire the old one.
+    this.live.set(preview.id, entry);
+    this.pending.delete(preview.id);
     await this.controlPatch(`/previews/${preview.id}`, {
       status: "live",
       detail: null,
       pid: proc.pid ?? null,
       port,
     });
+
+    if (retain && retain.proc !== proc) {
+      console.log(
+        `[preview-supervisor] ${preview.subdomain}: cutover :${retain.port} → :${port} (retiring old pid=${retain.proc.pid})`,
+      );
+      this.usedPorts.delete(retain.port);
+      try {
+        retain.proc.kill("SIGTERM");
+      } catch {
+        /* already dead */
+      }
+    }
 
     console.log(
       `[preview-supervisor] ${preview.subdomain} live on :${port}` +
@@ -744,21 +793,23 @@ export class PreviewSupervisor {
     const sha = p.commitSha ?? "unknown";
     const restartKey = `${p.id}:${sha}`;
 
-    // N1 — clean-cache restart. Clear Metro's transform caches in the worktree,
-    // kill the process, and drop the row back to 'starting' so the next tick boots
-    // it fresh (equivalent to `expo start -c`). Once per broken commit.
+    // N1 — clean-cache soft-respin. Clear Metro's transform caches in the worktree
+    // and drop the row to 'starting' WITHOUT killing the live process — the tick
+    // soft-boots a replacement on a new port and only then retires this one.
     if (!this.restartedShas.has(restartKey)) {
       this.restartedShas.add(restartKey);
       console.log(
-        `[preview-supervisor] ${p.subdomain}: bundle broken on ${sha.slice(0, 8)} — clean-cache restart (N1)\n  ${err.slice(0, 200)}`,
+        `[preview-supervisor] ${p.subdomain}: bundle broken on ${sha.slice(0, 8)} — clean-cache soft-respin (N1)\n  ${err.slice(0, 200)}`,
       );
       await this.clearMetroCache(lp.wtPath);
-      this.killAndClean(p.id, lp);
       this.brokenStreak.delete(streakKey);
       await this.controlPatch(`/previews/${p.id}`, {
         status: "starting",
-        detail: "Metro travou o bundle — reiniciando com cache limpo…",
-      }).catch(() => {});
+        detail: "Reiniciando preview (mantendo o atual no ar)…",
+        // Keep port/pid so the gateway keeps routing the outgoing process.
+        port: lp.port,
+        pid: lp.proc.pid ?? null,
+      });
       return;
     }
 

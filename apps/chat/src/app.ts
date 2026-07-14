@@ -27,6 +27,7 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { CheckoutManager } from "./checkout.js";
 import { fsRoutes } from "./fs-routes.js";
+import { devtreeRoutes } from "./devtree-routes.js";
 import type { McpToolProvider } from "@brokk/mcp";
 import { HeimdallAgentClient } from "./heimdall.js";
 import { TurnManager } from "./turns.js";
@@ -208,6 +209,7 @@ export function buildSindri(deps: SindriDeps): Hono {
   // Reads/writes the session's working checkout on disk. Mounted before the
   // session routes below; guarded by the same shared-secret middleware above.
   app.route("/", fsRoutes(deps.checkouts));
+  app.route("/", devtreeRoutes({ store: deps.store, checkouts: deps.checkouts }));
 
   // ── Sessions ────────────────────────────────────────────────────────────────
 

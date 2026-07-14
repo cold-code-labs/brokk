@@ -918,8 +918,62 @@ main.forge-room:not(.ygg-main) {
   color: var(--fg);
   margin: 0 0 0.5rem;
 }
+.forge-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+.forge-dialog-head .forge-dialog-title { margin: 0; }
+.forge-dialog.is-form {
+  width: min(28rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.forge-dialog.is-form .forge-field { margin: 0; }
+.forge-dialog.is-form .forge-field-label { margin-bottom: 0; }
+.forge-owner-picks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.forge-owner-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm, 8px);
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  color: var(--fg-soft);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.forge-owner-pick:hover {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+.forge-owner-pick.is-on {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--fg);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.forge-owner-pick-title {
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.forge-owner-pick-sub {
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--fg-dim);
+}
 .forge-dialog-body { font-size: 0.88rem; line-height: 1.55; color: var(--fg-soft); margin: 0 0 1.1rem; }
-.forge-dialog-actions { display: flex; justify-content: flex-end; gap: 0.6rem; }
+.forge-dialog-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.35rem; }
 
 /* ── The anvil card — work on the board ─────────────────────────────────────
    A compact plate: selection lights the accent ring; the RUNNING card is the

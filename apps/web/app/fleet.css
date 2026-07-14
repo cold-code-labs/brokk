@@ -189,6 +189,21 @@
     var(--glass);
   backdrop-filter: blur(6px);
 }
+/* Demoted vitals — emotion lives in the queue bar, not the count tiles */
+.fleet-stats.is-quiet {
+  margin-top: -0.4rem;
+  margin-bottom: 1.8rem;
+  opacity: 0.88;
+  background: transparent;
+  backdrop-filter: none;
+  border-color: var(--line-soft);
+}
+.fleet-stats.is-quiet .fleet-stat-num {
+  font-size: 1.85rem;
+}
+.fleet-stats.is-quiet .fleet-stat {
+  padding: 0.75rem 1rem 0.7rem;
+}
 @media (max-width: 720px) {
   .fleet-stats { grid-template-columns: repeat(2, 1fr); }
   .fleet-stat:nth-child(n + 3) { border-top: 1px solid var(--line-soft); }
@@ -278,9 +293,19 @@
   overflow: hidden;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
+/* Hot spot: queue bar sits first and takes the ember rim when idle */
+.fleet-composer.is-hotspot {
+  margin-bottom: 1.1rem;
+  border-color: color-mix(in srgb, var(--ember) 28%, var(--line));
+  box-shadow: 0 14px 40px -28px color-mix(in srgb, var(--ember) 55%, transparent);
+}
 .fleet-composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.fleet-composer.is-hotspot:focus-within {
+  border-color: color-mix(in srgb, var(--ember) 55%, var(--line));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ember) 14%, transparent);
 }
 
 /* project picker — borderless, custom caret, hairline divider on its right */
