@@ -1,19 +1,17 @@
 "use client";
 
+/**
+ * Wall Rail — Brokk chrome (litr-frontend-design remolho).
+ * Form borrowed from v0/Lovable workbench (icon strip + overflow), soul stays
+ * Forge at Night. Forever a 3.5rem strip — no fat SaaS sidebar with Forge/Anvil/Bench.
+ */
+
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import {
-  NavSidebar,
-  SidebarBrand,
-  Nav,
-  NavGroup,
-  NavLink,
-  SidebarFoot,
-} from "@cold-code-labs/yggdrasil-react";
+import { useCallback, useEffect, useState } from "react";
+import { NavSidebar } from "@cold-code-labs/yggdrasil-react";
 import {
   LayoutGrid,
-  Gauge,
   MessageSquare,
   Plus,
   List,
@@ -21,40 +19,31 @@ import {
   Settings,
   Columns3,
   Feather,
-  LogOut,
-  ChevronDown,
-  PanelLeftClose,
-  PanelLeftOpen,
   Anvil,
+  Ellipsis,
+  Gauge,
+  Search,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import { ComposerMenu } from "./ComposerMenu";
-
-const RAIL_KEY = "brokk.sidebar.collapsed";
-
-// Global / project-agnostic — always see everything.
-// ADR 0039: nav labels are functional, not codenames. "Projects" (was Fleet),
-// "Chat" (was Sindri). The codenames live on in the packages/logs, not here.
-// Mímir and Discovery left the nav (B3/B4): they're Brokk Skills now, invoked
-// from Chat via `invoke_skill`. Their pages stay routable as break-glass.
-const GLOBAL = [
-  { href: "/fleet", label: "Projects", icon: <LayoutGrid /> },
-  { href: "/dashboard", label: "Dashboard", icon: <Gauge /> },
-] as const;
-
-const ENV = [{ href: "/chat", label: "Chat", icon: <MessageSquare /> }] as const;
-
-const MANAGE = [
-  { href: "/new", label: "New Project", icon: <Feather /> },
-  { href: "/connect", label: "Connect", icon: <Plus /> },
-  { href: "/history", label: "History", icon: <List /> },
-  { href: "/users", label: "Crew", icon: <Users /> },
-  { href: "/settings", label: "Settings", icon: <Settings /> },
-] as const;
+import { CommandPalette } from "./CommandPalette";
 
 type SidebarUserProps = { name: string; role?: string; authDisabled: boolean };
 
-/** "Vitor Alves" → "VA" — the stamp on the identity plate. */
+const PRIMARY = [
+  { href: "/fleet", label: "Projects", icon: LayoutGrid, match: (p: string) => p === "/fleet" },
+  { href: "/chat", label: "Chat", icon: MessageSquare, match: (p: string) => p.startsWith("/chat") },
+] as const;
+
+const BENCH = [
+  { href: "/dashboard", label: "Dashboard", icon: Gauge },
+  { href: "/new", label: "New project", icon: Feather },
+  { href: "/connect", label: "Connect", icon: Plus },
+  { href: "/history", label: "History", icon: List },
+  { href: "/users", label: "Crew", icon: Users },
+  { href: "/settings", label: "Settings", icon: Settings },
+] as const;
+
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -63,28 +52,14 @@ function initials(name: string): string {
   return (first + last).toUpperCase();
 }
 
-function roleLabel(role: string | undefined): string {
-  if (!role) return "";
-  const map: Record<string, string> = {
-    proprietário: "Owner",
-    proprietario: "Owner",
-    owner: "Owner",
-    admin: "Admin",
-    member: "Member",
-  };
-  return map[role.trim().toLowerCase()] ?? role;
-}
-
-/** Forged anvil switcher — popover, never a native <select>. */
-function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
+function AnvilMenu() {
   const { projects, currentId, setCurrentId } = useProject();
   const path = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-
   const current = projects.find((p) => p.id === currentId);
-  const label = current?.name ?? (projects.length ? "Pick project" : "No projects");
+  const tip = current?.name ?? (projects.length ? "Pick project" : "No projects");
 
   function pick(id: string) {
     setCurrentId(id);
@@ -93,25 +68,23 @@ function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
   }
 
   return (
-    <div className={`brokk-switch${open ? " is-open" : ""}`}>
+    <div className={`wall-slot wall-anvil${open ? " is-open" : ""}`}>
       <button
         type="button"
-        className="brokk-switch-btn"
-        aria-label="Project"
+        className="wall-btn"
+        aria-label={`Project: ${tip}`}
         aria-expanded={open}
         aria-haspopup="listbox"
         disabled={projects.length === 0}
-        title={collapsed ? label : undefined}
-        data-tip={collapsed ? label : undefined}
+        data-tip={tip}
+        title={tip}
         onClick={() => {
-          if (projects.length === 0) return;
+          if (!projects.length) return;
           setActive(Math.max(0, projects.findIndex((p) => p.id === currentId)));
           setOpen((v) => !v);
         }}
       >
-        <Anvil size={14} aria-hidden className="brokk-switch-mark" />
-        <span className="brokk-switch-label">{label}</span>
-        <ChevronDown size={14} aria-hidden className="brokk-switch-caret" />
+        <Anvil size={18} strokeWidth={1.75} />
       </button>
       <ComposerMenu
         open={open}
@@ -132,150 +105,173 @@ function ProjectSwitcher({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+function BenchMenu({ onSearch }: { onSearch: () => void }) {
+  const path = usePathname();
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const items = [
+    { id: "cmdk", label: "Search…", hint: "⌘K", tag: "goto" },
+    ...BENCH.map((n) => ({
+      id: n.href,
+      label: n.label,
+      hint: undefined as string | undefined,
+      tag: path.startsWith(n.href) ? "here" : undefined,
+    })),
+  ];
+
+  return (
+    <div className={`wall-slot wall-bench${open ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className={`wall-btn${BENCH.some((n) => path.startsWith(n.href)) ? " is-on" : ""}`}
+        aria-label="Bench"
+        aria-expanded={open}
+        data-tip="Bench"
+        title="Bench"
+        onClick={() => {
+          setActive(0);
+          setOpen((v) => !v);
+        }}
+      >
+        <Ellipsis size={18} strokeWidth={1.75} />
+      </button>
+      <ComposerMenu
+        open={open}
+        placement="below"
+        items={items}
+        activeIndex={active}
+        onActiveIndex={setActive}
+        onPick={(id) => {
+          setOpen(false);
+          if (id === "cmdk") onSearch();
+          else router.push(id);
+        }}
+        onClose={() => setOpen(false)}
+      />
+    </div>
+  );
+}
+
+function UserMenu({ user }: { user: SidebarUserProps }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  return (
+    <div className={`wall-slot wall-user${open ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className="wall-user-btn"
+        aria-label={user.name}
+        aria-expanded={open}
+        data-tip={user.name}
+        title={user.name}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="wall-user-plate" aria-hidden>
+          {initials(user.name)}
+        </span>
+      </button>
+      <ComposerMenu
+        open={open}
+        placement="above"
+        items={[
+          {
+            id: "who",
+            label: user.name,
+            hint: user.authDisabled ? "auth off" : user.role || "member",
+          },
+          { id: "out", label: "Sign out", tag: "leave" },
+        ]}
+        activeIndex={active}
+        onActiveIndex={setActive}
+        onPick={(id) => {
+          setOpen(false);
+          if (id === "out") window.location.href = "/sign-out";
+        }}
+        onClose={() => setOpen(false)}
+      />
+    </div>
+  );
+}
+
 export default function Sidebar({ user }: { user?: SidebarUserProps }) {
   const path = usePathname();
   const { currentId } = useProject();
-  const [collapsed, setCollapsed] = useState(false);
-  const [ready, setReady] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
 
   useEffect(() => {
-    try {
-      setCollapsed(localStorage.getItem(RAIL_KEY) === "1");
-    } catch {
-      /* ignore */
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
     }
-    setReady(true);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  function toggleRail() {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(RAIL_KEY, next ? "1" : "0");
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }
-
-  const isActive = (href: string) =>
-    href === "/fleet" ? path === "/fleet" : path.startsWith(href);
+  const boardHref = currentId ? `/projects/${currentId}` : "/fleet";
+  const boardOn = path.startsWith("/projects") && !path.endsWith("/descoberta");
 
   return (
-    <NavSidebar
-      className={`brokk-rail${collapsed ? " is-collapsed" : ""}${ready ? " is-ready" : ""}`}
-      data-collapsed={collapsed ? "true" : undefined}
-      aria-label="Brokk"
-    >
-      <div className="brokk-rail-head">
-        <SidebarBrand
-          className="brokk-brand"
-          mark={
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src="/brokk.svg" alt="" width={44} height={60} />
-          }
-          name={collapsed ? undefined : "Brokk"}
-        />
+    <NavSidebar className="wall-rail" aria-label="Brokk wall rail">
+      <Link href="/fleet" className="wall-mark" aria-label="Brokk" data-tip="Brokk" title="Brokk">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/brokk.svg" alt="" width={28} height={38} />
+      </Link>
+
+      <nav className="wall-nav" aria-label="Primary">
+        {PRIMARY.map((n) => {
+          const Icon = n.icon;
+          const on = n.match(path);
+          return (
+            <Link
+              key={n.href}
+              href={n.href}
+              className={`wall-btn${on ? " is-on" : ""}`}
+              aria-current={on ? "page" : undefined}
+              data-tip={n.label}
+              title={n.label}
+            >
+              <Icon size={18} strokeWidth={1.75} />
+            </Link>
+          );
+        })}
+
+        <Link
+          href={boardHref}
+          className={`wall-btn${boardOn ? " is-on" : ""}`}
+          aria-current={boardOn ? "page" : undefined}
+          data-tip="Board"
+          title="Board"
+        >
+          <Columns3 size={18} strokeWidth={1.75} />
+        </Link>
+
+        <AnvilMenu />
+
+        <span className="wall-rule" aria-hidden />
+
         <button
           type="button"
-          className="brokk-rail-toggle"
-          onClick={toggleRail}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-expanded={!collapsed}
-          title={collapsed ? "Expand" : "Collapse"}
-          data-tip={collapsed ? "Expand" : "Collapse"}
+          className="wall-btn"
+          onClick={openPalette}
+          data-tip="Search ⌘K"
+          title="Search ⌘K"
+          aria-label="Search"
         >
-          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          <Search size={18} strokeWidth={1.75} />
         </button>
-      </div>
 
-      <Nav>
-        <NavGroup label={collapsed ? undefined : "Forge"}>
-          {GLOBAL.map((n) => (
-            <NavLink
-              key={n.href}
-              as={Link}
-              href={n.href}
-              icon={n.icon}
-              active={isActive(n.href)}
-              title={n.label}
-              data-tip={collapsed ? n.label : undefined}
-            >
-              {n.label}
-            </NavLink>
-          ))}
-        </NavGroup>
+        <BenchMenu onSearch={openPalette} />
+      </nav>
 
-        <NavGroup label={collapsed ? undefined : "Anvil"}>
-          <ProjectSwitcher collapsed={collapsed} />
-          <NavLink
-            as={Link}
-            href={currentId ? `/projects/${currentId}` : "/fleet"}
-            icon={<Columns3 />}
-            active={path.startsWith("/projects") && !path.endsWith("/descoberta")}
-            title="Board"
-            data-tip={collapsed ? "Board" : undefined}
-          >
-            Board
-          </NavLink>
-          {ENV.map((n) => (
-            <NavLink
-              key={n.href}
-              as={Link}
-              href={n.href}
-              icon={n.icon}
-              active={isActive(n.href)}
-              title={n.label}
-              data-tip={collapsed ? n.label : undefined}
-            >
-              {n.label}
-            </NavLink>
-          ))}
-        </NavGroup>
-        <NavGroup label={collapsed ? undefined : "Bench"}>
-          {MANAGE.map((n) => (
-            <NavLink
-              key={n.href}
-              as={Link}
-              href={n.href}
-              icon={n.icon}
-              active={isActive(n.href)}
-              title={n.label}
-              data-tip={collapsed ? n.label : undefined}
-            >
-              {n.label}
-            </NavLink>
-          ))}
-        </NavGroup>
-      </Nav>
+      <div className="wall-foot">{user ? <UserMenu user={user} /> : null}</div>
 
-      {user ? (
-        <div className="brokk-user" title={user.name} data-tip={collapsed ? user.name : undefined}>
-          <span className="brokk-user-plate" aria-hidden>
-            {initials(user.name)}
-          </span>
-          <span className="brokk-user-id">
-            <span className="brokk-user-name">{user.name}</span>
-            <span className="brokk-user-role">
-              {user.authDisabled ? "auth off" : roleLabel(user.role)}
-            </span>
-          </span>
-          <a href="/sign-out" className="brokk-user-out" aria-label="Sign out" title="Sign out">
-            <LogOut />
-          </a>
-        </div>
-      ) : null}
-
-      <SidebarFoot>
-        <a
-          href="https://github.com/cold-code-labs/brokk"
-          target="_blank"
-          rel="noreferrer"
-        >
-          cold-code-labs/brokk ↗
-        </a>
-      </SidebarFoot>
+      {/* Fixed scrim: keep inside the rail so AppShell grid stays 2 columns. */}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </NavSidebar>
   );
 }

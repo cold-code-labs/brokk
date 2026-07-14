@@ -91,8 +91,10 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 |---|---|---|
 | Masthead / stamped nameplate | ✓ | `.forge-head*` (+ `.forge-head-copy` / `.forge-head-actions` baseline) |
 | Workshop room frame | ✓ | `.forge-room` + `.ygg-main` gutter; Sindri stays edge-to-edge |
-| Collapsible rail | ✓ | `.brokk-rail` / `.is-collapsed` + `--sidebar-w-collapsed` (Brokk-local) |
-| Anvil switcher (forged menu) | ✓ | `.brokk-switch*` + ComposerMenu (no native select) |
+| Collapsible rail | ✗ replaced | → **Wall rail** (always icon strip) |
+| Wall rail | ✓ | `.wall-rail` + flyouts Anvil/Bench + tips |
+| ⌘K command palette | ✓ | `CommandPalette.tsx` / `.cmdk*` |
+| Anvil switcher (forged menu) | ✓ | wall Anvil button + ComposerMenu |
 | Growing composer tray | ✓ | `.sindri-input` auto-grow + `--sindri-input-max` |
 | Section heading | ✓ | `.forge-h*` |
 | Vitals strip | ✓ | `.forge-tiles/tile` |
