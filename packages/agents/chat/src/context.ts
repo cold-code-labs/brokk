@@ -13,7 +13,7 @@
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import type { Store } from "@brokk/db";
-import { skillCatalogue, type Skill } from "./skills.js";
+import { pinnedSkillBlock, skillCatalogue, type Skill } from "./skills.js";
 
 export interface ContextInput {
   cwd: string;
@@ -25,6 +25,8 @@ export interface ContextInput {
   /** Brokk Skills available this turn (ADR 0039) — advertised so the model knows
    *  the catalogue it can reach via `invoke_skill`. */
   skills?: Skill[];
+  /** When set, inject that skill's instructions as a pinned session block. */
+  pinnedSkill?: Skill;
 }
 
 const IDENTITY = [
@@ -73,6 +75,7 @@ export async function buildSystemPrompt(input: ContextInput): Promise<string> {
 
   const guide = await repoGuide(input.cwd);
   const catalogue = skillCatalogue(input.skills);
+  const pinned = pinnedSkillBlock(input.pinnedSkill);
 
   return [
     IDENTITY,
@@ -83,6 +86,7 @@ export async function buildSystemPrompt(input: ContextInput): Promise<string> {
     `- Working branch: ${input.branch}`,
     `- Working directory: the checkout root (all tool paths are relative to it)`,
     "",
+    ...(pinned ? [pinned, ""] : []),
     ...(catalogue ? [catalogue, ""] : []),
     "## Open cards in this project",
     cardLines,

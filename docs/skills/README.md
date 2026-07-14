@@ -1,53 +1,52 @@
 # Brokk Skills (ADR 0039)
 
-A **Brokk Skill** mirrors the Claude Code skill primitive: a package of
-`{ name, description (its trigger), instructions body }` that Brokk — the chat
-agent — loads on demand to do a kind of work. Naming doctrine (ADR 0039): the
-app keeps its Norse name; the *features* it once carried as codenames become
-skills with plain, functional names.
+A **Brokk Skill** is a package of `{ name, description, instructions | run }` that
+Sindri reaches via `invoke_skill` (catalogue in the system prompt) or via the
+composer **Skill** chip (pinned for the whole session).
 
-## The shape
+## Where skills live
 
-Skills are defined by the `Skill` type in
-[`packages/agents/chat/src/skills.ts`](../../packages/agents/chat/src/skills.ts):
+**Inside this repo:** `skills/<id>/SKILL.md` (YAML frontmatter + body).
+
+```
+skills/
+  litr/SKILL.md
+  litr-frontend-design/SKILL.md
+```
+
+Yggdrasil keeps **tokens / UI packages** — not craft playbooks. New instruction
+skill = add a folder under `skills/` and ship; the chat image copies the tree
+(`BROKK_SKILLS_DIR=/app/skills`).
+
+## Shape
 
 ```ts
 interface Skill {
-  name: string;          // stable id the model passes to invoke_skill
-  description: string;    // the trigger — WHEN to reach for it (one line)
-  instructions?: string;  // prose injected into the turn (pure-instruction skill)
-  run?: (input) => Promise<{ ok: boolean; content: string }>;  // capability skill
+  name: string;
+  description: string;    // trigger (when to use)
+  instructions?: string;  // instruction skill (from SKILL.md body)
+  run?: (input) => Promise<ToolResult>;  // capability skill (code)
 }
 ```
 
-Two flavors, same shape:
-
-- **Capability skills** carry a `run()` — they execute and return a result
-  (Discovery scouts the repo; Enhance rewrites a prompt).
-- **Instruction skills** carry only `instructions` — invoking one injects that
-  guidance into the turn, the pure Claude Code primitive.
+| Kind | Source | Examples |
+|------|--------|----------|
+| Capability | `buildSkills()` in `apps/chat` | `discovery`, `enhance` |
+| Instruction | `skills/*/SKILL.md` | `litr`, `litr-frontend-design` |
 
 ## How the model reaches them
 
-One tool, `invoke_skill(skill, input?)`. The catalogue (name + trigger) is
-advertised in the system prompt by `buildSystemPrompt`, so the model knows what
-exists and when to use it. This is the same host-injected bridge pattern as
-`plan_work`: the Sindri app (`apps/chat/src/app.ts`, `buildSkills`) binds the
-concrete handlers per turn, because they need the checkout + Mímir/Huginn config.
+1. **Catalogue** — name + trigger in the system prompt; model calls `invoke_skill`.
+2. **Pinned** — composer Skill chip at session create stores `chat_sessions.skill`;
+   instructions inject as `## Active skill (pinned)` every turn (API + CLI lanes).
 
-## The first two skills
+`GET /skills` returns the catalogue for the UI chip.
 
-| Skill | Was | What it does |
-|---|---|---|
-| `discovery` | Huginn / the Discovery page | Scouts the current checkout read-only, returns a structured brief (mission, built, missing, stack). |
-| `enhance` | Mímir / the Mímir page | Rewrites a rough prompt into a sharper one (`mode`: polish \| structure \| engineer). |
+## Adding an instruction skill
 
-Their old nav pages (`/mimir`, `/projects/[id]/descoberta`) stay routable as
-break-glass but left the sidebar — the invocation path is now the skill.
+1. Create `skills/<kebab-name>/SKILL.md` with frontmatter `name` + `description`.
+2. Redeploy chat (image copies `skills/`).
+3. Pick it in the Skill chip on a **new** chat (fixed at creation, like engine).
 
-## Adding a skill
-
-Add an entry to `buildSkills()` in `apps/chat/src/app.ts` (or, for a
-project-agnostic instruction skill, register one with `instructions` set). The
-engines behind Brokk — Afl (kernel), Regin (missions), Sleipnir (runtime) —
-stay invisible plumbing; they are not skills.
+Capability skills still land in `buildSkills()` when they need host services
+(checkout, Mímir, etc.).

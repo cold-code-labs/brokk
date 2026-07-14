@@ -392,6 +392,7 @@ function rowToChatSession(row: typeof chatSessions.$inferSelect): ChatSession {
     model: row.model,
     effort: row.effort,
     engine: row.engine ?? "claude-api",
+    skill: row.skill ?? null,
     cliSessionId: row.cliSessionId ?? null,
     createdBy: row.createdBy,
     turnState: row.turnState as ChatTurnState,
@@ -2261,6 +2262,7 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     sql`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS engine text NOT NULL DEFAULT 'afl';`,
   );
   await db.execute(sql`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS cli_session_id text;`);
+  await db.execute(sql`ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS skill text;`);
   await db.execute(sql`CREATE TABLE IF NOT EXISTS chat_messages (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id uuid NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,

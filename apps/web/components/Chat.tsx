@@ -111,6 +111,8 @@ function normalizeEngineUi(raw: string | undefined): string {
   }
 }
 
+type SkillOption = { name: string; description: string; kind: string };
+
 // Split (chat fraction) — persisted per-browser, so the balance you set survives
 // reloads and session switches. Default is an even 50/50 so the conversation gets
 // real width; snap points give a magnetic 50/60/68 without pixel-hunting, and
@@ -169,6 +171,8 @@ export default function Chat() {
   const [model, setModel] = useState("sonnet");
   const [effort, setEffort] = useState("medium");
   const [engine, setEngine] = useState("claude-api");
+  const [skill, setSkill] = useState("");
+  const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
   const [sessions, setSessions] = useState<ChatSessionWithStats[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -201,6 +205,13 @@ export default function Chat() {
   const creatingRef = useRef<Set<string>>(new Set());
 
   // ── loaders ─────────────────────────────────────────────────────────────────
+  // Load Brokk Skills catalogue once (chip options).
+  useEffect(() => {
+    chat.listSkills()
+      .then(setSkillOptions)
+      .catch(() => setSkillOptions([]));
+  }, []);
+
   // On environment change: load its sessions and make sure one is ready to use —
   // open the newest, or mint the very first chat when the project is empty. So
   // selecting an environment always lands you in a usable chat (never a dead end).
@@ -225,7 +236,7 @@ export default function Chat() {
       // Empty project → create the first chat (once).
       if (creatingRef.current.has(projectId)) return;
       creatingRef.current.add(projectId);
-      const s = await chat.createSession({ projectId, model, effort, engine }).catch(() => null);
+      const s = await chat.createSession({ projectId, model, effort, engine, skill: skill || null }).catch(() => null);
       creatingRef.current.delete(projectId);
       if (!active || !s) return;
       const withStats: ChatSessionWithStats = {
@@ -329,6 +340,7 @@ export default function Chat() {
     setModel(MODELS.some((m) => m.id === session.model) ? session.model : "sonnet");
     setEffort(session.effort && EFFORTS.some((e) => e.id === session.effort) ? session.effort : "medium");
     setEngine(normalizeEngineUi(session.engine));
+    setSkill(session.skill ?? "");
     setMessages(msgs);
     liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
     if (live) {
@@ -342,7 +354,7 @@ export default function Chat() {
   async function newChat() {
     if (!projectId) return;
     setError("");
-    const s = await chat.createSession({ projectId, model, effort, engine });
+    const s = await chat.createSession({ projectId, model, effort, engine, skill: skill || null });
     const withStats: ChatSessionWithStats = {
       ...s,
       stats: { messages: 0, tokensIn: 0, tokensOut: 0, lastMessageAt: null },
@@ -741,6 +753,24 @@ export default function Chat() {
                         {ENGINES.map((m) => (
                           <option key={m.id} value={m.id}>
                             {m.label}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown size={12} className="sindri-chip-caret" />
+                    </label>
+                    <label
+                      className="sindri-chip sindri-model"
+                      title="Skill Brokk (fixixa no chat novo; playbooks em skills/)"
+                    >
+                      <select
+                        className="sindri-chip-select"
+                        value={skill}
+                        onChange={(e) => setSkill(e.target.value)}
+                      >
+                        <option value="">Sem skill</option>
+                        {skillOptions.map((s) => (
+                          <option key={s.name} value={s.name} title={s.description}>
+                            {s.name}
                           </option>
                         ))}
                       </select>

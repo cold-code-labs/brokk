@@ -347,6 +347,7 @@ services:
       BROKK_EMBED_MODEL: ${BROKK_EMBED_MODEL:-}
       # Cross-session cap on concurrent CLI-lane turns (engine=cli sessions).
       BROKK_CLI_MAX_CONCURRENT: ${BROKK_CLI_MAX_CONCURRENT:-2}
+      BROKK_SKILLS_DIR: ${BROKK_SKILLS_DIR:-/app/skills}
     depends_on:
       brokk-api:
         condition: service_healthy

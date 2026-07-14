@@ -24,8 +24,10 @@ export interface ChatSession {
   branch: string | null;
   model: string;
   effort: string | null;
-  /** afl (native loop, default) | cli (Claude Code CLI lane). Fixed at creation. */
+  /** afl (native) / cli / cursor-* engines. Fixed at creation. */
   engine?: string;
+  /** Optional Brokk Skill id pinned at creation (skills/<id>/SKILL.md). */
+  skill?: string | null;
   turnState: "idle" | "running";
   lastTurnAt: string | null;
   createdAt: string;
@@ -81,8 +83,17 @@ export const chat = {
       "GET",
       `/sessions?stats=1&projectId=${encodeURIComponent(projectId)}`,
     ).then((r) => r.sessions),
-  createSession: (input: { projectId: string; model?: string; effort?: string; engine?: string }) =>
-    j<{ session: ChatSession }>("POST", "/sessions", input).then((r) => r.session),
+  createSession: (input: {
+    projectId: string;
+    model?: string;
+    effort?: string;
+    engine?: string;
+    skill?: string | null;
+  }) => j<{ session: ChatSession }>("POST", "/sessions", input).then((r) => r.session),
+  listSkills: () =>
+    j<{ skills: { name: string; description: string; kind: string }[] }>("GET", "/skills").then(
+      (r) => r.skills,
+    ),
   getSession: (id: string) =>
     j<{ session: ChatSession; messages: ChatMessage[]; running: boolean }>("GET", `/sessions/${id}`),
   patchSession: (id: string, patch: { title?: string; status?: string; model?: string; effort?: string | null }) =>

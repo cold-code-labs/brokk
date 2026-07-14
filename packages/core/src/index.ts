@@ -775,6 +775,8 @@ export interface ChatSession {
   /** Turn engine: claude-api | claude-cli | cursor-api | cursor-cli
    *  (legacy storage may still say afl/cli). */
   engine: string;
+  /** Optional Brokk Skill id pinned for the session (instruction skills from skills/). */
+  skill: string | null;
   /** The CLI's own session id (`--resume` continuity). engine=cli only. */
   cliSessionId: string | null;
   createdBy: string | null;

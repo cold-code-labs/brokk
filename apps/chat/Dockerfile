@@ -77,6 +77,9 @@ RUN chmod 0755 /usr/local/bin/brokk-entrypoint.sh
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/apps/chat/dist ./dist
 COPY --from=build /repo/apps/chat/package.json ./package.json
+# Instruction skills (skills/*/SKILL.md) — catalogue for invoke_skill + pin chip.
+COPY --from=build /repo/skills /app/skills
+ENV BROKK_SKILLS_DIR=/app/skills
 EXPOSE 8795
 ENTRYPOINT ["/usr/local/bin/brokk-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

@@ -463,6 +463,8 @@ export const chatSessions = pgTable(
     effort: text("effort"),
     /** Turn engine: claude-api | claude-cli | cursor-api | cursor-cli (legacy: afl/cli). */
     engine: text("engine").notNull().default("claude-api"),
+    /** Optional Brokk Skill id pinned at session creation (skills/<id>/SKILL.md). */
+    skill: text("skill"),
     /** The CLI's own session id (`--resume` continuity). engine=cli only. */
     cliSessionId: text("cli_session_id"),
     createdBy: text("created_by"),

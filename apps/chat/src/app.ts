@@ -2,6 +2,8 @@ import {
   buildSystemPrompt,
   claudeCliAvailable,
   cursorCliAvailable,
+  loadInstructionSkills,
+  skillMetaList,
   type AflConfig,
   type AgentEvent,
   type Skill,
@@ -78,6 +80,8 @@ const CreateSession = z.object({
   effort: z.enum(["low", "medium", "high"]).optional(),
   /** claude-api | claude-cli | cursor-api | cursor-cli (legacy: afl, cli). */
   engine: ENGINE_ENUM.optional(),
+  /** Brokk Skill id from skills/<id>/SKILL.md (or a capability name). Empty = none. */
+  skill: z.string().min(1).max(80).optional().nullable(),
   createdBy: z.string().optional(),
 });
 
@@ -203,6 +207,23 @@ export function buildSindri(deps: SindriDeps): Hono {
 
   // ── Sessions ────────────────────────────────────────────────────────────────
 
+  app.get("/skills", (c) => {
+    const catalog = skillMetaList([
+      {
+        name: "discovery",
+        description:
+          "Scout THIS repository end-to-end (read-only) and return a structured brief.",
+        kind: "capability",
+      },
+      {
+        name: "enhance",
+        description: "Rewrite a rough prompt/spec into a sharper one via Mímir.",
+        kind: "capability",
+      },
+    ]);
+    return c.json({ skills: catalog });
+  });
+
   app.get("/sessions", async (c) => {
     const projectId = c.req.query("projectId") || undefined;
     const status = (c.req.query("status") as "active" | "archived") || undefined;
@@ -241,6 +262,16 @@ export function buildSindri(deps: SindriDeps): Hono {
         400,
       );
     }
+    const skillRaw = parsed.data.skill?.trim() || null;
+    if (skillRaw) {
+      const known = new Set(skillMetaList([
+        { name: "discovery", description: "", kind: "capability" },
+        { name: "enhance", description: "", kind: "capability" },
+      ]).map((s) => s.name));
+      if (!known.has(skillRaw)) {
+        return c.json({ error: `unknown skill "${skillRaw}"` }, 400);
+      }
+    }
 
     const created = await deps.store.insertChatSession({
       projectId: project.id,
@@ -248,6 +279,7 @@ export function buildSindri(deps: SindriDeps): Hono {
       model: parsed.data.model ?? "haiku",
       effort: parsed.data.effort ?? null,
       engine,
+      skill: skillRaw,
       // Owner = the trusted Logto identity from the proxy; body value is only a
       // fallback for internal callers. This is what chat privacy + seat routing key off.
       createdBy: actorOf(c) || parsed.data.createdBy || null,
@@ -682,6 +714,9 @@ async function runSessionTurn(
   }
 
   const skills = buildSkills(deps, project.id, repo.fullName, path, emit);
+  const pinnedSkill = session.skill
+    ? skills.find((s) => s.name === session.skill)
+    : undefined;
   const toolCtx: ToolContext = {
     cwd: path,
     projectId: project.id,
@@ -711,6 +746,7 @@ async function runSessionTurn(
     repoFullName: repo.fullName,
     branch,
     skills,
+    pinnedSkill,
   });
 
   // Cursor API → Ratatoskr cursor sidecar (Messages-compat). Claude API → seat
@@ -792,12 +828,8 @@ function plannerConfig(): MimirConfig | null {
   };
 }
 
-/** The Brokk Skills available in a chat turn (ADR 0039). The former codename
- *  features become skills reached via `invoke_skill`:
- *   • discovery (Huginn) — scout the current checkout, return a structured brief.
- *   • enhance (Mímir)    — rewrite a rough prompt into a sharper one.
- *  Bound per-turn to the session's checkout + project, mirroring the plan_work
- *  bridge. More skills (review, migrate, …) slot in here. */
+/** Brokk Skills for a chat turn (ADR 0039). Capability skills are bound here;
+ *  instruction skills load from skills/<id>/SKILL.md (BROKK_SKILLS_DIR). */
 function buildSkills(
   deps: SindriDeps,
   projectId: string,
@@ -805,7 +837,7 @@ function buildSkills(
   cwd: string,
   emit: (e: AgentEvent) => void,
 ): Skill[] {
-  return [
+  const capabilities: Skill[] = [
     {
       name: "discovery",
       description:
@@ -863,6 +895,9 @@ function buildSkills(
       },
     },
   ];
+  const fromDisk = loadInstructionSkills();
+  const claimed = new Set(capabilities.map((s) => s.name));
+  return [...capabilities, ...fromDisk.filter((s) => !claimed.has(s.name))];
 }
 
 /** Build Sindri's infra-intent bridge over Heimdall's SCOPED Agent API. Returns

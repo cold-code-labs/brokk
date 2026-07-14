@@ -64,6 +64,17 @@ export function skillCatalogue(skills: Skill[] | undefined): string {
   ].join("\n");
 }
 
+/** Pin an instruction skill for the whole session (composer "Skill" chip). */
+export function pinnedSkillBlock(skill: Skill | undefined): string {
+  if (!skill?.instructions) return "";
+  return [
+    `## Active skill (pinned): ${skill.name}`,
+    "This session is pinned to this skill. Follow it for the whole conversation unless the user explicitly releases it. Prefer this over improvising a parallel method.",
+    "",
+    skill.instructions,
+  ].join("\n");
+}
+
 /** Dispatch one `invoke_skill` call against the registry. */
 export async function dispatchSkill(
   skills: Skill[] | undefined,
