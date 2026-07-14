@@ -193,6 +193,12 @@ export async function streamAssistant(
     } catch {
       return;
     }
+    // cursor-api-proxy (and some gateways) emit only `data: {"type":...}` without
+    // an SSE `event:` line. Anthropic itself sets both. Prefer the JSON type when
+    // the frame defaulted to "message".
+    if ((event === "message" || !event) && typeof j?.type === "string") {
+      event = j.type;
+    }
     switch (event) {
       case "message_start": {
         const u = j.message?.usage ?? {};
