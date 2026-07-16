@@ -267,9 +267,19 @@ export class GhProvider implements GitProvider {
 
     await mkdir(join(this.opts.workDir, "preview-worktrees"), { recursive: true });
 
+    // Resolve the fetched tip to a SHA *here, in the bare*. FETCH_HEAD is a
+    // per-worktree ref: each worktree gitdir keeps its own. Naming it in a command
+    // run inside the worktree (below) resolves the WORKTREE's FETCH_HEAD — written
+    // by refreshCheckout's own fetch, not by the one above — so the reuse path
+    // would reset onto a stale tip and still report success. That pinned the viken
+    // preview 29 commits behind for days: it never went 'live', so the live-only
+    // drift refresh never re-fetched, and every boot reset it back onto the same
+    // frozen sha.
+    const tip = await git(bare, ["rev-parse", "FETCH_HEAD"]);
+
     // Try to refresh an existing worktree (the "reuse" path — no teardown):
     // reset onto the freshly fetched tip.
-    const refreshed = await git(path, ["reset", "--hard", "FETCH_HEAD"])
+    const refreshed = await git(path, ["reset", "--hard", tip])
       .then(() => true)
       .catch(() => false);
     if (refreshed) return { path, branch };

@@ -82,6 +82,9 @@ export function loadAppSecrets(dir: string, project: string): Record<string, str
   return out;
 }
 
+/** How many trailing output lines a boot keeps to explain a death before serving. */
+const TAIL_LINES = 12;
+
 /** Keys whose VALUE is a secret and must never be shown in the Env inspector. */
 const SECRET_KEY_RE =
   /(secret|token|password|passwd|jwt|service_role|_key$|apikey|api_key|credential)/i;
@@ -656,8 +659,30 @@ export class PreviewSupervisor {
     });
 
     const tag = `[preview:${preview.subdomain}]`;
-    proc.stdout?.on("data", (d: Buffer) => process.stdout.write(`${tag} ${d}`));
-    proc.stderr?.on("data", (d: Buffer) => process.stderr.write(`${tag} ${d}`));
+    // Keep the tail of the child's output. The dev command is `install && dev`, so a
+    // boot dies before serving either because the dev server crashed OR because the
+    // install failed and `&&` short-circuited — the dev server never ran at all.
+    // "exited before serving" alone reads identically for both, which sent an
+    // operator hunting a Vite crash that had never happened (the install was exiting
+    // 1 on ERR_PNPM_IGNORED_BUILDS). Echo the last lines back on failure so the
+    // reason is in the log next to the verdict.
+    const tail: string[] = [];
+    const keepTail = (d: Buffer) => {
+      for (const line of d.toString().split("\n")) {
+        const s = line.trim();
+        if (!s) continue;
+        tail.push(s);
+        if (tail.length > TAIL_LINES) tail.shift();
+      }
+    };
+    proc.stdout?.on("data", (d: Buffer) => {
+      keepTail(d);
+      process.stdout.write(`${tag} ${d}`);
+    });
+    proc.stderr?.on("data", (d: Buffer) => {
+      keepTail(d);
+      process.stderr.write(`${tag} ${d}`);
+    });
 
     // Register locally BEFORE the first await so concurrent ticks don't
     // double-boot. Soft cutover: keep the outgoing process in `live` and park
@@ -695,8 +720,11 @@ export class PreviewSupervisor {
     const outcome = await this.waitHealthy(preview, proc, port, spec.health ?? "/");
     if (outcome === "exited") {
       console.log(
-        `[preview-supervisor] ${preview.subdomain}: exited before serving`,
+        `[preview-supervisor] ${preview.subdomain}: exited before serving (exit=${proc.exitCode})`,
       );
+      for (const l of tail) {
+        console.log(`[preview-supervisor] ${preview.subdomain}:   | ${l}`);
+      }
       this.pending.delete(preview.id);
       this.usedPorts.delete(port);
       try {
@@ -718,7 +746,9 @@ export class PreviewSupervisor {
       if (lp && lp.proc === proc) this.killAndClean(preview.id, lp);
       await this.controlPatch(`/previews/${preview.id}`, {
         status: "failed",
-        detail: "Build/start falhou antes de servir — ver os logs do preview.",
+        detail: tail.length
+          ? `Saiu antes de servir (exit=${proc.exitCode}): ${tail[tail.length - 1]!.slice(0, 200)}`
+          : "Build/start falhou antes de servir — ver os logs do preview.",
         pid: null,
         port: null,
       }).catch(() => {});
