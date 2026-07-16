@@ -547,6 +547,11 @@ export interface HauldrProject {
   /** Per-project, migrate-scoped token (authorizes POST /v1/projects/:name/migrate
    *  for THIS project only). Lets a preview apply db/migrations to its dev DB. */
   migrateToken: string;
+  /** storage-api gateway base, when the project HAS one — empty otherwise. Only
+   *  5 of the dev projects run a storage sidecar, so this is deliberately empty
+   *  for the rest: the app reads it as "storage off" (clean) instead of pointing
+   *  at a gateway that isn't there (broken). */
+  storageUrl: string;
 }
 
 /** Port for the Hauldr control-plane. Concrete implementation lives in

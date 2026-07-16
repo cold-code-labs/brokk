@@ -39,6 +39,7 @@ interface RawProject {
     auth?: RawService | null;
     rest?: RawService | null;
     realtime?: RawService | null;
+    storage?: RawService | null;
   };
   internal?: {
     dbUrl?: string;
@@ -68,6 +69,10 @@ function toHauldrProject(raw: RawProject): HauldrProject {
       s.rest?.url ?? raw.postgrest_url ?? raw.postgrestUrl ?? raw.rest_url ?? "",
     dbUrl: internal.dbUrl ?? raw.db_url ?? raw.dbUrl ?? "",
     migrateToken: internal.migrateToken ?? raw.migrate_token ?? "",
+    // Só quando o control-plane diz que o sidecar EXISTE e está pronto. Não é
+    // opcional-por-preguiça: a maioria dos projetos de dev não tem storage, e
+    // apontar pra um gateway ausente troca "desligado" por "quebrado".
+    storageUrl: s.storage?.ready ? (s.storage.url ?? "") : "",
   };
 }
 
