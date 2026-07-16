@@ -613,6 +613,12 @@ export class PreviewSupervisor {
       ...appEnv,
       HOME: home,
       COREPACK_HOME: `${home}/.cache/corepack`,
+      // A preview boots headless (no TTY). When a leftover node_modules is
+      // incompatible with the current pnpm/store, `pnpm install` wants to purge
+      // it and PROMPT — which aborts non-interactively with
+      // ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY and kills the boot (took down
+      // the whole preview lane). CI=true lets pnpm purge + reinstall silently.
+      CI: "true",
     };
 
     // Report a redacted snapshot of what we loaded, so the preview bar's Env
