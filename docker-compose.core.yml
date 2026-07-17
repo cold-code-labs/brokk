@@ -73,6 +73,10 @@ services:
       BROKK_API_INTERNAL_URL: ${BROKK_API_INTERNAL_URL:-http://brokk-api:8789}
       BROKK_API_SECRET: ${BROKK_API_SECRET:-}
       BROKK_MOBILE_TOKEN: ${BROKK_MOBILE_TOKEN:-}
+      # Mints preview access keys at /preview-gate/<sub> (session-gated). Must
+      # equal BROKK_PREVIEW_KEY on the preview-proxy, which verifies them.
+      BROKK_PREVIEW_KEY: ${BROKK_PREVIEW_KEY:-}
+      BROKK_PREVIEW_DOMAIN: ${BROKK_PREVIEW_DOMAIN:-preview.coldcodelabs.com}
       LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
       LOGTO_APP_ID: ${LOGTO_APP_ID:-}
       LOGTO_APP_SECRET: ${LOGTO_APP_SECRET:-}

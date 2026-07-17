@@ -151,6 +151,9 @@ importers:
 
   apps/preview-proxy:
     dependencies:
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       zod:
         specifier: ^3.24.1
         version: 3.25.76
@@ -195,6 +198,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@brokk/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk

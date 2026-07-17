@@ -6,6 +6,11 @@
  * Mirrors ARCHITECTURE.md §5 (domain model) and §8 (agent engine).
  */
 
+// Preview access keys — the mint/verify pair the web and the preview proxy must
+// agree on byte-for-byte. It lives here because both sides need it and a
+// duplicated auth primitive is how two services silently drift apart.
+export * from "./preview-key.js";
+
 // Sleipnir runtime contract (RuntimeSpec, DetectCtx). See docs/RUNTIME.md.
 export type { RuntimeSpec, DetectCtx } from "./runtime.js";
 import type { RuntimeSpec } from "./runtime.js";

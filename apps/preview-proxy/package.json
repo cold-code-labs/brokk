@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@brokk/core": "workspace:*",
     "zod": "^3.24.1"
   },
   "devDependencies": {

@@ -36,6 +36,12 @@
 
 import * as http from "node:http";
 import * as net from "node:net";
+import {
+  PREVIEW_KEY_COOKIE,
+  PREVIEW_KEY_PARAM,
+  PREVIEW_KEY_TTL_S,
+  verifyPreviewKey,
+} from "@brokk/core";
 import { loadConfig } from "./config.js";
 
 const cfg = loadConfig();
@@ -400,6 +406,38 @@ const HTML_502 = `<!DOCTYPE html>
 </body>
 </html>`;
 
+// No key, a stale one, or one minted for a different preview. Deliberately says
+// nothing about whether this subdomain exists.
+const HTML_403 = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Preview — sign in</title>
+<style>${STYLE}</style></head>
+<body>
+  <div class="card">
+    <h1>Open this preview from Brokk</h1>
+    <p>Previews are reachable only from the Brokk console, and a preview link
+       goes stale after a while.<br>
+       Open the project in Brokk and press Preview.</p>
+  </div>
+</body>
+</html>`;
+
+// BROKK_PREVIEW_KEY unset. Closed, not open: a gate that disappears when someone
+// clears an env is worse than no gate, because everyone believes it is there.
+const HTML_403_UNCONFIGURED = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Preview — not configured</title>
+<style>${STYLE}</style></head>
+<body>
+  <div class="card">
+    <h1>Previews are not configured</h1>
+    <p>This proxy has no access key set, so it cannot tell an operator from a
+       stranger — and refuses to serve.<br>
+       Set <code>BROKK_PREVIEW_KEY</code> here and on the Brokk web.</p>
+  </div>
+</body>
+</html>`;
+
 // Friendly, client-facing "we're warming this up" page. Served when a visitor
 // lands on a reaped/starting preview — the gateway fires the wake in the
 // background and this page auto-refreshes until the app answers. On-brand for
@@ -512,6 +550,72 @@ function isDevAssetPath(url: string | undefined): boolean {
   );
 }
 
+// ── Access gate ───────────────────────────────────────────────────────────────
+//
+// Previews live on a different origin than the Brokk web, so the Logto session
+// cookie never arrives here. Before this gate the proxy just resolved the
+// subdomain and served: any client's dev app was readable by anyone who guessed
+// the name, and with BROKK_LIVE_PREVIEW=1 what it served was the UNCOMMITTED
+// working tree. The web mints a short-lived key (session-gated) and the browser
+// arrives with `?__bk=`; we trade it for a cookie so the app's own asset and HMR
+// requests carry it from then on.
+
+/** Read one cookie without pulling in a parser. */
+function cookieFrom(req: http.IncomingMessage, name: string): string {
+  for (const part of (req.headers.cookie ?? "").split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return "";
+}
+
+/** Already holding a good cookie for THIS subdomain? */
+function hasValidCookie(req: http.IncomingMessage, subdomain: string): boolean {
+  return verifyPreviewKey(cfg.BROKK_PREVIEW_KEY, subdomain, cookieFrom(req, PREVIEW_KEY_COOKIE));
+}
+
+/**
+ * Gate a request. Returns true when the caller may proceed.
+ *
+ * On a valid `?__bk=`, sets the cookie and 303s to the same URL without the
+ * param — so the key stops riding in the address bar, browser history, and the
+ * Referer of every outbound request the app makes.
+ *
+ * SameSite=None is required, not sloppiness: the preview renders inside a
+ * cross-ORIGIN iframe, and Lax cookies are withheld there. It is not a
+ * third-party cookie (same site: coldcodelabs.com), so browser third-party
+ * blocking does not apply.
+ */
+function passesGate(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  subdomain: string,
+): boolean {
+  if (!cfg.BROKK_PREVIEW_KEY) {
+    respondHtml(res, 403, HTML_403_UNCONFIGURED);
+    return false;
+  }
+  if (hasValidCookie(req, subdomain)) return true;
+
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  const key = url.searchParams.get(PREVIEW_KEY_PARAM) ?? "";
+  if (key && verifyPreviewKey(cfg.BROKK_PREVIEW_KEY, subdomain, key)) {
+    url.searchParams.delete(PREVIEW_KEY_PARAM);
+    res.writeHead(303, {
+      "Set-Cookie":
+        `${PREVIEW_KEY_COOKIE}=${encodeURIComponent(key)}; Path=/; HttpOnly; Secure; ` +
+        `SameSite=None; Max-Age=${PREVIEW_KEY_TTL_S}`,
+      Location: `${url.pathname}${url.search}`,
+      "Cache-Control": "no-store",
+    });
+    res.end();
+    return false;
+  }
+  respondHtml(res, 403, HTML_403);
+  return false;
+}
+
 function respondHtml(res: http.ServerResponse, status: number, body: string): void {
   if (res.headersSent) {
     res.destroy();
@@ -544,6 +648,12 @@ async function handleRequest(
     respondHtml(res, 404, html404(req.headers.host ?? ""));
     return;
   }
+
+  // Gate BEFORE resolving or waking. A stranger must not be able to learn which
+  // subdomains exist (404 vs thawing page is an oracle), nor boot a reaped
+  // preview — that would spend a dev server and a Hauldr backend on an anonymous
+  // request.
+  if (!passesGate(req, res, subdomain)) return;
 
   const entries = await resolveCache();
   const entry = entries.get(subdomain);
@@ -636,6 +746,16 @@ async function handleUpgrade(
     return;
   }
 
+  // The upgrade path is a SEPARATE door — gating only handleRequest would leave
+  // HMR/devtools sockets wide open. No key-for-cookie trade here: a WebSocket is
+  // never the first request to an origin, so the cookie is already set by the
+  // time the app opens one. Cookie or nothing.
+  if (!cfg.BROKK_PREVIEW_KEY || !hasValidCookie(req, subdomain)) {
+    socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
   const entries = await resolveCache();
   const entry = entries.get(subdomain);
   if (!entry) {
@@ -688,6 +808,12 @@ server.listen(cfg.BROKK_GATEWAY_PORT, "0.0.0.0", () => {
   console.log(
     `[gateway] *.preview reverse proxy listening on :${cfg.BROKK_GATEWAY_PORT}`,
   );
+  if (!cfg.BROKK_PREVIEW_KEY) {
+    console.error(
+      "[gateway] BROKK_PREVIEW_KEY is unset — every request will 403. " +
+        "Set it here and on the Brokk web (same value) to serve previews.",
+    );
+  }
   console.log(`[gateway] control plane(s): ${cfg.controlUrls.join(", ")}`);
   console.log(
     `[gateway] preview host(s): ${cpBases

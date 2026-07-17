@@ -1375,6 +1375,14 @@ function SindriPreview({
 
   const status = preview?.status;
   const live = status === "live";
+  // Never point a browser straight at preview.url: the preview origin has no
+  // session and would 403. /preview-gate checks the Logto session here, mints a
+  // key bound to this one subdomain, and redirects — the proxy trades it for a
+  // cookie. Keeping the key out of this component is the point: it never touches
+  // the bundle or the DOM.
+  const previewHref = preview?.subdomain
+    ? `/preview-gate/${encodeURIComponent(preview.subdomain)}`
+    : undefined;
   const dimLabel = mobileOnly
     ? `${phone.w}×${phone.h}`
     : device === "mobile"
@@ -1514,7 +1522,7 @@ function SindriPreview({
           <a
             className={`sindri-preview-icon ${live ? "" : "is-disabled"}`}
             title="Open in new tab"
-            href={live ? preview?.url : undefined}
+            href={live ? previewHref : undefined}
             target="_blank"
             rel="noreferrer"
           >
@@ -1549,7 +1557,7 @@ function SindriPreview({
               >
                 <iframe
                   key={iframeKey}
-                  src={preview.url}
+                  src={previewHref}
                   title={`Preview — ${phone.label}`}
                   className="sindri-preview-iframe"
                   sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
@@ -1560,7 +1568,7 @@ function SindriPreview({
             <div className={`sindri-preview-frame is-${device}`}>
               <iframe
                 key={iframeKey}
-                src={preview.url}
+                src={previewHref}
                 title="Live preview"
                 className="sindri-preview-iframe"
                 sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"

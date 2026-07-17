@@ -41,6 +41,12 @@ const Env = z.object({
   BROKK_CONTROL_URL_EXTRA: z.string().default(""),
   BROKK_PREVIEW_HOST: z.string().default("127.0.0.1"),
   BROKK_PREVIEW_HOST_MAP: z.string().default(""),
+  /** HMAC key for preview access keys — must match BROKK_PREVIEW_KEY on the web,
+   *  which mints them. UNSET = CLOSED: every request 403s, same posture as the
+   *  rest of the fleet (cf. Heimdall's authedAgent). Fail-open was considered and
+   *  rejected — a gate that silently disappears when someone clears an env is
+   *  worse than no gate, because everyone believes it is there. */
+  BROKK_PREVIEW_KEY: z.string().default(""),
 });
 
 export type Config = z.infer<typeof Env> & {

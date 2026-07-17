@@ -168,6 +168,10 @@ services:
       # Bearer p/ clientes nativos (Brokk Mobile) — alternativa ao cookie Logto
       # nas mutações do proxy. Vazio = caminho desligado.
       BROKK_MOBILE_TOKEN: ${BROKK_MOBILE_TOKEN:-}
+      # Mints preview access keys at /preview-gate/<sub> (session-gated). Must
+      # equal BROKK_PREVIEW_KEY on the preview-proxy, which verifies them.
+      BROKK_PREVIEW_KEY: ${BROKK_PREVIEW_KEY:-}
+      BROKK_PREVIEW_DOMAIN: ${BROKK_PREVIEW_DOMAIN:-preview.coldcodelabs.com}
       LOGTO_ENDPOINT: ${LOGTO_ENDPOINT:-}
       LOGTO_APP_ID: ${LOGTO_APP_ID:-}
       LOGTO_APP_SECRET: ${LOGTO_APP_SECRET:-}
@@ -324,6 +328,9 @@ services:
       BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://brokk-api:8789}
       BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
+      # Access gate. Must equal BROKK_PREVIEW_KEY on the web, which mints the
+      # keys this verifies. UNSET = every request 403s (closed, on purpose).
+      BROKK_PREVIEW_KEY: ${BROKK_PREVIEW_KEY:-}
     expose:
       - "3020"
     ports:
