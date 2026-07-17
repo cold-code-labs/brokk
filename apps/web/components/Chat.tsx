@@ -54,6 +54,7 @@ import PublishControls from "./PublishControls";
 import CommitControls from "./CommitControls";
 import { brokk } from "../lib/api";
 import {
+  ApiError,
   attach,
   chat,
   sendMessage,
@@ -115,14 +116,17 @@ function isCursorEngine(engine: string): boolean {
 type SkillOption = { name: string; description: string; kind: string };
 
 /**
- * Did we lose the pipe, or did the request get refused? `fetch` rejects with a
- * bare TypeError when the connection never formed or died mid-body — offline,
- * asleep, a tunnel blip. A refusal we heard back from the server arrives as our
- * own `send → <status>` Error. Only the latter is worth a banner; the former is
- * ours to repair, and the turn on the other side never noticed.
+ * Is this failure the server's verdict, or just the world being unreliable?
+ *
+ * A 4xx is a verdict: the session is gone (404), the seat is revoked (401), a
+ * turn is already running (409). Asking again changes nothing, so say it out
+ * loud. Everything else is worth retrying in silence — a bare TypeError is the
+ * pipe (offline, asleep, a tunnel blip) and a 5xx is the fleet blinking (a
+ * redeploy, a proxy hiccup), and neither means the turn died. 408/429 are the
+ * server explicitly asking us to come back.
  */
-function isTransportError(e: unknown): boolean {
-  return e instanceof TypeError;
+function isVerdict(e: unknown): boolean {
+  return e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429;
 }
 
 /** Pull `/skill-name` tokens that match the catalogue; leave the rest as the prompt. */
@@ -640,10 +644,19 @@ export default function Chat() {
         lastFrameRef.current = Date.now();
         await attach(sid, handleEvent, ac.signal);
         if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(sid);
-      } catch {
-        // Still no pipe (or the session is gone mid-flight) — keep trying; the
-        // session rail's own load surfaces a real 404.
-        if (!ac.signal.aborted) scheduleRetry(sid);
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        // A verdict ends the loop: retrying a session the server says is gone
+        // would leave "reconnecting…" on screen forever — a second lie in the
+        // shape of the first one.
+        if (isVerdict(e)) {
+          setError(String(e));
+          setRunning(false);
+          setPhase("");
+          setLink("ok");
+          return;
+        }
+        scheduleRetry(sid);
       }
     },
     [handleEvent, scheduleRetry],
@@ -787,11 +800,13 @@ export default function Chat() {
       if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(sid);
     } catch (e) {
       if (ac.signal.aborted) return;
-      if (isTransportError(e)) scheduleRetry(sid);
-      else {
+      // A 5xx here is ambiguous — the POST may have started a turn whose
+      // response we never got. Don't guess: resync asks the server what's
+      // actually running.
+      if (isVerdict(e)) {
         setError(String(e));
         setRunning(false);
-      }
+      } else scheduleRetry(sid);
     }
   }
 

@@ -67,13 +67,26 @@ export type AgentEvent =
   | { type: "error"; message: string }
   | { type: "ping" };
 
+/** An answer we actually heard back from the server. The status travels with it
+ *  so callers can tell a verdict (404: the session is gone) from the fleet
+ *  blinking (502 mid-redeploy) — one is worth surfacing, the other retrying. */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function j<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status} ${await res.text().catch(() => "")}`);
+  if (!res.ok)
+    throw new ApiError(`${method} ${path} → ${res.status} ${await res.text().catch(() => "")}`, res.status);
   return (await res.json()) as T;
 }
 
@@ -224,13 +237,13 @@ export async function sendMessage(
     body: JSON.stringify({ text, ...(skill ? { skill } : {}) }),
     signal,
   });
-  if (!res.ok) throw new Error(`send → ${res.status} ${await res.text().catch(() => "")}`);
+  if (!res.ok) throw new ApiError(`send → ${res.status} ${await res.text().catch(() => "")}`, res.status);
   await consumeSSE(res, onEvent, signal);
 }
 
 /** Reattach to an in-flight turn's live stream (replays the recent tail). */
 export async function attach(sessionId: string, onEvent: (e: AgentEvent) => void, signal?: AbortSignal): Promise<void> {
   const res = await fetch(`${BASE}/sessions/${sessionId}/stream`, { signal });
-  if (!res.ok) throw new Error(`attach → ${res.status}`);
+  if (!res.ok) throw new ApiError(`attach → ${res.status}`, res.status);
   await consumeSSE(res, onEvent, signal);
 }
