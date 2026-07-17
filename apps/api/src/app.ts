@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import { version } from "../package.json";
 import { chatRoutes } from "./routes/chat.js";
 import { conversationsRoutes } from "./routes/conversations.js";
+import { driverRunsRoutes } from "./routes/driver-runs.js";
 import { mimirRoutes } from "./routes/mimir.js";
 import { missionsRoutes } from "./routes/missions.js";
 import { previewsRoutes } from "./routes/previews.js";
@@ -89,6 +90,10 @@ export function buildApp(deps: AppDeps): Hono {
       path.startsWith("/runner") ||
       path.startsWith("/webhooks") ||
       path.startsWith("/previews") ||
+      // /driver-runs (ADR 0054): the forge claims + reports with the runner
+      // secret; the route has its own requireRunnerOrApiSecret. Guarding here
+      // would 401 the forge's claim/status writes and freeze the driver lane.
+      path.startsWith("/driver-runs") ||
       isRunnerRunWrite
     )
       return next();
@@ -101,6 +106,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/conversations", conversationsRoutes(deps));
   app.route("/projects", projectsRoutes(deps));
   app.route("/previews", previewsRoutes(deps));
+  app.route("/driver-runs", driverRunsRoutes(deps));
   app.route("/mimir", mimirRoutes(deps));
   app.route("/chat", chatRoutes(deps));
   app.route("/users", usersRoutes(deps));

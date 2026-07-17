@@ -9,6 +9,7 @@
  */
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import { join } from "node:path";
 import type { AcceptanceReceipt, AgentEngine, Plan, Project, RepoMemory, RunEvent, Repository, Run, RunResult, Task } from "@brokk/core";
 import { runBranch } from "@brokk/core";
 import { loadRunnerConfig, type RunnerConfig } from "./config.js";
@@ -29,6 +30,7 @@ import { HeimdallLanes } from "./heimdall-lanes.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
 import { makeAutofix } from "./autofix.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
+import { runDriverTurn } from "./driver.js";
 import { distillHealLesson } from "./memory.js";
 import { buildRepoMap } from "./repomap.js";
 import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
@@ -118,6 +120,12 @@ async function main() {
     console.log("[forge] BROKK_SUPERVISOR=0 — preview supervisor DISABLED on this runner (claim loop only)");
   }
   const supervisorDone = supervisorEnabled ? supervisor.run(() => stopping) : Promise.resolve();
+  // Driver runs (ADR 0054) ride the same runner that owns the previews — only it
+  // can reach them on 127.0.0.1. Off on claim-only runners (no previews to drive).
+  const driverDone = supervisorEnabled
+    ? runDriverLoop(cfg, runnerId, () => stopping)
+    : Promise.resolve();
+  if (supervisorEnabled) console.log("[forge] driver loop ON (ADR 0054)");
   // ────────────────────────────────────────────────────────────────────────────
 
   const heartbeat = setInterval(
@@ -149,7 +157,7 @@ async function main() {
   }
 
   clearInterval(heartbeat);
-  await supervisorDone; // wait for preview supervisor graceful shutdown
+  await Promise.all([supervisorDone, driverDone]); // graceful shutdown of both loops
   console.log("[forge] stopped");
 }
 
@@ -723,6 +731,91 @@ function planPrBody(plan: Plan, verify: VerifyResult | null, receipt?: Acceptanc
 
 /** Thin HTTP helper for the runner-facing (shared-secret) endpoints.
  *  `emptyStatus` (e.g. 204) resolves to null instead of parsing a body. */
+// ── Driver loop (ADR 0054) ───────────────────────────────────────────────────
+// A parallel loop that claims driver runs and drives the live preview via the
+// Playwright MCP. Runs only on the preview-owning runner (the previews it drives
+// bind 127.0.0.1 in THIS process). Cancel = the control plane flips the run to
+// 'cancelling'; we notice it on a poll and abort the CLI turn, whose process
+// group (CLI + stdio MCP + chromium) is torn down together.
+type DriverClaim = {
+  run: { id: string; instruction: string; previewId: string };
+  preview: { port: number | null; hauldrProject: string; status: string } | null;
+};
+
+async function runDriverLoop(
+  cfg: RunnerConfig,
+  runnerId: string,
+  stopping: () => boolean,
+): Promise<void> {
+  while (!stopping()) {
+    let claim: DriverClaim | null = null;
+    try {
+      claim = await api<DriverClaim | null>(cfg, "POST", "/driver-runs/claim", { runnerId }, 204);
+    } catch (err) {
+      console.error("[driver] claim failed:", err);
+    }
+    if (!claim) {
+      await sleep(cfg.pollIntervalMs);
+      continue;
+    }
+    await handleDriverRun(cfg, claim).catch((err) =>
+      console.error(`[driver] run ${claim?.run.id} crashed:`, err),
+    );
+  }
+}
+
+async function handleDriverRun(cfg: RunnerConfig, claim: DriverClaim): Promise<void> {
+  const { run, preview } = claim;
+  const report = (patch: Record<string, unknown>) =>
+    api(cfg, "POST", `/driver-runs/${run.id}/status`, patch).catch((e) =>
+      console.error(`[driver] status ${run.id} failed:`, e),
+    );
+  if (!preview || preview.status !== "live" || preview.port == null) {
+    await report({ status: "failed", error: "preview is not live", finished: true });
+    return;
+  }
+  const previewUrl = `http://127.0.0.1:${preview.port}`;
+  const cwd = join(cfg.workDir, "preview-worktrees", preview.hauldrProject);
+  console.log(`[driver] run ${run.id} → ${previewUrl} (${preview.hauldrProject})`);
+
+  const controller = new AbortController();
+  // Notice a cancel request and abort the turn (→ process-group kill).
+  const cancelPoll = setInterval(() => {
+    api<{ status?: string } | null>(cfg, "GET", `/driver-runs/${run.id}`)
+      .then((r) => {
+        if (r?.status === "cancelling") controller.abort();
+      })
+      .catch(() => {});
+  }, 3000);
+  cancelPoll.unref?.();
+
+  try {
+    const outcome = await runDriverTurn({
+      cwd,
+      previewUrl,
+      instruction: run.instruction,
+      chromiumPath: cfg.chromiumPath,
+      model: "sonnet",
+      signal: controller.signal,
+    });
+    clearInterval(cancelPoll);
+    if (outcome.stop === "aborted") {
+      await report({ status: "cancelled", result: outcome.resultText || null, finished: true });
+    } else if (outcome.stop === "error") {
+      await report({
+        status: "failed",
+        error: (outcome.resultText || "driver error").slice(0, 4000),
+        finished: true,
+      });
+    } else {
+      await report({ status: "done", result: (outcome.resultText || "").slice(0, 8000), finished: true });
+    }
+  } catch (err) {
+    clearInterval(cancelPoll);
+    await report({ status: "failed", error: String(err).slice(0, 4000), finished: true });
+  }
+}
+
 async function api<T = unknown>(
   cfg: RunnerConfig,
   method: string,

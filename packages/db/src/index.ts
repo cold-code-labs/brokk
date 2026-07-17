@@ -765,6 +765,22 @@ export interface Store {
   ): Promise<Mission>;
   /** Append one entry to the mission's trail (the task_events sibling). */
   addMissionEvent(missionId: string, type: MissionEventType, detail?: unknown): Promise<MissionEvent>;
+
+  // Driver runs (ADR 0054) — a bg task where the agent DRIVES a live preview via
+  // the Playwright MCP. Self-healed table; the forge claims + executes, the chat
+  // (or any api-secret caller) creates + cancels.
+  createDriverRun(values: { previewId: string; instruction: string }): Promise<DriverRun>;
+  getDriverRun(id: string): Promise<DriverRun | null>;
+  /** Atomically claim the oldest queued run for a runner (FOR UPDATE SKIP LOCKED). */
+  claimDriverRun(runnerId: string): Promise<DriverRun | null>;
+  updateDriverRun(
+    id: string,
+    patch: { status?: DriverRunStatus; result?: string | null; error?: string | null; finished?: boolean },
+  ): Promise<DriverRun>;
+  /** Cancel: a queued run goes straight to 'cancelled'; a running one to
+   *  'cancelling' (the forge finalizes it after tearing the turn down). No-op
+   *  (null) when already terminal. */
+  requestCancelDriverRun(id: string): Promise<DriverRun | null>;
   listMissionEvents(missionId: string): Promise<MissionEvent[]>;
 }
 
@@ -1988,7 +2004,85 @@ export function createStore(db: Db): Store {
       );
       return execRows(rows).map(rowToMissionEvent);
     },
+
+    async createDriverRun(values) {
+      const rows = await db.execute(
+        sql`INSERT INTO driver_runs (preview_id, instruction)
+            VALUES (${values.previewId}::uuid, ${values.instruction})
+            RETURNING *`,
+      );
+      return rowToDriverRun(execRows(rows)[0]!);
+    },
+    async getDriverRun(id) {
+      const rows = await db.execute(sql`SELECT * FROM driver_runs WHERE id = ${id} LIMIT 1`);
+      const row = execRows(rows)[0];
+      return row ? rowToDriverRun(row) : null;
+    },
+    async claimDriverRun(runnerId) {
+      const rows = await db.execute(
+        sql`UPDATE driver_runs SET status = 'running', runner_id = ${runnerId},
+              started_at = now(), updated_at = now()
+            WHERE id = (
+              SELECT id FROM driver_runs WHERE status = 'queued'
+              ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
+            )
+            RETURNING *`,
+      );
+      const row = execRows(rows)[0];
+      return row ? rowToDriverRun(row) : null;
+    },
+    async updateDriverRun(id, patch) {
+      const rows = await db.execute(
+        sql`UPDATE driver_runs SET
+              status = COALESCE(${patch.status ?? null}, status),
+              result = CASE WHEN ${patch.result !== undefined} THEN ${patch.result ?? null} ELSE result END,
+              error = CASE WHEN ${patch.error !== undefined} THEN ${patch.error ?? null} ELSE error END,
+              finished_at = CASE WHEN ${patch.finished === true} THEN now() ELSE finished_at END,
+              updated_at = now()
+            WHERE id = ${id}
+            RETURNING *`,
+      );
+      const row = execRows(rows)[0];
+      if (!row) throw new Error(`driver run ${id} not found`);
+      return rowToDriverRun(row);
+    },
+    async requestCancelDriverRun(id) {
+      const rows = await db.execute(
+        sql`UPDATE driver_runs SET
+              status = CASE WHEN status = 'queued' THEN 'cancelled' ELSE 'cancelling' END,
+              finished_at = CASE WHEN status = 'queued' THEN now() ELSE finished_at END,
+              updated_at = now()
+            WHERE id = ${id} AND status IN ('queued', 'running')
+            RETURNING *`,
+      );
+      const row = execRows(rows)[0];
+      return row ? rowToDriverRun(row) : null;
+    },
   };
+}
+
+export type DriverRunStatus =
+  | "queued"
+  | "running"
+  | "done"
+  | "failed"
+  | "cancelling"
+  | "cancelled";
+
+/** A driver run (ADR 0054): the agent drives a live preview via the Playwright
+ *  MCP. Self-healed table (never in drizzle), so a plain shape mapped by hand. */
+export interface DriverRun {
+  id: string;
+  previewId: string;
+  instruction: string;
+  status: DriverRunStatus;
+  runnerId: string | null;
+  result: string | null;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  updatedAt: string;
 }
 
 // ── Mission row mappers (self-healed tables — raw rows, never drizzle) ────────
@@ -2027,6 +2121,22 @@ function rowToMissionEvent(row: Record<string, unknown>): MissionEvent {
     type: String(row.type) as MissionEventType,
     detail: row.detail ?? null,
     at: rawIso(row.at),
+  };
+}
+
+function rowToDriverRun(row: Record<string, unknown>): DriverRun {
+  return {
+    id: String(row.id),
+    previewId: String(row.preview_id),
+    instruction: String(row.instruction),
+    status: String(row.status) as DriverRunStatus,
+    runnerId: (row.runner_id as string | null) ?? null,
+    result: (row.result as string | null) ?? null,
+    error: (row.error as string | null) ?? null,
+    createdAt: rawIso(row.created_at),
+    startedAt: row.started_at ? rawIso(row.started_at) : null,
+    finishedAt: row.finished_at ? rawIso(row.finished_at) : null,
+    updatedAt: rawIso(row.updated_at),
   };
 }
 
@@ -2211,6 +2321,25 @@ export async function ensureMissionSchema(db: Db): Promise<void> {
   );`);
   await db.execute(
     sql`CREATE INDEX IF NOT EXISTS mission_events_mission_idx ON mission_events (mission_id);`,
+  );
+
+  // Driver runs (ADR 0054) — bg tasks that drive a live preview via the Playwright
+  // MCP. Self-healed (same reason as missions: push hangs on new db_brokk tables).
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS driver_runs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    preview_id uuid NOT NULL,
+    instruction text NOT NULL,
+    status text NOT NULL DEFAULT 'queued',
+    runner_id text,
+    result text,
+    error text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    started_at timestamptz,
+    finished_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS driver_runs_status_idx ON driver_runs (status, created_at);`,
   );
 
   // Resolve per-card analysis — one row per task (PK = task_id), upserted by the
