@@ -47,6 +47,17 @@ export interface RunnerConfig {
   /** Headless Chromium binary the acceptance receipt (and browser checks) drive.
    *  Default /usr/bin/chromium (present on the surtr runner). BROKK_CHROMIUM. */
   chromiumPath: string;
+  /** Opt-in (ADR 0054): run a Playwright MCP http server IN the forge — the only
+   *  network namespace that reaches a live preview (previews bind 127.0.0.1:<port>
+   *  here). The chat mounts these browser tools via the MCP bridge; the agent is
+   *  the brain, this is only the hands. Default OFF. BROKK_PLAYWRIGHT_MCP ("1"). */
+  playwrightMcp: boolean;
+  /** Host the Playwright MCP binds to. Default 127.0.0.1 (secure: only the forge
+   *  drives it). Set to 0.0.0.0 ONLY with a deliberate access story for the shared
+   *  network — the gate lives at our boundary, never in the CLI. BROKK_PLAYWRIGHT_MCP_HOST. */
+  playwrightMcpHost: string;
+  /** Port the Playwright MCP http server binds to. Default 8931. BROKK_PLAYWRIGHT_MCP_PORT. */
+  playwrightMcpPort: number;
   /** Poll interval (ms) between claim attempts when the queue is empty. */
   pollIntervalMs: number;
 
@@ -120,6 +131,9 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     ),
     browser: /^(1|true|yes)$/i.test(env.BROKK_BROWSER ?? ""),
     chromiumPath: env.BROKK_CHROMIUM ?? "/usr/bin/chromium",
+    playwrightMcp: /^(1|true|yes)$/i.test(env.BROKK_PLAYWRIGHT_MCP ?? ""),
+    playwrightMcpHost: env.BROKK_PLAYWRIGHT_MCP_HOST ?? "127.0.0.1",
+    playwrightMcpPort: Number(env.BROKK_PLAYWRIGHT_MCP_PORT ?? 8931),
     pollIntervalMs: Number(env.BROKK_RUNNER_POLL_MS ?? 3000),
     // Preview supervisor
     heimdallAgentUrl: (env.HEIMDALL_AGENT_URL ?? "").replace(/\/$/, ""),

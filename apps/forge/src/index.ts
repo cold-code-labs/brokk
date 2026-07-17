@@ -29,6 +29,7 @@ import { HeimdallLanes } from "./heimdall-lanes.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
 import { makeAutofix } from "./autofix.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
+import { startPlaywrightMcp } from "./playwright-mcp.js";
 import { distillHealLesson } from "./memory.js";
 import { buildRepoMap } from "./repomap.js";
 import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
@@ -75,9 +76,25 @@ async function main() {
   const runnerId = await register(cfg);
   console.log(`[forge] registered as ${runnerId} → ${cfg.controlUrl}`);
 
+  // Playwright MCP (ADR 0054) — the browser hands for driver sessions, opt-in.
+  // Started here (before the loops) and torn down in stop() so its chromium
+  // children never outlive the runner.
+  const playwrightMcp = cfg.playwrightMcp
+    ? startPlaywrightMcp({
+        host: cfg.playwrightMcpHost,
+        port: cfg.playwrightMcpPort,
+        chromiumPath: cfg.chromiumPath,
+        log: (m) => console.log(m),
+      })
+    : null;
+  if (playwrightMcp) {
+    console.log(`[forge] Playwright MCP (driver hands, ADR 0054) → ${playwrightMcp.url}`);
+  }
+
   let stopping = false;
   const stop = () => {
     stopping = true;
+    playwrightMcp?.stop();
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);

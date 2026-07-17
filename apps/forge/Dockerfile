@@ -65,6 +65,11 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
 # auth is CLAUDE_CODE_OAUTH_TOKEN at runtime. Default (afl) never invokes it.
 RUN npm install -g @anthropic-ai/claude-code@2.1.207
 
+# Playwright MCP — the browser hands for driver sessions (ADR 0054), opt-in via
+# BROKK_PLAYWRIGHT_MCP. Bin `mcp-server-playwright`; drives the system chromium
+# baked above (PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH). Inert unless enabled.
+RUN npm install -g @playwright/mcp@0.0.78
+
 # Isolation Nível 3 (egress uid-split). A second unprivileged uid (1002, same gid as
 # the worker's 1001) that the bash hand drops to; the nft ruleset firewalls it off
 # RFC1918. HOME is shared + group-writable (setgid dir) so both uids write the
