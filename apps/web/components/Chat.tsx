@@ -804,6 +804,14 @@ export default function Chat() {
     [sessions],
   );
 
+  // A rail listing nothing is just a wall: with no sessions yet, the anvil gets
+  // the whole room. Nothing is lost — the hero's own field and "empty session"
+  // link are the only moves the rail offered. It comes back on its own with the
+  // first session; railOpen is untouched, so a collapsed rail stays collapsed.
+  // `sessions` is [] while a project's list loads, which also keeps the rail
+  // from flashing in before there is anything to put in it.
+  const showRail = railOpen && sortedSessions.length > 0;
+
   // Lazy preview trigger: has Sindri made a file-mutating tool call this session?
   const sawEdit = useMemo(
     () =>
@@ -860,8 +868,8 @@ export default function Chat() {
       ) : null}
 
       {/* ── room: session rail | (chat | live preview) ── */}
-      <div className={`sindri-room ${railOpen ? "" : "is-railless"}`}>
-        {railOpen ? (
+      <div className={`sindri-room ${showRail ? "" : "is-railless"}`}>
+        {showRail ? (
           <SessionRail
             sessions={sortedSessions}
             currentId={sessionId}
@@ -880,10 +888,6 @@ export default function Chat() {
           <div className="sindri-blank">
             <Hammer className="sindri-blank-mark" size={56} strokeWidth={1.25} aria-hidden="true" />
             <h3>{currentProject ? `At the anvil with ${currentProject.name}` : "Pick an environment"}</h3>
-            <p>
-              Brokk clones the repo and works a branch of its own. Describe the first task
-              to light the forge — the live preview opens beside it when you ask for it.
-            </p>
             <form
               className="sindri-blank-bar"
               onSubmit={(e) => {

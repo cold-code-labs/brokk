@@ -813,15 +813,13 @@ body:has(.sindri) {
   color: var(--ember, #ff7a45);
   margin-bottom: 0.4rem;
 }
+/* The title is the whole preamble now — the explanatory paragraph is gone, so
+   the h3 carries the breath the paragraph's own bottom margin used to give the
+   composer. Without it the title sits on the bar's lip. */
 .sindri-blank h3 {
   color: var(--fg);
-  margin: 0;
-  font-size: 1.1rem;
-}
-.sindri-blank p {
   margin: 0 0 0.6rem;
-  max-width: 30rem;
-  line-height: 1.55;
+  font-size: 1.1rem;
 }
 
 /* The one-shot start composer — same seamless command-bar language as the
