@@ -86,7 +86,11 @@ body {
   --fg: #141820;
   --fg-soft: #4a5568;
   --fg-dim: #6b7385;
-  border-bottom: 1px solid var(--line);
+  /* No seam under the bar: now that it and the bench are the same paper, the
+     hairline was the only thing drawing a border — and it drew it for nothing.
+     (It used to be invisible anyway: the dark-bar/white-bench contrast did the
+     parting.) */
+  border-bottom: 0;
   background: #ffffff;
   color: var(--fg);
   /* pops are portaled — bar itself can stay tight */
