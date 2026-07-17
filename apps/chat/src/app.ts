@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { runCliSessionTurn } from "./cli-turn.js";
 import { unseal } from "./secrets.js";
 import { autoTitle } from "./titler.js";
@@ -906,7 +906,15 @@ const IMAGE_KEY =
   process.env.CURSOR_INGRESS_KEYS?.split(",")[0]?.trim() ||
   "";
 const IMAGE_MODEL = process.env.CURSOR_IMAGE_MODEL || "cursor-image";
-const IMAGE_DIR = process.env.BROKK_CHAT_IMAGES_DIR || join(homedir(), ".brokk-chat-images");
+// Persist under the runner workdir (on the durable /home/brokk volume, writable by
+// the app uid) so images survive redeploys. Fall back to tmp elsewhere (ephemeral
+// but always writable) — NOT homedir(): the app runs with HOME unset (→ "/"), which
+// is not writable (EACCES).
+const IMAGE_DIR =
+  process.env.BROKK_CHAT_IMAGES_DIR ||
+  (process.env.BROKK_RUNNER_WORKDIR
+    ? join(process.env.BROKK_RUNNER_WORKDIR, ".chat-images")
+    : join(tmpdir(), "brokk-chat-images"));
 
 async function runImage(prompt: string): Promise<{ ok: boolean; content: string }> {
   if (!IMAGE_KEY)
