@@ -36,6 +36,7 @@ import {
   ListTodo,
   GitPullRequest,
   Monitor,
+  MonitorPlay,
   Smartphone,
   RotateCw,
   Database,
@@ -1447,7 +1448,7 @@ function SindriPreview({
   const [err, setErr] = useState("");
   const [iframeKey, setIframeKey] = useState(0);
   // The stage shows either the live preview iframe or the read-only DB Studio.
-  const [view, setView] = useState<"preview" | "code" | "database" | "env">("preview");
+  const [view, setView] = useState<"preview" | "code" | "database" | "env" | "agent">("preview");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageW, setStageW] = useState(0);
   const [stageH, setStageH] = useState(0);
@@ -1652,6 +1653,16 @@ function SindriPreview({
           >
             <KeyRound size={15} />
           </button>
+          {/* Watch the QA agent drive the preview, live (ADR 0054): the pane
+              shows an MJPEG screencast of the agent's browser. */}
+          <button
+            type="button"
+            className={`sindri-preview-icon ${view === "agent" ? "is-on" : ""}`}
+            title="Assistir o agente (QA ao vivo)"
+            onClick={() => setView("agent")}
+          >
+            <MonitorPlay size={15} />
+          </button>
         </div>
         <span className="sindri-preview-sep" />
         <span className="sindri-preview-statuschip">
@@ -1736,6 +1747,17 @@ function SindriPreview({
           <StudioPanel previewId={preview?.id ?? null} />
         ) : view === "env" ? (
           <EnvPanel env={preview?.loadedEnv ?? null} />
+        ) : view === "agent" ? (
+          // Live-view (ADR 0054): an MJPEG screencast of the shared browser the QA
+          // agent drives — a plain <img>, streamed through the same /api/chat proxy
+          // as everything else. You watch it navigate, click, type in real time.
+          <div className="sindri-preview-frame is-desktop">
+            <img
+              src={`/api/chat/live/${sessionId}`}
+              alt="Agente ao vivo"
+              className="sindri-preview-iframe"
+            />
+          </div>
         ) : live && preview ? (
           mobileOnly ? (
             // Aparelho real: o iframe roda no px exato do device escolhido e a
