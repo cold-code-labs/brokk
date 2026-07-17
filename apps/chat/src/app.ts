@@ -12,7 +12,10 @@ import {
   runTurn,
 } from "@brokk/chat";
 import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 import { runCliSessionTurn } from "./cli-turn.js";
 import { unseal } from "./secrets.js";
 import { autoTitle } from "./titler.js";
@@ -183,6 +186,21 @@ export function buildSindri(deps: SindriDeps): Hono {
 
   app.onError((err, c) => c.json({ error: err instanceof Error ? err.message : String(err) }, 500));
   app.get("/health", (c) => c.json({ ok: true, service: "sindri" }));
+
+  // Serve images produced by the generate_image tool. Reached in the browser via
+  // the authed /api/chat/images/:id proxy hop. Ids are uuids we minted.
+  app.get("/images/:id", async (c) => {
+    const id = c.req.param("id").replace(/[^a-fA-F0-9-]/g, "");
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const buf = await readFile(join(IMAGE_DIR, `${id}.png`));
+      return new Response(new Uint8Array(buf), {
+        headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
+      });
+    } catch {
+      return c.json({ error: "not found" }, 404);
+    }
+  });
 
   // Live-view (ADR 0054): an MJPEG screencast of the shared browser the QA agent
   // drives. The preview pane renders it with a plain <img src="…/live/:id"> — no
@@ -810,6 +828,13 @@ async function runSessionTurn(
       emit({ type: "status", phase: "planejando" });
       return runPlan(deps, project, intent);
     },
+    // The generate_image tool bridges to the Cursor seat's image lane (Ratatoskr
+    // cursor-img). Generation is slow (~1–2 min) — surface a status; the PNG is
+    // persisted and returned as a markdown tag served via the /api/chat/* proxy.
+    generateImage: (prompt) => {
+      emit({ type: "status", phase: "gerando imagem" });
+      return runImage(prompt);
+    },
     // Infra-intent bridges (set_env / redeploy_app / register_route /
     // register_job) → Heimdall's scoped Agent API. Present only when the agent
     // token is configured; the tools are confirmation-gated in makeDomainExecutor.
@@ -859,6 +884,46 @@ async function runSessionTurn(
   }
   if (isFirstTurn) {
     void autoTitle(deps.store, deps.cfg, session.id, text, (title) => emit({ type: "title", title }));
+  }
+}
+
+// ── generate_image bridge ────────────────────────────────────────────────────
+// Hits the Cursor seat's image lane (Ratatoskr cursor-img, OpenAI
+// /v1/images/generations), persists the PNG under IMAGE_DIR, and returns a
+// markdown tag pointing at GET /images/:id — reachable in the browser through the
+// authed /api/chat/* proxy (which strips /chat → /images/:id). Goes direct to the
+// sidecar with the same ingress key the cursor-api engine already uses (no LiteLLM
+// vkey needed); flip CURSOR_IMAGE_URL to a LiteLLM base for metered routing.
+const IMAGE_BASE = (process.env.CURSOR_IMAGE_URL || "http://ratatoskr-cursor-img:8794").replace(/\/$/, "");
+const IMAGE_INGRESS =
+  process.env.CURSOR_SEAT_INGRESS ||
+  process.env.CURSOR_INGRESS_KEYS?.split(",")[0]?.trim() ||
+  "";
+const IMAGE_DIR = process.env.BROKK_CHAT_IMAGES_DIR || join(tmpdir(), "brokk-chat-images");
+
+async function runImage(prompt: string): Promise<{ ok: boolean; content: string }> {
+  if (!IMAGE_INGRESS)
+    return { ok: false, content: "image generation is not configured (CURSOR_SEAT_INGRESS unset)" };
+  try {
+    const res = await fetch(`${IMAGE_BASE}/v1/images/generations`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${IMAGE_INGRESS}`, "content-type": "application/json" },
+      body: JSON.stringify({ prompt, n: 1 }),
+      signal: AbortSignal.timeout(240_000),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      return { ok: false, content: `image generation failed (${res.status}): ${t.slice(0, 200)}` };
+    }
+    const j = (await res.json()) as { data?: Array<{ b64_json?: string }> };
+    const b64 = j.data?.[0]?.b64_json;
+    if (!b64) return { ok: false, content: "image generation returned no image" };
+    const id = randomUUID();
+    await mkdir(IMAGE_DIR, { recursive: true });
+    await writeFile(join(IMAGE_DIR, `${id}.png`), Buffer.from(b64, "base64"));
+    return { ok: true, content: `![${prompt.slice(0, 80)}](/api/chat/images/${id})` };
+  } catch (e) {
+    return { ok: false, content: `image generation error: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
 
