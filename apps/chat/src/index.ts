@@ -7,6 +7,7 @@ import { CheckoutManager } from "./checkout.js";
 import { loadConfig } from "./config.js";
 import { TurnManager } from "./turns.js";
 import { ensurePlaywrightMcp } from "./browser-mcp.js";
+import { startSharedBrowser } from "./live-view.js";
 
 async function main() {
   const cfg = loadConfig();
@@ -25,10 +26,12 @@ async function main() {
   const orphans = await store.resetRunningChatTurns().catch(() => 0);
   if (orphans) console.log(`[sindri] reset ${orphans} orphaned running turn(s) on boot`);
 
-  // "QA na conversa" (ADR 0054): register the Playwright MCP so claude-cli
-  // sessions can drive the live preview for a visual/QA review. Best-effort —
-  // no-op on a runner without chromium / the claude binary.
-  if (ensurePlaywrightMcp()) console.log("[sindri] Playwright MCP registered (QA na conversa, ADR 0054)");
+  // "QA na conversa" + live-view (ADR 0054): start the SHARED browser first, then
+  // point the Playwright MCP at it (--cdp-endpoint). The agent drives that browser
+  // and /live/:session screencasts it — the user watches the QA in the pane.
+  // Best-effort — no-op on a runner without chromium / the claude binary.
+  startSharedBrowser();
+  if (ensurePlaywrightMcp()) console.log("[sindri] Playwright MCP → shared browser (live-view, ADR 0054)");
 
   const chatCfg = loadAflConfig();
   if (!chatCfg.authToken) {

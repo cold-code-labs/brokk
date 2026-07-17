@@ -30,6 +30,7 @@ import { fsRoutes } from "./fs-routes.js";
 import { devtreeRoutes } from "./devtree-routes.js";
 import type { McpToolProvider } from "@brokk/mcp";
 import { HeimdallAgentClient } from "./heimdall.js";
+import { screencast } from "./live-view.js";
 import { TurnManager } from "./turns.js";
 
 /** Canonical engine ids + legacy aliases (afl/cli). */
@@ -182,6 +183,54 @@ export function buildSindri(deps: SindriDeps): Hono {
 
   app.onError((err, c) => c.json({ error: err instanceof Error ? err.message : String(err) }, 500));
   app.get("/health", (c) => c.json({ ok: true, service: "sindri" }));
+
+  // Live-view (ADR 0054): an MJPEG screencast of the shared browser the QA agent
+  // drives. The preview pane renders it with a plain <img src="…/live/:id"> — no
+  // WebSocket client, no canvas. `:id` is the chat session (cosmetic for now; one
+  // shared browser). 503 when nothing's driving yet.
+  app.get("/live/:id", (c) => {
+    const boundary = "brokkframe";
+    const enc = new TextEncoder();
+    let stop = () => {};
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          stop = await screencast((jpeg) => {
+            try {
+              controller.enqueue(
+                enc.encode(`--${boundary}\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`),
+              );
+              controller.enqueue(new Uint8Array(jpeg));
+              controller.enqueue(enc.encode("\r\n"));
+            } catch {
+              /* stream closed by the client */
+            }
+          });
+        } catch {
+          controller.close();
+          return;
+        }
+        c.req.raw.signal.addEventListener("abort", () => {
+          stop();
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        });
+      },
+      cancel() {
+        stop();
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": `multipart/x-mixed-replace; boundary=${boundary}`,
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Connection: "keep-alive",
+      },
+    });
+  });
 
   // Shared-secret guard (the control-plane API injects it). Health stays open.
   app.use("*", async (c, next) => {
