@@ -27,11 +27,17 @@ const Env = z.object({
   HAULDR_CONTROL_URL: z.string().default(""),
   HAULDR_TOKEN: z.string().default(""),
 
-  // Heimdall control-plane — the provisioning engine "Nova Conversa" (ADR 0038)
-  // calls to birth a dev-first app (POST /apps {mode:"dev"}). Both empty =
-  // /conversations disabled (503).
-  HEIMDALL_API_URL: z.string().default(""),
-  HEIMDALL_TOKEN: z.string().default(""),
+  // Heimdall's SCOPED Agent API — the provisioning surface "Nova Conversa"
+  // (ADR 0038) calls to birth a dev-first app and to publish/roll it back.
+  // Both empty = /conversations disabled (503).
+  //
+  // This used to be HEIMDALL_API_URL + HEIMDALL_TOKEN, pointed straight at the
+  // control plane with its INTERNAL token — which handed Brokk authority over
+  // the entire fleet, Ice Vault included, just to create an app. The agent token
+  // reaches only the allow-listed /api/agent/* proxies, and the lifecycle verbs
+  // there are scoped to apps this agent created (Heimdall 403s the rest).
+  HEIMDALL_AGENT_URL: z.string().default(""),
+  HEIMDALL_AGENT_TOKEN: z.string().default(""),
 });
 
 export type Config = z.infer<typeof Env>;

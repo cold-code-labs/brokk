@@ -39,8 +39,13 @@ services:
       MIMIR_ENHANCE_MODEL: ${MIMIR_ENHANCE_MODEL:-}
       HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       HAULDR_TOKEN: ${HAULDR_TOKEN:-}
-      HEIMDALL_API_URL: ${HEIMDALL_API_URL:-http://heimdall-api:8787}
-      HEIMDALL_TOKEN: ${HEIMDALL_TOKEN:-}
+      # Heimdall's SCOPED Agent API (/api/agent/*), which lives on its WEB app.
+      # Was HEIMDALL_API_URL + HEIMDALL_TOKEN = the control plane with its
+      # INTERNAL token: fleet-wide authority, Ice Vault included, just to create
+      # an app. Internal name, not the public URL — Publish waits on cold prod
+      # Hauldr (~300s) and Cloudflare would cut it at ~100s.
+      HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-http://heimdall-web:3000}
+      HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
     healthcheck:
       test:
       - CMD-SHELL
