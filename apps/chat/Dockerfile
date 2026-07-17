@@ -48,12 +48,21 @@ ENV NODE_ENV=production
 # the real tools so the prompt's promise holds. (coreutils/sed for good measure.)
 # nftables + su-exec power the Nível 3 egress jail (root entrypoint installs the nft
 # ruleset then drops to the worker uid). See tools/brokk-egress.
-RUN apk add --no-cache git github-cli openssh-client ripgrep grep findutils coreutils sed nftables su-exec
+RUN apk add --no-cache git github-cli openssh-client ripgrep grep findutils coreutils sed nftables su-exec tini \
+      chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-emoji
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Claude Code CLI — the opt-in second engine lane (sessions created with
 # engine=cli). Pinned; auth is CLAUDE_CODE_OAUTH_TOKEN at runtime. The default
 # afl lane never invokes it.
 RUN npm install -g @anthropic-ai/claude-code@2.1.207
+
+# Playwright MCP — "QA na conversa" (ADR 0054): a claude-cli Sindri session mounts
+# these browser tools (registered at boot) to drive the live preview at
+# http://forge:<port> and report visual/QA findings in-conversation. Chromium is
+# the system one above. Inert on afl sessions.
+RUN npm install -g @playwright/mcp@0.0.78
 
 # Isolation Nível 3 (egress uid-split). Second unprivileged uid (1002, gid 1001) the
 # bash hand drops to; nft firewalls it off RFC1918. HOME shared + group-writable so
@@ -81,5 +90,8 @@ COPY --from=build /repo/apps/chat/package.json ./package.json
 COPY --from=build /repo/skills /app/skills
 ENV BROKK_SKILLS_DIR=/app/skills
 EXPOSE 8795
-ENTRYPOINT ["/usr/local/bin/brokk-entrypoint.sh"]
+# tini as PID 1 reaps zombies — chromium (the QA driver's browser) detaches
+# helpers that escape a process-group kill and reparent to PID 1; with `node` as
+# PID 1 they became <defunct> and accreted. Wraps the egress-jail entrypoint.
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/brokk-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

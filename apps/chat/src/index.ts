@@ -6,6 +6,7 @@ import { buildSindri } from "./app.js";
 import { CheckoutManager } from "./checkout.js";
 import { loadConfig } from "./config.js";
 import { TurnManager } from "./turns.js";
+import { ensurePlaywrightMcp } from "./browser-mcp.js";
 
 async function main() {
   const cfg = loadConfig();
@@ -23,6 +24,11 @@ async function main() {
   // Clear them so the UI doesn't show a phantom "running" and a new turn can start.
   const orphans = await store.resetRunningChatTurns().catch(() => 0);
   if (orphans) console.log(`[sindri] reset ${orphans} orphaned running turn(s) on boot`);
+
+  // "QA na conversa" (ADR 0054): register the Playwright MCP so claude-cli
+  // sessions can drive the live preview for a visual/QA review. Best-effort —
+  // no-op on a runner without chromium / the claude binary.
+  if (ensurePlaywrightMcp()) console.log("[sindri] Playwright MCP registered (QA na conversa, ADR 0054)");
 
   const chatCfg = loadAflConfig();
   if (!chatCfg.authToken) {
