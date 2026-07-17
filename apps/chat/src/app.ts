@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { runCliSessionTurn } from "./cli-turn.js";
 import { unseal } from "./secrets.js";
 import { autoTitle } from "./titler.js";
@@ -888,27 +888,34 @@ async function runSessionTurn(
 }
 
 // ── generate_image bridge ────────────────────────────────────────────────────
-// Hits the Cursor seat's image lane (Ratatoskr cursor-img, OpenAI
-// /v1/images/generations), persists the PNG under IMAGE_DIR, and returns a
-// markdown tag pointing at GET /images/:id — reachable in the browser through the
-// authed /api/chat/* proxy (which strips /chat → /images/:id). Goes direct to the
-// sidecar with the same ingress key the cursor-api engine already uses (no LiteLLM
-// vkey needed); flip CURSOR_IMAGE_URL to a LiteLLM base for metered routing.
+// Hits the Cursor seat's image lane (OpenAI /v1/images/generations), persists the
+// PNG under IMAGE_DIR (on the durable /home/brokk volume, so it survives redeploys),
+// and returns a markdown tag pointing at GET /images/:id — reachable in the browser
+// through the authed /api/chat/* proxy (which strips /chat → /images/:id).
+//
+// Routing is env-driven:
+//   • default → the cursor-img sidecar directly, with the same ingress key the
+//     cursor-api engine already uses (self-contained, no LiteLLM dependency).
+//   • metered → set CURSOR_IMAGE_URL=http://litellm:4000 + CURSOR_IMAGE_KEY=<vkey>;
+//     the request carries model=CURSOR_IMAGE_MODEL so LiteLLM attributes/ budgets it.
+// The model field is harmless to the sidecar (its shim ignores it).
 const IMAGE_BASE = (process.env.CURSOR_IMAGE_URL || "http://ratatoskr-cursor-img:8794").replace(/\/$/, "");
-const IMAGE_INGRESS =
+const IMAGE_KEY =
+  process.env.CURSOR_IMAGE_KEY ||
   process.env.CURSOR_SEAT_INGRESS ||
   process.env.CURSOR_INGRESS_KEYS?.split(",")[0]?.trim() ||
   "";
-const IMAGE_DIR = process.env.BROKK_CHAT_IMAGES_DIR || join(tmpdir(), "brokk-chat-images");
+const IMAGE_MODEL = process.env.CURSOR_IMAGE_MODEL || "cursor-image";
+const IMAGE_DIR = process.env.BROKK_CHAT_IMAGES_DIR || join(homedir(), ".brokk-chat-images");
 
 async function runImage(prompt: string): Promise<{ ok: boolean; content: string }> {
-  if (!IMAGE_INGRESS)
-    return { ok: false, content: "image generation is not configured (CURSOR_SEAT_INGRESS unset)" };
+  if (!IMAGE_KEY)
+    return { ok: false, content: "image generation is not configured (CURSOR_IMAGE_KEY/CURSOR_SEAT_INGRESS unset)" };
   try {
     const res = await fetch(`${IMAGE_BASE}/v1/images/generations`, {
       method: "POST",
-      headers: { authorization: `Bearer ${IMAGE_INGRESS}`, "content-type": "application/json" },
-      body: JSON.stringify({ prompt, n: 1 }),
+      headers: { authorization: `Bearer ${IMAGE_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: IMAGE_MODEL, prompt, n: 1 }),
       signal: AbortSignal.timeout(240_000),
     });
     if (!res.ok) {
