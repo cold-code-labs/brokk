@@ -37,8 +37,7 @@ services:
       MIMIR_PLANNER_MODEL: ${MIMIR_PLANNER_MODEL:-}
       MIMIR_TRIAGE_MODEL: ${MIMIR_TRIAGE_MODEL:-}
       MIMIR_ENHANCE_MODEL: ${MIMIR_ENHANCE_MODEL:-}
-      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
-      HAULDR_TOKEN: ${HAULDR_TOKEN:-}
+
       # Heimdall's SCOPED Agent API (/api/agent/*), which lives on its WEB app.
       # Was HEIMDALL_API_URL + HEIMDALL_TOKEN = the control plane with its
       # INTERNAL token: fleet-wide authority, Ice Vault included, just to create

@@ -60,6 +60,10 @@ services:
       BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
       HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
       HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+      # Lane backend comes from Heimdall (scoped), not from HAULDR_TOKEN. This
+      # is a URL, not a credential: the preview applies its OWN migrations with
+      # its per-project migrate token.
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       BROKK_EGRESS: '1'
       BROKK_PREVIEW_SECRETS_DIR: ${BROKK_PREVIEW_SECRETS_DIR:-/home/brokk/preview-secrets}
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
@@ -122,6 +126,10 @@ services:
       BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
       HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
       HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+      # Lane backend comes from Heimdall (scoped), not from HAULDR_TOKEN. This
+      # is a URL, not a credential: the preview applies its OWN migrations with
+      # its per-project migrate token.
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       BROKK_EGRESS: '1'
       BROKK_SUPERVISOR: '0'
       BROKK_PREVIEW_SECRETS_DIR: ${BROKK_PREVIEW_SECRETS_DIR:-/home/brokk/preview-secrets}
@@ -185,6 +193,10 @@ services:
       BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
       HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
       HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+      # Lane backend comes from Heimdall (scoped), not from HAULDR_TOKEN. This
+      # is a URL, not a credential: the preview applies its OWN migrations with
+      # its per-project migrate token.
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       BROKK_EGRESS: '1'
       EITRI_APP_ID: ${EITRI_APP_ID:-}
       EITRI_APP_PRIVATE_KEY_FILE: ${EITRI_APP_PRIVATE_KEY_FILE:-/home/brokk/eitri-app.pem}
@@ -291,6 +303,10 @@ services:
       BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
       HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
       HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+      # Lane backend comes from Heimdall (scoped), not from HAULDR_TOKEN. This
+      # is a URL, not a credential: the preview applies its OWN migrations with
+      # its per-project migrate token.
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       BROKK_EGRESS: '1'
       SINDRI_PORT: '8795'
       SINDRI_WORKDIR: ${SINDRI_WORKDIR:-/home/brokk/work/sindri}

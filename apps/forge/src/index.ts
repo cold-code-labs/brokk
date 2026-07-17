@@ -25,7 +25,7 @@ import { GhProvider } from "./git.js";
 import { ClaudeCliEngine, ForgeEngine } from "@brokk/forge";
 import { claudeCliAvailable } from "@brokk/afl";
 import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
-import { HauldrClient } from "./hauldr.js";
+import { HeimdallLanes } from "./heimdall-lanes.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
 import { makeAutofix } from "./autofix.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
@@ -84,12 +84,28 @@ async function main() {
 
   // ── Preview supervisor (parallel loop) ──────────────────────────────────────
   // Runs alongside the forge claim loop; each is independent.
-  const dataProvider = cfg.hauldrControlUrl
-    ? makeHauldrDataProvider(new HauldrClient(cfg.hauldrControlUrl, cfg.hauldrToken), cfg.hauldrControlUrl)
-    : passthroughProvider;
+  // A lane's backend comes from Heimdall, not from us. The forge used to hold
+  // HAULDR_TOKEN — the data plane's MANAGEMENT key, which reads the superuser
+  // DSN of every project on the fleet — to provision what is really one dev
+  // lane. Heimdall owns provisioning now (it also picks the envelope, which we
+  // never could), and the scoped agent token reaches only <app>_dev of a
+  // registered app.
+  //
+  // HAULDR_CONTROL_URL stays: it is a URL, not a credential, and the preview
+  // needs it to apply its OWN migrations with its per-project migrate token.
+  const lanes =
+    cfg.heimdallAgentUrl && cfg.heimdallAgentToken
+      ? new HeimdallLanes(cfg.heimdallAgentUrl, cfg.heimdallAgentToken)
+      : null;
+  const dataProvider =
+    lanes && cfg.hauldrControlUrl
+      ? makeHauldrDataProvider(lanes, cfg.hauldrControlUrl)
+      : passthroughProvider;
   if (dataProvider === passthroughProvider) {
     console.log(
-      "[forge] HAULDR_CONTROL_URL not set — previews run on passthrough env (no provisioning)",
+      `[forge] previews run on passthrough env (no provisioning) — ${
+        lanes ? "HAULDR_CONTROL_URL" : "HEIMDALL_AGENT_URL/TOKEN"
+      } not set`,
     );
   }
   // BROKK_SUPERVISOR=0 disables the preview-supervisor loop on this runner —

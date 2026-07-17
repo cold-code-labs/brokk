@@ -21,12 +21,6 @@ const Env = z.object({
   // Base URL of the Sindri chat runtime (worker host). Empty = /chat → 503.
   BROKK_SINDRI_URL: z.string().default(""),
 
-  // Hauldr control-plane — lets the read-only Studio (routes/studio.ts) resolve a
-  // preview's Hauldr project to its internal dbUrl and introspect/read its tables.
-  // Both empty = /studio disabled (overview reports connected:false, reads → 503).
-  HAULDR_CONTROL_URL: z.string().default(""),
-  HAULDR_TOKEN: z.string().default(""),
-
   // Heimdall's SCOPED Agent API — the provisioning surface "Nova Conversa"
   // (ADR 0038) calls to birth a dev-first app and to publish/roll it back.
   // Both empty = /conversations disabled (503).

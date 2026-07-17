@@ -28,8 +28,8 @@ async function main() {
     githubWebhookSecret: cfg.BROKK_GITHUB_WEBHOOK_SECRET,
     mimir,
     sindriUrl: cfg.BROKK_SINDRI_URL,
-    hauldrControlUrl: cfg.HAULDR_CONTROL_URL,
-    hauldrToken: cfg.HAULDR_TOKEN,
+    heimdallAgentUrl: cfg.HEIMDALL_AGENT_URL,
+    heimdallAgentToken: cfg.HEIMDALL_AGENT_TOKEN,
     heimdallUrl: cfg.HEIMDALL_AGENT_URL,
     heimdallToken: cfg.HEIMDALL_AGENT_TOKEN,
   });

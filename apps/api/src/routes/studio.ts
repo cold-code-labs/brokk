@@ -11,24 +11,34 @@ import type { AppDeps } from "../app.js";
  * provisioning). See ADR 0012.
  */
 
-/** Resolve a Hauldr project name to a Postgres URL via the control plane
- *  (GET /v1/projects/:name). Prefers `internal.adminDbUrl` — the owner/superuser
- *  connection — so the Studio can see + read every table regardless of RLS or the
- *  authenticator's grants (which vary by cluster); falls back to `internal.dbUrl`
- *  on older control planes. Null when unconfigured, missing, or not ready. */
+/** Resolve a Hauldr project name to a Postgres URL — through Heimdall's SCOPED
+ *  agent API, not the data plane's management key.
+ *
+ *  This used to GET the control plane directly with `HAULDR_TOKEN`, which reads
+ *  the superuser DSN of ANY project on the fleet — a client's production
+ *  database included — to browse one dev lane. Heimdall refuses anything but
+ *  `<app>_dev` of a registered app, so the Studio can now only reach what it was
+ *  ever meant to.
+ *
+ *  Prefers `adminDbUrl` (the owner connection) so the viewer sees every table
+ *  regardless of RLS or the authenticator's grants, which vary by cluster;
+ *  falls back to `dbUrl`. Null when unconfigured, out of scope, or not ready. */
 async function resolveDbUrl(deps: AppDeps, project: string): Promise<string | null> {
-  if (!deps.hauldrControlUrl || !deps.hauldrToken) return null;
+  if (!deps.heimdallAgentUrl || !deps.heimdallAgentToken) return null;
   const res = await fetch(
-    `${deps.hauldrControlUrl}/v1/projects/${encodeURIComponent(project)}`,
-    { headers: { Authorization: `Bearer ${deps.hauldrToken}` } },
+    `${deps.heimdallAgentUrl.replace(/\/$/, "")}/api/agent/lanes/${encodeURIComponent(project)}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${deps.heimdallAgentToken}` },
+      signal: AbortSignal.timeout(60_000),
+    },
   ).catch(() => null);
   if (!res || !res.ok) return null;
-  const raw = (await res.json().catch(() => null)) as
-    | { internal?: { adminDbUrl?: string; dbUrl?: string }; db_url?: string; dbUrl?: string }
+  const payload = (await res.json().catch(() => null)) as
+    | { project?: { connection?: { adminDbUrl?: string | null; dbUrl?: string } | null } | null }
     | null;
-  return (
-    raw?.internal?.adminDbUrl ?? raw?.internal?.dbUrl ?? raw?.db_url ?? raw?.dbUrl ?? null
-  );
+  const c = payload?.project?.connection;
+  return c?.adminDbUrl ?? c?.dbUrl ?? null;
 }
 
 /** Open a short-lived, READ-ONLY connection to a project db, run `fn`, close it.
@@ -66,7 +76,7 @@ function dbNameOf(dbUrl: string): string | undefined {
 
 export function studioRoutes(deps: AppDeps): Hono {
   const r = new Hono();
-  const enabled = Boolean(deps.hauldrControlUrl && deps.hauldrToken);
+  const enabled = Boolean(deps.heimdallAgentUrl && deps.heimdallAgentToken);
 
   /** GET /studio/:previewId/overview — is there a reachable Hauldr db behind this
    *  preview? Never throws on a down db — reports connected:false with a reason so

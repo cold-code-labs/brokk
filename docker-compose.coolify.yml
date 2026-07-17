@@ -95,6 +95,12 @@ x-worker-env: &worker-env
   # Unset → the infra tools feature-flag themselves off ("not available").
   HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
   HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+  # A dev lane's backend now comes from Heimdall (scoped: <app>_dev of a
+  # registered app), not from HAULDR_TOKEN — the data plane's MANAGEMENT key,
+  # which read the superuser DSN of every project on the fleet.
+  # HAULDR_CONTROL_URL stays: it is a URL, not a credential — the preview needs
+  # it to apply its OWN migrations with its per-project migrate token.
+  HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
 
 services:
   brokk-api:
@@ -124,8 +130,7 @@ services:
       MIMIR_PLANNER_MODEL: ${MIMIR_PLANNER_MODEL:-}
       MIMIR_TRIAGE_MODEL: ${MIMIR_TRIAGE_MODEL:-}
       MIMIR_ENHANCE_MODEL: ${MIMIR_ENHANCE_MODEL:-}
-      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
-      HAULDR_TOKEN: ${HAULDR_TOKEN:-}
+
       # ADR 0038: Nova Conversa calls the Heimdall provisioning engine over the
       # shared `coolify` net. heimdall-api is on that net (alias = service name).
       # Heimdall's SCOPED Agent API (/api/agent/*), which lives on its WEB app.

@@ -35,8 +35,10 @@ export interface AppDeps {
   sindriUrl?: string;
   /** Hauldr control-plane base URL + bearer, for the read-only Studio (resolve a
    *  preview's Hauldr project → dbUrl → introspect). Both empty = /studio off. */
-  hauldrControlUrl?: string;
-  hauldrToken?: string;
+  /** Heimdall's WEB base — the Studio resolves a dev lane's db url through the
+   *  scoped /api/agent/lanes proxy, never the data plane's management key. */
+  heimdallAgentUrl?: string;
+  heimdallAgentToken?: string;
   /** Heimdall control-plane base URL + bearer — the provisioning engine "Nova
    *  Conversa" (ADR 0038) calls to birth a dev-first app. Both empty =
    *  /conversations → 503. */

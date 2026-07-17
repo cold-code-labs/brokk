@@ -12,7 +12,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createHmac } from "node:crypto";
-import type { HauldrClient } from "./hauldr.js";
+import type { Hauldr } from "@brokk/core";
+
 
 export interface DataProviderResult {
   /** Env vars spread into the preview process. */
@@ -38,7 +39,7 @@ export const passthroughProvider: DataProvider = {
 };
 
 /** The CCL fleet provider: Hauldr dev-DB per app. */
-export function makeHauldrDataProvider(client: HauldrClient, controlUrl: string): DataProvider {
+export function makeHauldrDataProvider(client: Hauldr, controlUrl: string): DataProvider {
   return {
     name: "hauldr",
     async ensureEnv(project) {
