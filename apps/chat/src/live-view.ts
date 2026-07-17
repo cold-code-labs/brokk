@@ -15,10 +15,18 @@ const CDP_PORT = 9223;
 export const CDP_ENDPOINT = `http://127.0.0.1:${CDP_PORT}`;
 let proc: ChildProcess | null = null;
 
+/** The worker's HOME can be "/" (su-exec PID1 gotcha) — chromium then can't write
+ *  its profile and dies on boot. Resolve a real, writable home like the CLI lane. */
+function cliHome(): string {
+  const h = process.env.HOME;
+  return process.env.BROKK_CLI_HOME || (h && h !== "/" ? h : "/home/brokk");
+}
+
 /** Launch (once) the shared browser the QA agent drives and we stream. Detached
  *  process group so tini reaps it; the MCP connects to it via --cdp-endpoint. */
 export function startSharedBrowser(chromiumPath = "/usr/bin/chromium-browser"): void {
   if (proc) return;
+  const home = cliHome();
   proc = spawn(
     chromiumPath,
     [
@@ -26,11 +34,14 @@ export function startSharedBrowser(chromiumPath = "/usr/bin/chromium-browser"): 
       `--remote-debugging-port=${CDP_PORT}`,
       "--remote-debugging-address=127.0.0.1",
       "--no-sandbox",
+      // Explicit writable profile dir — never fall back to $HOME/.config when
+      // HOME is "/" (chromium would fail to start, silently with stdio: ignore).
+      `--user-data-dir=${home}/.brokk-live-chrome`,
       "--hide-scrollbars",
       "--window-size=1280,800",
       "about:blank",
     ],
-    { stdio: "ignore", detached: true },
+    { stdio: "ignore", detached: true, env: { ...process.env, HOME: home } },
   );
   proc.on("exit", () => {
     proc = null;
@@ -63,6 +74,7 @@ async function activePageWs(): Promise<string | null> {
 /** Screencast the active page, calling `onFrame` with each JPEG. Returns stop().
  *  Best-effort: if there's no page yet it throws so the route can 503. */
 export async function screencast(onFrame: (jpeg: Buffer) => void): Promise<() => void> {
+  startSharedBrowser(); // idempotent — relaunch if it died
   const wsUrl = await activePageWs();
   if (!wsUrl) throw new Error("no active page to screencast");
   const ws = new WebSocket(wsUrl);
