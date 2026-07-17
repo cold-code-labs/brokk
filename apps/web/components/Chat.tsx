@@ -890,25 +890,6 @@ export default function Chat() {
 
               {/* composer = cockpit: the controls live where the hand acts */}
               <div className="sindri-composer">
-                {/* bench line: where this turn lands. Read-only by design — the
-                    project switcher is the Anvil in the lintel, and orientation
-                    never moves off the verga. */}
-                {currentProject || currentSession?.branch ? (
-                  <div className="sindri-bench">
-                    {currentProject ? (
-                      <span className="sindri-bench-pill" title="Anvil — the project this session forges">
-                        <Hammer size={11} aria-hidden="true" />
-                        {currentProject.name}
-                      </span>
-                    ) : null}
-                    {currentSession?.branch ? (
-                      <span className="sindri-bench-pill" title="Branch this session works">
-                        <GitBranch size={11} aria-hidden="true" />
-                        <code>{currentSession.branch}</code>
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
                 <div className="sindri-composer-stack">
                   <ComposerMenu
                     open={slashOpen}
@@ -927,7 +908,7 @@ export default function Chat() {
                   <textarea
                     ref={inputRef}
                     className="sindri-input"
-                    placeholder="Describe the work…  (/ for skills · Enter sends · Shift+Enter for a new line)"
+                    placeholder="Describe the work — / for skills"
                     value={input}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -943,6 +924,30 @@ export default function Chat() {
                     rows={2}
                     disabled={running}
                   />
+                  {/* Send/stop rides INSIDE the box, at the right edge — one
+                      affordance where the sentence ends. */}
+                  {running ? (
+                    <button
+                      type="button"
+                      className="sindri-send is-stop"
+                      onClick={stop}
+                      title="Stop"
+                      aria-label="Stop"
+                    >
+                      <Square size={14} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="sindri-send"
+                      onClick={() => send()}
+                      disabled={!input.trim()}
+                      title="Send (Enter)"
+                      aria-label="Send"
+                    >
+                      <Send size={14} />
+                    </button>
+                  )}
                 </div>
                 {currentSession?.skill ? (
                   <div className="sindri-skill-pin" title="Skill pinned for this session">
@@ -952,7 +957,29 @@ export default function Chat() {
                   </div>
                 ) : null}
                 <div className="sindri-cockpit">
+                  {/* Left: where this turn lands. Read-only — the project switcher
+                      is the Anvil in the lintel, and orientation never leaves it. */}
+                  <div className="sindri-cockpit-ctx">
+                    {currentProject ? (
+                      <span className="sindri-bench-pill" title="Anvil — the project this session forges">
+                        <Hammer size={11} aria-hidden="true" />
+                        {currentProject.name}
+                      </span>
+                    ) : null}
+                    {currentSession?.branch ? (
+                      <span className="sindri-bench-pill" title="Branch this session works">
+                        <GitBranch size={11} aria-hidden="true" />
+                        <code>{currentSession.branch}</code>
+                      </span>
+                    ) : null}
+                  </div>
+                  {/* Right: what this turn costs and who runs it. */}
                   <div className="sindri-cockpit-controls">
+                    {tokens.tin > 0 || tokens.tout > 0 ? (
+                      <span className="sindri-tok" title="Session tokens (in · out)">
+                        {fmtTokens(tokens.tin)} · {fmtTokens(tokens.tout)}
+                      </span>
+                    ) : null}
                     {engine !== "claude-cli" && engine !== "cursor-cli" && (
                       <ComposerChip
                         title="Reasoning effort"
@@ -1003,28 +1030,6 @@ export default function Chat() {
                       }}
                     />
                   </div>
-                  {running ? (
-                    <Button
-                      variant="destructive"
-                      onClick={stop}
-                      className="sindri-send"
-                      title="Stop"
-                      aria-label="Stop"
-                    >
-                      <Square size={16} />
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="default"
-                      onClick={() => send()}
-                      disabled={!input.trim()}
-                      className="sindri-send"
-                      title="Send (Enter)"
-                      aria-label="Send"
-                    >
-                      <Send size={16} />
-                    </Button>
-                  )}
                 </div>
               </div>
             </>
@@ -1057,8 +1062,6 @@ export default function Chat() {
               device={device}
               setDevice={setDevice}
               mobileOnly={mobileOnly}
-              tokensIn={tokens.tin}
-              tokensOut={tokens.tout}
             />
           ) : null}
         </div>
@@ -1137,8 +1140,6 @@ function SindriPreview({
   device,
   setDevice,
   mobileOnly,
-  tokensIn,
-  tokensOut,
 }: {
   sessionId: string;
   projectId: string;
@@ -1147,8 +1148,6 @@ function SindriPreview({
   device: "desktop" | "mobile";
   setDevice: (d: "desktop" | "mobile") => void;
   mobileOnly: boolean;
-  tokensIn: number;
-  tokensOut: number;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1360,11 +1359,8 @@ function SindriPreview({
         </span>
         {/* branch chip hidden (ADR 0038): the session worktree is dev-lane
             plumbing — noise in the v0-face preview cockpit. */}
-        {tokensIn > 0 && tokensOut > 0 ? (
-          <span className="sindri-preview-tok" title="Session tokens (in · out)">
-            {fmtTokens(tokensIn)} · {fmtTokens(tokensOut)}
-          </span>
-        ) : null}
+        {/* Session tokens moved to the composer cockpit: the composer is always on
+            screen with a session open, the preview isn't. One readout, one home. */}
         <span className="sindri-preview-spacer" />
         <div className="sindri-preview-actions">
           {mobileOnly ? (

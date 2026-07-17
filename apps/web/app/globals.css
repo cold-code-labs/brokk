@@ -871,6 +871,11 @@ body:has(.sindri) {
   /* no scrollbar rail — wheel/trackpad still scroll; the scroll-to-bottom
      button covers the jump-to-latest affordance. Reclaims the gutter width. */
   scrollbar-width: none;
+  /* The head floats over this column, so scrolled prose slid under the plate and
+     lost its first words at a fixed y. Dissolve the top ~3rem instead: text fades
+     out as it reaches the chrome rather than being guillotined by it. */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 3rem);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 3rem);
 }
 /* StickToBottom scrolls an unclassed child with inline scrollbarGutter:stable —
    hide that rail too, or a fat gutter still shows even when width:0 fails. */
@@ -885,7 +890,8 @@ body:has(.sindri) {
   display: none;
 }
 .sindri-thread-content {
-  padding: 0.9rem 1rem;
+  /* top pad clears the floating head, so the FIRST turn never opens underneath it */
+  padding: 2.9rem 1rem 0.9rem;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -1246,10 +1252,12 @@ body:has(.sindri) {
   background: transparent;
   color: var(--fg);
   border: 0;
-  padding: 0.2rem 0.3rem 0;
+  /* right padding clears the send button riding inside the box */
+  padding: 0.1rem 2.3rem 0 0.2rem;
   font-family: inherit;
   font-size: 0.9rem;
   line-height: 1.45;
+  outline: none;
   /* grows with the prompt; JS caps to --sindri-input-max; thread keeps the scroll */
   min-height: calc(1.45em * 2);
   max-height: var(--sindri-input-max, 12rem);
@@ -1269,16 +1277,51 @@ body:has(.sindri) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
+}
+/* Context left, cost + who-runs-it right — the split from the reference, carrying
+   only words Brokk actually has (no mic, no attach, no permission mode). */
+.sindri-cockpit-ctx {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 .sindri-cockpit-controls {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  flex: 1;
-  min-width: 0;
+  flex-shrink: 0;
+  margin-left: auto;
 }
+/* Machine truth: what the session cost. Tabular so the digits don't dance as it
+   climbs mid-turn. */
+.sindri-tok {
+  flex-shrink: 0;
+  font-family: var(--font-jetbrains, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  white-space: nowrap;
+  padding-right: 0.15rem;
+}
+/* The prompt is ONE box — the only bordered thing down here. The tray it sits in
+   is a band, not a panel, so this stays a single frame, not box-in-box. */
 .sindri-composer-stack {
   position: relative;
+  display: flex;
+  align-items: flex-end;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--card, var(--bg));
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+.sindri-composer-stack:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .sindri-chip-wrap {
   position: relative;
@@ -1485,14 +1528,6 @@ body:has(.sindri) {
 }
 
 /* ── bench line: where this turn lands (anvil · branch) ────────────────────── */
-.sindri-bench {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  flex-wrap: wrap;
-  padding: 0 0.2rem 0.3rem;
-  min-width: 0;
-}
 .sindri-bench-pill {
   display: inline-flex;
   align-items: center;
@@ -1572,13 +1607,42 @@ body:has(.sindri) {
   background: var(--primary);
 }
 /* icon-only square send/stop — no label, so the footer row stays slim */
+/* Send rides inside the prompt box, pinned to the last line. Colour stays the
+   COLD accent (see the `.ygg-shell .sindri-send` rule below): ember is reserved
+   for running / pulse / Publicar, and the send gesture is none of those. */
 .sindri-send {
-  flex-shrink: 0;
-  height: 2rem;
-  width: 2rem;
-  padding: 0;
-  justify-content: center;
+  position: absolute;
+  right: 0.4rem;
+  bottom: 0.35rem;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  height: 1.7rem;
+  width: 1.7rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition: filter 0.14s ease, opacity 0.14s ease;
+}
+.sindri-send:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+/* Stopping a turn is not sending one — it keeps the destructive read it had as a
+   Yggdrasil button, or the only way out of a running turn looks like "go". */
+.sindri-send.is-stop {
+  background: var(--err);
+}
+.sindri-send:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.sindri-send:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .sindri-send svg {
   margin: 0;
@@ -1640,13 +1704,6 @@ body:has(.sindri) {
   flex-shrink: 0;
 }
 /* token counter (session usage), moved here from the composer; hidden at 0 */
-.sindri-preview-tok {
-  flex-shrink: 0;
-  font-size: 0.72rem;
-  color: var(--fg-dim);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
 /* eats the free space so the action buttons stay right-aligned */
 .sindri-preview-spacer {
   flex: 1;
@@ -3196,6 +3253,9 @@ html.dark .fv-hl .shiki span {
   border: 0;
   border-radius: var(--r-sm);
   color: #fff;
+}
+.ygg-shell .sindri-send.is-stop {
+  background: var(--err);
 }
 .ygg-shell .sindri-send:hover:not(:disabled) {
   filter: brightness(1.08);
