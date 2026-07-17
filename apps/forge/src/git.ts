@@ -34,14 +34,15 @@ export class GhProvider implements GitProvider {
     return git(bare, ["rev-parse", "--verify", ref]).then(() => true).catch(() => false);
   }
 
-  /** Refresh `baseBranch` into a REMOTE-TRACKING ref and return the freshest start
-   *  point to fork from. Never fetches into `refs/heads/<base>`: the preview
-   *  supervisor may have that branch checked out in a persistent worktree of this
-   *  same bare clone, and git refuses to fetch into a checked-out branch. */
+  /** Refresh REMOTE-TRACKING refs and return the freshest start point to fork from.
+   *  Never fetches into `refs/heads/*`: the preview supervisor may have a branch
+   *  checked out in a persistent worktree of this same bare clone, and git refuses
+   *  to fetch into a checked-out branch. Fetches every branch rather than just base
+   *  — this bare has no remote.origin.fetch, so a narrow refspec leaves the rest
+   *  pinned to their clone-time values, which is how `origin/main` becomes a fossil
+   *  that reads as truth. */
   private async resolveBase(bare: string, baseBranch: string, defaultBranch: string): Promise<string> {
-    await git(bare, ["fetch", "origin", `+refs/heads/${baseBranch}:refs/remotes/origin/${baseBranch}`]).catch(
-      () => {},
-    );
+    await git(bare, ["fetch", "origin", "+refs/heads/*:refs/remotes/origin/*"]).catch(() => {});
     if (await this.refExists(bare, `refs/remotes/origin/${baseBranch}`)) return `refs/remotes/origin/${baseBranch}`;
     if (await this.refExists(bare, `refs/heads/${baseBranch}`)) return `refs/heads/${baseBranch}`;
     return defaultBranch; // base not created on the remote yet → fork off default

@@ -193,15 +193,23 @@ export class PreviewSupervisor {
     if (!existsSync(path)) return null; // no live singleton to refresh
     const run = promisify(execFile);
     try {
-      // Fetch the branch to FETCH_HEAD only — never into refs/heads/<branch>, which
-      // is checked out in this worktree (git refuses to fetch into a checked-out
-      // branch). Then hard-reset the worktree onto it. Mirrors persistentCheckout's
-      // refresh, minus the racy worktree-add. Skip the reset when the tip didn't
-      // move, so the periodic tick refresh is a no-op without mtime churn (HMR
-      // would otherwise re-trigger on identical files).
-      await run("git", ["fetch", "origin", `refs/heads/${branch}`], { cwd: path });
+      // Fetch EVERY branch into remote-tracking refs — never into refs/heads/*, of
+      // which <branch> is checked out in this worktree (git refuses to fetch into a
+      // checked-out branch). The wide refspec is what keeps refs the agent reads —
+      // `origin/main` above all — honest: this bare has no remote.origin.fetch, so a
+      // narrow `refs/heads/<base>` fetch leaves every OTHER branch frozen at the
+      // clone-time value forever, and an agent comparing against it answers with
+      // confidence and backwards. Then hard-reset the worktree onto the tip. Skip the
+      // reset when the tip didn't move, so the periodic tick refresh is a no-op
+      // without mtime churn (HMR would otherwise re-trigger on identical files).
+      await run("git", ["fetch", "origin", "+refs/heads/*:refs/remotes/origin/*"], { cwd: path });
       const head = (await run("git", ["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
-      const fetched = (await run("git", ["rev-parse", "FETCH_HEAD"], { cwd: path })).stdout.trim();
+      // Resolve the tip by name, NOT via FETCH_HEAD: a multi-ref fetch writes one
+      // FETCH_HEAD line per branch and `rev-parse FETCH_HEAD` yields the first —
+      // which is whatever branch sorted first, not <branch>.
+      const fetched = (
+        await run("git", ["rev-parse", `refs/remotes/origin/${branch}`], { cwd: path })
+      ).stdout.trim();
       if (head === fetched) return null;
       // Live edits guard: if the worktree has uncommitted TRACKED changes (a
       // chat/dev-lane session editing it live — BROKK_LIVE_PREVIEW), a hard reset
