@@ -30,7 +30,7 @@ import { HeimdallLanes } from "./heimdall-lanes.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
 import { makeAutofix } from "./autofix.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
-import { runDriverTurn } from "./driver.js";
+import { runDriverTurn, reapOrphanBrowsers } from "./driver.js";
 import { distillHealLesson } from "./memory.js";
 import { buildRepoMap } from "./repomap.js";
 import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
@@ -813,6 +813,10 @@ async function handleDriverRun(cfg: RunnerConfig, claim: DriverClaim): Promise<v
   } catch (err) {
     clearInterval(cancelPoll);
     await report({ status: "failed", error: String(err).slice(0, 4000), finished: true });
+  } finally {
+    // chromium leaks helper processes past a group kill — sweep any orphaned by
+    // this turn (cancel or normal exit) so a busy runner doesn't accrete browsers.
+    reapOrphanBrowsers();
   }
 }
 

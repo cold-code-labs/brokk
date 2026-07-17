@@ -56,7 +56,7 @@ ENV NODE_ENV=production
 #
 # nftables + su-exec power the Nível 3 egress jail: the root entrypoint installs the
 # ruleset (CAP_NET_ADMIN) then su-execs down to the worker uid. See tools/brokk-egress.
-RUN apk add --no-cache git github-cli openssh-client nftables su-exec \
+RUN apk add --no-cache git github-cli openssh-client nftables su-exec tini \
       chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-emoji
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
@@ -93,5 +93,10 @@ RUN chmod 0755 /usr/local/bin/brokk-entrypoint.sh
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /repo/apps/forge/dist ./dist
 COPY --from=build /repo/apps/forge/package.json ./package.json
-ENTRYPOINT ["/usr/local/bin/brokk-entrypoint.sh"]
+# tini as PID 1 reaps zombies. The agent's browser (chromium) detaches helper
+# processes that escape a process-group kill and reparent to PID 1; with `node`
+# as PID 1 they became <defunct> zombies (node doesn't reap arbitrary orphans)
+# and accreted across driver runs (ADR 0054). tini wraps the egress-jail
+# entrypoint (still runs as root, still su-execs to 1001) and reaps them.
+ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/brokk-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

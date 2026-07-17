@@ -55,6 +55,29 @@ export function ensurePlaywrightMcp(chromiumPath: string): void {
   }
 }
 
+/** Sweep browser processes orphaned by a finished/cancelled turn. chromium
+ *  detaches helper processes (zygote, gpu, renderers) that escape the CLI's
+ *  process group and reparent to init — a group kill can't reach them, so they
+ *  leak. Any chromium / playwright-mcp with ppid 1 is a leak (an ACTIVE run's
+ *  browser has a live parent, ppid≠1), so reaping by ppid==1 never touches a
+ *  running turn. Best-effort; forge-local so only driver/verify browsers exist. */
+export function reapOrphanBrowsers(): void {
+  try {
+    spawnSync(
+      "sh",
+      [
+        "-c",
+        'for p in $(pgrep chromium 2>/dev/null) $(pgrep -f playwright-mcp 2>/dev/null); do ' +
+          '[ "$(awk \'{print $4}\' /proc/$p/stat 2>/dev/null)" = "1" ] && kill -9 "$p" 2>/dev/null; ' +
+          "done",
+      ],
+      { timeout: 10_000, stdio: "ignore" },
+    );
+  } catch {
+    /* best effort */
+  }
+}
+
 const DRIVER_SYSTEM =
   "You are Brokk's preview DRIVER. You operate a LIVE web app through the " +
   "Playwright MCP browser tools (mcp__playwright__*) ONLY — never edit files, " +
