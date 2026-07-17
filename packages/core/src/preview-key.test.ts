@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mintPreviewKey, PREVIEW_KEY_TTL_S, verifyPreviewKey } from "./index.js";
+import { mintPreviewKey, PREVIEW_KEY_TTL_S, verifyPreviewKey } from "./preview-key.js";
 
 const SECRET = "s3cr3t-hmac-key";
 const OTHER = "a-different-secret";

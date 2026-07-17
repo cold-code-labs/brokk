@@ -4,12 +4,14 @@
  * every other package can speak it without pulling anything in.
  *
  * Mirrors ARCHITECTURE.md §5 (domain model) and §8 (agent engine).
+ *
+ * NOTE: this package is consumed as TypeScript SOURCE (see `exports` in
+ * package.json), so a bundler compiles it directly. A relative `export * from
+ * "./x.js"` therefore does NOT resolve — webpack looks for a literal x.js that
+ * was never emitted. That is why this file re-exports nothing and every
+ * additional module gets its own `exports` entry, like `./runtime` and
+ * `./preview-key`.
  */
-
-// Preview access keys — the mint/verify pair the web and the preview proxy must
-// agree on byte-for-byte. It lives here because both sides need it and a
-// duplicated auth primitive is how two services silently drift apart.
-export * from "./preview-key.js";
 
 // Sleipnir runtime contract (RuntimeSpec, DetectCtx). See docs/RUNTIME.md.
 export type { RuntimeSpec, DetectCtx } from "./runtime.js";

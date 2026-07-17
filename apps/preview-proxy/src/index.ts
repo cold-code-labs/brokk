@@ -41,7 +41,7 @@ import {
   PREVIEW_KEY_PARAM,
   PREVIEW_KEY_TTL_S,
   verifyPreviewKey,
-} from "@brokk/core";
+} from "@brokk/core/preview-key";
 import { loadConfig } from "./config.js";
 
 const cfg = loadConfig();

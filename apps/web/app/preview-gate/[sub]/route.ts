@@ -1,4 +1,4 @@
-import { mintPreviewKey, PREVIEW_KEY_PARAM } from "@brokk/core";
+import { mintPreviewKey, PREVIEW_KEY_PARAM } from "@brokk/core/preview-key";
 import { NextResponse } from "next/server";
 import { getSession } from "../../../lib/logto";
 
