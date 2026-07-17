@@ -45,6 +45,8 @@ import {
   KeyRound,
   ExternalLink,
   PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   PanelRight,
   Columns2,
 } from "lucide-react";
@@ -132,6 +134,7 @@ function extractSkillSlash(
 // reloads and session switches. Default is an even 50/50 so the conversation gets
 // real width; snap points give a magnetic 50/60/68 without pixel-hunting, and
 // double-clicking the gutter restores the default.
+const RAIL_KEY = "sindri-rail-open";
 const SPLIT_KEY = "sindri-split";
 const SPLIT_DEFAULT = 0.46;
 const SPLIT_MIN = 0.3;
@@ -190,6 +193,7 @@ function SessionRail({
   onNew,
   onRemove,
   onRename,
+  onCollapse,
   disabled,
 }: {
   sessions: ChatSessionWithStats[];
@@ -199,6 +203,7 @@ function SessionRail({
   onNew: () => void;
   onRemove: (id: string, ev: React.MouseEvent) => void;
   onRename: (id: string, title: string) => void;
+  onCollapse: () => void;
   disabled: boolean;
 }) {
   // Renaming is the rail's business now that it owns the session list — the head
@@ -208,16 +213,29 @@ function SessionRail({
 
   return (
     <aside className="sindri-rail" aria-label="Sessions">
-      <button
-        type="button"
-        className="sindri-rail-new"
-        onClick={onNew}
-        disabled={disabled}
-        title="New session"
-      >
-        <Plus size={14} aria-hidden="true" />
-        New session
-      </button>
+      {/* The rail's own header: the collapse door lives here, top-right — the app
+          chrome (the lintel) stays out of this room's furniture. */}
+      <div className="sindri-rail-head">
+        <button
+          type="button"
+          className="sindri-rail-new"
+          onClick={onNew}
+          disabled={disabled}
+          title="New session"
+        >
+          <Plus size={14} aria-hidden="true" />
+          New session
+        </button>
+        <button
+          type="button"
+          className="sindri-rail-collapse"
+          onClick={onCollapse}
+          title="Hide sessions"
+          aria-label="Hide sessions"
+        >
+          <PanelLeftClose size={15} />
+        </button>
+      </div>
 
       <div className="sindri-rail-eyebrow">
         <span>Recents</span>
@@ -327,6 +345,23 @@ export default function Chat() {
   const [blankDraft, setBlankDraft] = useState("");
   const [blankBusy, setBlankBusy] = useState(false);
   const [error, setError] = useState("");
+  // The rail can be folded away; the choice sticks per browser, like the split.
+  const [railOpen, setRailOpen] = useState(true);
+  useEffect(() => {
+    try {
+      setRailOpen(localStorage.getItem(RAIL_KEY) !== "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const toggleRail = useCallback((open: boolean) => {
+    setRailOpen(open);
+    try {
+      localStorage.setItem(RAIL_KEY, open ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
   // Layout triad: chat-full · split · preview-full (mutually exclusive). The
   // preview stays shut until you ask for it with the window switch — it never
   // takes half the room on its own.
@@ -758,17 +793,20 @@ export default function Chat() {
       ) : null}
 
       {/* ── room: session rail | (chat | live preview) ── */}
-      <div className="sindri-room">
-        <SessionRail
-          sessions={sortedSessions}
-          currentId={sessionId}
-          projectName={currentProject?.name ?? null}
-          onOpen={(id) => void openSession(id)}
-          onNew={() => void newChat()}
-          onRemove={removeSession}
-          onRename={(id, title) => void renameSession(id, title)}
-          disabled={!projectId}
-        />
+      <div className={`sindri-room ${railOpen ? "" : "is-railless"}`}>
+        {railOpen ? (
+          <SessionRail
+            sessions={sortedSessions}
+            currentId={sessionId}
+            projectName={currentProject?.name ?? null}
+            onOpen={(id) => void openSession(id)}
+            onNew={() => void newChat()}
+            onRemove={removeSession}
+            onRename={(id, title) => void renameSession(id, title)}
+            onCollapse={() => toggleRail(false)}
+            disabled={!projectId}
+          />
+        ) : null}
 
       {!sessionId ? (
         <div className="sindri-body is-blank">
@@ -831,6 +869,20 @@ export default function Chat() {
               single home of the window switch (the preview's own bar no longer
               carries one), so it must survive every layout. */}
           <header className="sindri-head">
+            {/* With the rail folded away, its door lives here — NOT in the lintel:
+                the verga is app chrome and would carry a control that means nothing
+                in every other room. */}
+            {!railOpen ? (
+              <button
+                type="button"
+                className="sindri-head-rail"
+                onClick={() => toggleRail(true)}
+                title="Show sessions"
+                aria-label="Show sessions"
+              >
+                <PanelLeftOpen size={15} />
+              </button>
+            ) : null}
             <div className="sindri-layoutswitch" role="group" aria-label="Layout">
               <button
                 type="button"

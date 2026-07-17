@@ -428,8 +428,15 @@ body:has(.sindri) {
   min-height: 0;
   min-width: 0;
 }
+/* Folded away: the room is all bench, and the rail's door moves to the head. */
+.sindri-room.is-railless {
+  grid-template-columns: minmax(0, 1fr);
+}
 /* The rail is the room's left wall: the smith's ledger of this project's work.
-   ONE surface — rows are hairlines inside it, never a stack of bordered cards. */
+   ONE surface — rows are hairlines inside it, never a stack of bordered cards.
+   It shares the chat's paper: the bench and its ledger are one bench, parted by a
+   hairline, not two materials. (It sits outside `.sindri-chat`, so it takes that
+   element's token remap explicitly.) */
 .sindri-rail {
   display: flex;
   flex-direction: column;
@@ -437,15 +444,58 @@ body:has(.sindri) {
   min-width: 0;
   gap: 0.35rem;
   padding: 0.45rem 0.4rem;
-  border-right: 1px solid var(--line-soft, var(--border));
-  background: color-mix(in srgb, var(--panel) 45%, transparent);
+  --bg: #ffffff;
+  --bg-soft: #ffffff;
+  --panel: #f4f6f9;
+  --card: #ffffff;
+  --line: #e6e9f0;
+  --line-soft: #eef1f6;
+  --border: #e6e9f0;
+  --fg: #141820;
+  --fg-soft: #4a5568;
+  --fg-dim: #6b7385;
+  border-right: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--fg);
+}
+/* New session takes the width; the collapse door sits at the far right of it. */
+.sindri-rail-head {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.sindri-rail-collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.sindri-rail-collapse:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--fg);
+}
+.sindri-rail-collapse:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .sindri-rail-new {
   display: flex;
   align-items: center;
   justify-content: flex-start;
   gap: 0.4rem;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
   height: 1.9rem;
   padding: 0 0.55rem;
   border: 1px solid var(--line-soft, var(--border));
@@ -513,19 +563,18 @@ body:has(.sindri) {
   transition: background 0.12s ease, color 0.12s ease;
 }
 .sindri-rail-row:hover {
-  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
   color: var(--fg-soft, var(--fg));
 }
 .sindri-rail-row:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
-/* Open ≠ busy: the current row is full contrast and gets the sanctioned ember
-   inset, but no heat of its own. */
+/* Open ≠ busy. The open row is just the selected row — a quiet fill, no ember
+   bar: the only heat in the rail belongs to work actually in the fire (is-live). */
 .sindri-rail-row.is-current {
-  background: color-mix(in srgb, var(--accent) 11%, var(--panel-2, var(--panel)));
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
   color: var(--fg);
-  box-shadow: inset 2px 0 0 var(--ember, var(--accent));
 }
 .sindri-rail-row-mark {
   flex-shrink: 0;
@@ -818,6 +867,26 @@ body:has(.sindri) {
 }
 .sindri-head > * {
   pointer-events: auto;
+}
+/* The rail's door when it's folded — same plate language as the switch beside it. */
+.sindri-head-rail {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid var(--line-soft, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 10px color-mix(in srgb, #000 12%, transparent);
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: color 0.14s ease, background 0.14s ease;
+}
+.sindri-head-rail:hover {
+  color: var(--fg);
 }
 /* Floating over paper, the switch needs its own plate to stay legible. */
 .sindri-head .sindri-layoutswitch {
@@ -1390,7 +1459,7 @@ body:has(.sindri) {
   color: var(--ember, var(--accent));
 }
 
-/* Slash + cockpit menus — forge ember, not a stock dropdown */
+/* Slash + cockpit menus — a quiet plate, not a stock dropdown and not a hot one */
 .sindri-menu {
   position: absolute;
   z-index: 40;
@@ -1401,19 +1470,15 @@ body:has(.sindri) {
   max-height: 16rem;
   overflow: auto;
   padding: 0.3rem;
-  border-radius: 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--ember, var(--accent)) 28%, var(--line));
-  background:
-    linear-gradient(
-      165deg,
-      color-mix(in srgb, var(--ember, var(--accent)) 9%, var(--panel)) 0%,
-      var(--panel) 42%,
-      var(--panel-2, var(--panel)) 100%
-    );
+  border-radius: 0.75rem;
+  /* Quiet plate. The ember wash this carried made every popover in the app read
+     as hot — and the soul reserves --ember for running / pulse / Publicar. A menu
+     is chrome: it holds no heat of its own. */
+  border: 1px solid var(--border);
+  background: var(--card, var(--panel));
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--ember, var(--accent)) 12%, transparent),
-    0 18px 40px color-mix(in srgb, #000 45%, transparent),
-    0 0 28px color-mix(in srgb, var(--ember, var(--accent)) 12%, transparent);
+    0 10px 30px color-mix(in srgb, #000 22%, transparent),
+    0 2px 8px color-mix(in srgb, #000 10%, transparent);
   animation: sindri-menu-rise 0.16s ease-out;
 }
 .sindri-menu--above {
@@ -1438,17 +1503,10 @@ body:has(.sindri) {
     transform: translateY(0) scale(1);
   }
 }
+/* The ember glow that used to sit at the top of every popover is gone — kept as a
+   no-op node so the component contract doesn't change. */
 .sindri-menu-glow {
-  pointer-events: none;
-  position: absolute;
-  inset: -20% -10% auto;
-  height: 55%;
-  background: radial-gradient(
-    ellipse at 30% 0%,
-    color-mix(in srgb, var(--ember, var(--accent)) 22%, transparent),
-    transparent 70%
-  );
-  opacity: 0.85;
+  display: none;
 }
 .sindri-menu-empty {
   position: relative;
@@ -1472,12 +1530,24 @@ body:has(.sindri) {
   font: inherit;
   transition: background 0.1s ease, transform 0.1s ease;
 }
+/* Hover/keyboard highlight is a quiet wash — picking a model is not forging. */
 .sindri-menu-item:hover,
 .sindri-menu-item.is-active {
-  background: color-mix(in srgb, var(--ember, var(--accent)) 14%, transparent);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
-.sindri-menu-item.is-active {
-  box-shadow: inset 2px 0 0 var(--ember, var(--accent));
+/* Check column for menus that carry a selection (model / effort / engine). */
+.sindri-menu-item-check {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.9rem;
+  height: 1.15rem;
+  color: var(--fg);
+}
+.sindri-menu-item.is-selected .sindri-menu-item-label {
+  font-weight: 600;
+  color: var(--fg);
 }
 .sindri-menu-item-mark {
   flex-shrink: 0;
@@ -1485,14 +1555,11 @@ body:has(.sindri) {
   height: 0.4rem;
   margin-top: 0.4rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ember, var(--accent)) 35%, var(--fg-dim));
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ember, var(--accent)) 0%, transparent);
-  transition: background 0.12s, box-shadow 0.12s;
+  background: color-mix(in srgb, var(--fg-dim) 60%, transparent);
+  transition: background 0.12s;
 }
 .sindri-menu-item.is-active .sindri-menu-item-mark {
-  background: var(--ember, var(--accent));
-  box-shadow: 0 0 10px color-mix(in srgb, var(--ember, var(--accent)) 55%, transparent);
-  animation: sindri-ember 1.6s infinite;
+  background: var(--fg-soft, var(--fg-dim));
 }
 .sindri-menu-item-body {
   min-width: 0;
@@ -1514,7 +1581,7 @@ body:has(.sindri) {
   font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--ember, var(--accent));
+  color: var(--fg-dim);
   opacity: 0.85;
 }
 .sindri-menu-item-hint {
@@ -3388,9 +3455,6 @@ html.dark .fv-hl .shiki span {
    box. Sizing lives with the word itself (`.sindri-rail-row`). */
 .ygg-shell .sindri-rail-row {
   border-radius: var(--r-sm);
-}
-.ygg-shell .sindri-rail-row.is-current {
-  background: color-mix(in srgb, var(--accent) 9%, var(--panel));
 }
 /* #26 microinteractions — one transition curve, one focus ring, only on things
    that are actually interactive. Hover lifts luminance ~3%, never shifts layout. */

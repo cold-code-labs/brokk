@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
-import { useCallback, useId, useState, type ReactNode } from "react";
+import { useCallback, useId, useRef, useState, type ReactNode } from "react";
 import { ComposerMenu, type ComposerMenuItem } from "./ComposerMenu";
 
 type Props = {
@@ -20,6 +20,7 @@ type Props = {
 export function ComposerChip({ title, value, items, onChange, icon, className, trigger }: Props) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const anchorRef = useRef<HTMLButtonElement>(null);
   const labelId = useId();
   const selected = items.find((i) => i.id === value);
   const label = selected?.label ?? value;
@@ -68,6 +69,7 @@ export function ComposerChip({ title, value, items, onChange, icon, className, t
   return (
     <div className={`sindri-chip-wrap${open ? " is-open" : ""}`}>
       <button
+        ref={anchorRef}
         type="button"
         className={`sindri-chip${className ? ` ${className}` : ""}`}
         title={title}
@@ -83,9 +85,18 @@ export function ComposerChip({ title, value, items, onChange, icon, className, t
         </span>
         <ChevronDown size={12} className="sindri-chip-caret" />
       </button>
+      {/* Portaled + right-aligned: these chips sit at the right edge of the
+          cockpit, and an absolutely-positioned menu (min-width 22rem, left:0)
+          ran off the column and gave the page a horizontal scroll. The portal
+          also escapes `.sindri-chat { overflow: hidden }`. */}
       <ComposerMenu
         open={open}
+        portal
+        anchorRef={anchorRef}
+        align="end"
+        placement="above"
         items={items}
+        selectedId={value}
         activeIndex={active}
         onActiveIndex={setActive}
         onPick={(id) => {

@@ -9,6 +9,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { Check } from "lucide-react";
 
 export type ComposerMenuItem = {
   id: string;
@@ -36,6 +37,8 @@ type Props = {
   anchorRef?: RefObject<HTMLElement | null>;
   /** Align the fixed menu to the anchor's right edge (Bench / User). */
   align?: "start" | "end";
+  /** The item currently in force — gets a check instead of the bullet. */
+  selectedId?: string;
 };
 
 /** Forge-flavoured popover for cockpit chips, slash skills, and forge-bar pops. */
@@ -51,6 +54,7 @@ export function ComposerMenu({
   portal = false,
   anchorRef,
   align = "start",
+  selectedId,
 }: Props) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [fixedStyle, setFixedStyle] = useState<CSSProperties | null>(null);
@@ -139,13 +143,21 @@ export function ComposerMenu({
             key={item.id}
             type="button"
             role="option"
-            aria-selected={i === activeIndex}
             data-idx={i}
-            className={`sindri-menu-item${i === activeIndex ? " is-active" : ""}`}
+            className={`sindri-menu-item${i === activeIndex ? " is-active" : ""}${
+              selectedId && item.id === selectedId ? " is-selected" : ""
+            }`}
+            aria-selected={selectedId ? item.id === selectedId : i === activeIndex}
             onMouseEnter={() => onActiveIndex(i)}
             onClick={() => onPick(item.id)}
           >
-            <span className="sindri-menu-item-mark" aria-hidden="true" />
+            {selectedId ? (
+              <span className="sindri-menu-item-check" aria-hidden="true">
+                {item.id === selectedId ? <Check size={13} /> : null}
+              </span>
+            ) : (
+              <span className="sindri-menu-item-mark" aria-hidden="true" />
+            )}
             <span className="sindri-menu-item-body">
               <span className="sindri-menu-item-row">
                 <span className="sindri-menu-item-label">{item.label}</span>
