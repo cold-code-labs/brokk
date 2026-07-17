@@ -878,9 +878,7 @@ export default function Chat() {
       {!sessionId ? (
         <div className="sindri-body is-blank">
           <div className="sindri-blank">
-            <div className="sindri-blank-mark">
-              <Hammer size={30} strokeWidth={1.4} />
-            </div>
+            <Hammer className="sindri-blank-mark" size={56} strokeWidth={1.25} aria-hidden="true" />
             <h3>{currentProject ? `At the anvil with ${currentProject.name}` : "Pick an environment"}</h3>
             <p>
               Brokk clones the repo and works a branch of its own. Describe the first task

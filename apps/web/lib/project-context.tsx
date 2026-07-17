@@ -26,15 +26,27 @@ const Ctx = createContext<ProjectCtx | null>(null);
 
 export function ProjectProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<Project[]>([]);
-  // Hydrate from localStorage immediately (client-only) to avoid a flash.
-  const [currentId, setId] = useState<string>(() => {
-    if (typeof window === "undefined") return "";
+  /**
+   * Starts EMPTY on both server and client, and only picks up localStorage in an
+   * effect. This used to read localStorage straight from the useState initializer
+   * ("to avoid a flash") — which silently broke every control gated on the
+   * project. The server has no localStorage, so it rendered `disabled` into the
+   * HTML; the client's first render already had the id, so from React's side the
+   * prop never *changed* and it never rewrote the attribute — and React does not
+   * reconcile attributes during hydration, only text. The `disabled` from the
+   * server stuck forever, with no warning: "New session" and the blank state's
+   * "open an empty session" were dead on arrival. Setting it in an effect makes
+   * the two first renders agree, so the update is real and lands in the DOM.
+   */
+  const [currentId, setId] = useState<string>("");
+  useEffect(() => {
     try {
-      return localStorage.getItem(KEY) ?? "";
+      const stored = localStorage.getItem(KEY);
+      if (stored) setId(stored);
     } catch {
-      return "";
+      /* ignore */
     }
-  });
+  }, []);
   const [loading, setLoading] = useState(true);
 
   const setCurrentId = (id: string) => {

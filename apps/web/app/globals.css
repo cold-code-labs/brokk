@@ -697,8 +697,23 @@ body:has(.sindri) {
 .sindri-body.is-zen {
   grid-template-columns: minmax(0, 1fr);
 }
+/* The starting surface is the same paper as the bench it becomes — it isn't the
+   `.sindri-chat` element, so the shell's night atmosphere showed through here
+   while every neighbour had gone white. Takes the remap explicitly. */
 .sindri-body.is-blank {
   display: flex;
+  --bg: #ffffff;
+  --bg-soft: #ffffff;
+  --panel: #f4f6f9;
+  --card: #ffffff;
+  --line: #e6e9f0;
+  --line-soft: #eef1f6;
+  --border: #e6e9f0;
+  --fg: #141820;
+  --fg-soft: #4a5568;
+  --fg-dim: #6b7385;
+  background: #ffffff;
+  color: var(--fg);
 }
 
 /* draggable gutter between the two panes — the ONLY thing separating them. It
@@ -792,16 +807,11 @@ body:has(.sindri) {
   gap: 0.7rem;
   padding: 2rem;
 }
+/* The hammer stands on its own — no ring, no plate. It's the mark of the room,
+   not a widget. */
 .sindri-blank-mark {
-  display: grid;
-  place-items: center;
-  width: 4rem;
-  height: 4rem;
-  border-radius: 1rem;
-  background: var(--panel, var(--bg));
-  border: 1px solid var(--border);
-  color: var(--primary);
-  margin-bottom: 0.3rem;
+  color: var(--ember, #ff7a45);
+  margin-bottom: 0.4rem;
 }
 .sindri-blank h3 {
   color: var(--fg);
@@ -3110,17 +3120,6 @@ html.dark .fv-hl .shiki span {
   background:
     radial-gradient(46% 42% at 50% 78%, color-mix(in srgb, var(--ember, #ff7a45) 10%, transparent), transparent 70%),
     radial-gradient(60% 50% at 50% 10%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 70%);
-}
-.sindri-blank-mark {
-  width: 4.4rem;
-  height: 4.4rem;
-  border-radius: 50%;
-  color: color-mix(in srgb, var(--ember, #ff7a45) 60%, var(--fg-soft));
-  background:
-    radial-gradient(circle at 50% 66%, color-mix(in srgb, var(--ember, #ff7a45) 15%, transparent), transparent 70%),
-    color-mix(in srgb, var(--fg) 4%, transparent);
-  border: 1px solid color-mix(in srgb, var(--ember, #ff7a45) 20%, var(--line));
-  box-shadow: 0 0 34px -10px color-mix(in srgb, var(--ember, #ff7a45) 40%, transparent);
 }
 .sindri-blank h3 {
   font-family: var(--font-display, inherit);
