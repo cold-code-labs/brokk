@@ -77,5 +77,13 @@ onde a coluna de chat não é renderizada): sem isso, preview-cheio é sala sem 
 ## Type / palette
 
 - Display: Big Shoulders · Body: Inter · Mono: JetBrains
-- `--ember` só running / pulse / Publicar / active link inset
-- Chrome quiet night registers in `forge.css` + `.forge-lintel`
+- `--ember` só running / pulse / Publicar. **O "active link inset" saiu
+  (2026-07-17):** estar numa sala não é trabalho no fogo. Onde-você-está e
+  sessão-aberta são fill neutro; o calor ficou exclusivo de trabalho vivo.
+- ~~Chrome quiet night~~ → **a verga é PAPER nos dois temas** (2026-07-17): mesmo
+  branco da bancada do Sindri, para não lerem como dois materiais.
+  ⚠️ **Custo aceito pelo Vitor, de olhos abertos:** as salas abaixo (Fleet, Board,
+  Dashboard, History, Settings) seguem o tema, então **no dark a verga é branca
+  sobre chão escuro**. Não "consertar" re-tematizando a verga — foi decidido
+  assim. A saída definitiva, se incomodar, é tirar o branco cravado do Sindri e
+  deixar tudo seguir o tema (opção descartada em 2026-07-17).

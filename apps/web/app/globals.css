@@ -59,6 +59,14 @@ body {
   padding-top: var(--forge-lintel-h);
   box-sizing: border-box;
 }
+/* The verga is paper in BOTH themes — same white as the Sindri bench, so the two
+   don't read as two materials. It sits outside the bench, so it carries that
+   token remap itself; without it the theme's light --fg would put white text on
+   a white bar in dark mode.
+   ⚠️ Known cost, accepted 2026-07-17: the rooms below (Fleet, Board, Dashboard,
+   History, Settings) still follow the theme, so in dark mode this bar is white
+   over a dark floor. Paper chrome + night rooms is a deliberate trade, not a bug
+   to "fix" by re-theming the bar. */
 .forge-lintel {
   position: fixed;
   top: 0;
@@ -67,10 +75,20 @@ body {
   z-index: 60;
   height: var(--forge-lintel-h);
   box-sizing: border-box;
-  border-bottom: 1px solid var(--line-soft);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--fg) 2.5%, transparent), transparent 70%),
-    var(--bg-soft, var(--bg));
+  --bg: #ffffff;
+  --bg-soft: #ffffff;
+  --panel: #f4f6f9;
+  --panel-2: #f4f6f9;
+  --card: #ffffff;
+  --line: #e6e9f0;
+  --line-soft: #eef1f6;
+  --border: #e6e9f0;
+  --fg: #141820;
+  --fg-soft: #4a5568;
+  --fg-dim: #6b7385;
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+  color: var(--fg);
   /* pops are portaled — bar itself can stay tight */
   overflow: visible;
 }
@@ -171,12 +189,14 @@ body {
 }
 .forge-room-link:hover {
   color: var(--fg);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
 }
+/* Where you are is a quiet fill — no ember underline. Being in a room is not
+   work in the fire, and narrowing the ember's uses only makes it more reserved. */
 .forge-room-link.is-on {
   color: var(--fg);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  box-shadow: inset 0 -2px 0 var(--ember, var(--accent));
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  font-weight: 600;
 }
 .forge-new {
   margin-left: 0.2rem;
@@ -1473,9 +1493,22 @@ body:has(.sindri) {
   border-radius: 0.75rem;
   /* Quiet plate. The ember wash this carried made every popover in the app read
      as hot — and the soul reserves --ember for running / pulse / Publicar. A menu
-     is chrome: it holds no heat of its own. */
+     is chrome: it holds no heat of its own.
+     Paper, like every surface it can open from (the verga, the composer, the
+     slash catalogue) — and it PORTALS to <body>, so it can't inherit their remap
+     and must carry it here or it would hang dark under a white bar in dark mode. */
+  --panel: #f4f6f9;
+  --panel-2: #f4f6f9;
+  --card: #ffffff;
+  --line: #e6e9f0;
+  --line-soft: #eef1f6;
+  --border: #e6e9f0;
+  --fg: #141820;
+  --fg-soft: #4a5568;
+  --fg-dim: #6b7385;
   border: 1px solid var(--border);
-  background: var(--card, var(--panel));
+  background: var(--card);
+  color: var(--fg);
   box-shadow:
     0 10px 30px color-mix(in srgb, #000 22%, transparent),
     0 2px 8px color-mix(in srgb, #000 10%, transparent);
