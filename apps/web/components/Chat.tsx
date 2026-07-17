@@ -25,7 +25,6 @@ import {
   Trash2,
   GitBranch,
   Check,
-  MessageSquare,
   Zap,
   Copy,
   Brain,
@@ -177,6 +176,132 @@ function sessionTime(s: ChatSessionWithStats): string {
 // change worth booting the preview for (the lazy trigger).
 const EDIT_TOOL = /write|edit|str_replace|create|apply|patch/i;
 
+/**
+ * The session rail — the left wall of the Sindri room: New session on top, then
+ * the project's sessions newest-first. Scoped to the active Anvil (the lintel
+ * switcher drives it), so it lists this project's work and nothing else.
+ * Rows are hairlines inside ONE surface — never a stack of bordered cards.
+ */
+function SessionRail({
+  sessions,
+  currentId,
+  projectName,
+  onOpen,
+  onNew,
+  onRemove,
+  onRename,
+  disabled,
+}: {
+  sessions: ChatSessionWithStats[];
+  currentId: string;
+  projectName: string | null;
+  onOpen: (id: string) => void;
+  onNew: () => void;
+  onRemove: (id: string, ev: React.MouseEvent) => void;
+  onRename: (id: string, title: string) => void;
+  disabled: boolean;
+}) {
+  // Renaming is the rail's business now that it owns the session list — the head
+  // no longer carries a title to double-click.
+  const [editingId, setEditingId] = useState("");
+  const [draft, setDraft] = useState("");
+
+  return (
+    <aside className="sindri-rail" aria-label="Sessions">
+      <button
+        type="button"
+        className="sindri-rail-new"
+        onClick={onNew}
+        disabled={disabled}
+        title="New session"
+      >
+        <Plus size={14} aria-hidden="true" />
+        New session
+      </button>
+
+      <div className="sindri-rail-eyebrow">
+        <span>Recents</span>
+        <span className="sindri-rail-count">{sessions.length}</span>
+      </div>
+
+      <div className="sindri-rail-list" role="listbox" aria-label="Recent sessions">
+        {sessions.length === 0 ? (
+          <p className="sindri-rail-empty">
+            {projectName ? `The forge is quiet in ${projectName}.` : "Pick an environment."}
+          </p>
+        ) : (
+          sessions.map((s) => {
+            const live = s.turnState === "running";
+            const current = s.id === currentId;
+            return (
+              <div
+                key={s.id}
+                role="option"
+                aria-selected={current}
+                tabIndex={0}
+                className={`sindri-rail-row ${current ? "is-current" : ""} ${live ? "is-live" : ""}`}
+                onClick={() => {
+                  if (!current) onOpen(s.id);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    if (!current) onOpen(s.id);
+                  }
+                }}
+                onDoubleClick={() => {
+                  setDraft(s.title);
+                  setEditingId(s.id);
+                }}
+                title={`${s.title} · ${relTime(sessionTime(s))}${
+                  s.branch ? ` · ${s.branch}` : ""
+                } — double-click to rename`}
+              >
+                <span className="sindri-rail-row-mark" aria-hidden="true" />
+                {editingId === s.id ? (
+                  <input
+                    className="sindri-rail-row-rename"
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={() => {
+                      onRename(s.id, draft);
+                      setEditingId("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        onRename(s.id, draft);
+                        setEditingId("");
+                      }
+                      if (e.key === "Escape") setEditingId("");
+                    }}
+                  />
+                ) : (
+                  <>
+                    <span className="sindri-rail-row-title">{s.title}</span>
+                    <span className="sindri-rail-row-when">{relTime(sessionTime(s))}</span>
+                    <span
+                      role="button"
+                      tabIndex={-1}
+                      aria-label={`Delete ${s.title}`}
+                      title="Delete session"
+                      className="sindri-rail-row-del"
+                      onClick={(e) => onRemove(s.id, e)}
+                    >
+                      <Trash2 size={12} />
+                    </span>
+                  </>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </aside>
+  );
+}
+
 export default function Chat() {
   // Project selection is GLOBAL now (the sidebar AMBIENTE switcher) — Sindri reads
   // the same context, so the active environment drives which project Sindri works.
@@ -202,10 +327,10 @@ export default function Chat() {
   const [blankDraft, setBlankDraft] = useState("");
   const [blankBusy, setBlankBusy] = useState(false);
   const [error, setError] = useState("");
-  const [renaming, setRenaming] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
-  // Layout triad: chat-full · split · preview-full (mutually exclusive).
-  const [previewOpen, setPreviewOpen] = useState(true);
+  // Layout triad: chat-full · split · preview-full (mutually exclusive). The
+  // preview stays shut until you ask for it with the window switch — it never
+  // takes half the room on its own.
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
   // Draggable split ratio (chat fraction) when both panes are open.
   const [split, setSplit] = useState(SPLIT_DEFAULT);
@@ -247,9 +372,6 @@ export default function Chat() {
     el.style.height = `${Math.min(el.scrollHeight, max)}px`;
   }
   const liveSeqRef = useRef(-1); // highest seq we've persisted into messages
-  // Projects we're already minting a first chat for — guards against a double
-  // create from React Strict-Mode's mount/remount or a fast environment re-select.
-  const creatingRef = useRef<Set<string>>(new Set());
 
   // ── loaders ─────────────────────────────────────────────────────────────────
   // Load Brokk Skills catalogue once (chip options).
@@ -259,53 +381,24 @@ export default function Chat() {
       .catch(() => setSkillOptions([]));
   }, []);
 
-  // On environment change: load its sessions and make sure one is ready to use —
-  // open the newest, or mint the very first chat when the project is empty. So
-  // selecting an environment always lands you in a usable chat (never a dead end).
+  // On environment change: load the project's sessions into the rail — and stop
+  // there. The room opens with NO chat on the anvil (Claude Code / Cursor shape):
+  // a session becomes active only when you pick one from the rail or start a new
+  // one. Nothing is auto-opened, and an empty project no longer mints a session
+  // just for landing on it.
   useEffect(() => {
     if (!projectId) return;
     let active = true;
+    setSessionId("");
+    setMessages([]);
     (async () => {
       const list = await chat.listSessions(projectId).catch(() => null);
       if (!active) return;
-      if (!list) {
-        setSessions([]);
-        return;
-      }
-      setSessions(list);
-      if (list.length > 0) {
-        const newest = [...list].sort(
-          (a, b) => +new Date(sessionTime(b)) - +new Date(sessionTime(a)),
-        )[0]!;
-        void openSession(newest.id);
-        return;
-      }
-      // Empty project → create the first chat (once).
-      if (creatingRef.current.has(projectId)) return;
-      creatingRef.current.add(projectId);
-      const s = await chat
-        .createSession({
-          projectId,
-          model: isCursorEngine(engine) ? "auto" : model,
-          effort,
-          engine,
-        })
-        .catch(() => null);
-      creatingRef.current.delete(projectId);
-      if (!active || !s) return;
-      const withStats: ChatSessionWithStats = {
-        ...s,
-        stats: { messages: 0, tokensIn: 0, tokensOut: 0, lastMessageAt: null },
-      };
-      setSessions([withStats]);
-      void openSession(s.id);
+      setSessions(list ?? []);
     })();
     return () => {
       active = false;
     };
-    // openSession/model/effort are intentionally not deps: this fires on
-    // environment change, using whatever model/effort are current at that moment.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   // Restore the persisted split once on mount (client-only; the body isn't
@@ -387,7 +480,6 @@ export default function Chat() {
     setLiveText("");
     setLiveThinking("");
     setError("");
-    setRenaming(false);
     liveSeqRef.current = -1;
     const { session, messages: msgs, running: live } = await chat.getSession(id);
     // Reflect the session's saved model + effort (all tiers are selectable now).
@@ -467,8 +559,8 @@ export default function Chat() {
     setPhase("");
   }
 
-  async function removeSession(id: string, ev: React.MouseEvent) {
-    ev.stopPropagation();
+  async function removeSession(id: string, ev?: React.MouseEvent) {
+    ev?.stopPropagation();
     const name = sessions.find((s) => s.id === id)?.title;
     if (!confirm(`This deletes ${name ? `"${name}"` : "the session"} and its transcript. Delete?`)) return;
     await chat.deleteSession(id).catch(() => {});
@@ -479,12 +571,12 @@ export default function Chat() {
     }
   }
 
-  async function saveTitle() {
-    const t = titleDraft.trim();
-    setRenaming(false);
-    if (!sessionId || !t || t === currentSession?.title) return;
-    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, title: t } : s)));
-    await chat.patchSession(sessionId, { title: t }).catch(() => {});
+  /** Rename any session (the rail edits rows in place, not just the open one). */
+  async function renameSession(id: string, raw: string) {
+    const t = raw.trim();
+    if (!t || t === sessions.find((s) => s.id === id)?.title) return;
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title: t } : s)));
+    await chat.patchSession(id, { title: t }).catch(() => {});
   }
 
   function onKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -623,7 +715,7 @@ export default function Chat() {
   const currentProject = projects.find((p) => p.id === projectId);
   const currentSession = sessions.find((s) => s.id === sessionId);
 
-  // Sessions newest-first for the top tab strip.
+  // Sessions newest-first — the order the ledger reads.
   const sortedSessions = useMemo(
     () => [...sessions].sort((a, b) => +new Date(sessionTime(b)) - +new Date(sessionTime(a))),
     [sessions],
@@ -665,7 +757,19 @@ export default function Chat() {
         </Banner>
       ) : null}
 
-      {/* ── body: chat | live preview ── */}
+      {/* ── room: session rail | (chat | live preview) ── */}
+      <div className="sindri-room">
+        <SessionRail
+          sessions={sortedSessions}
+          currentId={sessionId}
+          projectName={currentProject?.name ?? null}
+          onOpen={(id) => void openSession(id)}
+          onNew={() => void newChat()}
+          onRemove={removeSession}
+          onRename={(id, title) => void renameSession(id, title)}
+          disabled={!projectId}
+        />
+
       {!sessionId ? (
         <div className="sindri-body is-blank">
           <div className="sindri-blank">
@@ -674,8 +778,8 @@ export default function Chat() {
             </div>
             <h3>{currentProject ? `At the anvil with ${currentProject.name}` : "Pick an environment"}</h3>
             <p>
-              Brokk clones the repo, works a branch of its own, and boots the live preview
-              beside the chat. Describe the first task to light the forge.
+              Brokk clones the repo and works a branch of its own. Describe the first task
+              to light the forge — the live preview opens beside it when you ask for it.
             </p>
             <form
               className="sindri-blank-bar"
@@ -721,110 +825,47 @@ export default function Chat() {
               : undefined
           }
         >
+          {/* The head floats OVER the room, hugging the top-left — which in chat
+              and split IS the top of the chat column, and in preview-full is the
+              only door back. It spends no vertical band on chrome, and it is the
+              single home of the window switch (the preview's own bar no longer
+              carries one), so it must survive every layout. */}
+          <header className="sindri-head">
+            <div className="sindri-layoutswitch" role="group" aria-label="Layout">
+              <button
+                type="button"
+                className={`sindri-preview-icon ${layout === "chat" ? "is-on" : ""}`}
+                title="Chat em tela cheia"
+                aria-pressed={layout === "chat"}
+                onClick={() => setLayout("chat")}
+              >
+                <PanelLeft size={15} />
+              </button>
+              <button
+                type="button"
+                className={`sindri-preview-icon ${layout === "split" ? "is-on" : ""}`}
+                title="Dividir chat e preview"
+                aria-pressed={layout === "split"}
+                onClick={() => setLayout("split")}
+              >
+                <Columns2 size={15} />
+              </button>
+              <button
+                type="button"
+                className={`sindri-preview-icon ${layout === "preview" ? "is-on" : ""}`}
+                title="Preview em tela cheia"
+                aria-pressed={layout === "preview"}
+                onClick={() => setLayout("preview")}
+              >
+                <PanelRight size={15} />
+              </button>
+            </div>
+          </header>
+
           {/* ── chat column ── */}
           {!chatCollapsed ? (
           <section className="sindri-chat">
             <>
-              {/* session header = the tab bar: new-chat + horizontally-scrolling
-                  session chips (folded up from the old top strip). The active chip
-                  renames on double-click; the preview restores here when hidden. */}
-              <header className="sindri-head">
-                <Button
-                  variant="default"
-                  onClick={newChat}
-                  disabled={!projectId}
-                  className="sindri-tab-new"
-                  title="New chat"
-                  aria-label="New chat"
-                >
-                  <Plus size={16} />
-                </Button>
-                <div className="sindri-tabs-scroll">
-                  {sortedSessions.length === 0 ? (
-                    <span className="sindri-tabs-empty">
-                      {currentProject ? `No sessions in ${currentProject.name}.` : "Pick an environment."}
-                    </span>
-                  ) : (
-                    sortedSessions.map((s) => {
-                      const active = s.id === sessionId;
-                      return (
-                        <div
-                          key={s.id}
-                          className={`sindri-tab ${active ? "is-active" : ""}`}
-                          onClick={() => {
-                            if (!active) void openSession(s.id);
-                          }}
-                          onDoubleClick={() => {
-                            if (active) {
-                              setTitleDraft(s.title);
-                              setRenaming(true);
-                            }
-                          }}
-                          title={`${s.title} · ${relTime(sessionTime(s))}`}
-                        >
-                          {s.turnState === "running" ? (
-                            <span className="sindri-dot" />
-                          ) : (
-                            <MessageSquare size={12} className="sindri-tab-icon" />
-                          )}
-                          {renaming && active ? (
-                            <input
-                              className="sindri-tab-rename"
-                              autoFocus
-                              value={titleDraft}
-                              onChange={(e) => setTitleDraft(e.target.value)}
-                              onBlur={saveTitle}
-                              onClick={(e) => e.stopPropagation()}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") saveTitle();
-                                if (e.key === "Escape") setRenaming(false);
-                              }}
-                            />
-                          ) : (
-                            <span className="sindri-tab-title">{s.title}</span>
-                          )}
-                          <span
-                            className="sindri-tab-del"
-                            title="Delete session"
-                            onClick={(e) => removeSession(s.id, e)}
-                          >
-                            <Trash2 size={12} />
-                          </span>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-                {layout === "chat" ? (
-                  <div className="sindri-layoutswitch" role="group" aria-label="Layout">
-                    <button
-                      type="button"
-                      className="sindri-preview-icon is-on"
-                      title="Chat em tela cheia"
-                      aria-pressed="true"
-                    >
-                      <PanelLeft size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      className="sindri-preview-icon"
-                      title="Dividir chat e preview"
-                      onClick={() => setLayout("split")}
-                    >
-                      <Columns2 size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      className="sindri-preview-icon"
-                      title="Preview em tela cheia"
-                      onClick={() => setLayout("preview")}
-                    >
-                      <PanelRight size={15} />
-                    </button>
-                  </div>
-                ) : null}
-              </header>
-
               <StickToBottom className="sindri-thread" resize="smooth" initial="smooth">
                 <StickToBottom.Content className="sindri-thread-content">
                   {messages.map((m) => (
@@ -849,6 +890,25 @@ export default function Chat() {
 
               {/* composer = cockpit: the controls live where the hand acts */}
               <div className="sindri-composer">
+                {/* bench line: where this turn lands. Read-only by design — the
+                    project switcher is the Anvil in the lintel, and orientation
+                    never moves off the verga. */}
+                {currentProject || currentSession?.branch ? (
+                  <div className="sindri-bench">
+                    {currentProject ? (
+                      <span className="sindri-bench-pill" title="Anvil — the project this session forges">
+                        <Hammer size={11} aria-hidden="true" />
+                        {currentProject.name}
+                      </span>
+                    ) : null}
+                    {currentSession?.branch ? (
+                      <span className="sindri-bench-pill" title="Branch this session works">
+                        <GitBranch size={11} aria-hidden="true" />
+                        <code>{currentSession.branch}</code>
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="sindri-composer-stack">
                   <ComposerMenu
                     open={slashOpen}
@@ -994,8 +1054,6 @@ export default function Chat() {
               projectId={projectId}
               branch={currentSession?.branch ?? null}
               sawEdit={sawEdit}
-              layout={chatCollapsed ? "preview" : "split"}
-              onLayout={setLayout}
               device={device}
               setDevice={setDevice}
               mobileOnly={mobileOnly}
@@ -1005,6 +1063,7 @@ export default function Chat() {
           ) : null}
         </div>
       )}
+      </div>
     </main>
   );
 }
@@ -1075,8 +1134,6 @@ function SindriPreview({
   projectId,
   branch,
   sawEdit,
-  layout,
-  onLayout,
   device,
   setDevice,
   mobileOnly,
@@ -1087,8 +1144,6 @@ function SindriPreview({
   projectId: string;
   branch: string | null;
   sawEdit: boolean;
-  layout: "split" | "preview";
-  onLayout: (mode: "chat" | "split" | "preview") => void;
   device: "desktop" | "mobile";
   setDevice: (d: "desktop" | "mobile") => void;
   mobileOnly: boolean;
@@ -1260,35 +1315,9 @@ function SindriPreview({
   return (
     <section className="sindri-preview">
       <div className="sindri-preview-bar">
-        {/* Layout triad: chat full · split · preview full */}
-        <div className="sindri-layoutswitch" role="group" aria-label="Layout">
-          <button
-            type="button"
-            className="sindri-preview-icon"
-            title="Chat em tela cheia"
-            onClick={() => onLayout("chat")}
-          >
-            <PanelLeft size={15} />
-          </button>
-          <button
-            type="button"
-            className={`sindri-preview-icon ${layout === "split" ? "is-on" : ""}`}
-            title="Dividir chat e preview"
-            aria-pressed={layout === "split"}
-            onClick={() => onLayout("split")}
-          >
-            <Columns2 size={15} />
-          </button>
-          <button
-            type="button"
-            className={`sindri-preview-icon ${layout === "preview" ? "is-on" : ""}`}
-            title="Preview em tela cheia"
-            aria-pressed={layout === "preview"}
-            onClick={() => onLayout("preview")}
-          >
-            <PanelRight size={15} />
-          </button>
-        </div>
+        {/* The layout switch lives in the chat's floating head — one switch, one
+            home. In preview-full the chat column is gone, so the restore door is
+            the collapse toggle further down this bar. */}
         <span className="sindri-preview-sep" />
         <div className="sindri-viewswitch" role="tablist" aria-label="View">
           <button

@@ -420,122 +420,187 @@ body:has(.sindri) {
   min-width: 0;
 }
 
-/* ── top: session tabs (horizontal scroll) ── */
-/* one slim strip — a row of compact thread chips, like v0/lovable. Kept short
-   vertically so the chat + preview own the height. */
-.sindri-tabs {
+/* ── the room: session rail | (chat | preview) ─────────────────────────────── */
+.sindri-room {
+  display: grid;
+  grid-template-columns: var(--sindri-rail-w, 15rem) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+/* The rail is the room's left wall: the smith's ledger of this project's work.
+   ONE surface — rows are hairlines inside it, never a stack of bordered cards. */
+.sindri-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  gap: 0.35rem;
+  padding: 0.45rem 0.4rem;
+  border-right: 1px solid var(--line-soft, var(--border));
+  background: color-mix(in srgb, var(--panel) 45%, transparent);
+}
+.sindri-rail-new {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  height: 1.9rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--line-soft, var(--border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel-2, var(--panel)) 80%, transparent);
+  color: var(--fg);
+  font-size: 0.78rem;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.sindri-rail-new:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-2, var(--panel)));
+  border-color: var(--border);
+}
+.sindri-rail-new:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.sindri-rail-eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  padding: 0.3rem 0.35rem 0.1rem;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--fg-dim);
+}
+.sindri-rail-count {
+  font-family: var(--font-jetbrains, monospace);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  opacity: 0.75;
+}
+.sindri-rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fg-dim) 35%, transparent) transparent;
+}
+.sindri-rail-empty {
+  margin: 0;
+  padding: 0.5rem 0.35rem;
+  color: var(--fg-dim);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+.sindri-rail-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   flex-shrink: 0;
-  min-width: 0;
-}
-/* Cursor-style tab bar: a compact `+`, then flat borderless chips that scroll.
-   Inactive = dim text; active = subtle card bg + hairline + full-contrast text
-   with a visible close. Each chip carries a small chat glyph. */
-.sindri-tab-new {
-  flex-shrink: 0;
-  justify-content: center;
-  align-items: center;
-  height: 1.7rem;
-  width: 1.7rem;
-  padding: 0;
-  gap: 0;
-}
-.sindri-tabs-scroll {
-  display: flex;
-  align-items: center;
-  gap: 0.1rem;
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
-  padding-bottom: 1px;
-  scrollbar-width: none;
-}
-.sindri-tabs-scroll::-webkit-scrollbar {
-  height: 0;
-}
-.sindri-tabs-empty {
-  color: var(--fg-dim);
-  font-size: 0.8rem;
-  padding: 0.2rem 0.4rem;
-  white-space: nowrap;
-}
-.sindri-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-shrink: 0;
-  max-width: 12rem;
-  height: 1.7rem;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 0 0.25rem 0 0.45rem;
+  height: 1.85rem;
+  padding: 0 0.3rem 0 0.4rem;
+  border-radius: 6px;
   cursor: pointer;
   color: var(--fg-dim);
-  font-size: 0.78rem;
-  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  transition: background 0.12s ease, color 0.12s ease;
 }
-.sindri-tab:hover {
+.sindri-rail-row:hover {
   background: color-mix(in srgb, var(--accent) 7%, var(--panel));
   color: var(--fg-soft, var(--fg));
 }
-.sindri-tab.is-active {
-  background: color-mix(in srgb, var(--accent) 11%, var(--panel-2));
-  border-color: var(--border);
+.sindri-rail-row:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+/* Open ≠ busy: the current row is full contrast and gets the sanctioned ember
+   inset, but no heat of its own. */
+.sindri-rail-row.is-current {
+  background: color-mix(in srgb, var(--accent) 11%, var(--panel-2, var(--panel)));
   color: var(--fg);
-  font-weight: 500;
+  box-shadow: inset 2px 0 0 var(--ember, var(--accent));
 }
-.sindri-tab-icon {
+.sindri-rail-row-mark {
   flex-shrink: 0;
-  opacity: 0.5;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg-dim) 55%, transparent);
 }
-.sindri-tab.is-active .sindri-tab-icon {
-  color: var(--primary);
-  opacity: 0.9;
+.sindri-rail-row.is-current .sindri-rail-row-mark {
+  background: var(--fg-dim);
 }
-.sindri-tab-title {
+/* Metal in the fire glows whether or not the cursor is on it. */
+.sindri-rail-row.is-live .sindri-rail-row-mark {
+  background: var(--ember, var(--accent));
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ember, var(--accent)) 55%, transparent);
+  animation: sindri-ember 1.6s infinite;
+}
+.sindri-rail-row-title {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 0.78rem;
 }
-.sindri-tab-rename {
+.sindri-rail-row.is-current .sindri-rail-row-title {
+  font-weight: 600;
+}
+/* Machine truth reads mono. It yields to the discard affordance on hover. */
+.sindri-rail-row-when {
+  flex-shrink: 0;
+  font-family: var(--font-jetbrains, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.62rem;
+  color: var(--fg-dim);
+  opacity: 0.7;
+}
+.sindri-rail-row:hover .sindri-rail-row-when {
+  display: none;
+}
+.sindri-rail-row-del {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 5px;
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.sindri-rail-row:hover .sindri-rail-row-del {
+  display: inline-flex;
+}
+.sindri-rail-row-del:hover {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 16%, transparent);
+}
+.sindri-rail-row-rename {
+  flex: 1;
   min-width: 0;
-  width: 8rem;
   background: var(--bg);
   border: 1px solid var(--primary);
   border-radius: 4px;
   color: var(--fg);
   font-family: inherit;
   font-size: 0.78rem;
-  padding: 0 0.25rem;
+  padding: 0.05rem 0.25rem;
   outline: none;
 }
-.sindri-tab-del {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 5px;
-  width: 1.05rem;
-  height: 1.05rem;
-  color: var(--fg-dim);
-  opacity: 0;
-  flex-shrink: 0;
-  transition: opacity 0.12s, color 0.12s, background 0.12s;
-}
-.sindri-tab:hover .sindri-tab-del,
-.sindri-tab.is-active .sindri-tab-del {
-  opacity: 0.65;
-}
-.sindri-tab-del:hover {
-  opacity: 1;
-  color: var(--err);
-  background: color-mix(in srgb, var(--err) 16%, transparent);
-}
-
 /* ── body: chat | gutter | preview split ── */
 .sindri-body {
+  /* anchors the floating head (below) */
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 50fr) minmax(0, 50fr);
   /* bound the row to the container height so the panes (not the page) own the
@@ -727,78 +792,42 @@ body:has(.sindri) {
 .sindri-blank-alt:hover:not(:disabled) { color: var(--fg-soft); text-decoration: underline; }
 .sindri-blank-alt:disabled { cursor: not-allowed; opacity: 0.6; }
 
-/* session header = the tab bar: new-chat + horizontally-scrolling session chips.
-   Folded up from the old top strip so no whole layer is spent on tabs. */
+/* The head is an overlay, not a band: it floats at the top-left of the room over
+   whatever column is beneath, so the thread starts at the very top and no row is
+   spent on chrome. It holds the window switch and nothing else — the rail names
+   the session. `pointer-events` is released on the shell so the floating plate
+   never steals clicks from the thread beneath it. */
 .sindri-head {
+  position: absolute;
+  top: 0.45rem;
+  left: 0.5rem;
+  z-index: 6;
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.3rem 0.55rem;
-  border-bottom: 1px solid var(--line-soft);
-  background: color-mix(in srgb, var(--bg) 72%, transparent);
-  backdrop-filter: blur(8px);
-  min-width: 0;
-}
-.sindri-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin: 0;
-  min-width: 0;
-  flex-shrink: 1;
-  font-size: 0.9rem;
-  font-weight: 600;
+  pointer-events: none;
+  /* It floats over the paper workbench (chat AND preview are both paper), but it
+     sits OUTSIDE those elements — so it must borrow their token remap, or the
+     plate reads as a night chip dropped on a white bench. */
+  --panel: #f4f6f9;
+  --line-soft: #eef1f6;
+  --border: #e6e9f0;
+  --fg: #141820;
+  --fg-dim: #6b7385;
   color: var(--fg);
-  line-height: 1.2;
 }
-.sindri-title-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.sindri-head > * {
+  pointer-events: auto;
 }
-.sindri-head-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  margin-left: auto;
-  flex-shrink: 0;
-  font-size: 0.72rem;
-  color: var(--fg-dim);
-}
-.sindri-head-meta svg {
-  color: var(--primary);
-  opacity: 0.8;
+/* Floating over paper, the switch needs its own plate to stay legible. */
+.sindri-head .sindri-layoutswitch {
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--line-soft, var(--border));
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 10px color-mix(in srgb, #000 12%, transparent);
 }
 .sindri-head-sep {
   opacity: 0.5;
-}
-.sindri-title-edit {
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  color: var(--fg-dim);
-  opacity: 0;
-  display: inline-flex;
-  transition: opacity 0.12s, color 0.12s;
-}
-.sindri-title:hover .sindri-title-edit {
-  opacity: 0.7;
-}
-.sindri-title-edit:hover {
-  opacity: 1;
-  color: var(--primary);
-}
-.sindri-title-input {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--fg);
-  background: var(--bg);
-  border: 1px solid var(--primary);
-  border-radius: var(--radius-sm, 6px);
-  padding: 0.2rem 0.5rem;
-  outline: none;
-  flex: 1;
-  min-width: 0;
 }
 .sindri-ctx-branch {
   display: inline-flex;
@@ -1454,6 +1483,41 @@ body:has(.sindri) {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ── bench line: where this turn lands (anvil · branch) ────────────────────── */
+.sindri-bench {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  padding: 0 0.2rem 0.3rem;
+  min-width: 0;
+}
+.sindri-bench-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 14rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--line-soft, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
+  color: var(--fg-dim);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.sindri-bench-pill svg {
+  flex-shrink: 0;
+  opacity: 0.65;
+}
+.sindri-bench-pill code {
+  font-family: var(--font-jetbrains, monospace);
+  font-size: 0.66rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .sindri-skill-pin {
   display: inline-flex;
   align-items: center;
@@ -1821,8 +1885,9 @@ body:has(.sindri) {
   color: var(--fg);
   box-shadow: var(--shadow-1);
 }
-.sindri-head .sindri-layoutswitch {
-  margin-left: auto;
+/* In the cockpit the switch is the first control, ahead of effort/model/engine. */
+.sindri-cockpit-controls .sindri-layoutswitch {
+  margin-right: 0.15rem;
 }
 /* live viewport width readout, sits between the device toggles and the actions */
 .sindri-preview-dim {
@@ -3111,8 +3176,7 @@ html.dark .fv-hl .shiki span {
 
 /* 4 · The panel seam softens (crit #22 "chat | preview colado"): a hair of
    breathing room and a soft line, not a hard border. */
-.ygg-shell .sindri-preview-bar,
-.ygg-shell .sindri-head {
+.ygg-shell .sindri-preview-bar {
   border-color: var(--line-soft);
 }
 
@@ -3172,11 +3236,7 @@ html.dark .fv-hl .shiki span {
   padding: var(--sp-2) var(--sp-3);
   border-bottom-color: var(--line-soft);
 }
-/* Chat and preview headers read as one strip: identical padding + height. */
-.ygg-shell .sindri-head {
-  padding: var(--sp-2) var(--sp-3);
-}
-.ygg-shell .sindri-head,
+/* The chat column has no header any more; the preview bar keeps the strip height. */
 .ygg-shell .sindri-preview-bar {
   min-height: 2.75rem;
   box-sizing: border-box;
@@ -3264,27 +3324,24 @@ html.dark .fv-hl .shiki span {
    #22 the two panes breathe (the inline gutter widened to 12px in Chat.tsx);
    the grid gap follows so nothing reads as glued. */
 .ygg-shell .sindri-body { gap: 0; }
-/* #8 tabs read like a browser's: compact, less horizontal padding, the active
-   one differentiated by tone rather than a heavy box. */
-.ygg-shell .sindri-tab {
-  height: 1.6rem;
-  padding: 0 0.2rem 0 0.4rem;
+/* #8 the rail rows read like the tab strip they replaced: compact, tone over
+   box. Sizing lives with the word itself (`.sindri-rail-row`). */
+.ygg-shell .sindri-rail-row {
   border-radius: var(--r-sm);
-  font-size: 0.76rem;
 }
-.ygg-shell .sindri-tab.is-active {
-  border-color: var(--line-soft);
+.ygg-shell .sindri-rail-row.is-current {
   background: color-mix(in srgb, var(--accent) 9%, var(--panel));
 }
 /* #26 microinteractions — one transition curve, one focus ring, only on things
    that are actually interactive. Hover lifts luminance ~3%, never shifts layout. */
 .ygg-shell .sindri-preview-icon,
-.ygg-shell .sindri-tab,
+.ygg-shell .sindri-rail-row,
+.ygg-shell .sindri-rail-new,
 .ygg-shell .sindri-chip {
   transition: color 0.14s ease, background 0.14s ease, border-color 0.14s ease;
 }
 .ygg-shell .sindri-preview-icon:focus-visible,
-.ygg-shell .sindri-tab:focus-visible,
+.ygg-shell .sindri-rail-new:focus-visible,
 .ygg-shell .sindri-chip:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);

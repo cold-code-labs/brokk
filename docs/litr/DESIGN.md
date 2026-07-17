@@ -4,6 +4,10 @@
 **Soul:** The Forge at Night (`docs/litr/soul.json`).
 **Dials (Taste):** VARIANCE medium (chrome) · MOTION low · DENSITY high · hot-spot bump local.
 **Passe:** forge lintel — 2026-07-14 (topbar Hauldr-form, Brokk soul; Bench visível, sem ⌘K).
+**Passe:** session rail — 2026-07-16 (sessões do Sindri saem da tira de tabs e viram
+a parede esquerda da sala `/chat`: New session + Recents do projeto ativo. A sala
+abre SEM sessão e SEM preview — nada entra no frame sem ser pedido; o head vira
+overlay flutuante e é a única casa do switch de janela).
 
 ## Cena física (product)
 
@@ -23,12 +27,29 @@ topbar (Hauldr), alma Brokk — **nunca** eclipses Svalinn.
 | Workshop frame | Gutter + max-width por papel | `.forge-room` |
 | Stamped nameplate | Eyebrow + title display | `.forge-head*` |
 | Growing tray | Composer auto-grow | `.sindri-input` |
+| **Session rail** | Parede esquerda do `/chat`: New session + Recents do projeto ativo; ember na sessão em fogo | `.sindri-rail*` |
+| **Floating head** | Overlay no topo do chat; só o switch de janela, em tokens paper | `.sindri-head` |
+| **Bench line** | Contexto do turno (anvil · branch) acima da tray | `.sindri-bench*` |
 | Ember pulse | Único calor no trabalho vivo | `.forge-pulse` / fleet |
+
+**Fronteira (não confundir com a forma aposentada):** o *session rail* é
+**mobília da sala** `/chat` — lista o trabalho do projeto ativo, e só ele. Sidebar
+de **chrome** (rooms / Bench / Anvil / switcher) segue banida: orientação do app
+mora na verga, e só nela. O rail nunca navega; ele escolhe a sessão.
+
+**Custo aceito (medido):** com o rail a `/chat` tem 3 colunas — mas o preview
+nasce fechado, então o normal é rail 240 + chat 1200. Só quem pede o split paga:
+rail 240 + chat 552 + preview 647 (1440px). Decisão do Vitor em 2026-07-16.
+
+**Regra do switch de janela:** existe UM só, no head flutuante — nunca uma 2ª
+cópia na barra do preview. Ele sobrevive aos 3 modos (inclusive preview-cheio,
+onde a coluna de chat não é renderizada): sem isso, preview-cheio é sala sem porta.
 
 ## FORBIDDEN (product)
 
-- Sidebar / wall-rail de ícones (forma aposentada)
+- Sidebar / wall-rail de ícones **de navegação** (forma aposentada)
 - Sidebar larga com grupos Forge / Anvil / Bench rotulados
+- Rail de sessão fora do `/chat` — a parede é mobília DAQUELA sala, não do app
 - Overflow ⋯ / Bench menu — Bench fica **visível** na verga
 - ⌘K / CommandPalette no chrome
 - Crumbs "← Fleet" / "← Board" e Preview-dev chip fora do Sindri
@@ -44,7 +65,7 @@ topbar (Hauldr), alma Brokk — **nunca** eclipses Svalinn.
 |---|---|---|---|---|
 | chrome | Orientar sem comer canvas | rooms + Bench na verga | Fat nav labels · ⌘K · crumbs | **forge lintel** |
 | `/fleet` | Ver frota + enfileirar | Queue → | Stats-first hero · Preview chip | fleet floor |
-| `/chat` | Conversar + preview | Send | Fixed 2-line composer | sindri cockpit |
+| `/chat` | Conversar + preview | Send | Tira de tabs horizontal · Fixed 2-line composer | sindri cockpit |
 | `/projects/[id]` | Operar o board | New card | Inline drawer · ← Fleet | anvil board |
 | `/dashboard` | Ler vitais | (leitura) | Title oversized | vitals strip |
 | `/connect` | Ligar repos | Connect N | ← Fleet | connect ledger |

@@ -96,6 +96,9 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Forge lintel (verga) | ✓ | `.forge-lintel` + rooms + Bench visível + Anvil + User |
 | ⌘K command palette | ✗ retired | over-engineering; Bench/rooms na barra |
 | Anvil switcher (forged menu) | ✓ | Topbar Anvil + ComposerMenu portal sob âncora |
+| Session rail (New + Recents) | ✓ | `.sindri-rail*` — parede de `/chat` (mobília da sala, não chrome); ember = em fogo |
+| Floating head (overlay) | ✓ | `.sindri-head` — flutua sobre o body; única casa do switch de janela |
+| Bench line (contexto do turno) | ✓ | `.sindri-bench*` — anvil · branch acima da tray |
 | Growing composer tray | ✓ | `.sindri-input` auto-grow + `--sindri-input-max` |
 | Section heading | ✓ | `.forge-h*` |
 | Vitals strip | ✓ | `.forge-tiles/tile` |
@@ -115,6 +118,7 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Word | Status | Where |
 |---|---|---|
 | Sidebar chrome (rail, groups, active, switcher) | ✗ replaced | → forge bar |
+| Session tab strip (tira horizontal) | ✗ replaced | → session rail (parede de `/chat`, 2026-07-16) |
 | Kanban board (anvil, columns, snap-scroll) | ✓ | `.anvil-*` incl. `.anvil-card*` (selected/running states, act buttons, PR link); drawer stays inline by design |
 | Chat cockpit (bubbles, composer, chips) | ✓ | globals `.sindri-*` (bespoke layer, in-language) |
 | Data table | ✓ | `.forge-ledger table` (History) |
