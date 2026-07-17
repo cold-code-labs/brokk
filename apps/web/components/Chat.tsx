@@ -114,6 +114,17 @@ function isCursorEngine(engine: string): boolean {
 
 type SkillOption = { name: string; description: string; kind: string };
 
+/**
+ * Did we lose the pipe, or did the request get refused? `fetch` rejects with a
+ * bare TypeError when the connection never formed or died mid-body — offline,
+ * asleep, a tunnel blip. A refusal we heard back from the server arrives as our
+ * own `send → <status>` Error. Only the latter is worth a banner; the former is
+ * ours to repair, and the turn on the other side never noticed.
+ */
+function isTransportError(e: unknown): boolean {
+  return e instanceof TypeError;
+}
+
 /** Pull `/skill-name` tokens that match the catalogue; leave the rest as the prompt. */
 function extractSkillSlash(
   text: string,
@@ -456,6 +467,20 @@ export default function Chat() {
   }
   const liveSeqRef = useRef(-1); // highest seq we've persisted into messages
 
+  // ── link health ─────────────────────────────────────────────────────────────
+  // A turn runs detached server-side (the overnight property) and the turn
+  // manager replays its ring buffer to whoever reconnects. So a broken pipe —
+  // sleep, wifi, a tunnel blip — costs us the stream, never the work. Track the
+  // pipe apart from the turn: `link` is ours to repair, `error` is the turn's.
+  const [link, setLink] = useState<"ok" | "reconnecting">("ok");
+  const terminalRef = useRef(false); // did this stream reach done/error?
+  const lastFrameRef = useRef(0); // when the stream last showed proof of life
+  const dropsRef = useRef(0); // consecutive drops → backoff
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resyncRef = useRef<(sid: string) => void>(() => {});
+  // Text handed to a POST that may never have landed; restored if it didn't.
+  const pendingRef = useRef("");
+
   // ── loaders ─────────────────────────────────────────────────────────────────
   // Load Brokk Skills catalogue once (chip options).
   useEffect(() => {
@@ -511,6 +536,11 @@ export default function Chat() {
 
   const handleEvent = useCallback(
     (e: AgentEvent) => {
+      // A frame — any frame, ping included — is proof of life on both counts:
+      // the POST landed (the server owns the prompt now) and the pipe carries.
+      pendingRef.current = "";
+      lastFrameRef.current = Date.now();
+      setLink((l) => (l === "ok" ? l : "ok"));
       switch (e.type) {
         case "text_delta":
           setLiveText((t) => t + e.text);
@@ -541,6 +571,10 @@ export default function Chat() {
           break;
         case "done":
         case "error":
+          // The turn spoke for itself: whatever happens to the pipe now, there
+          // is nothing left to reattach to.
+          terminalRef.current = true;
+          pendingRef.current = "";
           if (e.type === "error") setError(e.message);
           setRunning(false);
           setPhase("");
@@ -556,8 +590,117 @@ export default function Chat() {
     [upsert, sessionId, projectId],
   );
 
+  /** Back off after a drop; a wake (tab/network) jumps this queue. */
+  const scheduleRetry = useCallback((sid: string) => {
+    setLink("reconnecting");
+    if (retryRef.current) clearTimeout(retryRef.current);
+    const n = Math.min(dropsRef.current++, 5);
+    retryRef.current = setTimeout(() => resyncRef.current(sid), Math.min(1000 * 2 ** n, 30_000));
+  }, []);
+
+  /**
+   * Reconcile with the server after a dropped stream. The durable record leads:
+   * chat_messages is the truth, so a turn that finished while we were away lands
+   * in the transcript here rather than being lost with the pipe that carried it.
+   * Only then do we reattach — and only if the turn is genuinely still forging.
+   */
+  const resync = useCallback(
+    async (sid: string) => {
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+      try {
+        const { messages: msgs, running: live } = await chat.getSession(sid);
+        if (ac.signal.aborted) return;
+        setMessages(msgs);
+        liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
+        setLink("ok");
+        dropsRef.current = 0;
+        // A prompt whose POST never landed left no turn and no transcript row:
+        // hand the text back to the composer instead of eating it.
+        const orphan = pendingRef.current;
+        if (orphan && !live) {
+          pendingRef.current = "";
+          setInput((cur) => cur || orphan);
+          requestAnimationFrame(() => resizeComposer());
+        }
+        if (!live) {
+          setRunning(false);
+          setPhase("");
+          setLiveText("");
+          setLiveThinking("");
+          return;
+        }
+        setRunning(true);
+        // The replay starts at the head of the ring buffer, so the scratchpad
+        // has to start empty or every delta lands twice.
+        setLiveText("");
+        setLiveThinking("");
+        terminalRef.current = false;
+        lastFrameRef.current = Date.now();
+        await attach(sid, handleEvent, ac.signal);
+        if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(sid);
+      } catch {
+        // Still no pipe (or the session is gone mid-flight) — keep trying; the
+        // session rail's own load surfaces a real 404.
+        if (!ac.signal.aborted) scheduleRetry(sid);
+      }
+    },
+    [handleEvent, scheduleRetry],
+  );
+
+  useEffect(() => {
+    resyncRef.current = (sid: string) => void resync(sid);
+  }, [resync]);
+
+  // Coming back is the only signal worth more than the backoff: if the tab is
+  // visible and the network is up, retry now instead of waiting out the timer.
+  useEffect(() => {
+    if (link !== "reconnecting" || !sessionId) return;
+    const wake = () => {
+      if (document.visibilityState !== "visible" || navigator.onLine === false) return;
+      if (retryRef.current) clearTimeout(retryRef.current);
+      dropsRef.current = 0;
+      void resync(sessionId);
+    };
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [link, sessionId, resync]);
+
+  // A closed laptop doesn't hang up — it goes quiet. The socket dies with no
+  // error to catch, so the drop path above never fires and the spinner would
+  // spin on stale text forever. But an idle stream pings every 15s, so silence
+  // is a measurement: three missed beats and the pipe is gone. Checked on a
+  // timer and on return, because coming back is when it matters.
+  useEffect(() => {
+    if (!running || link !== "ok" || !sessionId) return;
+    const check = () => {
+      // Hidden: nothing to repair yet — the turn is safe server-side and we
+      // resync on the way back in.
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastFrameRef.current < 45_000) return;
+      void resync(sessionId);
+    };
+    const iv = setInterval(check, 10_000);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [running, link, sessionId, resync]);
+
+  useEffect(() => () => void (retryRef.current && clearTimeout(retryRef.current)), []);
+
   async function openSession(id: string) {
     abortRef.current?.abort();
+    if (retryRef.current) clearTimeout(retryRef.current);
+    dropsRef.current = 0;
+    pendingRef.current = "";
+    setLink("ok");
     setSessionId(id);
     setMessages([]);
     setLiveText("");
@@ -581,7 +724,16 @@ export default function Chat() {
       setRunning(true);
       const ac = new AbortController();
       abortRef.current = ac;
-      attach(id, handleEvent, ac.signal).catch(() => setRunning(false));
+      terminalRef.current = false;
+      lastFrameRef.current = Date.now();
+      attach(id, handleEvent, ac.signal)
+        .then(() => {
+          // Ended without a terminal frame: the pipe gave out, not the turn.
+          if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(id);
+        })
+        .catch(() => {
+          if (!ac.signal.aborted) scheduleRetry(id);
+        });
     }
   }
 
@@ -627,11 +779,19 @@ export default function Chat() {
     upsert({ seq: liveSeqRef.current + 1, role: "user", blocks: [{ type: "text", text: raw }] });
     const ac = new AbortController();
     abortRef.current = ac;
+    pendingRef.current = raw;
+    terminalRef.current = false;
+    lastFrameRef.current = Date.now();
     try {
       await sendMessage(sid, text, handleEvent, ac.signal, slashSkill);
+      if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(sid);
     } catch (e) {
-      if (!ac.signal.aborted) setError(String(e));
-      setRunning(false);
+      if (ac.signal.aborted) return;
+      if (isTransportError(e)) scheduleRetry(sid);
+      else {
+        setError(String(e));
+        setRunning(false);
+      }
     }
   }
 
@@ -864,6 +1024,21 @@ export default function Chat() {
       {error ? (
         <Banner tone="err" onClick={() => setError("")} style={{ cursor: "pointer" }}>
           {error}
+        </Banner>
+      ) : link === "reconnecting" ? (
+        <Banner tone="warn">
+          <span className="sindri-spinner" aria-hidden />
+          {running
+            ? " Connection lost — Brokk keeps working. Reattaching…"
+            : " Connection lost — reconnecting…"}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => sessionId && void resync(sessionId)}
+            style={{ marginInlineStart: "0.75rem" }}
+          >
+            Retry now
+          </Button>
         </Banner>
       ) : null}
 
