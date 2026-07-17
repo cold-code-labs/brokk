@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
 import { useCallback, useId, useRef, useState, type ReactNode } from "react";
 import { ComposerMenu, type ComposerMenuItem } from "./ComposerMenu";
 
@@ -83,7 +82,6 @@ export function ComposerChip({ title, value, items, onChange, icon, className, t
         <span id={labelId} className="sindri-chip-label">
           {trigger ?? label}
         </span>
-        <ChevronDown size={12} className="sindri-chip-caret" />
       </button>
       {/* Portaled + right-aligned: these chips sit at the right edge of the
           cockpit, and an absolutely-positioned menu (min-width 22rem, left:0)

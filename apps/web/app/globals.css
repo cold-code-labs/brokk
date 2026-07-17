@@ -489,31 +489,51 @@ body:has(.sindri) {
   outline: none;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
+/* The whole row isn't a button — only the `+` chip carries weight; the label just
+   names it. Opening a session is routine, not the loudest thing in the room. */
 .sindri-rail-new {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 0.4rem;
+  gap: 0.5rem;
   flex: 1;
   min-width: 0;
-  height: 1.9rem;
-  padding: 0 0.55rem;
-  border: 1px solid var(--line-soft, var(--border));
+  height: 2rem;
+  padding: 0 0.3rem 0 0;
+  border: 0;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--panel-2, var(--panel)) 80%, transparent);
+  background: transparent;
   color: var(--fg);
-  font-size: 0.78rem;
-  font-weight: 550;
+  font-size: 0.8rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  transition: color 0.14s ease;
 }
-.sindri-rail-new:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel-2, var(--panel)));
-  border-color: var(--border);
+.sindri-rail-new-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  color: var(--fg-soft, var(--fg));
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.sindri-rail-new:hover:not(:disabled) .sindri-rail-new-mark {
+  background: color-mix(in srgb, var(--fg) 11%, transparent);
+  color: var(--fg);
 }
 .sindri-rail-new:disabled {
   opacity: 0.45;
   cursor: default;
+}
+.sindri-rail-new:focus-visible {
+  outline: none;
+}
+.sindri-rail-new:focus-visible .sindri-rail-new-mark {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .sindri-rail-eyebrow {
   display: flex;
@@ -603,18 +623,8 @@ body:has(.sindri) {
 .sindri-rail-row.is-current .sindri-rail-row-title {
   font-weight: 600;
 }
-/* Machine truth reads mono. It yields to the discard affordance on hover. */
-.sindri-rail-row-when {
-  flex-shrink: 0;
-  font-family: var(--font-jetbrains, monospace);
-  font-variant-numeric: tabular-nums;
-  font-size: 0.62rem;
-  color: var(--fg-dim);
-  opacity: 0.7;
-}
-.sindri-rail-row:hover .sindri-rail-row-when {
-  display: none;
-}
+/* No timestamp per row: the list is already newest-first, so the date was a
+   column of noise repeating what the order says. It lives in the row's title. */
 .sindri-rail-row-del {
   display: none;
   align-items: center;
@@ -1305,11 +1315,12 @@ body:has(.sindri) {
      One frame (the panel), not two. */
   margin: 0;
   padding: 0.6rem 0.7rem;
+  /* No seam between thread and composer: the box below already stands on its own,
+     and a hairline here only drew a border nobody needed. Same paper, one room. */
   border: 0;
-  border-top: 1px solid var(--line-soft);
   border-radius: 0;
-  background: var(--bg);
-  transition: border-color 0.12s, background 0.12s;
+  background: transparent;
+  transition: background 0.12s;
 }
 /* focus lives on the seam, not a full ring — the tray warms a touch at the top. */
 .sindri-composer:focus-within {
@@ -1327,8 +1338,9 @@ body:has(.sindri) {
   font-size: 0.9rem;
   line-height: 1.45;
   outline: none;
-  /* grows with the prompt; JS caps to --sindri-input-max; thread keeps the scroll */
-  min-height: calc(1.45em * 2);
+  /* opens as ONE line and grows with the prompt; JS caps to --sindri-input-max,
+     and the thread keeps the scroll */
+  min-height: calc(1.45em * 1);
   max-height: var(--sindri-input-max, 12rem);
   overflow-y: auto;
   field-sizing: content;
@@ -1348,16 +1360,8 @@ body:has(.sindri) {
   gap: 0.5rem;
   min-width: 0;
 }
-/* Context left, cost + who-runs-it right — the split from the reference, carrying
-   only words Brokk actually has (no mic, no attach, no permission mode). */
-.sindri-cockpit-ctx {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-}
+/* One right-aligned row: gauge, then who runs it. No mic, no attach, no
+   permission mode — Brokk has none of those, and no anvil/branch restatement. */
 .sindri-cockpit-controls {
   display: flex;
   align-items: center;
@@ -1365,16 +1369,22 @@ body:has(.sindri) {
   flex-shrink: 0;
   margin-left: auto;
 }
-/* Machine truth: what the session cost. Tabular so the digits don't dance as it
-   climbs mid-turn. */
-.sindri-tok {
+/* The context gauge: how full the model's head is. Cold — filling a context is
+   not forging, so no ember here. */
+.sindri-ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  font-family: var(--font-jetbrains, monospace);
-  font-variant-numeric: tabular-nums;
-  font-size: 0.7rem;
-  color: var(--fg-dim);
-  white-space: nowrap;
-  padding-right: 0.15rem;
+  padding: 0 0.15rem;
+  cursor: default;
+}
+.sindri-ring-track {
+  stroke: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+.sindri-ring-fill {
+  stroke: var(--accent);
+  transition: stroke-dasharray 0.3s ease;
 }
 /* The prompt is ONE box — the only bordered thing down here. The tray it sits in
    is a band, not a panel, so this stays a single frame, not box-in-box. */
@@ -1447,16 +1457,6 @@ body:has(.sindri) {
   margin: 0;
   cursor: pointer;
   max-width: 7.5rem;
-}
-.sindri-chip > svg.sindri-chip-caret {
-  color: var(--fg-dim);
-  opacity: 0.7;
-  margin-left: -0.2rem;
-  transition: transform 0.16s ease;
-}
-.sindri-chip-wrap.is-open .sindri-chip-caret {
-  transform: rotate(180deg);
-  color: var(--ember, var(--accent));
 }
 
 /* Slash + cockpit menus — a quiet plate, not a stock dropdown and not a hot one */
@@ -1594,32 +1594,6 @@ body:has(.sindri) {
   overflow: hidden;
 }
 
-/* ── bench line: where this turn lands (anvil · branch) ────────────────────── */
-.sindri-bench-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  max-width: 14rem;
-  padding: 0.1rem 0.4rem;
-  border: 1px solid var(--line-soft, var(--border));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 60%, transparent);
-  color: var(--fg-dim);
-  font-size: 0.68rem;
-  line-height: 1.5;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.sindri-bench-pill svg {
-  flex-shrink: 0;
-  opacity: 0.65;
-}
-.sindri-bench-pill code {
-  font-family: var(--font-jetbrains, monospace);
-  font-size: 0.66rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .sindri-skill-pin {
   display: inline-flex;
   align-items: center;
@@ -1673,38 +1647,44 @@ body:has(.sindri) {
 .sindri-bars[data-level="high"] i {
   background: var(--primary);
 }
-/* icon-only square send/stop — no label, so the footer row stays slim */
-/* Send rides inside the prompt box, pinned to the last line. Colour stays the
-   COLD accent (see the `.ygg-shell .sindri-send` rule below): ember is reserved
-   for running / pulse / Publicar, and the send gesture is none of those. */
+/* Send is a hint, not a button: the ↵ glyph inside the box, quiet until the box
+   has something in it. Enter is the real gesture — this only names it. */
 .sindri-send {
   position: absolute;
   right: 0.4rem;
-  bottom: 0.35rem;
+  bottom: 0.3rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  height: 1.7rem;
-  width: 1.7rem;
+  height: 1.6rem;
+  width: 1.6rem;
   padding: 0;
   border: 0;
   border-radius: 0.5rem;
-  background: var(--accent);
-  color: #fff;
+  background: transparent;
+  color: var(--fg-dim);
+  opacity: 0.55;
   cursor: pointer;
-  transition: filter 0.14s ease, opacity 0.14s ease;
+  transition: opacity 0.14s ease, color 0.14s ease, background 0.14s ease;
 }
 .sindri-send:not(:disabled):hover {
-  filter: brightness(1.08);
+  opacity: 1;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
-/* Stopping a turn is not sending one — it keeps the destructive read it had as a
-   Yggdrasil button, or the only way out of a running turn looks like "go". */
+/* Stopping a turn is not sending one — it keeps a destructive read, or the only
+   way out of a running turn looks like "go". Quiet, but unmistakably not send. */
 .sindri-send.is-stop {
-  background: var(--err);
+  color: var(--err);
+  opacity: 0.9;
+}
+.sindri-send.is-stop:hover {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
 }
 .sindri-send:disabled {
-  opacity: 0.35;
+  opacity: 0.22;
   cursor: default;
 }
 .sindri-send:focus-visible {
@@ -3309,23 +3289,14 @@ html.dark .fv-hl .shiki span {
    not as a competing bar. (Composer framing now lives on the base rule — a flush
    recessed tray, one hairline; the old bordered-box override was removed so it
    stops reading as a second card inside the chat panel.) */
-/* The send arrow — the composer's primary gesture ("hand it the next task in one
-   line"). A clean FLAT accent square, not the forged-primary gradient+shadow that
-   made a 2rem icon read as a plastic pill. Ember stays reserved for Publicar, so
-   this is the cold accent, not heat. */
+/* The send glyph. It was a flat accent square; now it's a bare ↵ inside the prompt
+   box — Enter is the gesture, this just names it, so it stops competing with the
+   sentence. (Styling lives on the base `.sindri-send` rule; this only clears the
+   Yggdrasil button paint it used to need.) */
 .ygg-shell .sindri-send {
-  background: var(--accent);
   background-image: none;
   box-shadow: none;
   border: 0;
-  border-radius: var(--r-sm);
-  color: #fff;
-}
-.ygg-shell .sindri-send.is-stop {
-  background: var(--err);
-}
-.ygg-shell .sindri-send:hover:not(:disabled) {
-  filter: brightness(1.08);
 }
 .ygg-shell .sindri-chip {
   border-color: transparent;

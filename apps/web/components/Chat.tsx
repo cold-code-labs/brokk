@@ -19,11 +19,10 @@ import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import {
   Plus,
-  Send,
+  CornerDownLeft,
   Square,
   Hammer,
   Trash2,
-  GitBranch,
   Check,
   Zap,
   Copy,
@@ -134,6 +133,11 @@ function extractSkillSlash(
 // reloads and session switches. Default is an even 50/50 so the conversation gets
 // real width; snap points give a magnetic 50/60/68 without pixel-hunting, and
 // double-clicking the gutter restores the default.
+// Context window the ring measures against. Every Claude tier Brokk offers
+// (haiku/sonnet/opus) carries 200k, so one constant covers them; cursor engines
+// report no usage at all, so they never reach the gauge.
+const CONTEXT_WINDOW = 200_000;
+
 const RAIL_KEY = "sindri-rail-open";
 const SPLIT_KEY = "sindri-split";
 const SPLIT_DEFAULT = 0.46;
@@ -180,6 +184,48 @@ function sessionTime(s: ChatSessionWithStats): string {
 const EDIT_TOOL = /write|edit|str_replace|create|apply|patch/i;
 
 /**
+ * How full the model's head is right now — the one number a ring can honestly
+ * carry. The exact figures (and what the session has spent) live in the title,
+ * because a gauge is for glancing, not for reading.
+ */
+function ContextRing({
+  context,
+  spent,
+}: {
+  context: { used: number; window: number };
+  spent: { tin: number; tout: number };
+}) {
+  const pct = Math.min(1, context.used / context.window);
+  const r = 6;
+  const circ = 2 * Math.PI * r;
+  return (
+    <span
+      className="sindri-ring"
+      title={
+        `Context: ${fmtTokens(context.used)} of ${fmtTokens(context.window)} (${Math.round(pct * 100)}%)` +
+        `\nSession spend: ${fmtTokens(spent.tin)} in · ${fmtTokens(spent.tout)} out`
+      }
+      aria-label={`Context ${Math.round(pct * 100)} percent full`}
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <circle className="sindri-ring-track" cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" />
+        <circle
+          className="sindri-ring-fill"
+          cx="8"
+          cy="8"
+          r={r}
+          fill="none"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray={`${circ * pct} ${circ}`}
+          transform="rotate(-90 8 8)"
+        />
+      </svg>
+    </span>
+  );
+}
+
+/**
  * The session rail — the left wall of the Sindri room: New session on top, then
  * the project's sessions newest-first. Scoped to the active Anvil (the lintel
  * switcher drives it), so it lists this project's work and nothing else.
@@ -223,7 +269,10 @@ function SessionRail({
           disabled={disabled}
           title="New session"
         >
-          <Plus size={14} aria-hidden="true" />
+          {/* The chip is the button; the label just names it. */}
+          <span className="sindri-rail-new-mark" aria-hidden="true">
+            <Plus size={14} />
+          </span>
           New session
         </button>
         <button
@@ -298,7 +347,6 @@ function SessionRail({
                 ) : (
                   <>
                     <span className="sindri-rail-row-title">{s.title}</span>
-                    <span className="sindri-rail-row-when">{relTime(sessionTime(s))}</span>
                     <span
                       role="button"
                       tabIndex={-1}
@@ -765,8 +813,27 @@ export default function Chat() {
     [messages],
   );
 
-  // Token usage for the open session (shown in the preview header): aggregate
-  // from loaded messages, falling back to the rail's stored aggregate.
+  /**
+   * The context ring. Two different numbers hide behind the word "tokens":
+   *   • what the session has SPENT — the sum of every turn's usage (`stats`), and
+   *   • what the model is CARRYING right now — the last turn's input + cache read.
+   * The ring can only mean the second one. Summing would sail past 100% on any
+   * real session (a 44-message thread sums 212k against a 200k window while
+   * actually carrying 14.5k), so the gauge would lie.
+   */
+  const context = useMemo(() => {
+    let used = 0;
+    for (const m of messages) {
+      const u = (m.meta as { usage?: { inputTokens?: number; cacheReadTokens?: number } } | null)
+        ?.usage;
+      if (u) used = (u.inputTokens ?? 0) + (u.cacheReadTokens ?? 0); // last wins, not summed
+    }
+    if (!used) return null; // cursor engines report no usage — no gauge, no guess
+    return { used, window: CONTEXT_WINDOW };
+  }, [messages]);
+
+  // Token usage for the open session: aggregate from loaded messages, falling
+  // back to the rail's stored aggregate.
   const tokens = useMemo(() => {
     let tin = 0;
     let tout = 0;
@@ -960,7 +1027,7 @@ export default function Chat() {
                   <textarea
                     ref={inputRef}
                     className="sindri-input"
-                    placeholder="Describe the work — / for skills"
+                    placeholder="Describe the work"
                     value={input}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -973,7 +1040,7 @@ export default function Chat() {
                     onClick={(e) =>
                       syncSlashFromInput(input, (e.target as HTMLTextAreaElement).selectionStart)
                     }
-                    rows={2}
+                    rows={1}
                     disabled={running}
                   />
                   {/* Send/stop rides INSIDE the box, at the right edge — one
@@ -997,7 +1064,7 @@ export default function Chat() {
                       title="Send (Enter)"
                       aria-label="Send"
                     >
-                      <Send size={14} />
+                      <CornerDownLeft size={14} />
                     </button>
                   )}
                 </div>
@@ -1009,29 +1076,11 @@ export default function Chat() {
                   </div>
                 ) : null}
                 <div className="sindri-cockpit">
-                  {/* Left: where this turn lands. Read-only — the project switcher
-                      is the Anvil in the lintel, and orientation never leaves it. */}
-                  <div className="sindri-cockpit-ctx">
-                    {currentProject ? (
-                      <span className="sindri-bench-pill" title="Anvil — the project this session forges">
-                        <Hammer size={11} aria-hidden="true" />
-                        {currentProject.name}
-                      </span>
-                    ) : null}
-                    {currentSession?.branch ? (
-                      <span className="sindri-bench-pill" title="Branch this session works">
-                        <GitBranch size={11} aria-hidden="true" />
-                        <code>{currentSession.branch}</code>
-                      </span>
-                    ) : null}
-                  </div>
-                  {/* Right: what this turn costs and who runs it. */}
+                  {/* One row, right-aligned: what the session costs, and who runs it.
+                      The anvil lives in the lintel and the branch in the session —
+                      neither needs restating under every prompt. */}
                   <div className="sindri-cockpit-controls">
-                    {tokens.tin > 0 || tokens.tout > 0 ? (
-                      <span className="sindri-tok" title="Session tokens (in · out)">
-                        {fmtTokens(tokens.tin)} · {fmtTokens(tokens.tout)}
-                      </span>
-                    ) : null}
+                    {context ? <ContextRing context={context} spent={tokens} /> : null}
                     {engine !== "claude-cli" && engine !== "cursor-cli" && (
                       <ComposerChip
                         title="Reasoning effort"
