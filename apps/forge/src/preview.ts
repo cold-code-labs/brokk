@@ -20,6 +20,7 @@
  * only then do we flip the control-plane port and SIGTERM the old one.
  */
 import { execFile, spawn } from "node:child_process";
+import { createServer } from "node:net";
 import type { ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -304,6 +305,10 @@ export class PreviewSupervisor {
           // Signal 0: no signal sent, just checks if the process exists.
           process.kill(p.pid, 0);
           dead = false; // Process is alive — we don't own it, leave as-is
+          // ...but DO remember its port. Without this the fresh usedPorts Set
+          // is empty, so the next boot happily allocates a port a survivor is
+          // still serving on.
+          if (typeof p.port === "number") this.usedPorts.add(p.port);
         } catch {
           dead = true; // ESRCH or EPERM → treat as dead
         }
@@ -587,7 +592,7 @@ export class PreviewSupervisor {
     }
     phase("migrate");
 
-    const port = this.allocatePort();
+    const port = await this.allocatePort();
     // ADR 0017: the forge preview is always the HMR loop (`next dev`) — the real
     // `next build` gate now lives in the Coolify dev-build. Command comes from the
     // resolved RuntimeSpec's "dev" preset (Sleipnir); BROKK_PREVIEW_DEV_CMD stays as
@@ -982,12 +987,17 @@ export class PreviewSupervisor {
   }
 
   /** Pick the next free port in [previewPortMin, previewPortMax]. */
-  private allocatePort(): number {
+  private async allocatePort(): Promise<number> {
     for (let p = this.cfg.previewPortMin; p <= this.cfg.previewPortMax; p++) {
-      if (!this.usedPorts.has(p)) {
-        this.usedPorts.add(p);
-        return p;
-      }
+      if (this.usedPorts.has(p)) continue;
+      // The in-memory Set only knows about processes THIS supervisor started.
+      // A survivor from a previous runner instance (reconcileOnStartup leaves
+      // live ones running by design) holds a port we'd happily hand out again —
+      // the second bind then fails, or worse, a consumer reaches the wrong app
+      // on a recycled port. Probe the real bind before claiming.
+      if (!(await portFree(p))) continue; // held from outside; retried next time
+      this.usedPorts.add(p);
+      return p;
     }
     throw new Error(
       `[preview-supervisor] no free ports in range` +
@@ -1056,3 +1066,17 @@ export class PreviewSupervisor {
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** True when nothing is listening on `port`. Binds 0.0.0.0 — the same interface
+ *  the preview dev servers use (`-H 0.0.0.0`), so a bind held on any interface
+ *  is detected. Best-effort by nature: there is a TOCTOU window between this
+ *  probe and the child's own bind, but it closes the common case (a port held by
+ *  a process this supervisor did not start). */
+function portFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = createServer();
+    srv.once("error", () => resolve(false));
+    srv.once("listening", () => srv.close(() => resolve(true)));
+    srv.listen(port, "0.0.0.0");
+  });
+}
