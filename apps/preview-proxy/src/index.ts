@@ -43,6 +43,7 @@ import {
   verifyPreviewKey,
 } from "@brokk/core/preview-key";
 import { loadConfig } from "./config.js";
+import { devOriginFor, isDevAssetPath, originAllowed } from "./origin.js";
 
 const cfg = loadConfig();
 
@@ -533,23 +534,6 @@ function stripFramingGuards(
  *  (o bundle JS que o dev client baixa), `/status`, `/symbolicate`, `/assets`,
  *  `/logs`, `/inspector`. Mesmo tratamento: strip de Origin, nunca em rota de
  *  página (Metro não tem página). */
-function isDevAssetPath(url: string | undefined): boolean {
-  if (!url) return false;
-  if (url.startsWith("/_next/") || url.startsWith("/__nextjs")) return true;
-  const path = url.split("?")[0];
-  return (
-    path === "/status" ||
-    path === "/hot" ||
-    path === "/message" ||
-    path === "/symbolicate" ||
-    path === "/logs" ||
-    path.endsWith(".bundle") ||
-    path.endsWith(".map") ||
-    path.startsWith("/assets") ||
-    path.startsWith("/inspector")
-  );
-}
-
 // ── Access gate ───────────────────────────────────────────────────────────────
 //
 // Previews live on a different origin than the Brokk web, so the Logto session
@@ -683,9 +667,15 @@ async function handleRequest(
   // this preview's control plane (planes can run on different hosts). Drop the
   // Origin on /_next/* so Next dev's cross-origin guard doesn't 403 dev assets.
   let fwdHeaders = req.headers;
-  if (isDevAssetPath(req.url) && fwdHeaders.origin) {
-    fwdHeaders = { ...req.headers };
-    delete fwdHeaders.origin;
+  if (isDevAssetPath(req.url)) {
+    if (!originAllowed(req.headers.origin, req.headers.host)) {
+      res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+      res.end("cross-origin request refused on dev-internal path");
+      return;
+    }
+    if (fwdHeaders.origin) {
+      fwdHeaders = { ...req.headers, origin: devOriginFor(entry.port) };
+    }
   }
   const proxyReq = http.request(
     {
@@ -756,6 +746,14 @@ async function handleUpgrade(
     return;
   }
 
+  // Same-origin guard for the upgrade door too — this is the socket a cross-site
+  // page would open, and the SameSite=None cookie would ride along with it.
+  if (isDevAssetPath(req.url) && !originAllowed(req.headers.origin, req.headers.host)) {
+    socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
   const entries = await resolveCache();
   const entry = entries.get(subdomain);
   if (!entry) {
@@ -781,12 +779,14 @@ async function handleUpgrade(
     // Reconstruct and send the original HTTP upgrade request. Strip Origin on
     // /_next/* (the HMR socket) so Next dev's cross-origin guard accepts it —
     // otherwise the dev runtime stalls and the preview never hydrates.
-    const stripOrigin = isDevAssetPath(req.url);
+    const devPath = isDevAssetPath(req.url);
     const headerLines = Object.entries(req.headers)
-      .filter(([k]) => !(stripOrigin && k.toLowerCase() === "origin"))
-      .flatMap(([k, v]) =>
-        Array.isArray(v) ? v.map((val) => `${k}: ${val}`) : [`${k}: ${v}`],
-      )
+      .flatMap(([k, v]) => {
+        if (devPath && k.toLowerCase() === "origin") {
+          return [`origin: ${devOriginFor(entry.port)}`];
+        }
+        return Array.isArray(v) ? v.map((val) => `${k}: ${val}`) : [`${k}: ${v}`];
+      })
       .join("\r\n");
     upstream.write(`${req.method ?? "GET"} ${req.url ?? "/"} HTTP/1.1\r\n${headerLines}\r\n\r\n`);
     if (head.length > 0) upstream.write(head);
