@@ -271,11 +271,23 @@ export async function resolveRuntime(
  *  cold checkout), then `dev` runs the HMR server and `build` runs build + serve.
  *  Prefixes a `cd <appRoot>` when the app isn't at root. $PORT is expanded by the
  *  supervisor. */
-export function composeCommand(spec: RuntimeSpec, mode: "dev" | "build"): string {
+export function composeCommand(
+  spec: RuntimeSpec,
+  mode: "dev" | "build",
+  opts?: {
+    /** Drop the install step. The caller must have established that the worktree's
+     *  dependencies already match its lockfile — see the supervisor's install
+     *  stamp. Install is idempotent but NOT free: on a warm preview it was the
+     *  bulk of the wake, and being glued to the dev command made it invisible to
+     *  instrumentation (both live in one `sh -c`). */
+    skipInstall?: boolean;
+  },
+): string {
+  const install = opts?.skipInstall ? undefined : spec.install;
   const run =
     mode === "dev"
-      ? [spec.install, spec.dev].filter(Boolean)
-      : [spec.install, spec.build, spec.start].filter(Boolean);
+      ? [install, spec.dev].filter(Boolean)
+      : [install, spec.build, spec.start].filter(Boolean);
   const root = spec.appRoot && spec.appRoot !== "." ? `cd ${spec.appRoot} && ` : "";
   return `${root}${run.join(" && ")}`;
 }

@@ -20,6 +20,7 @@
  * only then do we flip the control-plane port and SIGTERM the old one.
  */
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import type { ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -598,9 +599,18 @@ export class PreviewSupervisor {
     // resolved RuntimeSpec's "dev" preset (Sleipnir); BROKK_PREVIEW_DEV_CMD stays as
     // an explicit ops override when set.
     const override = process.env.BROKK_PREVIEW_DEV_CMD;
+    // Install only when the tree can't be proven fresh (see needsInstall). An
+    // override is used verbatim — ops asked for that exact command.
+    const appDir = spec.appRoot && spec.appRoot !== "." ? join(wtPath, spec.appRoot) : wtPath;
+    const inst = needsInstall(appDir);
     const baseCmd =
-      override && override.trim() ? override : composeCommand(spec, "dev");
+      override && override.trim()
+        ? override
+        : composeCommand(spec, "dev", { skipInstall: !inst.install });
     const cmd = this.expandCmd(baseCmd, port);
+    console.log(
+      `[preview-supervisor] ${preview.subdomain}: install=${inst.install ? "SIM" : "não"} (${inst.reason})`,
+    );
     console.log(
       `[preview-supervisor] ${preview.subdomain}: runtime=${spec.label} (${spec.source})`,
     );
@@ -677,7 +687,7 @@ export class PreviewSupervisor {
     // (e.g. Vite's allowedHosts wrapper config). Framework-agnostic: the forge
     // just writes what the spec declares, under appRoot, then the dev command
     // opts them in. Untracked, so `reset --hard` on refresh leaves them in place.
-    const appDir = spec.appRoot && spec.appRoot !== "." ? join(wtPath, spec.appRoot) : wtPath;
+    // (`appDir` is resolved above, where the install guard needs it.)
     for (const f of spec.prepareFiles ?? []) {
       const dest = join(appDir, f.path);
       mkdirSync(dirname(dest), { recursive: true });
@@ -812,6 +822,14 @@ export class PreviewSupervisor {
     }
 
     phase("ready");
+    // Stamp only now: a boot that never got healthy must not mark the tree good.
+    if (inst.fingerprint) {
+      try {
+        writeFileSync(installStampPath(appDir), inst.fingerprint);
+      } catch {
+        /* best effort — a missing stamp just means the next boot installs */
+      }
+    }
     console.log(
       `[preview-supervisor] ${preview.subdomain} live on :${port}` +
         ` (pid=${proc.pid}, health=${outcome})`,
@@ -1066,6 +1084,56 @@ export class PreviewSupervisor {
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Where the install stamp lives. Deliberately INSIDE node_modules: if the tree
+ *  is wiped, the stamp goes with it and the next boot reinstalls — the state can
+ *  never claim dependencies that aren't there. */
+function installStampPath(appDir: string): string {
+  return join(appDir, "node_modules", ".brokk-install-stamp");
+}
+
+/** Fingerprint of the app's lockfile, or null when it has none (then we cannot
+ *  reason about freshness and always install, i.e. today's behaviour). */
+function lockfileFingerprint(appDir: string): string | null {
+  for (const info of Object.values(PACKAGE_MANAGERS)) {
+    const lock = join(appDir, info.lockfile);
+    if (!existsSync(lock)) continue;
+    try {
+      return createHash("sha256").update(readFileSync(lock)).digest("hex");
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** Whether this boot must run the install step.
+ *
+ *  Install ran on EVERY boot because it is concatenated into the dev command.
+ *  Skipping it needs all three guards, or a preview boots against a tree that
+ *  doesn't match its lockfile:
+ *    1. no lockfile      → cannot reason, install (unchanged behaviour)
+ *    2. no node_modules  → obviously install
+ *    3. stamp missing or different from the lockfile hash → install
+ *  The stamp is only written once a boot reaches healthy, so a failed install
+ *  never marks the tree as good. */
+function needsInstall(appDir: string): { install: boolean; reason: string; fingerprint: string | null } {
+  const fingerprint = lockfileFingerprint(appDir);
+  if (!fingerprint) return { install: true, reason: "sem lockfile", fingerprint };
+  if (!existsSync(join(appDir, "node_modules"))) {
+    return { install: true, reason: "node_modules ausente", fingerprint };
+  }
+  let stamp: string | null = null;
+  try {
+    stamp = readFileSync(installStampPath(appDir), "utf8").trim();
+  } catch {
+    stamp = null;
+  }
+  if (stamp !== fingerprint) {
+    return { install: true, reason: stamp ? "lockfile mudou" : "sem carimbo (install anterior falhou?)", fingerprint };
+  }
+  return { install: false, reason: "árvore casa com o lockfile", fingerprint };
+}
 
 /** True when nothing is listening on `port`. Binds 0.0.0.0 — the same interface
  *  the preview dev servers use (`-H 0.0.0.0`), so a bind held on any interface

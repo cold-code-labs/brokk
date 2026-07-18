@@ -239,6 +239,21 @@ test("composeCommand installs first in both modes (dev=HMR, build=build+serve)",
   assert.equal(composeCommand(s, "build"), `${s.install} && ${s.build} && ${s.start}`);
 });
 
+test("composeCommand pula o install quando a árvore já casa com o lockfile", () => {
+  const s = nextSpec();
+  assert.equal(composeCommand(s, "dev", { skipInstall: true }), s.dev);
+  assert.equal(
+    composeCommand(s, "build", { skipInstall: true }),
+    `${s.build} && ${s.start}`,
+  );
+});
+
+test("skipInstall preserva o cd do appRoot (senão o dev roda na raiz errada)", () => {
+  const out = composeCommand(nextSpec({ appRoot: "apps/web" }), "dev", { skipInstall: true });
+  assert.match(out, /^cd apps\/web && /);
+  assert.doesNotMatch(out, /install/);
+});
+
 test("composeCommand prefixes cd for a non-root appRoot", () => {
   const out = composeCommand(nextSpec({ appRoot: "apps/web" }), "dev");
   assert.match(out, /^cd apps\/web && /);
