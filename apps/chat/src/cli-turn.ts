@@ -114,7 +114,7 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
     previews.find((p) => p.status === "live" && p.port != null && p.branch === session.branch) ??
     previews.find((p) => p.status === "live" && p.port != null);
   const previewNote = live
-    ? `\n## Live preview — visual / GUI / QA\nThis app runs at http://forge:${live.port} (reachable from here). You have Playwright browser tools (mcp__playwright__*). When the user asks to SEE, test, or QA-review the running app (visual check, GUI review, "does X work", exercise a flow), DRIVE that URL: browser_navigate there, browser_snapshot to read the page, click/type to exercise flows, screenshot findings — then report what you observed (what works, what's broken, with specifics). If a login screen appears, click "Entrar como demo". For a pure QA/visual request, do NOT edit files — just drive and report.`
+    ? `\n## Live preview — visual / GUI / QA\nThis app runs at http://forge:${live.port} (reachable from here). You have Playwright browser tools (mcp__playwright-chat__*). When the user asks to SEE, test, or QA-review the running app (visual check, GUI review, "does X work", exercise a flow), DRIVE that URL: browser_navigate there, browser_snapshot to read the page, click/type to exercise flows, screenshot findings — then report what you observed (what works, what's broken, with specifics). If a login screen appears, click "Entrar como demo". For a pure QA/visual request, do NOT edit files — just drive and report.`
     : "";
 
   const appendSystem = [

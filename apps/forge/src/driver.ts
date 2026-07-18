@@ -18,7 +18,16 @@
 import { spawnSync } from "node:child_process";
 import { runClaudeCliTurn, type AgentEvent, type CliTurnOutcome } from "@brokk/afl";
 
-const MCP_NAME = "playwright";
+// The forge and the chat BOTH register a Playwright MCP in the same CLI user
+// config — `cliHome()` resolves to /home/brokk, a volume both containers share.
+// They need different browsers (the forge launches its own; the chat drives the
+// shared CDP one for the live-view), so a shared name meant whoever booted last
+// won and the other silently got a browser it can't reach: every driver run died
+// on ECONNREFUSED 127.0.0.1:9223. Distinct names per emitter (BROKK-19).
+const MCP_NAME = "playwright-forge";
+/** The pre-BROKK-19 shared name. Swept so a stale entry can't offer the agent
+ *  browser tools pointed at a CDP endpoint this container never serves. */
+const LEGACY_MCP_NAME = "playwright";
 
 /** The same HOME the CLI lane resolves (cliEnv): real + writable, never "/".
  *  Registration and the turn MUST agree or the config isn't found. */
@@ -27,16 +36,21 @@ function cliHome(): string {
   return process.env.BROKK_CLI_HOME || (h && h !== "/" ? h : "/home/brokk");
 }
 
-/** Register the stdio Playwright MCP in the CLI user config, once. Idempotent:
- *  a no-op when already present. Throws only if a fresh registration fails. */
+/** Register the stdio Playwright MCP in the CLI user config. Idempotent by
+ *  REWRITE (remove + add), not by presence — so this lane always ends up with a
+ *  browser it can actually reach. Throws only if the registration fails. */
 export function ensurePlaywrightMcp(chromiumPath: string): void {
   const env = { ...process.env, HOME: cliHome() };
-  const present = spawnSync("claude", ["mcp", "get", MCP_NAME], {
-    env,
-    timeout: 20_000,
-    stdio: "ignore",
-  });
-  if (present.status === 0) return;
+  // Re-register every time instead of the old "present? → return" check: that
+  // check was idempotent by NAME, not by CONTENT, so once another emitter had
+  // written the name the forge could never take it back (BROKK-19).
+  for (const name of [LEGACY_MCP_NAME, MCP_NAME]) {
+    spawnSync("claude", ["mcp", "remove", name, "-s", "user"], {
+      env,
+      timeout: 20_000,
+      stdio: "ignore",
+    });
+  }
   const add = spawnSync(
     "claude",
     [
@@ -80,7 +94,7 @@ export function reapOrphanBrowsers(): void {
 
 const DRIVER_SYSTEM =
   "You are Brokk's preview DRIVER. You operate a LIVE web app through the " +
-  "Playwright MCP browser tools (mcp__playwright__*) ONLY — never edit files, " +
+  "Playwright MCP browser tools (mcp__playwright-forge__*) ONLY — never edit files, " +
   "never use bash or curl to fetch pages, never git. Take a browser_snapshot to " +
   "read the page before acting, click and type via the tools, and report " +
   "concisely what you observed. If a step fails, say so plainly instead of " +

@@ -23,14 +23,20 @@ function cliHome(): string {
  *  from a prior image is replaced. Best-effort — no claude binary → returns false. */
 export function ensurePlaywrightMcp(): boolean {
   const env = { ...process.env, HOME: cliHome() };
-  spawnSync("claude", ["mcp", "remove", "playwright", "-s", "user"], {
-    env,
-    timeout: 20_000,
-    stdio: "ignore",
-  });
+  // "playwright" is the pre-BROKK-19 shared name: the forge registers its own
+  // Playwright MCP in this same user config (shared /home/brokk volume) but needs
+  // a DIFFERENT browser, so a shared name made the two lanes clobber each other.
+  // Sweep the legacy name and our own, then register ours.
+  for (const stale of ["playwright", "playwright-chat"]) {
+    spawnSync("claude", ["mcp", "remove", stale, "-s", "user"], {
+      env,
+      timeout: 20_000,
+      stdio: "ignore",
+    });
+  }
   const add = spawnSync(
     "claude",
-    ["mcp", "add", "playwright", "-s", "user", "--", "playwright-mcp", "--cdp-endpoint", CDP_ENDPOINT],
+    ["mcp", "add", "playwright-chat", "-s", "user", "--", "playwright-mcp", "--cdp-endpoint", CDP_ENDPOINT],
     { env, timeout: 20_000, stdio: "ignore" },
   );
   return add.status === 0;
