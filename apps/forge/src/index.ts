@@ -774,7 +774,14 @@ async function handleDriverRun(cfg: RunnerConfig, claim: DriverClaim): Promise<v
     await report({ status: "failed", error: "preview is not live", finished: true });
     return;
   }
-  const previewUrl = `http://127.0.0.1:${preview.port}`;
+  // localhost, NOT 127.0.0.1 — measured: the Next 16 dev server answers the HMR
+  // websocket upgrade with a bare "Unauthorized" when Origin is http://127.0.0.1:<port>
+  // (its cross-origin dev check allows localhost), the handshake dies with
+  // ERR_INVALID_HTTP_RESPONSE, and hydration then never completes. The page still
+  // renders (SSR) and links/forms still work, so the agent sees a normal app whose
+  // buttons do NOTHING — and reports phantom "this button is broken" bugs. Same
+  // signature reproduced on maglink, so it was never app-specific (BROKK-20).
+  const previewUrl = `http://localhost:${preview.port}`;
   const cwd = join(cfg.workDir, "preview-worktrees", preview.hauldrProject);
   console.log(`[driver] run ${run.id} → ${previewUrl} (${preview.hauldrProject})`);
 
