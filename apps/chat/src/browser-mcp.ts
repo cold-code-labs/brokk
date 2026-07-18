@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // "QA na conversa" (ADR 0054): register the stdio Playwright MCP in the CLI user
 // config so a claude-cli Sindri session has the browser tools and can drive the
-// live preview (at http://forge:<port>) to do a visual / GUI / QA review right in
+// live preview (at http://forge.localhost:<port>) to do a visual / GUI / QA review right in
 // the conversation. Chromium + @playwright/mcp are baked into the chat image.
 //
 // Registered via `claude mcp add` (trusted user config) — NOT --mcp-config, whose

@@ -108,13 +108,17 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
   // "QA na conversa" (ADR 0054): resolve the session's live preview so the agent
   // can DRIVE it for a visual / GUI / QA review. The browser (chromium + the
   // Playwright MCP registered at boot) runs in THIS container and reaches the
-  // preview at http://forge:<port> — it binds 0.0.0.0, so cross-container works.
+  // preview at http://forge.localhost:<port> — it binds 0.0.0.0, so cross-container
+  // works, and the `.localhost` alias (compose network alias on the forge service)
+  // is what Next's dev cross-origin guard allowlists by default. Using the bare
+  // `forge` host got the HMR websocket refused, hydration never completed, and the
+  // agent saw a page whose every button was dead — with no error (BROKK-20).
   const previews = await store.listPreviews({ projectId: session.projectId }).catch(() => []);
   const live =
     previews.find((p) => p.status === "live" && p.port != null && p.branch === session.branch) ??
     previews.find((p) => p.status === "live" && p.port != null);
   const previewNote = live
-    ? `\n## Live preview — visual / GUI / QA\nThis app runs at http://forge:${live.port} (reachable from here). You have Playwright browser tools (mcp__playwright-chat__*). When the user asks to SEE, test, or QA-review the running app (visual check, GUI review, "does X work", exercise a flow), DRIVE that URL: browser_navigate there, browser_snapshot to read the page, click/type to exercise flows, screenshot findings — then report what you observed (what works, what's broken, with specifics). If a login screen appears, click "Entrar como demo". For a pure QA/visual request, do NOT edit files — just drive and report.`
+    ? `\n## Live preview — visual / GUI / QA\nThis app runs at http://forge.localhost:${live.port} (reachable from here). You have Playwright browser tools (mcp__playwright-chat__*). When the user asks to SEE, test, or QA-review the running app (visual check, GUI review, "does X work", exercise a flow), DRIVE that URL: browser_navigate there, browser_snapshot to read the page, click/type to exercise flows, screenshot findings — then report what you observed (what works, what's broken, with specifics). If a login screen appears, click "Entrar como demo". For a pure QA/visual request, do NOT edit files — just drive and report.`
     : "";
 
   const appendSystem = [

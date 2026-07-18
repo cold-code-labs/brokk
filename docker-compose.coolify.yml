@@ -225,7 +225,16 @@ services:
         condition: service_healthy
     volumes:
       - brokk_home:/home/brokk
-    networks: [default, litellm]
+    networks:
+      default:
+        aliases:
+      # `*.localhost` é o que o guard de cross-origin do dev do Next allowlista de
+      # fábrica. Com este alias o agente de QA do chat dirige o preview em
+      # http://forge.localhost:<porta> e o websocket de HMR é aceito — sem que
+      # cada app precise declarar allowedDevOrigins. Uma linha de topologia em
+      # vez de 19 edições de next.config (BROKK-20/21).
+        - forge.localhost
+      litellm: {}
     <<: *restart
 
   # Second forge runner (Regin fan-out, ADR 0027 §5.4): same image/env as `forge`
