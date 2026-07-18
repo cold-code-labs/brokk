@@ -463,6 +463,24 @@ export class PreviewSupervisor {
         (retain ? ` soft-over :${retain.port}` : ""),
     );
 
+    // Phase stopwatch. There was NO duration instrumentation here, so "why is a
+    // wake slow?" could only be guessed at — and the most expensive phase
+    // (install) is invisible because it's concatenated into the dev command's
+    // `sh -c`, inside the spawn. `ready` therefore covers install + first
+    // compile together until that gets split out.
+    const bootStart = Date.now();
+    let phaseMark = bootStart;
+    const phases: Record<string, number> = {};
+    const phase = (name: string): void => {
+      const now = Date.now();
+      phases[name] = now - phaseMark;
+      phaseMark = now;
+    };
+    const phaseSummary = (): string =>
+      Object.entries(phases)
+        .map(([k, ms]) => `${k}=${(ms / 1000).toFixed(1)}s`)
+        .join(" ") + ` total=${((Date.now() - bootStart) / 1000).toFixed(1)}s`;
+
     // Resolve project → repository from the control plane
     const project = await this.controlGet<{
       id: string;
@@ -495,6 +513,7 @@ export class PreviewSupervisor {
         err,
       );
     }
+    phase("db");
 
     // Resolve the working directory. The forge preview runs `next dev` (HMR) — ADR
     // 0017 moved the real `next build` to the Coolify dev-build; the forge preview is
@@ -509,6 +528,7 @@ export class PreviewSupervisor {
       branch: preview.branch,
       name: preview.hauldrProject,
     });
+    phase("checkout");
 
     // Stamp the sha this boot serves (the checkout's HEAD) — it's what turns
     // this row into a *deploy* for Heimdall's fleet view (which drops commitless
@@ -565,6 +585,7 @@ export class PreviewSupervisor {
         );
       }
     }
+    phase("migrate");
 
     const port = this.allocatePort();
     // ADR 0017: the forge preview is always the HMR loop (`next dev`) — the real
@@ -785,10 +806,15 @@ export class PreviewSupervisor {
       }
     }
 
+    phase("ready");
     console.log(
       `[preview-supervisor] ${preview.subdomain} live on :${port}` +
         ` (pid=${proc.pid}, health=${outcome})`,
     );
+    // `ready` = spawn → first successful health poll, so it still bundles the
+    // install with the first compile (they share one `sh -c`). Splitting the
+    // install out makes this number mean "compile" alone.
+    console.log(`[preview-supervisor] ${preview.subdomain}: fases ${phaseSummary()}`);
 
     // Auto-stop when the process exits unexpectedly
     proc.on("exit", (code, signal) => {
