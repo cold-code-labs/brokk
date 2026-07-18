@@ -277,13 +277,7 @@ export class PreviewSupervisor {
         process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
       await run("sh", ["-c", pm.install], {
         cwd: path,
-        env: {
-          ...process.env,
-          HOME: home,
-          COREPACK_HOME: `${home}/.cache/corepack`,
-          // Same single store as boot() — see the note there.
-          npm_config_store_dir: `${home}/.pnpm-store`,
-        },
+        env: { ...process.env, HOME: home, COREPACK_HOME: `${home}/.cache/corepack` },
         timeout: 5 * 60_000,
         maxBuffer: 16 * 1024 * 1024,
       });
@@ -666,15 +660,6 @@ export class PreviewSupervisor {
       ...appEnv,
       HOME: home,
       COREPACK_HOME: `${home}/.cache/corepack`,
-      // ONE pnpm store for every preview. Measured on surtr: the volume held 4+
-      // stores (~/.pnpm-store, ~/work/.pnpm-store, ~/.local/share/pnpm/store, plus
-      // one inside individual agent worktrees), and pnpm only hardlinks WITHIN a
-      // store — so the same package version had different inodes across worktrees
-      // and cross-project dedup was ~zero (sum 14.7G vs combined 14.5G). Pinning
-      // the store makes every install after this share one copy on disk. The
-      // migration is gradual by design: only an install that actually runs
-      // repopulates it, so nothing is invalidated up front.
-      npm_config_store_dir: `${home}/.pnpm-store`,
       // A preview boots headless (no TTY). When a leftover node_modules is
       // incompatible with the current pnpm/store, `pnpm install` wants to purge
       // it and PROMPT — which aborts non-interactively with
