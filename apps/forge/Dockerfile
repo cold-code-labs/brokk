@@ -4,7 +4,15 @@
 # The forge worker. Pulls cards off the control plane, spins an isolated git
 # worktree, and drives the native @brokk/afl agent loop to write the change + open
 # a PR.
-FROM node:22-alpine AS base
+# ⚠️ DEBIAN, NOT ALPINE — and the reason is load-bearing. The Cursor Agent CLI
+# (BROKK_FORGE_ENGINE=cursor-cli) ships a glibc-linked Node inside its installer;
+# on musl it dies with "cannot execute: required file not found". Measured: neither
+# `gcompat` (fcntl64: symbol not found) nor a hand-assembled alpine-pkg-glibc
+# rescues it — the latter only walks the dependency chase forward one library at a
+# time (ld-linux → libstdc++ → libgcc_s …) and would leave a franken-image
+# supporting a CLI that self-updates. A glibc base costs once; that would cost
+# every time Cursor ships a version.
+FROM node:22-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable
@@ -56,14 +64,44 @@ ENV NODE_ENV=production
 #
 # nftables + su-exec power the Nível 3 egress jail: the root entrypoint installs the
 # ruleset (CAP_NET_ADMIN) then su-execs down to the worker uid. See tools/brokk-egress.
-RUN apk add --no-cache git github-cli openssh-client nftables su-exec tini \
-      chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-emoji
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+# Debian package names, translated from the alpine set. Two swaps carry meaning:
+#   su-exec → gosu   (the entrypoint's drop() already probes for both)
+#   chromium-browser → chromium   (Debian's binary path differs; PLAYWRIGHT_… below)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git openssh-client nftables gosu tini curl ca-certificates gnupg \
+      chromium libnss3 libfreetype6 libharfbuzz0b fonts-freefont-ttf fonts-noto-color-emoji \
+ && rm -rf /var/lib/apt/lists/*
 
-# Claude Code CLI — the opt-in second engine (BROKK_FORGE_ENGINE=cli). Pinned;
-# auth is CLAUDE_CODE_OAUTH_TOKEN at runtime. Default (afl) never invokes it.
+# gh has no Debian-main package — pull it from GitHub's own apt repo, keyed.
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+ && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+ && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+ && apt-get update && apt-get install -y --no-install-recommends gh \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Claude Code CLI — the second engine (BROKK_FORGE_ENGINE=cli). Pinned; auth is
+# CLAUDE_CODE_OAUTH_TOKEN at runtime.
 RUN npm install -g @anthropic-ai/claude-code@2.1.207
+
+# Cursor Agent CLI — the DEFAULT engine (BROKK_FORGE_ENGINE=cursor-cli, --model
+# auto). This is what the Debian base exists for. Installed to a shared HOME so
+# every uid in the container resolves it, then symlinked onto PATH under both
+# names the code probes (`cursor-agent` and `agent`).
+#
+# ⚠️ The installer is NOT pinnable and the binary self-updates — a future version
+# can change its runtime deps under us. That is the standing cost of this lane;
+# `cursorCliAvailable()` degrades to the native engine if it ever stops running,
+# and the forge logs that loudly at boot.
+RUN curl -fsSL https://cursor.com/install | HOME=/opt/cursor-home bash \
+ && ln -sf /opt/cursor-home/.local/bin/cursor-agent /usr/local/bin/cursor-agent \
+ && ln -sf /opt/cursor-home/.local/bin/cursor-agent /usr/local/bin/agent \
+ && chmod -R a+rX /opt/cursor-home \
+ && cursor-agent --version
 
 # Playwright MCP — the browser hands for driver sessions (ADR 0054), opt-in via
 # BROKK_PLAYWRIGHT_MCP. Bin `mcp-server-playwright`; drives the system chromium
@@ -74,8 +112,10 @@ RUN npm install -g @playwright/mcp@0.0.78
 # the worker's 1001) that the bash hand drops to; the nft ruleset firewalls it off
 # RFC1918. HOME is shared + group-writable (setgid dir) so both uids write the
 # caches; git safe.directory='*' so the shell, as 1002, can operate 1001-owned repos.
-RUN addgroup -g 1001 brokk 2>/dev/null || true \
- && adduser -D -H -u 1002 -G brokk -h /home/brokk brokk-bash 2>/dev/null || true \
+# Debian's adduser/addgroup take different flags than busybox's — groupadd/useradd
+# are the portable spelling. `-M` is Debian's "no home dir" (busybox `-H`).
+RUN groupadd -g 1001 brokk 2>/dev/null || true \
+ && useradd -M -u 1002 -g brokk -d /home/brokk -s /usr/sbin/nologin brokk-bash 2>/dev/null || true \
  && mkdir -p /home/brokk && chown 1001:1001 /home/brokk && chmod 2775 /home/brokk \
  && git config --system --add safe.directory '*' \
  && git config --system credential."https://github.com".helper '!/usr/bin/gh auth git-credential' \
@@ -98,5 +138,8 @@ COPY --from=build /repo/apps/forge/package.json ./package.json
 # as PID 1 they became <defunct> zombies (node doesn't reap arbitrary orphans)
 # and accreted across driver runs (ADR 0054). tini wraps the egress-jail
 # entrypoint (still runs as root, still su-execs to 1001) and reaps them.
-ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/brokk-entrypoint.sh"]
+# ⚠️ /usr/bin/tini, not /sbin/tini — Debian's package installs it there. The old
+# alpine path would make the container exit immediately with "no such file", i.e.
+# a total outage from a one-word difference.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/brokk-entrypoint.sh"]
 CMD ["node", "dist/index.js"]
