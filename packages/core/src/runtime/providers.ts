@@ -94,7 +94,7 @@ export const PROVIDERS: Provider[] = [
       anyScriptMatches: "next (dev|build|start)",
     },
     commands: {
-      dev: "{exec} next dev -p $PORT -H 0.0.0.0",
+      dev: "{exec} next dev --webpack -p $PORT -H 0.0.0.0",
       build: "{exec} next build",
       start: "{exec} next start -p $PORT -H 0.0.0.0",
     },
@@ -112,9 +112,10 @@ export const PROVIDERS: Provider[] = [
       anyScriptMatches: "vite( build| preview)?",
     },
     commands: {
-      dev: `{exec} vite --port $PORT --host 0.0.0.0 --config ${VITE_PREVIEW_CONFIG_PATH}`,
+      // `--config=path` (equals form) — space-separated path is not an allowlist token.
+      dev: `{exec} vite --port $PORT --host 0.0.0.0 --config=${VITE_PREVIEW_CONFIG_PATH}`,
       build: "{exec} vite build",
-      start: `{exec} vite preview --port $PORT --host 0.0.0.0 --config ${VITE_PREVIEW_CONFIG_PATH}`,
+      start: `{exec} vite preview --port $PORT --host 0.0.0.0 --config=${VITE_PREVIEW_CONFIG_PATH}`,
     },
     prepareFiles: [{ path: VITE_PREVIEW_CONFIG_PATH, contents: VITE_PREVIEW_CONFIG }],
     health: "/",

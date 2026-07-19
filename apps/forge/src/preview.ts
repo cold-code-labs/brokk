@@ -23,7 +23,7 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import type { ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -350,6 +350,11 @@ export class PreviewSupervisor {
         }).catch(() => {});
       }
     }
+    // Survivors whose shell died but vite/next kept the port — reap them now.
+    const n = reapOrphanPreviewServers(this.usedPorts, this.cfg.previewPortMin, this.cfg.previewPortMax);
+    if (n > 0) {
+      console.log(`[preview-supervisor] startup reaped ${n} orphan preview server(s)`);
+    }
   }
 
   // ── Tick ────────────────────────────────────────────────────────────────────
@@ -484,6 +489,15 @@ export class PreviewSupervisor {
     await this.sweepWorktrees(previews).catch((e) =>
       console.error("[preview-supervisor] worktree sweep failed:", String(e).slice(0, 200)),
     );
+
+    // Ports we still own (live + soft-respin retain). Anything else on the
+    // preview range is a leak from a shell-only SIGTERM.
+    const keep = new Set<number>(this.usedPorts);
+    for (const lp of this.live.values()) keep.add(lp.port);
+    const n = reapOrphanPreviewServers(keep, this.cfg.previewPortMin, this.cfg.previewPortMax);
+    if (n > 0) {
+      console.log(`[preview-supervisor] reaped ${n} orphan preview server(s) on the port range`);
+    }
   }
 
   // ── Disk reclaim ────────────────────────────────────────────────────────────
@@ -784,14 +798,25 @@ export class PreviewSupervisor {
     for (const f of spec.prepareFiles ?? []) {
       const dest = join(appDir, f.path);
       mkdirSync(dirname(dest), { recursive: true });
-      writeFileSync(dest, f.contents);
-      console.log(`[preview-supervisor] ${preview.subdomain}: wrote prepare file ${f.path}`);
+      // Skip rewrite when identical — Vite watches this file; rewriting on every
+      // soft-respin triggered "config changed, restarting" storms and left orphans.
+      let same = false;
+      try {
+        same = readFileSync(dest, "utf8") === f.contents;
+      } catch {
+        same = false;
+      }
+      if (!same) {
+        writeFileSync(dest, f.contents);
+        console.log(`[preview-supervisor] ${preview.subdomain}: wrote prepare file ${f.path}`);
+      }
     }
 
     const proc = spawn("sh", ["-c", cmd], {
       cwd: wtPath,
       env,
-      detached: false,
+      // Own process group so killTree(-pid) reaps pnpm/vite/next children.
+      detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -864,11 +889,7 @@ export class PreviewSupervisor {
       }
       this.pending.delete(preview.id);
       this.usedPorts.delete(port);
-      try {
-        proc.kill("SIGTERM");
-      } catch {
-        /* already dead */
-      }
+      killTree(proc);
       if (retain && this.live.get(preview.id)?.proc === retain.proc) {
         // Soft-respin failed — keep the old process as the live preview.
         await this.controlPatch(`/previews/${preview.id}`, {
@@ -907,11 +928,7 @@ export class PreviewSupervisor {
         `[preview-supervisor] ${preview.subdomain}: cutover :${retain.port} → :${port} (retiring old pid=${retain.proc.pid})`,
       );
       this.usedPorts.delete(retain.port);
-      try {
-        retain.proc.kill("SIGTERM");
-      } catch {
-        /* already dead */
-      }
+      killTree(retain.proc);
     }
 
     phase("ready");
@@ -1116,15 +1133,11 @@ export class PreviewSupervisor {
     );
   }
 
-  /** Send SIGTERM to the process and remove it from local state. */
+  /** Send SIGTERM to the process group and remove it from local state. */
   private killAndClean(id: string, lp: LivePreview): void {
     this.live.delete(id);
     this.usedPorts.delete(lp.port);
-    try {
-      lp.proc.kill("SIGTERM");
-    } catch {
-      /* already dead */
-    }
+    killTree(lp.proc);
   }
 
   // ── Control-plane HTTP ──────────────────────────────────────────────────────
@@ -1177,6 +1190,60 @@ export class PreviewSupervisor {
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Kill the whole process group. Preview boots `sh -c "pnpm exec vite|next…"` —
+ *  SIGTERM on the shell alone orphans the real server (vite/next) under PID 1,
+ *  which is how the forge filled up with dozens of zombies at 95% RAM. Spawn with
+ *  detached:true so the shell is group leader; negative-pid kill reaps the tree. */
+function killTree(proc: ChildProcess): void {
+  const pid = proc.pid;
+  if (!pid) return;
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    try {
+      proc.kill("SIGTERM");
+    } catch {
+      /* already dead */
+    }
+  }
+}
+
+/** Sweep vite/next listening on the preview port range that we are NOT tracking.
+ *  Covers survivors from before group-kill and from soft-respin cutovers that
+ *  only killed the shell. Best-effort — never throws into the tick. */
+function reapOrphanPreviewServers(keepPorts: ReadonlySet<number>, portMin: number, portMax: number): number {
+  let killed = 0;
+  try {
+    for (const ent of readdirSync("/proc")) {
+      if (!/^\d+$/.test(ent)) continue;
+      let cmdline = "";
+      try {
+        cmdline = readFileSync(`/proc/${ent}/cmdline`, "utf8");
+      } catch {
+        continue;
+      }
+      const flat = cmdline.replace(/\0/g, " ");
+      // vite.js --port N  |  next dev … -p N
+      const m =
+        flat.match(/\bvite\.js\s+--port\s+(\d+)\b/) ||
+        flat.match(/\bnext\s+dev\b(?:.*?\s-p\s+(\d+))/);
+      if (!m) continue;
+      const port = Number(m[1]);
+      if (!Number.isFinite(port) || port < portMin || port > portMax) continue;
+      if (keepPorts.has(port)) continue;
+      try {
+        process.kill(Number(ent), "SIGTERM");
+        killed++;
+      } catch {
+        /* gone */
+      }
+    }
+  } catch {
+    /* /proc unavailable */
+  }
+  return killed;
+}
 
 /** Where the install stamp lives. Deliberately INSIDE node_modules: if the tree
  *  is wiped, the stamp goes with it and the next boot reinstalls — the state can

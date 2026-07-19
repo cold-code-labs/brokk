@@ -39,11 +39,11 @@ const NEXT_PKG = JSON.stringify({
 test("allows the canonical Next.js preset commands", () => {
   for (const cmd of [
     "pnpm install --no-frozen-lockfile --prod=false",
-    "pnpm exec next dev -p $PORT -H 0.0.0.0",
+    "pnpm exec next dev --webpack -p $PORT -H 0.0.0.0",
     "pnpm exec next build",
     "pnpm exec next start -p $PORT -H 0.0.0.0",
-    "npm install && npx next dev -p $PORT -H 0.0.0.0",
-    "bun install && bunx next dev -p ${PORT} -H 0.0.0.0",
+    "npm install && npx next dev --webpack -p $PORT -H 0.0.0.0",
+    "bun install && bunx next dev --webpack -p ${PORT} -H 0.0.0.0",
   ]) {
     assert.equal(matchesAllowlist(cmd), true, `should allow: ${cmd}`);
   }
@@ -83,7 +83,7 @@ function nextSpec(over: Partial<RuntimeSpec> = {}): RuntimeSpec {
     label: "Next.js",
     appRoot: ".",
     install: "pnpm install --no-frozen-lockfile --prod=false",
-    dev: "pnpm exec next dev -p $PORT -H 0.0.0.0",
+    dev: "pnpm exec next dev --webpack -p $PORT -H 0.0.0.0",
     build: "pnpm exec next build",
     start: "pnpm exec next start -p $PORT -H 0.0.0.0",
     health: "/",
