@@ -401,6 +401,70 @@ export interface Preview {
  *  screen is open), or a respin (a card's push rebuild). */
 export const PREVIEW_IDLE_TTL_MS = 15 * 60 * 1000;
 
+/** How long a RESTED preview keeps its worktree on disk before the supervisor
+ *  reclaims it (14 days). Deliberately orders of magnitude above the idle TTL:
+ *  that one solves RAM, which is acute (one Next dev preview holds ~3.4 GB of the
+ *  forge's 6 GB cap), while this solves disk, which is slow and cumulative — the
+ *  process reaper never touched the tree, so worktrees accrued forever and one
+ *  measurement found 15 of them (15 GB) behind 2 running previews.
+ *
+ *  Reclaiming is CHEAP to undo: the next boot re-creates the worktree from the
+ *  bare repo. The cost is one cold checkout + install, which is exactly what a
+ *  first boot already pays. */
+export const PREVIEW_WORKTREE_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** One preview worktree, as the reclaim sweep sees it. */
+export interface WorktreeReclaimInput {
+  /** Dir basename under preview-worktrees/ — the Hauldr project slug. */
+  name: string;
+  /** The preview keyed by that slug, or null when none exists. */
+  preview: { status: PreviewStatus; lastActivityAt: string } | null;
+  /** The supervisor is booting/holding this preview in THIS process right now. */
+  inFlight: boolean;
+  /** Listed in BROKK_PREVIEW_PINNED. */
+  pinned: boolean;
+  now: number;
+}
+
+/** Whether a preview worktree may be reclaimed, and why — the whole decision, as
+ *  a pure function so it can be tested without a forge, a git, or a clock.
+ *
+ *  🔴 The rule that carries the most weight is the FIRST one: `preview-worktrees/`
+ *  is shared by two lanes. The preview lane keys trees by Hauldr project slug; the
+ *  dev-lane CARD flow checks out `devlane_<slug>` right beside them, and a card's
+ *  tree has no preview record. So the intuitive rule — "no record means orphan,
+ *  reclaim it" — deletes the worktree out from under a running card. The name
+ *  exclusion is what stops that, and it must come before the record lookup. */
+export function worktreeReclaimVerdict(
+  input: WorktreeReclaimInput,
+  ttlMs: number = PREVIEW_WORKTREE_TTL_MS,
+): { reclaim: boolean; reason: string } {
+  if (input.name.startsWith("devlane_")) {
+    return { reclaim: false, reason: "dev-lane card checkout — different owner" };
+  }
+  if (input.pinned) return { reclaim: false, reason: "pinned" };
+  // In-flight beats every timestamp: a booting preview has no fresh
+  // lastActivityAt yet, and reclaiming under it would race the checkout.
+  if (input.inFlight) return { reclaim: false, reason: "in flight in this process" };
+  if (input.preview && (input.preview.status === "live" || input.preview.status === "starting")) {
+    return { reclaim: false, reason: `status=${input.preview.status}` };
+  }
+  if (!input.preview) {
+    return { reclaim: true, reason: "no preview record — deleted and left its tree" };
+  }
+  const idleMs = input.now - new Date(input.preview.lastActivityAt).getTime();
+  // A malformed/absent timestamp yields NaN; NaN comparisons are false, so this
+  // would silently fall through to "reclaim". Treat it as a keep — refusing to
+  // delete on a date we can't read is the only safe direction.
+  if (!Number.isFinite(idleMs)) {
+    return { reclaim: false, reason: "unreadable lastActivityAt — refusing to guess" };
+  }
+  if (idleMs <= ttlMs) {
+    return { reclaim: false, reason: `idle ${Math.round(idleMs / 86_400_000)}d, within TTL` };
+  }
+  return { reclaim: true, reason: `idle ${Math.round(idleMs / 86_400_000)}d > TTL` };
+}
+
 /** Pull request opened by a run. */
 export interface PullRequest {
   id: string;

@@ -26,7 +26,13 @@ import type { ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { PREVIEW_IDLE_TTL_MS, type Preview, type Repository, type RuntimeSpec } from "@brokk/core";
+import {
+  PREVIEW_IDLE_TTL_MS,
+  worktreeReclaimVerdict,
+  type Preview,
+  type Repository,
+  type RuntimeSpec,
+} from "@brokk/core";
 import { buildDetectCtx, composeCommand, PACKAGE_MANAGERS, resolveRuntime } from "@brokk/core/runtime";
 import type { RunnerConfig } from "./config.js";
 import type { GhProvider } from "./git.js";
@@ -128,6 +134,25 @@ export class PreviewSupervisor {
   private readonly codeHealedShas = new Set<string>();
   /** Master switch for bundle self-heal (BROKK_PREVIEW_AUTOHEAL=0 disables). */
   private readonly autoheal = process.env.BROKK_PREVIEW_AUTOHEAL !== "0";
+
+  /** Last disk-reclaim sweep, so it runs hourly instead of every tick — it shells
+   *  out to git once per cached bare repo, which is wasted work at tick cadence. */
+  private lastWorktreeSweep = 0;
+
+  /** Hauldr project slugs whose worktree is never reclaimed, from
+   *  BROKK_PREVIEW_PINNED (comma-separated).
+   *
+   *  ⚠️ That env was ALREADY set in production (ufc_dev, maglink_dev, arte_one_dev,
+   *  logcheck_dev) and read by NOTHING — it appears nowhere else in this repo, not
+   *  even in the compose files. Someone configured a pin list expecting protection
+   *  and silently got none. Honouring it here gives the existing knob the meaning
+   *  its name always promised, rather than inventing a second one beside it. */
+  private readonly pinnedProjects = new Set(
+    (process.env.BROKK_PREVIEW_PINNED ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 
   constructor(
     private readonly cfg: RunnerConfig,
@@ -454,6 +479,74 @@ export class PreviewSupervisor {
           break;
         }
       }
+    }
+
+    await this.sweepWorktrees(previews).catch((e) =>
+      console.error("[preview-supervisor] worktree sweep failed:", String(e).slice(0, 200)),
+    );
+  }
+
+  // ── Disk reclaim ────────────────────────────────────────────────────────────
+
+  /** Reclaim preview worktrees that nothing will boot again soon.
+   *
+   *  The idle reaper above rests the PROCESS and leaves the tree, so worktrees
+   *  accrued forever: one measurement found 15 of them (15 GB) behind 2 running
+   *  previews, growing ~1 GB per project ingested with nobody pruning. This is the
+   *  disk half of the same lifecycle.
+   *
+   *  🔴 The subtle hazard is that TWO lanes share `preview-worktrees/`: the preview
+   *  lane keys its trees by Hauldr project slug, and the dev-lane CARD flow checks
+   *  out `devlane_<slug>` right beside them (apps/forge/src/index.ts). A card's tree
+   *  has NO preview record, so the obvious rule — "no record means orphan, reclaim
+   *  it" — would delete the worktree out from under a running card. They are
+   *  excluded by name, and that exclusion is load-bearing.
+   *
+   *  Everything here is recoverable: the next boot re-creates the tree from the
+   *  bare repo, paying exactly what a first boot already pays. */
+  private async sweepWorktrees(previews: Preview[]): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastWorktreeSweep < 60 * 60 * 1000) return;
+    this.lastWorktreeSweep = now;
+
+    const worktrees = await this.git.listPreviewWorktrees();
+    if (worktrees.length === 0) return;
+
+    const bySlug = new Map(previews.map((p) => [p.hauldrProject, p]));
+    const reclaimed: string[] = [];
+    const blocked: string[] = [];
+    let kept = 0;
+
+    for (const wt of worktrees) {
+      const p = bySlug.get(wt.name) ?? null;
+      const verdict = worktreeReclaimVerdict({
+        name: wt.name,
+        preview: p,
+        inFlight: p ? this.live.has(p.id) || this.pending.has(p.id) || this.booting.has(p.id) : false,
+        pinned: this.pinnedProjects.has(wt.name),
+        now,
+      });
+      if (!verdict.reclaim) {
+        kept++;
+        continue;
+      }
+      const ok = await this.git.reclaimPreviewWorktree(wt.bare, wt.path);
+      (ok ? reclaimed : blocked).push(`${wt.name} (${verdict.reason})`);
+    }
+
+    // Say what was skipped, not just what was done: a sweep that only reports its
+    // successes reads as "nothing left to reclaim" when trees are in fact stuck.
+    if (reclaimed.length > 0) {
+      console.log(
+        `[preview-supervisor] reclaimed ${reclaimed.length} idle worktree(s): ${reclaimed.join(", ")} (kept ${kept})`,
+      );
+    }
+    if (blocked.length > 0) {
+      console.error(
+        `[preview-supervisor] could NOT reclaim ${blocked.length} worktree(s): ${blocked.join(", ")} — ` +
+          `they hold files the runner uid can't remove (a run that crashed under the enclave). ` +
+          `Clean as root: rm -rf <path> && git -C <bare> worktree prune`,
+      );
     }
   }
 

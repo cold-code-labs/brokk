@@ -30,6 +30,53 @@ export class GhProvider implements GitProvider {
     return join(this.opts.workDir, "repos", `${repo.owner}__${repo.name}.git`);
   }
 
+  /** Every preview worktree currently registered across the cached bare repos,
+   *  as {bare, path, name} — `name` is the dir basename, which is the Hauldr
+   *  project slug the supervisor keys previews by.
+   *
+   *  Driven off `git worktree list` rather than a readdir so each hit carries the
+   *  bare repo that owns it: removing a worktree needs BOTH, and a plain rm -rf
+   *  would strand the registration inside the bare (git then refuses to re-add
+   *  the same path later). Dirs with no registration are deliberately NOT
+   *  reported here — see reclaimPreviewWorktree for why they need a different
+   *  teardown. */
+  async listPreviewWorktrees(): Promise<{ bare: string; path: string; name: string }[]> {
+    const reposDir = join(this.opts.workDir, "repos");
+    if (!existsSync(reposDir)) return [];
+    const prefix = join(this.opts.workDir, "preview-worktrees") + "/";
+    const out: { bare: string; path: string; name: string }[] = [];
+    const { readdir } = await import("node:fs/promises");
+    const bares = await readdir(reposDir).catch(() => [] as string[]);
+    for (const entry of bares) {
+      const bare = join(reposDir, entry);
+      // Best-effort per repo: one broken bare must not blind the whole sweep.
+      const listing = await git(bare, ["worktree", "list", "--porcelain"]).catch(() => "");
+      for (const line of listing.split("\n")) {
+        if (!line.startsWith("worktree ")) continue;
+        const path = line.slice("worktree ".length).trim();
+        if (!path.startsWith(prefix)) continue; // forge/run worktrees aren't ours
+        out.push({ bare, path, name: path.slice(prefix.length) });
+      }
+    }
+    return out;
+  }
+
+  /** Tear a preview worktree down: drop the registration, then the dir, then
+   *  prune whatever the first step left pinned. Same sequence persistentCheckout
+   *  uses before re-adding, and it must stay the same — a dir removed without the
+   *  prune wedges every future checkout at that path.
+   *
+   *  Returns false (never throws) when the dir SURVIVES, which means it holds
+   *  files the runner uid can't remove — the fingerprint of a run that crashed
+   *  under the isolation enclave. The caller logs it; a reclaim sweep must not
+   *  die on one poisoned tree while 14 healthy ones wait behind it. */
+  async reclaimPreviewWorktree(bare: string, path: string): Promise<boolean> {
+    await git(bare, ["worktree", "remove", "--force", path]).catch(() => {});
+    await rm(path, { recursive: true, force: true }).catch(() => {});
+    await git(bare, ["worktree", "prune"]).catch(() => {});
+    return !existsSync(path);
+  }
+
   private refExists(bare: string, ref: string): Promise<boolean> {
     return git(bare, ["rev-parse", "--verify", ref]).then(() => true).catch(() => false);
   }
