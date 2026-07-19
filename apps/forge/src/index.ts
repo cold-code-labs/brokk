@@ -23,8 +23,8 @@ const execAsync = promisify(exec);
 // seat) — the global kill-switch for per-user billing.
 const SEAT_DIRECT = process.env.BROKK_DIRECT_SEAT !== "0";
 import { GhProvider } from "./git.js";
-import { ClaudeCliEngine, ForgeEngine } from "@brokk/forge";
-import { claudeCliAvailable } from "@brokk/afl";
+import { ClaudeCliEngine, CursorCliEngine, ForgeEngine } from "@brokk/forge";
+import { claudeCliAvailable, cursorCliAvailable } from "@brokk/afl";
 import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
 import { HeimdallLanes } from "./heimdall-lanes.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
@@ -60,19 +60,45 @@ async function main() {
   // BROKK_FORGE_ENGINE=cli swaps in the Claude Code CLI lane (genuine client,
   // seat OAuth direct — no gateway hop). Falls back to the native engine when
   // the binary/token isn't present, so a misconfig can never brick the runner.
-  const wantCli = (process.env.BROKK_FORGE_ENGINE || "afl").toLowerCase() === "cli";
-  if (wantCli && !claudeCliAvailable()) {
-    console.error("[forge] BROKK_FORGE_ENGINE=cli but claude binary/CLAUDE_CODE_OAUTH_TOKEN missing — falling back to the native engine");
+  // Engine lanes: cursor-cli (default) | cli (Claude Code) | afl (native).
+  // Every lane degrades to afl when its binary/credential is missing, so a bad
+  // image or a rotated key can never brick the runner — it just gets quieter
+  // and slower. The fallback is LOUD on purpose: a silent downgrade would make
+  // "the default changed" indistinguishable from "the default never took".
+  const wantEngine = (process.env.BROKK_FORGE_ENGINE || "cursor-cli").toLowerCase();
+  const lane =
+    wantEngine === "cursor-cli" && cursorCliAvailable()
+      ? "cursor-cli"
+      : wantEngine === "cli" && claudeCliAvailable()
+        ? "cli"
+        : "afl";
+  if (wantEngine === "cursor-cli" && lane !== "cursor-cli") {
+    console.error(
+      "[forge] BROKK_FORGE_ENGINE=cursor-cli but cursor-agent binary/CURSOR_API_KEY missing — falling back to the native engine",
+    );
   }
-  const engine = wantCli && claudeCliAvailable()
-    ? new ClaudeCliEngine({ browser: cfg.browser })
-    : new ForgeEngine({
-        gatewayUrl: cfg.anthropicBaseUrl || (cfg.anthropicAuthToken ? "" : "https://api.anthropic.com"),
-        authToken: cfg.anthropicAuthToken || cfg.anthropicApiKey,
-        authKind: cfg.anthropicAuthToken ? "bearer" : cfg.anthropicApiKey ? "apikey" : "bearer",
-        browser: cfg.browser,
-      });
-  console.log(`[forge] engine: ${engine instanceof ClaudeCliEngine ? "cli (Claude Code)" : "afl (native)"}`);
+  if (wantEngine === "cli" && lane !== "cli") {
+    console.error(
+      "[forge] BROKK_FORGE_ENGINE=cli but claude binary/CLAUDE_CODE_OAUTH_TOKEN missing — falling back to the native engine",
+    );
+  }
+  const engine =
+    lane === "cursor-cli"
+      ? new CursorCliEngine({ browser: cfg.browser })
+      : lane === "cli"
+        ? new ClaudeCliEngine({ browser: cfg.browser })
+        : new ForgeEngine({
+            gatewayUrl: cfg.anthropicBaseUrl || (cfg.anthropicAuthToken ? "" : "https://api.anthropic.com"),
+            authToken: cfg.anthropicAuthToken || cfg.anthropicApiKey,
+            authKind: cfg.anthropicAuthToken ? "bearer" : cfg.anthropicApiKey ? "apikey" : "bearer",
+            browser: cfg.browser,
+          });
+  const LANE_LABEL = {
+    "cursor-cli": "cursor-cli (Cursor Agent, --model auto)",
+    cli: "cli (Claude Code)",
+    afl: "afl (native)",
+  } as const;
+  console.log(`[forge] engine: ${LANE_LABEL[lane]}`);
 
   const runnerId = await register(cfg);
   console.log(`[forge] registered as ${runnerId} → ${cfg.controlUrl}`);
