@@ -199,38 +199,116 @@ export function detectPm(ctx: DetectCtx): PmId {
   return "pnpm"; // fleet default
 }
 
-/** The cheap, deterministic path for a canonical single-app repo: package.json at
- *  root with a first-class framework dep + config/script. Emits the preset spec
- *  (`source:"preset"`) so the obvious case never burns an LLM call. Null when the
- *  repo isn't an unambiguous root match — the resolver then falls to Huginn. */
-export function fastPath(ctx: DetectCtx): RuntimeSpec | null {
-  if (!ctx.pkg) return null;
-  const deps = depNames(ctx.pkg);
-  const scripts = (ctx.pkg.scripts ?? {}) as Record<string, string>;
+/** Workspace member directories declared by the checkout, checkout-relative and
+ *  without a trailing slash. Reads pnpm-workspace.yaml `packages:` and npm/yarn
+ *  `workspaces`. Globs are expanded against the walk, so only directories that
+ *  actually exist come back; `**` is deliberately NOT supported (the fleet
+ *  declares explicit globs, and an unbounded match would make the ambiguity
+ *  check below meaningless). */
+export function workspaceDirs(ctx: DetectCtx): string[] {
+  const patterns: string[] = [];
+
+  // pnpm: a `packages:` block of `- <glob>` entries. Parsed line-wise rather
+  // than with a YAML dep — this is the only shape the fleet emits, and the
+  // resolver must stay dependency-free.
+  const ws = ctx.read("pnpm-workspace.yaml");
+  if (ws) {
+    let inPackages = false;
+    for (const raw of ws.split("\n")) {
+      const line = raw.replace(/#.*$/, "").trimEnd();
+      if (!line.trim()) continue;
+      if (/^packages:\s*$/.test(line)) {
+        inPackages = true;
+        continue;
+      }
+      // Any other top-level key ends the block (e.g. `allowBuilds:`).
+      if (!/^\s/.test(line)) inPackages = false;
+      if (!inPackages) continue;
+      const m = /^\s*-\s*["']?([^"'\s]+)["']?\s*$/.exec(line);
+      if (m?.[1]) patterns.push(m[1]);
+    }
+  }
+
+  // npm/yarn: `workspaces` as an array, or `{ packages: [...] }`.
+  const wsField = ctx.pkg?.workspaces;
+  const fromPkg = Array.isArray(wsField)
+    ? wsField
+    : ((wsField as { packages?: unknown } | undefined)?.packages ?? null);
+  if (Array.isArray(fromPkg)) {
+    for (const p of fromPkg) if (typeof p === "string") patterns.push(p);
+  }
+
+  const dirs = new Set(
+    ctx.files.filter((f) => f.endsWith("/")).map((f) => f.slice(0, -1)),
+  );
+  const out = new Set<string>();
+  for (const pattern of patterns) {
+    const clean = pattern.replace(/\/+$/, "");
+    if (clean.includes("**") || clean.includes("..")) continue;
+    if (!clean.includes("*")) {
+      if (dirs.has(clean)) out.add(clean);
+      continue;
+    }
+    // Single-segment `*` only: `packages/*` matches `packages/client`, and must
+    // not leak into `packages/client/src`.
+    const re = new RegExp(`^${clean.split("*").map(escapeRe).join("[^/]+")}$`);
+    for (const d of dirs) if (re.test(d)) out.add(d);
+  }
+  return [...out].sort();
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Match the providers against ONE candidate root. `root` is checkout-relative
+ *  ("." for the repo root); reads and evidence are resolved beneath it. */
+function matchProviderAt(ctx: DetectCtx, root: string): RuntimeSpec | null {
+  const at = (rel: string) => (root === "." ? rel : `${root}/${rel}`);
+  const pkg =
+    root === "."
+      ? ctx.pkg
+      : (() => {
+          const raw = ctx.read(at("package.json"));
+          if (!raw) return undefined;
+          try {
+            return JSON.parse(raw) as Record<string, unknown>;
+          } catch {
+            return undefined;
+          }
+        })();
+  if (!pkg) return null;
+
+  const deps = depNames(pkg);
+  const scripts = (pkg.scripts ?? {}) as Record<string, string>;
 
   for (const p of PROVIDERS) {
     if (!p.supported || !p.commands) continue;
     const evidence: string[] = [];
     if (p.detect.anyDep?.some((d) => deps.has(d))) {
-      evidence.push(...p.detect.anyDep.filter((d) => deps.has(d)).map((d) => `package.json#${d}`));
+      evidence.push(
+        ...p.detect.anyDep.filter((d) => deps.has(d)).map((d) => `${at("package.json")}#${d}`),
+      );
     }
-    const cfg = p.detect.anyFile?.find((f) => ctx.read(f));
-    if (cfg) evidence.push(cfg);
+    const cfg = p.detect.anyFile?.find((f) => ctx.read(at(f)));
+    if (cfg) evidence.push(at(cfg));
     const scriptRe = p.detect.anyScriptMatches ? new RegExp(p.detect.anyScriptMatches) : null;
     const hasScript = scriptRe ? Object.values(scripts).some((s) => scriptRe.test(s)) : false;
-    if (hasScript) evidence.push("package.json#scripts");
+    if (hasScript) evidence.push(`${at("package.json")}#scripts`);
 
     // Canonical = the framework dep AND (a config file OR a matching script).
     const hasDep = p.detect.anyDep?.some((d) => deps.has(d)) ?? false;
     if (!hasDep || (!cfg && !hasScript)) continue;
 
+    // The package manager is always read from the CHECKOUT root: in a workspace
+    // the root lockfile is what `install` acts on, and a member may carry none.
     const pm = detectPm(ctx);
     const info = PACKAGE_MANAGERS[pm];
     const fill = (tpl: string) => tpl.replace(/\{exec\}/g, info.exec);
     return {
       id: p.id,
       label: p.label,
-      appRoot: ".",
+      appRoot: root,
       install: info.install,
       dev: fill(p.commands.dev),
       build: fill(p.commands.build),
@@ -246,6 +324,29 @@ export function fastPath(ctx: DetectCtx): RuntimeSpec | null {
     };
   }
   return null;
+}
+
+/** The cheap, deterministic path for a canonical app: package.json with a
+ *  first-class framework dep + config/script. Tries the repo root first, then —
+ *  when the root carries no app, which is the normal shape of a monorepo whose
+ *  root package.json only aggregates — the declared workspace members. Emits the
+ *  preset spec (`source:"preset"`) so the obvious case never burns an LLM call.
+ *
+ *  A workspace hit only counts when it is UNAMBIGUOUS: exactly one member
+ *  matches. Two apps in one repo is a real choice (which one is "the" preview?)
+ *  and belongs to Huginn, not to a coin flip here. Null when nothing canonical
+ *  is found — the resolver then falls to Huginn. */
+export function fastPath(ctx: DetectCtx): RuntimeSpec | null {
+  const atRoot = matchProviderAt(ctx, ".");
+  if (atRoot) return atRoot;
+
+  const members = workspaceDirs(ctx);
+  if (members.length === 0) return null;
+
+  const hits = members
+    .map((dir) => matchProviderAt(ctx, dir))
+    .filter((s): s is RuntimeSpec => s !== null);
+  return hits.length === 1 ? hits[0]! : null;
 }
 
 // ── The resolver ────────────────────────────────────────────────────────────────

@@ -11,6 +11,7 @@ import {
   composeCommand,
   fastPath,
   matchesAllowlist,
+  workspaceDirs,
   resolveRuntime,
   unsupported,
   validateSpec,
@@ -257,4 +258,115 @@ test("skipInstall preserva o cd do appRoot (senão o dev roda na raiz errada)", 
 test("composeCommand prefixes cd for a non-root appRoot", () => {
   const out = composeCommand(nextSpec({ appRoot: "apps/web" }), "dev");
   assert.match(out, /^cd apps\/web && /);
+});
+
+// ── workspace-aware fastPath ────────────────────────────────────────────────────
+//
+// The shape that motivated this: `hauldr`, whose root package.json only
+// aggregates (zero deps) while the Next app lives in `panel/`. Before workspace
+// detection the resolver reported `unsupported` and the preview made a clean
+// stop — indistinguishable, on the card, from a build error.
+
+const AGGREGATOR_PKG = JSON.stringify({ name: "root", private: true });
+
+/** The hauldr layout: explicit pnpm globs, one Next app, several non-app members. */
+function hauldrFiles(over: Record<string, string> = {}): Record<string, string> {
+  return {
+    "package.json": AGGREGATOR_PKG,
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'",
+    "pnpm-workspace.yaml": [
+      "# comment that must not be parsed as a package",
+      "packages:",
+      "  - control-plane",
+      "  - worker",
+      "  - panel",
+      "  - packages/client",
+      "allowBuilds:",
+      "  esbuild: true",
+      "",
+    ].join("\n"),
+    "control-plane/": "",
+    "worker/": "",
+    "panel/": "",
+    "packages/": "",
+    "packages/client/": "",
+    "control-plane/package.json": JSON.stringify({ name: "cp", dependencies: { hono: "4" } }),
+    "worker/package.json": JSON.stringify({ name: "w", dependencies: { pg: "8" } }),
+    "packages/client/package.json": JSON.stringify({ name: "c", dependencies: { zod: "3" } }),
+    "panel/package.json": NEXT_PKG,
+    ...over,
+  };
+}
+
+test("workspaceDirs reads pnpm globs and stops at the next top-level key", () => {
+  const dirs = workspaceDirs(ctxOf(hauldrFiles()));
+  assert.deepEqual(dirs, ["control-plane", "packages/client", "panel", "worker"]);
+});
+
+test("workspaceDirs expands a single-segment glob without leaking deeper", () => {
+  const ctx = ctxOf({
+    "package.json": AGGREGATOR_PKG,
+    "pnpm-workspace.yaml": "packages:\n  - packages/*\n",
+    "packages/": "",
+    "packages/client/": "",
+    "packages/client/src/": "",
+    "packages/mcp/": "",
+  });
+  assert.deepEqual(workspaceDirs(ctx), ["packages/client", "packages/mcp"]);
+});
+
+test("workspaceDirs reads npm/yarn workspaces from package.json", () => {
+  const ctx = ctxOf({
+    "package.json": JSON.stringify({ name: "root", workspaces: ["apps/*"] }),
+    "apps/": "",
+    "apps/web/": "",
+  });
+  assert.deepEqual(workspaceDirs(ctx), ["apps/web"]);
+});
+
+test("fastPath finds the app in a workspace member and sets appRoot", () => {
+  const spec = fastPath(ctxOf(hauldrFiles()));
+  assert.ok(spec, "expected a preset spec for the panel member");
+  assert.equal(spec.id, "nextjs");
+  assert.equal(spec.appRoot, "panel");
+  assert.equal(spec.source, "preset");
+  // Evidence must point at the member, not the root, or it misleads triage.
+  assert.ok(
+    spec.evidence?.some((e) => e.startsWith("panel/package.json")),
+    `evidence should be member-relative, got ${JSON.stringify(spec.evidence)}`,
+  );
+});
+
+test("the workspace spec survives validateSpec and composes with a cd", () => {
+  const ctx = ctxOf(hauldrFiles());
+  const spec = fastPath(ctx)!;
+  assert.equal(validateSpec(spec, ctx).supported, true);
+  assert.match(composeCommand(spec, "dev"), /^cd panel && /);
+});
+
+test("a root app still wins over workspace members", () => {
+  const spec = fastPath(ctxOf(hauldrFiles({ "package.json": NEXT_PKG })));
+  assert.equal(spec?.appRoot, ".");
+});
+
+test("two candidate apps are ambiguous — fastPath defers instead of guessing", () => {
+  const spec = fastPath(
+    hauldrFiles({ "worker/package.json": NEXT_PKG }) &&
+      ctxOf(hauldrFiles({ "worker/package.json": NEXT_PKG })),
+  );
+  assert.equal(spec, null, "two apps must fall through to Huginn, not coin-flip");
+});
+
+test("a workspace with no app at all yields null", () => {
+  const spec = fastPath(ctxOf(hauldrFiles({ "panel/package.json": JSON.stringify({ name: "p" }) })));
+  assert.equal(spec, null);
+});
+
+test("workspaceDirs ignores ** and .. patterns", () => {
+  const ctx = ctxOf({
+    "package.json": AGGREGATOR_PKG,
+    "pnpm-workspace.yaml": "packages:\n  - '**/*'\n  - ../escape\n  - panel\n",
+    "panel/": "",
+  });
+  assert.deepEqual(workspaceDirs(ctx), ["panel"]);
 });
