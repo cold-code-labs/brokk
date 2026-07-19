@@ -199,7 +199,21 @@ async function reviewOne(
     // Post identity: GitHub App token (Eitri[bot]) > own token > shared account.
     const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;
     const canReview = Boolean(appAuth) || cfg.hasOwnIdentity;
-    await git.postReview(pr.number, comment, verdict, { token, canReview });
+    // Belt and braces for INC-2026-07-19: postReview now degrades a refused
+    // verdict to COMMENT, so this should not throw. If it still does, record the
+    // review anyway — an unpublished review is a problem, but re-running it every
+    // 30s forever is a much more expensive one.
+    let posted = true;
+    try {
+      await git.postReview(pr.number, comment, verdict, { token, canReview });
+    } catch (e) {
+      posted = false;
+      console.error(
+        `[eitri] ${repo}#${pr.number} review POST failed permanently — recording it ` +
+          `anyway so the poll loop cannot spin on it:`,
+        e,
+      );
+    }
     await store.insertReview({
       repo,
       prNumber: pr.number,
@@ -209,7 +223,7 @@ async function reviewOne(
       scanBlocking: scan?.blocking.length ?? 0,
       scanTotal: scan?.findings.length ?? 0,
     });
-    console.log(`[eitri] ${repo}#${pr.number} → ${verdict} (posted)`);
+    console.log(`[eitri] ${repo}#${pr.number} → ${verdict} (${posted ? "posted" : "NOT POSTED — see error above"})`);
 
     await handleForgeVerdict(cfg, store, git, appAuth, repo, projectId, pr, verdict, body);
   } finally {

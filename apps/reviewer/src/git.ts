@@ -91,10 +91,30 @@ export class EitriGit {
           ? "REQUEST_CHANGES"
           : "COMMENT";
     const [owner, name] = this.opts.repo.split("/");
-    await gh(
-      ["api", `repos/${owner}/${name}/pulls/${prNumber}/reviews`, "-f", `event=${event}`, "-f", `body=${body}`],
-      { ...process.env, GH_TOKEN: opts.token },
-    );
+    const post = (ev: string) =>
+      gh(
+        ["api", `repos/${owner}/${name}/pulls/${prNumber}/reviews`, "-f", `event=${ev}`, "-f", `body=${body}`],
+        { ...process.env, GH_TOKEN: opts.token },
+      );
+    try {
+      await post(event);
+    } catch (e) {
+      // GitHub refuses APPROVE / REQUEST_CHANGES on a PR you opened yourself
+      // (422 "Can not request changes on your own pull request"). Eitri opens the
+      // "Promote dev → main" PRs, so the security ward's forced REQUEST_CHANGES was
+      // structurally unpublishable — and because the throw skipped insertReview(),
+      // hasReview() stayed false and the whole review re-ran every poll. 29h,
+      // 359M tokens, 0 reviews published (INC-2026-07-19).
+      //
+      // The finding is still worth publishing: degrade to a plain COMMENT. The
+      // verdict text (including the ward banner) is unchanged inside the body.
+      if (event === "COMMENT") throw e;
+      console.warn(
+        `[eitri] #${prNumber}: ${event} refused by GitHub — re-posting as COMMENT ` +
+          `(likely a self-authored PR). Verdict text is unchanged.`,
+      );
+      await post("COMMENT");
+    }
   }
 
   /** Squash-merge the PR (into its base, e.g. dev) and delete the branch. Needs
