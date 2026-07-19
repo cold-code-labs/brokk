@@ -260,6 +260,22 @@ test("composeCommand prefixes cd for a non-root appRoot", () => {
   assert.match(out, /^cd apps\/web && /);
 });
 
+test("composeCommand injects --webpack into a stale next-dev pin", () => {
+  const out = composeCommand(
+    nextSpec({ dev: "pnpm exec next dev -p $PORT -H 0.0.0.0" }),
+    "dev",
+    { skipInstall: true },
+  );
+  assert.match(out, /next dev --webpack/);
+  // Already present → no double inject.
+  const again = composeCommand(
+    nextSpec({ dev: "pnpm exec next dev --webpack -p $PORT -H 0.0.0.0" }),
+    "dev",
+    { skipInstall: true },
+  );
+  assert.equal(again.match(/--webpack/g)?.length, 1);
+});
+
 // ── workspace-aware fastPath ────────────────────────────────────────────────────
 //
 // The shape that motivated this: `hauldr`, whose root package.json only

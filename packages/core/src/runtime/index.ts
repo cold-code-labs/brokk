@@ -372,6 +372,14 @@ export async function resolveRuntime(
  *  cold checkout), then `dev` runs the HMR server and `build` runs build + serve.
  *  Prefixes a `cd <appRoot>` when the app isn't at root. $PORT is expanded by the
  *  supervisor. */
+/** Forge image has no native @next/swc; Next 16 Turbopack then crashes. Stale
+ *  project.runtime pins still say `next dev` — inject `--webpack` at compose time
+ *  so a pin from before the preset bump keeps booting. */
+function ensureNextWebpack(cmd: string): string {
+  if (!/\bnext\s+dev\b/.test(cmd) || /\s--webpack\b/.test(cmd)) return cmd;
+  return cmd.replace(/\bnext\s+dev\b/, "next dev --webpack");
+}
+
 export function composeCommand(
   spec: RuntimeSpec,
   mode: "dev" | "build",
@@ -387,7 +395,7 @@ export function composeCommand(
   const install = opts?.skipInstall ? undefined : spec.install;
   const run =
     mode === "dev"
-      ? [install, spec.dev].filter(Boolean)
+      ? [install, ensureNextWebpack(spec.dev)].filter(Boolean)
       : [install, spec.build, spec.start].filter(Boolean);
   const root = spec.appRoot && spec.appRoot !== "." ? `cd ${spec.appRoot} && ` : "";
   return `${root}${run.join(" && ")}`;
