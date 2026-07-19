@@ -14,7 +14,7 @@ Brokk is the **code** pillar of the CCL triad:
 | **Heimdall** | deploy | control plane over Coolify |
 | **Brokk** | **code** | **card → agent forges code → Pull Request** |
 
-> **Open-source — Apache-2.0.** Public alongside Hauldr and Heimdall.
+> **Open-source — Apache-2.0.**
 
 ## How it works
 
@@ -163,6 +163,6 @@ runs in production on **surtr** — container-first, blue/green `web` behind Tra
 powers an on-demand **dev preview lane** (`*.preview.coldcodelabs.com`) that Sindri can
 drive and QA itself.
 
-**Apache-2.0**, public alongside Heimdall and Hauldr.
+**Apache-2.0.**
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design map, [docs/NORTH-STAR.md](docs/NORTH-STAR.md)
 for the doctrine, and [docs/adr/](docs/adr/) for the decisions.
