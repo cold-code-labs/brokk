@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@brokk/core": "workspace:*",
     "@brokk/sdk": "workspace:*",
     "@cold-code-labs/yggdrasil-brand": "^0.1.0",
     "@cold-code-labs/yggdrasil-react": "^0.2.2",

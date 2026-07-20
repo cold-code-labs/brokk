@@ -9,6 +9,7 @@
  */
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import { join } from "node:path";
 import type { AcceptanceReceipt, AgentEngine, Plan, Project, RepoMemory, RunEvent, Repository, Run, RunResult, Task } from "@brokk/core";
 import { runBranch } from "@brokk/core";
 import { loadRunnerConfig, type RunnerConfig } from "./config.js";
@@ -22,13 +23,14 @@ const execAsync = promisify(exec);
 // seat) — the global kill-switch for per-user billing.
 const SEAT_DIRECT = process.env.BROKK_DIRECT_SEAT !== "0";
 import { GhProvider } from "./git.js";
-import { ClaudeCliEngine, ForgeEngine } from "@brokk/forge";
-import { claudeCliAvailable } from "@brokk/afl";
+import { ClaudeCliEngine, CursorCliEngine, ForgeEngine } from "@brokk/forge";
+import { claudeCliAvailable, cursorCliAvailable } from "@brokk/afl";
 import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
-import { HauldrClient } from "./hauldr.js";
+import { HeimdallLanes } from "./heimdall-lanes.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
 import { makeAutofix } from "./autofix.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
+import { runDriverTurn, reapOrphanBrowsers } from "./driver.js";
 import { distillHealLesson } from "./memory.js";
 import { buildRepoMap } from "./repomap.js";
 import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
@@ -58,19 +60,45 @@ async function main() {
   // BROKK_FORGE_ENGINE=cli swaps in the Claude Code CLI lane (genuine client,
   // seat OAuth direct — no gateway hop). Falls back to the native engine when
   // the binary/token isn't present, so a misconfig can never brick the runner.
-  const wantCli = (process.env.BROKK_FORGE_ENGINE || "afl").toLowerCase() === "cli";
-  if (wantCli && !claudeCliAvailable()) {
-    console.error("[forge] BROKK_FORGE_ENGINE=cli but claude binary/CLAUDE_CODE_OAUTH_TOKEN missing — falling back to the native engine");
+  // Engine lanes: cursor-cli (default) | cli (Claude Code) | afl (native).
+  // Every lane degrades to afl when its binary/credential is missing, so a bad
+  // image or a rotated key can never brick the runner — it just gets quieter
+  // and slower. The fallback is LOUD on purpose: a silent downgrade would make
+  // "the default changed" indistinguishable from "the default never took".
+  const wantEngine = (process.env.BROKK_FORGE_ENGINE || "cursor-cli").toLowerCase();
+  const lane =
+    wantEngine === "cursor-cli" && cursorCliAvailable()
+      ? "cursor-cli"
+      : wantEngine === "cli" && claudeCliAvailable()
+        ? "cli"
+        : "afl";
+  if (wantEngine === "cursor-cli" && lane !== "cursor-cli") {
+    console.error(
+      "[forge] BROKK_FORGE_ENGINE=cursor-cli but cursor-agent binary/CURSOR_API_KEY missing — falling back to the native engine",
+    );
   }
-  const engine = wantCli && claudeCliAvailable()
-    ? new ClaudeCliEngine({ browser: cfg.browser })
-    : new ForgeEngine({
-        gatewayUrl: cfg.anthropicBaseUrl || (cfg.anthropicAuthToken ? "" : "https://api.anthropic.com"),
-        authToken: cfg.anthropicAuthToken || cfg.anthropicApiKey,
-        authKind: cfg.anthropicAuthToken ? "bearer" : cfg.anthropicApiKey ? "apikey" : "bearer",
-        browser: cfg.browser,
-      });
-  console.log(`[forge] engine: ${engine instanceof ClaudeCliEngine ? "cli (Claude Code)" : "afl (native)"}`);
+  if (wantEngine === "cli" && lane !== "cli") {
+    console.error(
+      "[forge] BROKK_FORGE_ENGINE=cli but claude binary/CLAUDE_CODE_OAUTH_TOKEN missing — falling back to the native engine",
+    );
+  }
+  const engine =
+    lane === "cursor-cli"
+      ? new CursorCliEngine({ browser: cfg.browser })
+      : lane === "cli"
+        ? new ClaudeCliEngine({ browser: cfg.browser })
+        : new ForgeEngine({
+            gatewayUrl: cfg.anthropicBaseUrl || (cfg.anthropicAuthToken ? "" : "https://api.anthropic.com"),
+            authToken: cfg.anthropicAuthToken || cfg.anthropicApiKey,
+            authKind: cfg.anthropicAuthToken ? "bearer" : cfg.anthropicApiKey ? "apikey" : "bearer",
+            browser: cfg.browser,
+          });
+  const LANE_LABEL = {
+    "cursor-cli": "cursor-cli (Cursor Agent, --model auto)",
+    cli: "cli (Claude Code)",
+    afl: "afl (native)",
+  } as const;
+  console.log(`[forge] engine: ${LANE_LABEL[lane]}`);
 
   const runnerId = await register(cfg);
   console.log(`[forge] registered as ${runnerId} → ${cfg.controlUrl}`);
@@ -84,12 +112,28 @@ async function main() {
 
   // ── Preview supervisor (parallel loop) ──────────────────────────────────────
   // Runs alongside the forge claim loop; each is independent.
-  const dataProvider = cfg.hauldrControlUrl
-    ? makeHauldrDataProvider(new HauldrClient(cfg.hauldrControlUrl, cfg.hauldrToken), cfg.hauldrControlUrl)
-    : passthroughProvider;
+  // A lane's backend comes from Heimdall, not from us. The forge used to hold
+  // HAULDR_TOKEN — the data plane's MANAGEMENT key, which reads the superuser
+  // DSN of every project on the fleet — to provision what is really one dev
+  // lane. Heimdall owns provisioning now (it also picks the envelope, which we
+  // never could), and the scoped agent token reaches only <app>_dev of a
+  // registered app.
+  //
+  // HAULDR_CONTROL_URL stays: it is a URL, not a credential, and the preview
+  // needs it to apply its OWN migrations with its per-project migrate token.
+  const lanes =
+    cfg.heimdallAgentUrl && cfg.heimdallAgentToken
+      ? new HeimdallLanes(cfg.heimdallAgentUrl, cfg.heimdallAgentToken)
+      : null;
+  const dataProvider =
+    lanes && cfg.hauldrControlUrl
+      ? makeHauldrDataProvider(lanes, cfg.hauldrControlUrl)
+      : passthroughProvider;
   if (dataProvider === passthroughProvider) {
     console.log(
-      "[forge] HAULDR_CONTROL_URL not set — previews run on passthrough env (no provisioning)",
+      `[forge] previews run on passthrough env (no provisioning) — ${
+        lanes ? "HAULDR_CONTROL_URL" : "HEIMDALL_AGENT_URL/TOKEN"
+      } not set`,
     );
   }
   // BROKK_SUPERVISOR=0 disables the preview-supervisor loop on this runner —
@@ -102,6 +146,12 @@ async function main() {
     console.log("[forge] BROKK_SUPERVISOR=0 — preview supervisor DISABLED on this runner (claim loop only)");
   }
   const supervisorDone = supervisorEnabled ? supervisor.run(() => stopping) : Promise.resolve();
+  // Driver runs (ADR 0054) ride the same runner that owns the previews — only it
+  // can reach them on 127.0.0.1. Off on claim-only runners (no previews to drive).
+  const driverDone = supervisorEnabled
+    ? runDriverLoop(cfg, runnerId, () => stopping)
+    : Promise.resolve();
+  if (supervisorEnabled) console.log("[forge] driver loop ON (ADR 0054)");
   // ────────────────────────────────────────────────────────────────────────────
 
   const heartbeat = setInterval(
@@ -133,7 +183,7 @@ async function main() {
   }
 
   clearInterval(heartbeat);
-  await supervisorDone; // wait for preview supervisor graceful shutdown
+  await Promise.all([supervisorDone, driverDone]); // graceful shutdown of both loops
   console.log("[forge] stopped");
 }
 
@@ -259,11 +309,7 @@ async function handleRun(
     await git.push({
       cwd: wt.path,
       branch,
-      message: isPlan
-        ? `brokk: ${task.title} [${task.planKey}]`
-        : isRevise
-          ? `brokk: revise — ${task.title}`
-          : `brokk: ${task.title}`,
+      message: forgeCommitMessage(task.title, { isPlan, isRevise, planKey: task.planKey }),
     });
 
     // PR routing:
@@ -503,7 +549,7 @@ async function runDevLane(
     const sha = await git.commitPushIfChanged({
       cwd: wt.path,
       branch: "dev",
-      message: `brokk: ${task.title}`,
+      message: forgeCommitMessage(task.title, {}),
     });
     trace?.complete({ verify, healAttempts: result.healAttempts, usage, prUrl: "" });
     await buffer.flush();
@@ -570,6 +616,20 @@ class EventBuffer {
       console.error("[forge] event flush failed:", err),
     );
   }
+}
+
+/** Commit subject for a forge push.
+ *  If the card title already carries an Urðr KEY (`MAGLINK-80: …`), keep it as the
+ *  subject so sync/links work — don't bury it under `brokk:`. Dogfood MAGLINK-80. */
+function forgeCommitMessage(
+  title: string,
+  opts: { isPlan?: boolean; isRevise?: boolean; planKey?: string | null },
+): string {
+  const t = title.trim();
+  if (opts.isPlan) return /^[A-Z][A-Z0-9]+-\d+:/.test(t) ? `${t} [${opts.planKey}]` : `brokk: ${t} [${opts.planKey}]`;
+  if (opts.isRevise) return /^[A-Z][A-Z0-9]+-\d+:/.test(t) ? `revise — ${t}` : `brokk: revise — ${t}`;
+  if (/^[A-Z][A-Z0-9]+-\d+:/.test(t)) return t;
+  return `brokk: ${t}`;
 }
 
 async function register(cfg: RunnerConfig): Promise<string> {
@@ -707,6 +767,102 @@ function planPrBody(plan: Plan, verify: VerifyResult | null, receipt?: Acceptanc
 
 /** Thin HTTP helper for the runner-facing (shared-secret) endpoints.
  *  `emptyStatus` (e.g. 204) resolves to null instead of parsing a body. */
+// ── Driver loop (ADR 0054) ───────────────────────────────────────────────────
+// A parallel loop that claims driver runs and drives the live preview via the
+// Playwright MCP. Runs only on the preview-owning runner (the previews it drives
+// bind 127.0.0.1 in THIS process). Cancel = the control plane flips the run to
+// 'cancelling'; we notice it on a poll and abort the CLI turn, whose process
+// group (CLI + stdio MCP + chromium) is torn down together.
+type DriverClaim = {
+  run: { id: string; instruction: string; previewId: string };
+  preview: { port: number | null; hauldrProject: string; status: string } | null;
+};
+
+async function runDriverLoop(
+  cfg: RunnerConfig,
+  runnerId: string,
+  stopping: () => boolean,
+): Promise<void> {
+  while (!stopping()) {
+    let claim: DriverClaim | null = null;
+    try {
+      claim = await api<DriverClaim | null>(cfg, "POST", "/driver-runs/claim", { runnerId }, 204);
+    } catch (err) {
+      console.error("[driver] claim failed:", err);
+    }
+    if (!claim) {
+      await sleep(cfg.pollIntervalMs);
+      continue;
+    }
+    await handleDriverRun(cfg, claim).catch((err) =>
+      console.error(`[driver] run ${claim?.run.id} crashed:`, err),
+    );
+  }
+}
+
+async function handleDriverRun(cfg: RunnerConfig, claim: DriverClaim): Promise<void> {
+  const { run, preview } = claim;
+  const report = (patch: Record<string, unknown>) =>
+    api(cfg, "POST", `/driver-runs/${run.id}/status`, patch).catch((e) =>
+      console.error(`[driver] status ${run.id} failed:`, e),
+    );
+  if (!preview || preview.status !== "live" || preview.port == null) {
+    await report({ status: "failed", error: "preview is not live", finished: true });
+    return;
+  }
+  // localhost, NOT 127.0.0.1 — measured: the Next 16 dev server answers the HMR
+  // websocket upgrade with a bare "Unauthorized" when Origin is http://127.0.0.1:<port>
+  // (its cross-origin dev check allows localhost), the handshake dies with
+  // ERR_INVALID_HTTP_RESPONSE, and hydration then never completes. The page still
+  // renders (SSR) and links/forms still work, so the agent sees a normal app whose
+  // buttons do NOTHING — and reports phantom "this button is broken" bugs. Same
+  // signature reproduced on maglink, so it was never app-specific (BROKK-20).
+  const previewUrl = `http://localhost:${preview.port}`;
+  const cwd = join(cfg.workDir, "preview-worktrees", preview.hauldrProject);
+  console.log(`[driver] run ${run.id} → ${previewUrl} (${preview.hauldrProject})`);
+
+  const controller = new AbortController();
+  // Notice a cancel request and abort the turn (→ process-group kill).
+  const cancelPoll = setInterval(() => {
+    api<{ status?: string } | null>(cfg, "GET", `/driver-runs/${run.id}`)
+      .then((r) => {
+        if (r?.status === "cancelling") controller.abort();
+      })
+      .catch(() => {});
+  }, 3000);
+  cancelPoll.unref?.();
+
+  try {
+    const outcome = await runDriverTurn({
+      cwd,
+      previewUrl,
+      instruction: run.instruction,
+      chromiumPath: cfg.chromiumPath,
+      model: "sonnet",
+      signal: controller.signal,
+    });
+    clearInterval(cancelPoll);
+    if (outcome.stop === "aborted") {
+      await report({ status: "cancelled", result: outcome.resultText || null, finished: true });
+    } else if (outcome.stop === "error") {
+      await report({
+        status: "failed",
+        error: (outcome.resultText || "driver error").slice(0, 4000),
+        finished: true,
+      });
+    } else {
+      await report({ status: "done", result: (outcome.resultText || "").slice(0, 8000), finished: true });
+    }
+  } catch (err) {
+    clearInterval(cancelPoll);
+    await report({ status: "failed", error: String(err).slice(0, 4000), finished: true });
+  } finally {
+    // chromium leaks helper processes past a group kill — sweep any orphaned by
+    // this turn (cancel or normal exit) so a busy runner doesn't accrete browsers.
+    reapOrphanBrowsers();
+  }
+}
+
 async function api<T = unknown>(
   cfg: RunnerConfig,
   method: string,

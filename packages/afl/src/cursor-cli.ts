@@ -97,6 +97,7 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
   let cliSessionId: string | null = input.resume ?? null;
   let usage: TurnUsage = { ...ZERO_USAGE };
   let resultText = "";
+  let streamedText = "";
   let stop: CliTurnOutcome["stop"] = "error";
   let ok = false;
   let aborted = false;
@@ -148,19 +149,17 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
       case "assistant": {
         const msg = (ev as { message?: { content?: unknown[] } }).message;
         const content = Array.isArray(msg?.content) ? msg!.content! : [];
-        const blocks: ContentBlock[] = [];
         for (const part of content) {
           if (!part || typeof part !== "object") continue;
           const p = part as { type?: string; text?: string };
           if (p.type === "text" && p.text) {
+            // Partial assistant frames (--stream-partial-output). Stream to the
+            // live scratchpad only — persisting each chunk as its own
+            // chat_messages row made the transcript look like one word per bubble
+            // (BROKK-36). The durable row lands once on `result`.
             emit({ type: "text_delta", text: p.text });
-            blocks.push({ type: "text", text: p.text });
+            streamedText += p.text;
           }
-        }
-        if (blocks.length) {
-          enqueue(async () => {
-            await input.hooks?.onAssistant?.(blocks, { usage, stopReason: undefined });
-          });
         }
         break;
       }
@@ -170,6 +169,15 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
         usage = mapUsage(ev.usage as Record<string, unknown>);
         ok = ev.subtype === "success" || ev.is_error === false;
         stop = aborted ? "aborted" : ok ? "done" : "error";
+        const text = (resultText || streamedText).trim();
+        if (text && input.hooks?.onAssistant) {
+          enqueue(() =>
+            input.hooks!.onAssistant!([{ type: "text", text }], {
+              usage,
+              stopReason: undefined,
+            }),
+          );
+        }
         break;
       }
       default:
@@ -191,6 +199,14 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
   }
   if (!ok && stop === "error" && stderrTail) {
     emit({ type: "status", phase: "cli_error", detail: { stderrTail: stderrTail.slice(-800) } });
+  }
+
+  // Mirror claude-cli: on a failure that produced no result event, the stderr IS
+  // the result. Without this the engine throws "cursor-agent CLI pass failed:"
+  // with an EMPTY message and the card carries no cause — which is exactly how
+  // the first cursor-cli run failed, hiding a one-line EACCES behind silence.
+  if (!ok && !resultText) {
+    resultText = stderrTail.trim() || `cursor-agent exited ${exitCode} without a result event`;
   }
 
   return { ok, cliSessionId, resultText, usage, stop, exitCode };

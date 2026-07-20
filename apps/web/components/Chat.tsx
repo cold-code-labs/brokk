@@ -19,13 +19,11 @@ import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 import { Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import {
   Plus,
-  Send,
+  CornerDownLeft,
   Square,
   Hammer,
   Trash2,
-  GitBranch,
   Check,
-  MessageSquare,
   Zap,
   Copy,
   Brain,
@@ -38,6 +36,7 @@ import {
   ListTodo,
   GitPullRequest,
   Monitor,
+  MonitorPlay,
   Smartphone,
   RotateCw,
   Database,
@@ -45,17 +44,20 @@ import {
   Code2,
   KeyRound,
   ExternalLink,
-  PanelRightClose,
-  PanelRightOpen,
-  Maximize2,
-  Minimize2,
+  PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRight,
+  Columns2,
   Paperclip,
   X,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import PublishControls from "./PublishControls";
+import CommitControls from "./CommitControls";
 import { brokk } from "../lib/api";
 import {
+  ApiError,
   attach,
   chat,
   sendMessage,
@@ -84,7 +86,8 @@ const EFFORTS = [
   { id: "high", label: "Deep" },
 ];
 
-// Turn engine — fixed at session creation (the engine owns the continuity).
+// Turn engine — locked on the FIRST message (CLI resume / API transcript continuity).
+// Until then the chips are free to change on an empty session (BROKK-33).
 // IDs: claude-api | claude-cli | cursor-api | cursor-cli (legacy afl/cli still accepted).
 const ENGINES = [
   { id: "claude-api", label: "Claude API", hint: "LiteLLM → Ratatoskr Max seat" },
@@ -117,6 +120,20 @@ function isCursorEngine(engine: string): boolean {
 
 type SkillOption = { name: string; description: string; kind: string };
 
+/**
+ * Is this failure the server's verdict, or just the world being unreliable?
+ *
+ * A 4xx is a verdict: the session is gone (404), the seat is revoked (401), a
+ * turn is already running (409). Asking again changes nothing, so say it out
+ * loud. Everything else is worth retrying in silence — a bare TypeError is the
+ * pipe (offline, asleep, a tunnel blip) and a 5xx is the fleet blinking (a
+ * redeploy, a proxy hiccup), and neither means the turn died. 408/429 are the
+ * server explicitly asking us to come back.
+ */
+function isVerdict(e: unknown): boolean {
+  return e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429;
+}
+
 /** Pull `/skill-name` tokens that match the catalogue; leave the rest as the prompt. */
 function extractSkillSlash(
   text: string,
@@ -136,6 +153,12 @@ function extractSkillSlash(
 // reloads and session switches. Default is an even 50/50 so the conversation gets
 // real width; snap points give a magnetic 50/60/68 without pixel-hunting, and
 // double-clicking the gutter restores the default.
+// Context window the ring measures against. Every Claude tier Brokk offers
+// (haiku/sonnet/opus) carries 200k, so one constant covers them; cursor engines
+// report no usage at all, so they never reach the gauge.
+const CONTEXT_WINDOW = 200_000;
+
+const RAIL_KEY = "sindri-rail-open";
 const SPLIT_KEY = "sindri-split";
 const SPLIT_DEFAULT = 0.46;
 const SPLIT_MIN = 0.3;
@@ -176,6 +199,7 @@ function sessionTime(s: ChatSessionWithStats): string {
   return s.stats.lastMessageAt || s.updatedAt;
 }
 
+
 /** Browser File → base64 (no data: prefix) for the no-checkout upload fallback. */
 async function fileToBase64(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
@@ -192,6 +216,191 @@ async function fileToBase64(file: File): Promise<string> {
 // change worth booting the preview for (the lazy trigger).
 const EDIT_TOOL = /write|edit|str_replace|create|apply|patch/i;
 
+/**
+ * How full the model's head is right now — the one number a ring can honestly
+ * carry. The exact figures (and what the session has spent) live in the title,
+ * because a gauge is for glancing, not for reading.
+ */
+function ContextRing({
+  context,
+  spent,
+}: {
+  context: { used: number; window: number };
+  spent: { tin: number; tout: number };
+}) {
+  const pct = Math.min(1, context.used / context.window);
+  const r = 6;
+  const circ = 2 * Math.PI * r;
+  return (
+    <span
+      className="sindri-ring"
+      title={
+        `Context: ${fmtTokens(context.used)} of ${fmtTokens(context.window)} (${Math.round(pct * 100)}%)` +
+        `\nSession spend: ${fmtTokens(spent.tin)} in · ${fmtTokens(spent.tout)} out`
+      }
+      aria-label={`Context ${Math.round(pct * 100)} percent full`}
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <circle className="sindri-ring-track" cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" />
+        <circle
+          className="sindri-ring-fill"
+          cx="8"
+          cy="8"
+          r={r}
+          fill="none"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeDasharray={`${circ * pct} ${circ}`}
+          transform="rotate(-90 8 8)"
+        />
+      </svg>
+    </span>
+  );
+}
+
+/**
+ * The session rail — the left wall of the Sindri room: New session on top, then
+ * the project's sessions newest-first. Scoped to the active Anvil (the lintel
+ * switcher drives it), so it lists this project's work and nothing else.
+ * Rows are hairlines inside ONE surface — never a stack of bordered cards.
+ */
+function SessionRail({
+  sessions,
+  currentId,
+  projectName,
+  onOpen,
+  onNew,
+  onRemove,
+  onRename,
+  onCollapse,
+  disabled,
+}: {
+  sessions: ChatSessionWithStats[];
+  currentId: string;
+  projectName: string | null;
+  onOpen: (id: string) => void;
+  onNew: () => void;
+  onRemove: (id: string, ev: React.MouseEvent) => void;
+  onRename: (id: string, title: string) => void;
+  onCollapse: () => void;
+  disabled: boolean;
+}) {
+  // Renaming is the rail's business now that it owns the session list — the head
+  // no longer carries a title to double-click.
+  const [editingId, setEditingId] = useState("");
+  const [draft, setDraft] = useState("");
+
+  return (
+    <aside className="sindri-rail" aria-label="Sessions">
+      {/* The rail's own header: the collapse door lives here, top-right — the app
+          chrome (the lintel) stays out of this room's furniture. */}
+      <div className="sindri-rail-head">
+        <button
+          type="button"
+          className="sindri-rail-new"
+          onClick={onNew}
+          disabled={disabled}
+          title="New session"
+        >
+          {/* The chip is the button; the label just names it. */}
+          <span className="sindri-rail-new-mark" aria-hidden="true">
+            <Plus size={14} />
+          </span>
+          New session
+        </button>
+        <button
+          type="button"
+          className="sindri-rail-collapse"
+          onClick={onCollapse}
+          title="Hide sessions"
+          aria-label="Hide sessions"
+        >
+          <PanelLeftClose size={15} />
+        </button>
+      </div>
+
+      <div className="sindri-rail-eyebrow">
+        <span>Recents</span>
+        <span className="sindri-rail-count">{sessions.length}</span>
+      </div>
+
+      <div className="sindri-rail-list" role="listbox" aria-label="Recent sessions">
+        {sessions.length === 0 ? (
+          <p className="sindri-rail-empty">
+            {projectName ? `The forge is quiet in ${projectName}.` : "Pick an environment."}
+          </p>
+        ) : (
+          sessions.map((s) => {
+            const live = s.turnState === "running";
+            const current = s.id === currentId;
+            return (
+              <div
+                key={s.id}
+                role="option"
+                aria-selected={current}
+                tabIndex={0}
+                className={`sindri-rail-row ${current ? "is-current" : ""} ${live ? "is-live" : ""}`}
+                onClick={() => {
+                  if (!current) onOpen(s.id);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    if (!current) onOpen(s.id);
+                  }
+                }}
+                onDoubleClick={() => {
+                  setDraft(s.title);
+                  setEditingId(s.id);
+                }}
+                title={`${s.title} · ${relTime(sessionTime(s))}${
+                  s.branch ? ` · ${s.branch}` : ""
+                } — double-click to rename`}
+              >
+                <span className="sindri-rail-row-mark" aria-hidden="true" />
+                {editingId === s.id ? (
+                  <input
+                    className="sindri-rail-row-rename"
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={() => {
+                      onRename(s.id, draft);
+                      setEditingId("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        onRename(s.id, draft);
+                        setEditingId("");
+                      }
+                      if (e.key === "Escape") setEditingId("");
+                    }}
+                  />
+                ) : (
+                  <>
+                    <span className="sindri-rail-row-title">{s.title}</span>
+                    <span
+                      role="button"
+                      tabIndex={-1}
+                      aria-label={`Delete ${s.title}`}
+                      title="Delete session"
+                      className="sindri-rail-row-del"
+                      onClick={(e) => onRemove(s.id, e)}
+                    >
+                      <Trash2 size={12} />
+                    </span>
+                  </>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </aside>
+  );
+}
+
 export default function Chat() {
   // Project selection is GLOBAL now (the sidebar AMBIENTE switcher) — Sindri reads
   // the same context, so the active environment drives which project Sindri works.
@@ -203,6 +412,9 @@ export default function Chat() {
   const [effort, setEffort] = useState("medium");
   const [engine, setEngine] = useState("claude-api");
   const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
+  const [engineAvail, setEngineAvail] = useState<
+    Record<string, { available: boolean; reason?: string }>
+  >({});
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashActive, setSlashActive] = useState(0);
   const [slashQuery, setSlashQuery] = useState("");
@@ -221,14 +433,47 @@ export default function Chat() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [attachBusy, setAttachBusy] = useState(false);
   const [composerDrag, setComposerDrag] = useState(false);
-  const [renaming, setRenaming] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
-  // Right-pane preview can be collapsed to give the chat full width.
-  const [previewOpen, setPreviewOpen] = useState(true);
-  // Zen/focus: collapse the chat so the preview goes full-bleed (demo mode).
+  // The rail can be folded away; the choice sticks per browser, like the split.
+  const [railOpen, setRailOpen] = useState(true);
+  useEffect(() => {
+    try {
+      setRailOpen(localStorage.getItem(RAIL_KEY) !== "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const toggleRail = useCallback((open: boolean) => {
+    setRailOpen(open);
+    try {
+      localStorage.setItem(RAIL_KEY, open ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  // Layout triad: chat-full · split · preview-full (mutually exclusive). The
+  // preview stays shut until you ask for it with the window switch — it never
+  // takes half the room on its own.
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
   // Draggable split ratio (chat fraction) when both panes are open.
   const [split, setSplit] = useState(SPLIT_DEFAULT);
+  const layout: "chat" | "split" | "preview" = !previewOpen
+    ? "chat"
+    : chatCollapsed
+      ? "preview"
+      : "split";
+  const setLayout = useCallback((mode: "chat" | "split" | "preview") => {
+    if (mode === "chat") {
+      setPreviewOpen(false);
+      setChatCollapsed(false);
+    } else if (mode === "split") {
+      setPreviewOpen(true);
+      setChatCollapsed(false);
+    } else {
+      setPreviewOpen(true);
+      setChatCollapsed(true);
+    }
+  }, []);
   const [dragging, setDragging] = useState(false);
   // Preview viewport (lifted here so the gutter drag can flip it to mobile at the
   // narrow edge); the preview's own toggles also drive it.
@@ -239,10 +484,33 @@ export default function Chat() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const attachInputRef = useRef<HTMLInputElement | null>(null);
   const composerDragDepth = useRef(0);
+
+  /** Grow the tray with the prompt; thread keeps scroll for long chats. */
+  function resizeComposer(el: HTMLTextAreaElement | null = inputRef.current) {
+    if (!el) return;
+    el.style.height = "0px";
+    const cs = getComputedStyle(el);
+    const max =
+      parseFloat(cs.maxHeight) ||
+      parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--sindri-input-max")) ||
+      192;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+  }
   const liveSeqRef = useRef(-1); // highest seq we've persisted into messages
-  // Projects we're already minting a first chat for — guards against a double
-  // create from React Strict-Mode's mount/remount or a fast environment re-select.
-  const creatingRef = useRef<Set<string>>(new Set());
+
+  // ── link health ─────────────────────────────────────────────────────────────
+  // A turn runs detached server-side (the overnight property) and the turn
+  // manager replays its ring buffer to whoever reconnects. So a broken pipe —
+  // sleep, wifi, a tunnel blip — costs us the stream, never the work. Track the
+  // pipe apart from the turn: `link` is ours to repair, `error` is the turn's.
+  const [link, setLink] = useState<"ok" | "reconnecting">("ok");
+  const terminalRef = useRef(false); // did this stream reach done/error?
+  const lastFrameRef = useRef(0); // when the stream last showed proof of life
+  const dropsRef = useRef(0); // consecutive drops → backoff
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resyncRef = useRef<(sid: string) => void>(() => {});
+  // Text handed to a POST that may never have landed; restored if it didn't.
+  const pendingRef = useRef("");
 
   // ── loaders ─────────────────────────────────────────────────────────────────
   // Load Brokk Skills catalogue once (chip options).
@@ -252,53 +520,36 @@ export default function Chat() {
       .catch(() => setSkillOptions([]));
   }, []);
 
-  // On environment change: load its sessions and make sure one is ready to use —
-  // open the newest, or mint the very first chat when the project is empty. So
-  // selecting an environment always lands you in a usable chat (never a dead end).
+  // Which motors this Sindri deploy can actually run (Cursor CLI needs glibc agent).
+  useEffect(() => {
+    chat
+      .listEngines()
+      .then((list) => {
+        const map: Record<string, { available: boolean; reason?: string }> = {};
+        for (const e of list) map[e.id] = { available: e.available, reason: e.reason };
+        setEngineAvail(map);
+      })
+      .catch(() => setEngineAvail({}));
+  }, []);
+
+  // On environment change: load the project's sessions into the rail — and stop
+  // there. The room opens with NO chat on the anvil (Claude Code / Cursor shape):
+  // a session becomes active only when you pick one from the rail or start a new
+  // one. Nothing is auto-opened, and an empty project no longer mints a session
+  // just for landing on it.
   useEffect(() => {
     if (!projectId) return;
     let active = true;
+    setSessionId("");
+    setMessages([]);
     (async () => {
       const list = await chat.listSessions(projectId).catch(() => null);
       if (!active) return;
-      if (!list) {
-        setSessions([]);
-        return;
-      }
-      setSessions(list);
-      if (list.length > 0) {
-        const newest = [...list].sort(
-          (a, b) => +new Date(sessionTime(b)) - +new Date(sessionTime(a)),
-        )[0]!;
-        void openSession(newest.id);
-        return;
-      }
-      // Empty project → create the first chat (once).
-      if (creatingRef.current.has(projectId)) return;
-      creatingRef.current.add(projectId);
-      const s = await chat
-        .createSession({
-          projectId,
-          model: isCursorEngine(engine) ? "auto" : model,
-          effort,
-          engine,
-        })
-        .catch(() => null);
-      creatingRef.current.delete(projectId);
-      if (!active || !s) return;
-      const withStats: ChatSessionWithStats = {
-        ...s,
-        stats: { messages: 0, tokensIn: 0, tokensOut: 0, lastMessageAt: null },
-      };
-      setSessions([withStats]);
-      void openSession(s.id);
+      setSessions(list ?? []);
     })();
     return () => {
       active = false;
     };
-    // openSession/model/effort are intentionally not deps: this fires on
-    // environment change, using whatever model/effort are current at that moment.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   // Restore the persisted split once on mount (client-only; the body isn't
@@ -328,6 +579,11 @@ export default function Chat() {
 
   const handleEvent = useCallback(
     (e: AgentEvent) => {
+      // A frame — any frame, ping included — is proof of life on both counts:
+      // the POST landed (the server owns the prompt now) and the pipe carries.
+      pendingRef.current = "";
+      lastFrameRef.current = Date.now();
+      setLink((l) => (l === "ok" ? l : "ok"));
       switch (e.type) {
         case "text_delta":
           setLiveText((t) => t + e.text);
@@ -358,6 +614,10 @@ export default function Chat() {
           break;
         case "done":
         case "error":
+          // The turn spoke for itself: whatever happens to the pipe now, there
+          // is nothing left to reattach to.
+          terminalRef.current = true;
+          pendingRef.current = "";
           if (e.type === "error") setError(e.message);
           setRunning(false);
           setPhase("");
@@ -373,15 +633,132 @@ export default function Chat() {
     [upsert, sessionId, projectId],
   );
 
+  /** Back off after a drop; a wake (tab/network) jumps this queue. */
+  const scheduleRetry = useCallback((sid: string) => {
+    setLink("reconnecting");
+    if (retryRef.current) clearTimeout(retryRef.current);
+    const n = Math.min(dropsRef.current++, 5);
+    retryRef.current = setTimeout(() => resyncRef.current(sid), Math.min(1000 * 2 ** n, 30_000));
+  }, []);
+
+  /**
+   * Reconcile with the server after a dropped stream. The durable record leads:
+   * chat_messages is the truth, so a turn that finished while we were away lands
+   * in the transcript here rather than being lost with the pipe that carried it.
+   * Only then do we reattach — and only if the turn is genuinely still forging.
+   */
+  const resync = useCallback(
+    async (sid: string) => {
+      abortRef.current?.abort();
+      const ac = new AbortController();
+      abortRef.current = ac;
+      try {
+        const { messages: msgs, running: live } = await chat.getSession(sid);
+        if (ac.signal.aborted) return;
+        setMessages(msgs);
+        liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
+        setLink("ok");
+        dropsRef.current = 0;
+        // A prompt whose POST never landed left no turn and no transcript row:
+        // hand the text back to the composer instead of eating it.
+        const orphan = pendingRef.current;
+        if (orphan && !live) {
+          pendingRef.current = "";
+          setInput((cur) => cur || orphan);
+          requestAnimationFrame(() => resizeComposer());
+        }
+        if (!live) {
+          setRunning(false);
+          setPhase("");
+          setLiveText("");
+          setLiveThinking("");
+          return;
+        }
+        setRunning(true);
+        // The replay starts at the head of the ring buffer, so the scratchpad
+        // has to start empty or every delta lands twice.
+        setLiveText("");
+        setLiveThinking("");
+        terminalRef.current = false;
+        lastFrameRef.current = Date.now();
+        await attach(sid, handleEvent, ac.signal);
+        if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(sid);
+      } catch (e) {
+        if (ac.signal.aborted) return;
+        // A verdict ends the loop: retrying a session the server says is gone
+        // would leave "reconnecting…" on screen forever — a second lie in the
+        // shape of the first one.
+        if (isVerdict(e)) {
+          setError(String(e));
+          setRunning(false);
+          setPhase("");
+          setLink("ok");
+          return;
+        }
+        scheduleRetry(sid);
+      }
+    },
+    [handleEvent, scheduleRetry],
+  );
+
+  useEffect(() => {
+    resyncRef.current = (sid: string) => void resync(sid);
+  }, [resync]);
+
+  // Coming back is the only signal worth more than the backoff: if the tab is
+  // visible and the network is up, retry now instead of waiting out the timer.
+  useEffect(() => {
+    if (link !== "reconnecting" || !sessionId) return;
+    const wake = () => {
+      if (document.visibilityState !== "visible" || navigator.onLine === false) return;
+      if (retryRef.current) clearTimeout(retryRef.current);
+      dropsRef.current = 0;
+      void resync(sessionId);
+    };
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [link, sessionId, resync]);
+
+  // A closed laptop doesn't hang up — it goes quiet. The socket dies with no
+  // error to catch, so the drop path above never fires and the spinner would
+  // spin on stale text forever. But an idle stream pings every 15s, so silence
+  // is a measurement: three missed beats and the pipe is gone. Checked on a
+  // timer and on return, because coming back is when it matters.
+  useEffect(() => {
+    if (!running || link !== "ok" || !sessionId) return;
+    const check = () => {
+      // Hidden: nothing to repair yet — the turn is safe server-side and we
+      // resync on the way back in.
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastFrameRef.current < 45_000) return;
+      void resync(sessionId);
+    };
+    const iv = setInterval(check, 10_000);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [running, link, sessionId, resync]);
+
+  useEffect(() => () => void (retryRef.current && clearTimeout(retryRef.current)), []);
+
   async function openSession(id: string) {
     abortRef.current?.abort();
+    if (retryRef.current) clearTimeout(retryRef.current);
+    dropsRef.current = 0;
+    pendingRef.current = "";
+    setLink("ok");
     setSessionId(id);
     setMessages([]);
     setLiveText("");
     setLiveThinking("");
     setError("");
     setPendingFiles([]);
-    setRenaming(false);
     liveSeqRef.current = -1;
     const { session, messages: msgs, running: live } = await chat.getSession(id);
     // Reflect the session's saved model + effort (all tiers are selectable now).
@@ -400,18 +777,33 @@ export default function Chat() {
       setRunning(true);
       const ac = new AbortController();
       abortRef.current = ac;
-      attach(id, handleEvent, ac.signal).catch(() => setRunning(false));
+      terminalRef.current = false;
+      lastFrameRef.current = Date.now();
+      attach(id, handleEvent, ac.signal)
+        .then(() => {
+          // Ended without a terminal frame: the pipe gave out, not the turn.
+          if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(id);
+        })
+        .catch(() => {
+          if (!ac.signal.aborted) scheduleRetry(id);
+        });
     }
   }
 
-  async function newChat() {
+  async function newChat(engineOverride?: string) {
     if (!projectId) return;
     setError("");
+    const eng = normalizeEngineUi(engineOverride ?? engine);
+    if (engineOverride) {
+      setEngine(eng);
+      if (isCursorEngine(eng)) setModel("auto");
+      else if (model === "auto") setModel("sonnet");
+    }
     const s = await chat.createSession({
       projectId,
-      model: isCursorEngine(engine) ? "auto" : model,
+      model: isCursorEngine(eng) ? "auto" : model === "auto" ? "sonnet" : model,
       effort,
-      engine,
+      engine: eng,
     });
     const withStats: ChatSessionWithStats = {
       ...s,
@@ -433,6 +825,7 @@ export default function Chat() {
     setInput("");
     setPendingFiles([]);
     setSlashOpen(false);
+    requestAnimationFrame(() => resizeComposer());
     setError("");
     setLiveText("");
     setLiveThinking("");
@@ -443,6 +836,25 @@ export default function Chat() {
         prev.map((s) => (s.id === sid ? { ...s, skill: slashSkill } : s)),
       );
     }
+    // Lock motor/model/effort on the first shot — empty sessions stay editable
+    // until this moment (BROKK-33).
+    if (messages.length === 0) {
+      const eng = normalizeEngineUi(engine);
+      try {
+        const updated = await chat.patchSession(sid, {
+          engine: eng,
+          model: isCursorEngine(eng) ? "auto" : model === "auto" ? "sonnet" : model,
+          effort,
+        });
+        setSessions((prev) => prev.map((s) => (s.id === sid ? { ...s, ...updated } : s)));
+      } catch (e) {
+        if (isVerdict(e)) {
+          setError(String(e));
+          setRunning(false);
+          return;
+        }
+      }
+    }
     // optimistic user bubble at the next seq
     const bubble =
       staged.length > 0
@@ -451,6 +863,9 @@ export default function Chat() {
     upsert({ seq: liveSeqRef.current + 1, role: "user", blocks: [{ type: "text", text: bubble }] });
     const ac = new AbortController();
     abortRef.current = ac;
+    pendingRef.current = raw;
+    terminalRef.current = false;
+    lastFrameRef.current = Date.now();
     try {
       let attachments: string[] | undefined;
       let attachmentUploads: { name: string; dataBase64: string }[] | undefined;
@@ -482,10 +897,17 @@ export default function Chat() {
         attachments,
         attachmentUploads,
       });
+      if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(sid);
     } catch (e) {
-      if (!ac.signal.aborted) setError(String(e));
-      setRunning(false);
+      if (ac.signal.aborted) return;
       setAttachBusy(false);
+      // A 5xx here is ambiguous — the POST may have started a turn whose
+      // response we never got. Don't guess: resync asks the server what's
+      // actually running.
+      if (isVerdict(e)) {
+        setError(String(e));
+        setRunning(false);
+      } else scheduleRetry(sid);
     }
   }
 
@@ -531,8 +953,8 @@ export default function Chat() {
     setPhase("");
   }
 
-  async function removeSession(id: string, ev: React.MouseEvent) {
-    ev.stopPropagation();
+  async function removeSession(id: string, ev?: React.MouseEvent) {
+    ev?.stopPropagation();
     const name = sessions.find((s) => s.id === id)?.title;
     if (!confirm(`This deletes ${name ? `"${name}"` : "the session"} and its transcript. Delete?`)) return;
     await chat.deleteSession(id).catch(() => {});
@@ -543,12 +965,12 @@ export default function Chat() {
     }
   }
 
-  async function saveTitle() {
-    const t = titleDraft.trim();
-    setRenaming(false);
-    if (!sessionId || !t || t === currentSession?.title) return;
-    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, title: t } : s)));
-    await chat.patchSession(sessionId, { title: t }).catch(() => {});
+  /** Rename any session (the rail edits rows in place, not just the open one). */
+  async function renameSession(id: string, raw: string) {
+    const t = raw.trim();
+    if (!t || t === sessions.find((s) => s.id === id)?.title) return;
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title: t } : s)));
+    await chat.patchSession(id, { title: t }).catch(() => {});
   }
 
   function onKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -624,6 +1046,7 @@ export default function Chat() {
       const pos = replaced.length;
       el?.focus();
       el?.setSelectionRange(pos, pos);
+      resizeComposer(el);
     });
   }
 
@@ -686,11 +1109,19 @@ export default function Chat() {
   const currentProject = projects.find((p) => p.id === projectId);
   const currentSession = sessions.find((s) => s.id === sessionId);
 
-  // Sessions newest-first for the top tab strip.
+  // Sessions newest-first — the order the ledger reads.
   const sortedSessions = useMemo(
     () => [...sessions].sort((a, b) => +new Date(sessionTime(b)) - +new Date(sessionTime(a))),
     [sessions],
   );
+
+  // A rail listing nothing is just a wall: with no sessions yet, the anvil gets
+  // the whole room. Nothing is lost — the hero's own field and "empty session"
+  // link are the only moves the rail offered. It comes back on its own with the
+  // first session; railOpen is untouched, so a collapsed rail stays collapsed.
+  // `sessions` is [] while a project's list loads, which also keeps the rail
+  // from flashing in before there is anything to put in it.
+  const showRail = railOpen && sortedSessions.length > 0;
 
   // Lazy preview trigger: has Sindri made a file-mutating tool call this session?
   const sawEdit = useMemo(
@@ -701,8 +1132,27 @@ export default function Chat() {
     [messages],
   );
 
-  // Token usage for the open session (shown in the preview header): aggregate
-  // from loaded messages, falling back to the rail's stored aggregate.
+  /**
+   * The context ring. Two different numbers hide behind the word "tokens":
+   *   • what the session has SPENT — the sum of every turn's usage (`stats`), and
+   *   • what the model is CARRYING right now — the last turn's input + cache read.
+   * The ring can only mean the second one. Summing would sail past 100% on any
+   * real session (a 44-message thread sums 212k against a 200k window while
+   * actually carrying 14.5k), so the gauge would lie.
+   */
+  const context = useMemo(() => {
+    let used = 0;
+    for (const m of messages) {
+      const u = (m.meta as { usage?: { inputTokens?: number; cacheReadTokens?: number } } | null)
+        ?.usage;
+      if (u) used = (u.inputTokens ?? 0) + (u.cacheReadTokens ?? 0); // last wins, not summed
+    }
+    if (!used) return null; // cursor engines report no usage — no gauge, no guess
+    return { used, window: CONTEXT_WINDOW };
+  }, [messages]);
+
+  // Token usage for the open session: aggregate from loaded messages, falling
+  // back to the rail's stored aggregate.
   const tokens = useMemo(() => {
     let tin = 0;
     let tout = 0;
@@ -726,20 +1176,44 @@ export default function Chat() {
         <Banner tone="err" onClick={() => setError("")} style={{ cursor: "pointer" }}>
           {error}
         </Banner>
+      ) : link === "reconnecting" ? (
+        <Banner tone="warn">
+          <span className="sindri-spinner" aria-hidden />
+          {running
+            ? " Connection lost — Brokk keeps working. Reattaching…"
+            : " Connection lost — reconnecting…"}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => sessionId && void resync(sessionId)}
+            style={{ marginInlineStart: "0.75rem" }}
+          >
+            Retry now
+          </Button>
+        </Banner>
       ) : null}
 
-      {/* ── body: chat | live preview ── */}
+      {/* ── room: session rail | (chat | live preview) ── */}
+      <div className={`sindri-room ${showRail ? "" : "is-railless"}`}>
+        {showRail ? (
+          <SessionRail
+            sessions={sortedSessions}
+            currentId={sessionId}
+            projectName={currentProject?.name ?? null}
+            onOpen={(id) => void openSession(id)}
+            onNew={() => void newChat()}
+            onRemove={removeSession}
+            onRename={(id, title) => void renameSession(id, title)}
+            onCollapse={() => toggleRail(false)}
+            disabled={!projectId}
+          />
+        ) : null}
+
       {!sessionId ? (
         <div className="sindri-body is-blank">
           <div className="sindri-blank">
-            <div className="sindri-blank-mark">
-              <Hammer size={30} strokeWidth={1.4} />
-            </div>
+            <Hammer className="sindri-blank-mark" size={56} strokeWidth={1.25} aria-hidden="true" />
             <h3>{currentProject ? `At the anvil with ${currentProject.name}` : "Pick an environment"}</h3>
-            <p>
-              Brokk clones the repo, works a branch of its own, and boots the live preview
-              beside the chat. Describe the first task to light the forge.
-            </p>
             <form
               className="sindri-blank-bar"
               onSubmit={(e) => {
@@ -784,92 +1258,61 @@ export default function Chat() {
               : undefined
           }
         >
+          {/* The head floats OVER the room, hugging the top-left — which in chat
+              and split IS the top of the chat column, and in preview-full is the
+              only door back. It spends no vertical band on chrome, and it is the
+              single home of the window switch (the preview's own bar no longer
+              carries one), so it must survive every layout. */}
+          <header className="sindri-head">
+            {/* With the rail folded away, its door lives here — NOT in the lintel:
+                the verga is app chrome and would carry a control that means nothing
+                in every other room. */}
+            {!railOpen ? (
+              <button
+                type="button"
+                className="sindri-head-rail"
+                onClick={() => toggleRail(true)}
+                title="Show sessions"
+                aria-label="Show sessions"
+              >
+                <PanelLeftOpen size={15} />
+              </button>
+            ) : null}
+            <div className="sindri-layoutswitch" role="group" aria-label="Layout">
+              <button
+                type="button"
+                className={`sindri-preview-icon ${layout === "chat" ? "is-on" : ""}`}
+                title="Chat em tela cheia"
+                aria-pressed={layout === "chat"}
+                onClick={() => setLayout("chat")}
+              >
+                <PanelLeft size={15} />
+              </button>
+              <button
+                type="button"
+                className={`sindri-preview-icon ${layout === "split" ? "is-on" : ""}`}
+                title="Dividir chat e preview"
+                aria-pressed={layout === "split"}
+                onClick={() => setLayout("split")}
+              >
+                <Columns2 size={15} />
+              </button>
+              <button
+                type="button"
+                className={`sindri-preview-icon ${layout === "preview" ? "is-on" : ""}`}
+                title="Preview em tela cheia"
+                aria-pressed={layout === "preview"}
+                onClick={() => setLayout("preview")}
+              >
+                <PanelRight size={15} />
+              </button>
+            </div>
+          </header>
+
           {/* ── chat column ── */}
           {!chatCollapsed ? (
           <section className="sindri-chat">
             <>
-              {/* session header = the tab bar: new-chat + horizontally-scrolling
-                  session chips (folded up from the old top strip). The active chip
-                  renames on double-click; the preview restores here when hidden. */}
-              <header className="sindri-head">
-                <Button
-                  variant="default"
-                  onClick={newChat}
-                  disabled={!projectId}
-                  className="sindri-tab-new"
-                  title="New chat"
-                  aria-label="New chat"
-                >
-                  <Plus size={16} />
-                </Button>
-                <div className="sindri-tabs-scroll">
-                  {sortedSessions.length === 0 ? (
-                    <span className="sindri-tabs-empty">
-                      {currentProject ? `No sessions in ${currentProject.name}.` : "Pick an environment."}
-                    </span>
-                  ) : (
-                    sortedSessions.map((s) => {
-                      const active = s.id === sessionId;
-                      return (
-                        <div
-                          key={s.id}
-                          className={`sindri-tab ${active ? "is-active" : ""}`}
-                          onClick={() => {
-                            if (!active) void openSession(s.id);
-                          }}
-                          onDoubleClick={() => {
-                            if (active) {
-                              setTitleDraft(s.title);
-                              setRenaming(true);
-                            }
-                          }}
-                          title={`${s.title} · ${relTime(sessionTime(s))}`}
-                        >
-                          {s.turnState === "running" ? (
-                            <span className="sindri-dot" />
-                          ) : (
-                            <MessageSquare size={12} className="sindri-tab-icon" />
-                          )}
-                          {renaming && active ? (
-                            <input
-                              className="sindri-tab-rename"
-                              autoFocus
-                              value={titleDraft}
-                              onChange={(e) => setTitleDraft(e.target.value)}
-                              onBlur={saveTitle}
-                              onClick={(e) => e.stopPropagation()}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") saveTitle();
-                                if (e.key === "Escape") setRenaming(false);
-                              }}
-                            />
-                          ) : (
-                            <span className="sindri-tab-title">{s.title}</span>
-                          )}
-                          <span
-                            className="sindri-tab-del"
-                            title="Delete session"
-                            onClick={(e) => removeSession(s.id, e)}
-                          >
-                            <Trash2 size={12} />
-                          </span>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-                {!previewOpen ? (
-                  <button
-                    type="button"
-                    className="sindri-preview-toggle"
-                    title="Show preview"
-                    onClick={() => setPreviewOpen(true)}
-                  >
-                    <PanelRightOpen size={15} />
-                  </button>
-                ) : null}
-              </header>
-
               <StickToBottom className="sindri-thread" resize="smooth" initial="smooth">
                 <StickToBottom.Content className="sindri-thread-content">
                   {messages.map((m) => (
@@ -940,20 +1383,46 @@ export default function Chat() {
                   <textarea
                     ref={inputRef}
                     className="sindri-input"
-                    placeholder="Describe the work…  (/ for skills · attach files · Enter sends · Shift+Enter for a new line)"
+                    placeholder="Describe the work…  (/ for skills · attach files · Enter sends)"
                     value={input}
                     onChange={(e) => {
                       const v = e.target.value;
                       setInput(v);
                       syncSlashFromInput(v, e.target.selectionStart ?? v.length);
+                      resizeComposer(e.target);
                     }}
+                    onInput={(e) => resizeComposer(e.currentTarget)}
                     onKeyDown={onKey}
                     onClick={(e) =>
                       syncSlashFromInput(input, (e.target as HTMLTextAreaElement).selectionStart)
                     }
-                    rows={2}
+                    rows={1}
                     disabled={running}
                   />
+                  {/* Send/stop rides INSIDE the box, at the right edge — one
+                      affordance where the sentence ends. */}
+                  {running ? (
+                    <button
+                      type="button"
+                      className="sindri-send is-stop"
+                      onClick={stop}
+                      title="Stop"
+                      aria-label="Stop"
+                    >
+                      <Square size={14} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="sindri-send"
+                      onClick={() => send()}
+                      disabled={!input.trim() && pendingFiles.length === 0}
+                      title="Send (Enter)"
+                      aria-label="Send"
+                    >
+                      <CornerDownLeft size={14} />
+                    </button>
+                  )}
                 </div>
                 {currentSession?.skill ? (
                   <div className="sindri-skill-pin" title="Skill pinned for this session">
@@ -963,6 +1432,9 @@ export default function Chat() {
                   </div>
                 ) : null}
                 <div className="sindri-cockpit">
+                  {/* One row, right-aligned: what the session costs, and who runs it.
+                      The anvil lives in the lintel and the branch in the session —
+                      neither needs restating under every prompt. */}
                   <div className="sindri-cockpit-controls">
                     <button
                       type="button"
@@ -987,6 +1459,7 @@ export default function Chat() {
                         e.target.value = "";
                       }}
                     />
+                    {context ? <ContextRing context={context} spent={tokens} /> : null}
                     {engine !== "claude-cli" && engine !== "cursor-cli" && (
                       <ComposerChip
                         title="Reasoning effort"
@@ -1023,42 +1496,75 @@ export default function Chat() {
                       />
                     )}
                     <ComposerChip
-                      title="Motor (vale para novos chats)"
+                      title={
+                        messages.length === 0
+                          ? "Motor — livre até a 1ª mensagem"
+                          : "Motor — travado nesta sessão (troca abre chat novo)"
+                      }
                       value={engine}
-                      items={ENGINES.map((m) => ({
-                        id: m.id,
-                        label: m.label,
-                        hint: m.hint,
-                        tag: m.id.startsWith("cursor") ? "cursor" : "claude",
-                      }))}
+                      items={ENGINES.map((m) => {
+                        const avail = engineAvail[m.id];
+                        const disabled = avail ? !avail.available : false;
+                        return {
+                          id: m.id,
+                          label: m.label,
+                          hint: disabled && avail?.reason ? avail.reason : m.hint,
+                          tag: m.id.startsWith("cursor") ? "cursor" : "claude",
+                          disabled,
+                        };
+                      })}
                       onChange={(id) => {
-                        setEngine(id);
-                        if (isCursorEngine(id)) setModel("auto");
+                        const next = normalizeEngineUi(id);
+                        if (engineAvail[next] && !engineAvail[next]!.available) {
+                          setError(
+                            engineAvail[next]!.reason ||
+                              `${next} unavailable on this chat image`,
+                          );
+                          return;
+                        }
+                        const prev = engine;
+                        setEngine(next);
+                        if (isCursorEngine(next)) {
+                          setModel("auto");
+                        } else if (isCursorEngine(prev) || model === "auto") {
+                          // Leaving Cursor: drop the seat-only "auto" alias so a
+                          // Claude/LiteLLM turn never sees model=auto (BROKK-34).
+                          setModel("sonnet");
+                        }
+                        if (!sessionId) return;
+                        // Empty session: patch in place — don't mint a new chat.
+                        if (messages.length === 0) {
+                          const patchModel = isCursorEngine(next)
+                            ? "auto"
+                            : model === "auto" || isCursorEngine(prev)
+                              ? "sonnet"
+                              : model;
+                          if (!isCursorEngine(next) && patchModel !== model) setModel(patchModel);
+                          void chat
+                            .patchSession(sessionId, {
+                              engine: next,
+                              model: patchModel,
+                            })
+                            .then((s) => {
+                              setSessions((prevS) =>
+                                prevS.map((row) => (row.id === sessionId ? { ...row, ...s } : row)),
+                              );
+                            })
+                            .catch((e) => {
+                              setError(String(e));
+                              // Revert chip to whatever the server still has.
+                              setEngine(normalizeEngineUi(currentSession?.engine ?? prev));
+                            });
+                          return;
+                        }
+                        // After the first message the engine owns continuity —
+                        // switching means a fresh session.
+                        if (normalizeEngineUi(currentSession?.engine) !== next) {
+                          void newChat(next);
+                        }
                       }}
                     />
                   </div>
-                  {running ? (
-                    <Button
-                      variant="destructive"
-                      onClick={stop}
-                      className="sindri-send"
-                      title="Stop"
-                      aria-label="Stop"
-                    >
-                      <Square size={16} />
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="default"
-                      onClick={() => send()}
-                      disabled={!input.trim() && pendingFiles.length === 0}
-                      className="sindri-send"
-                      title="Send (Enter)"
-                      aria-label="Send"
-                    >
-                      <Send size={16} />
-                    </Button>
-                  )}
                 </div>
                 {composerDrag ? (
                   <div className="sindri-composer-drop" aria-hidden>
@@ -1093,18 +1599,14 @@ export default function Chat() {
               projectId={projectId}
               branch={currentSession?.branch ?? null}
               sawEdit={sawEdit}
-              zen={chatCollapsed}
-              onToggleZen={() => setChatCollapsed((c) => !c)}
-              onHide={() => setPreviewOpen(false)}
               device={device}
               setDevice={setDevice}
               mobileOnly={mobileOnly}
-              tokensIn={tokens.tin}
-              tokensOut={tokens.tout}
             />
           ) : null}
         </div>
       )}
+      </div>
     </main>
   );
 }
@@ -1175,34 +1677,24 @@ function SindriPreview({
   projectId,
   branch,
   sawEdit,
-  zen,
-  onToggleZen,
-  onHide,
   device,
   setDevice,
   mobileOnly,
-  tokensIn,
-  tokensOut,
 }: {
   sessionId: string;
   projectId: string;
   branch: string | null;
   sawEdit: boolean;
-  zen: boolean;
-  onToggleZen: () => void;
-  onHide: () => void;
   device: "desktop" | "mobile";
   setDevice: (d: "desktop" | "mobile") => void;
   mobileOnly: boolean;
-  tokensIn: number;
-  tokensOut: number;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [iframeKey, setIframeKey] = useState(0);
   // The stage shows either the live preview iframe or the read-only DB Studio.
-  const [view, setView] = useState<"preview" | "code" | "database" | "env">("preview");
+  const [view, setView] = useState<"preview" | "code" | "database" | "env" | "agent">("preview");
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageW, setStageW] = useState(0);
   const [stageH, setStageH] = useState(0);
@@ -1324,6 +1816,14 @@ function SindriPreview({
 
   const status = preview?.status;
   const live = status === "live";
+  // Never point a browser straight at preview.url: the preview origin has no
+  // session and would 403. /preview-gate checks the Logto session here, mints a
+  // key bound to this one subdomain, and redirects — the proxy trades it for a
+  // cookie. Keeping the key out of this component is the point: it never touches
+  // the bundle or the DOM.
+  const previewHref = preview?.subdomain
+    ? `/preview-gate/${encodeURIComponent(preview.subdomain)}`
+    : undefined;
   const dimLabel = mobileOnly
     ? `${phone.w}×${phone.h}`
     : device === "mobile"
@@ -1362,23 +1862,9 @@ function SindriPreview({
   return (
     <section className="sindri-preview">
       <div className="sindri-preview-bar">
-        {/* far left: collapse/expand-chat toggles, then the view switcher */}
-        <button
-          type="button"
-          className="sindri-preview-icon"
-          title="Hide preview"
-          onClick={onHide}
-        >
-          <PanelRightClose size={15} />
-        </button>
-        <button
-          type="button"
-          className={`sindri-preview-icon ${zen ? "is-on" : ""}`}
-          title={zen ? "Restore chat" : "Preview full-screen"}
-          onClick={onToggleZen}
-        >
-          {zen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-        </button>
+        {/* The layout switch lives in the chat's floating head — one switch, one
+            home. In preview-full the chat column is gone, so the restore door is
+            the collapse toggle further down this bar. */}
         <span className="sindri-preview-sep" />
         <div className="sindri-viewswitch" role="tablist" aria-label="View">
           <button
@@ -1413,19 +1899,34 @@ function SindriPreview({
           >
             <KeyRound size={15} />
           </button>
+          {/* Watch the QA agent drive the preview, live (ADR 0054): the pane
+              shows an MJPEG screencast of the agent's browser. */}
+          <button
+            type="button"
+            className={`sindri-preview-icon ${view === "agent" ? "is-on" : ""}`}
+            title="Assistir o agente (QA ao vivo)"
+            onClick={() => setView("agent")}
+          >
+            <MonitorPlay size={15} />
+          </button>
         </div>
         <span className="sindri-preview-sep" />
         <span className="sindri-preview-statuschip">
           <span className="sindri-preview-dot" style={{ background: statusColor }} />
           {statusLabel}
         </span>
-        {/* branch chip hidden (ADR 0038): the session worktree is dev-lane
-            plumbing — noise in the v0-face preview cockpit. */}
-        {tokensIn > 0 && tokensOut > 0 ? (
-          <span className="sindri-preview-tok" title="Session tokens (in · out)">
-            {fmtTokens(tokensIn)} · {fmtTokens(tokensOut)}
+        {preview?.status === "live" && preview.rssMb != null ? (
+          <span
+            className="sindri-preview-statuschip"
+            title="RAM do processo HMR neste preview (compartilhado entre chats do mesmo app)"
+          >
+            {preview.rssMb}&nbsp;MB
           </span>
         ) : null}
+        {/* branch chip hidden (ADR 0038): the session worktree is dev-lane
+            plumbing — noise in the v0-face preview cockpit. */}
+        {/* Session tokens moved to the composer cockpit: the composer is always on
+            screen with a session open, the preview isn't. One readout, one home. */}
         <span className="sindri-preview-spacer" />
         <div className="sindri-preview-actions">
           {mobileOnly ? (
@@ -1480,7 +1981,7 @@ function SindriPreview({
           <a
             className={`sindri-preview-icon ${live ? "" : "is-disabled"}`}
             title="Open in new tab"
-            href={live ? preview?.url : undefined}
+            href={live ? previewHref : undefined}
             target="_blank"
             rel="noreferrer"
           >
@@ -1488,6 +1989,7 @@ function SindriPreview({
           </a>
           {/* separator splits the browser-chrome group from the one hot action */}
           <span className="sindri-preview-sep" />
+          <CommitControls projectId={projectId} sessionId={sessionId} nudge={sawEdit ? 1 : 0} />
           <PublishControls projectId={projectId} />
         </div>
       </div>
@@ -1499,6 +2001,17 @@ function SindriPreview({
           <StudioPanel previewId={preview?.id ?? null} />
         ) : view === "env" ? (
           <EnvPanel env={preview?.loadedEnv ?? null} />
+        ) : view === "agent" ? (
+          // Live-view (ADR 0054): an MJPEG screencast of the shared browser the QA
+          // agent drives — a plain <img>, streamed through the same /api/chat proxy
+          // as everything else. You watch it navigate, click, type in real time.
+          <div className="sindri-preview-frame is-desktop">
+            <img
+              src={`/api/chat/live/${sessionId}`}
+              alt="Agente ao vivo"
+              className="sindri-preview-iframe"
+            />
+          </div>
         ) : live && preview ? (
           mobileOnly ? (
             // Aparelho real: o iframe roda no px exato do device escolhido e a
@@ -1514,7 +2027,7 @@ function SindriPreview({
               >
                 <iframe
                   key={iframeKey}
-                  src={preview.url}
+                  src={previewHref}
                   title={`Preview — ${phone.label}`}
                   className="sindri-preview-iframe"
                   sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
@@ -1525,7 +2038,7 @@ function SindriPreview({
             <div className={`sindri-preview-frame is-${device}`}>
               <iframe
                 key={iframeKey}
-                src={preview.url}
+                src={previewHref}
                 title="Live preview"
                 className="sindri-preview-iframe"
                 sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"

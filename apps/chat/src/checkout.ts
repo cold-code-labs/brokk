@@ -94,19 +94,18 @@ export class CheckoutManager {
     }
     await git(bare, ["worktree", "prune"]).catch(() => {});
 
-    // Fork point: refresh base into a remote-tracking ref (never refs/heads/<base>,
-    // which another worktree may have checked out), fall back to default branch.
+    // Fork point: refresh into remote-tracking refs (never refs/heads/*, which another
+    // worktree may have checked out), fall back to default branch. Fetches EVERY branch,
+    // not just base: this bare has no remote.origin.fetch, so any branch left out stays
+    // frozen at the clone-time value, and `origin/main` reading as a fossil is how an
+    // agent ends up answering a "is dev behind main?" question backwards.
     let startPoint = repo.defaultBranch;
     if (fresh) {
       startPoint = (await this.refExists(bare, `refs/heads/${baseBranch}`))
         ? `refs/heads/${baseBranch}`
         : repo.defaultBranch;
     } else {
-      await git(bare, [
-        "fetch",
-        "origin",
-        `+refs/heads/${baseBranch}:refs/remotes/origin/${baseBranch}`,
-      ]).catch(() => {});
+      await git(bare, ["fetch", "origin", "+refs/heads/*:refs/remotes/origin/*"]).catch(() => {});
       if (await this.refExists(bare, `refs/remotes/origin/${baseBranch}`))
         startPoint = `refs/remotes/origin/${baseBranch}`;
     }

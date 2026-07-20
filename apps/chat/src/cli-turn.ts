@@ -109,10 +109,27 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
     : undefined;
   const attachBlock = attachmentContextBlock(input.attachments ?? []);
 
+  // "QA na conversa" (ADR 0054): resolve the session's live preview so the agent
+  // can DRIVE it for a visual / GUI / QA review. The browser (chromium + the
+  // Playwright MCP registered at boot) runs in THIS container and reaches the
+  // preview at http://forge.localhost:<port> — it binds 0.0.0.0, so cross-container
+  // works, and the `.localhost` alias (compose network alias on the forge service)
+  // is what Next's dev cross-origin guard allowlists by default. Using the bare
+  // `forge` host got the HMR websocket refused, hydration never completed, and the
+  // agent saw a page whose every button was dead — with no error (BROKK-20).
+  const previews = await store.listPreviews({ projectId: session.projectId }).catch(() => []);
+  const live =
+    previews.find((p) => p.status === "live" && p.port != null && p.branch === session.branch) ??
+    previews.find((p) => p.status === "live" && p.port != null);
+  const previewNote = live
+    ? `\n## Live preview — visual / GUI / QA\nThis app runs at http://forge.localhost:${live.port} (reachable from here). You have Playwright browser tools (mcp__playwright-chat__*). When the user asks to SEE, test, or QA-review the running app (visual check, GUI review, "does X work", exercise a flow), DRIVE that URL: browser_navigate there, browser_snapshot to read the page, click/type to exercise flows, screenshot findings — then report what you observed (what works, what's broken, with specifics). If a login screen appears, click "Entrar como demo". For a pure QA/visual request, do NOT edit files — just drive and report.`
+    : "";
+
   const appendSystem = [
     `You are Sindri, the session agent inside Brokk (CCL's coding pillar), working on repo ${input.repoFullName}.`,
     `Your checkout is a dedicated git worktree on branch \`${session.branch}\`. Do NOT switch branches or reset history — stay here.`,
-    `CLOSE THE LOOP: editing files is not finishing. When the user wants to SEE a change, you are done ONLY after you commit and PUSH it (following this repo's CLAUDE.md publishing convention, e.g. \`git push origin HEAD:dev\`) so the preview updates. Run typecheck first. Never leave a wanted change uncommitted/unpublished; state clearly whether you published.`,
+    `COMMIT POLICY: Do NOT git commit or git push unless the user explicitly asks. Live preview / HMR already shows file edits — leave the tree dirty for the Commit button in the preview toolbar. If they ask you to commit, typecheck when available, then commit + push origin HEAD:dev (never force-push).`,
+    previewNote,
     attachBlock,
     pinned?.instructions
       ? `\n## Active skill (pinned): ${pinned.name}\nFollow this skill for the whole conversation unless the user releases it.\n\n${pinned.instructions}`

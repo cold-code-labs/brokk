@@ -28,10 +28,10 @@ async function main() {
     githubWebhookSecret: cfg.BROKK_GITHUB_WEBHOOK_SECRET,
     mimir,
     sindriUrl: cfg.BROKK_SINDRI_URL,
-    hauldrControlUrl: cfg.HAULDR_CONTROL_URL,
-    hauldrToken: cfg.HAULDR_TOKEN,
-    heimdallUrl: cfg.HEIMDALL_API_URL,
-    heimdallToken: cfg.HEIMDALL_TOKEN,
+    heimdallAgentUrl: cfg.HEIMDALL_AGENT_URL,
+    heimdallAgentToken: cfg.HEIMDALL_AGENT_TOKEN,
+    heimdallUrl: cfg.HEIMDALL_AGENT_URL,
+    heimdallToken: cfg.HEIMDALL_AGENT_TOKEN,
   });
 
   // Regin (ADR 0027 §5.4): the mission reconciler rides the API process — one

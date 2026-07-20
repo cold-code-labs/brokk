@@ -413,6 +413,10 @@ export const previews = pgTable(
      *  would sort by the SLOT's created_at (ancient) instead of the build. */
     builtAt: timestamp("built_at", { withTimezone: true }),
     pid: integer("pid"),
+    /** Resident set size of the preview process tree on the forge, in MiB.
+     *  Stamped by the supervisor on each tick while live — the big RAM cost of
+     *  HMR (shared per project preview, not per chat session). */
+    rssMb: integer("rss_mb"),
     /** Redacted snapshot of the env the supervisor actually loaded into this
      *  preview process (data-provider vars + app secrets + runtime env), with
      *  secret-looking values masked. Powers the "Env" inspector in the preview

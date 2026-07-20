@@ -14,17 +14,30 @@
  * manual DELETE /previews/:id marks the row 'stopped'; the next tick kills the
  * local process. A dev-lane push refreshes the worktree in place via
  * refreshCheckout() (HMR reflects it) instead of restarting the server.
+ *
+ * Soft cutover on respin: when a live process must restart (heal N1, etc.), the
+ * outgoing process keeps serving until the replacement is healthy on a new port;
+ * only then do we flip the control-plane port and SIGTERM the old one.
  */
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createServer } from "node:net";
 import type { ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { PREVIEW_IDLE_TTL_MS, type Preview, type Repository, type RuntimeSpec } from "@brokk/core";
+import {
+  PREVIEW_IDLE_TTL_MS,
+  worktreeReclaimVerdict,
+  type Preview,
+  type Repository,
+  type RuntimeSpec,
+} from "@brokk/core";
 import { buildDetectCtx, composeCommand, PACKAGE_MANAGERS, resolveRuntime } from "@brokk/core/runtime";
 import type { RunnerConfig } from "./config.js";
 import type { GhProvider } from "./git.js";
 import type { DataProvider } from "./data-provider.js";
+import { ensureNativeNextSwc } from "./next-swc.js";
 
 interface LivePreview {
   proc: ChildProcess;
@@ -78,6 +91,9 @@ export function loadAppSecrets(dir: string, project: string): Record<string, str
   return out;
 }
 
+/** How many trailing output lines a boot keeps to explain a death before serving. */
+const TAIL_LINES = 12;
+
 /** Keys whose VALUE is a secret and must never be shown in the Env inspector. */
 const SECRET_KEY_RE =
   /(secret|token|password|passwd|jwt|service_role|_key$|apikey|api_key|credential)/i;
@@ -100,6 +116,8 @@ export function redactEnv(env: Record<string, string>): Record<string, string> {
 export class PreviewSupervisor {
   /** Locally-managed running preview processes keyed by preview id. */
   private readonly live = new Map<string, LivePreview>();
+  /** Incoming process during soft cutover (old still in `live` until flip). */
+  private readonly pending = new Map<string, LivePreview>();
   /** Previews currently in the process of being booted (fire-and-forget guard). */
   private readonly booting = new Set<string>();
   /** Ports currently in use by running preview processes. */
@@ -117,6 +135,25 @@ export class PreviewSupervisor {
   private readonly codeHealedShas = new Set<string>();
   /** Master switch for bundle self-heal (BROKK_PREVIEW_AUTOHEAL=0 disables). */
   private readonly autoheal = process.env.BROKK_PREVIEW_AUTOHEAL !== "0";
+
+  /** Last disk-reclaim sweep, so it runs hourly instead of every tick — it shells
+   *  out to git once per cached bare repo, which is wasted work at tick cadence. */
+  private lastWorktreeSweep = 0;
+
+  /** Hauldr project slugs whose worktree is never reclaimed, from
+   *  BROKK_PREVIEW_PINNED (comma-separated).
+   *
+   *  ⚠️ That env was ALREADY set in production (ufc_dev, maglink_dev, arte_one_dev,
+   *  logcheck_dev) and read by NOTHING — it appears nowhere else in this repo, not
+   *  even in the compose files. Someone configured a pin list expecting protection
+   *  and silently got none. Honouring it here gives the existing knob the meaning
+   *  its name always promised, rather than inventing a second one beside it. */
+  private readonly pinnedProjects = new Set(
+    (process.env.BROKK_PREVIEW_PINNED ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
 
   constructor(
     private readonly cfg: RunnerConfig,
@@ -184,15 +221,23 @@ export class PreviewSupervisor {
     if (!existsSync(path)) return null; // no live singleton to refresh
     const run = promisify(execFile);
     try {
-      // Fetch the branch to FETCH_HEAD only — never into refs/heads/<branch>, which
-      // is checked out in this worktree (git refuses to fetch into a checked-out
-      // branch). Then hard-reset the worktree onto it. Mirrors persistentCheckout's
-      // refresh, minus the racy worktree-add. Skip the reset when the tip didn't
-      // move, so the periodic tick refresh is a no-op without mtime churn (HMR
-      // would otherwise re-trigger on identical files).
-      await run("git", ["fetch", "origin", `refs/heads/${branch}`], { cwd: path });
+      // Fetch EVERY branch into remote-tracking refs — never into refs/heads/*, of
+      // which <branch> is checked out in this worktree (git refuses to fetch into a
+      // checked-out branch). The wide refspec is what keeps refs the agent reads —
+      // `origin/main` above all — honest: this bare has no remote.origin.fetch, so a
+      // narrow `refs/heads/<base>` fetch leaves every OTHER branch frozen at the
+      // clone-time value forever, and an agent comparing against it answers with
+      // confidence and backwards. Then hard-reset the worktree onto the tip. Skip the
+      // reset when the tip didn't move, so the periodic tick refresh is a no-op
+      // without mtime churn (HMR would otherwise re-trigger on identical files).
+      await run("git", ["fetch", "origin", "+refs/heads/*:refs/remotes/origin/*"], { cwd: path });
       const head = (await run("git", ["rev-parse", "HEAD"], { cwd: path })).stdout.trim();
-      const fetched = (await run("git", ["rev-parse", "FETCH_HEAD"], { cwd: path })).stdout.trim();
+      // Resolve the tip by name, NOT via FETCH_HEAD: a multi-ref fetch writes one
+      // FETCH_HEAD line per branch and `rev-parse FETCH_HEAD` yields the first —
+      // which is whatever branch sorted first, not <branch>.
+      const fetched = (
+        await run("git", ["rev-parse", `refs/remotes/origin/${branch}`], { cwd: path })
+      ).stdout.trim();
       if (head === fetched) return null;
       // Live edits guard: if the worktree has uncommitted TRACKED changes (a
       // chat/dev-lane session editing it live — BROKK_LIVE_PREVIEW), a hard reset
@@ -287,6 +332,10 @@ export class PreviewSupervisor {
           // Signal 0: no signal sent, just checks if the process exists.
           process.kill(p.pid, 0);
           dead = false; // Process is alive — we don't own it, leave as-is
+          // ...but DO remember its port. Without this the fresh usedPorts Set
+          // is empty, so the next boot happily allocates a port a survivor is
+          // still serving on.
+          if (typeof p.port === "number") this.usedPorts.add(p.port);
         } catch {
           dead = true; // ESRCH or EPERM → treat as dead
         }
@@ -302,6 +351,11 @@ export class PreviewSupervisor {
         }).catch(() => {});
       }
     }
+    // Survivors whose shell died but vite/next kept the port — reap them now.
+    const n = reapOrphanPreviewServers(this.usedPorts, this.cfg.previewPortMin, this.cfg.previewPortMax);
+    if (n > 0) {
+      console.log(`[preview-supervisor] startup reaped ${n} orphan preview server(s)`);
+    }
   }
 
   // ── Tick ────────────────────────────────────────────────────────────────────
@@ -312,32 +366,34 @@ export class PreviewSupervisor {
     for (const p of previews) {
       switch (p.status) {
         case "starting": {
-          if (this.booting.has(p.id)) break;
+          if (this.booting.has(p.id) || this.pending.has(p.id)) break;
           const stale = this.live.get(p.id);
           if (stale) {
-            // A 'starting' row with a registered process = a respin (push
-            // rebuild / external stop→start) landed between ticks. Retire the
-            // old process and fall through to a fresh boot — breaking here
-            // wedged the slot forever ('starting' + old proc serving). Guard:
-            // a just-spawned proc (<60s) is a fresh boot whose 'live' patch
-            // simply hasn't landed in this tick's snapshot yet — leave it.
+            // Fresh boot still settling (<60s) — leave it; its live patch is in flight.
             if (Date.now() - stale.startedAt < 60_000) break;
+            // Soft cutover: keep stale serving until the replacement is healthy.
             console.log(
-              `[preview-supervisor] ${p.subdomain}: respin — retiring the old process (pid=${stale.proc.pid})`,
+              `[preview-supervisor] ${p.subdomain}: soft-respin — keeping :${stale.port} until replacement is healthy`,
             );
-            this.killAndClean(p.id, stale);
           }
           this.booting.add(p.id);
-          void this.boot(p)
+          void this.boot(p, { retain: stale ?? undefined })
             .catch((err) => {
               console.error(`[preview-supervisor] boot ${p.id} error:`, err);
-              // Keep the reason on the row: a permanent cause (e.g. the branch
-              // was deleted — "couldn't find remote ref") must read as a hard
-              // 'failed', not silently retry forever.
               const detail = (err instanceof Error ? err.message : String(err)).slice(0, 300);
-              void this.controlPatch(`/previews/${p.id}`, { status: "failed", detail }).catch(
-                () => {},
-              );
+              // Soft-respin failed: restore live on the retained process if any.
+              if (stale && this.live.get(p.id)?.proc === stale.proc) {
+                void this.controlPatch(`/previews/${p.id}`, {
+                  status: "live",
+                  detail: null,
+                  pid: stale.proc.pid ?? null,
+                  port: stale.port,
+                }).catch(() => {});
+              } else {
+                void this.controlPatch(`/previews/${p.id}`, { status: "failed", detail }).catch(
+                  () => {},
+                );
+              }
             })
             .finally(() => {
               this.booting.delete(p.id);
@@ -359,6 +415,7 @@ export class PreviewSupervisor {
               status: "stopped",
               pid: null,
               port: null,
+              rssMb: null,
             }).catch(() => {});
             break;
           }
@@ -377,8 +434,15 @@ export class PreviewSupervisor {
               status: "stopped",
               pid: null,
               port: null,
+              rssMb: null,
             }).catch(() => {});
             break;
+          }
+
+          // Stamp RSS of the HMR tree (shell + vite/next children) for the UI.
+          const rssMb = processTreeRssMb(lp.proc.pid);
+          if (rssMb != null && rssMb !== p.rssMb) {
+            void this.controlPatch(`/previews/${p.id}`, { rssMb }).catch(() => {});
           }
 
           // Drift refresh: pull the branch tip into the worktree so pushes that
@@ -430,14 +494,114 @@ export class PreviewSupervisor {
         }
       }
     }
+
+    await this.sweepWorktrees(previews).catch((e) =>
+      console.error("[preview-supervisor] worktree sweep failed:", String(e).slice(0, 200)),
+    );
+
+    // Ports we still own (live + soft-respin retain). Anything else on the
+    // preview range is a leak from a shell-only SIGTERM.
+    const keep = new Set<number>(this.usedPorts);
+    for (const lp of this.live.values()) keep.add(lp.port);
+    const n = reapOrphanPreviewServers(keep, this.cfg.previewPortMin, this.cfg.previewPortMax);
+    if (n > 0) {
+      console.log(`[preview-supervisor] reaped ${n} orphan preview server(s) on the port range`);
+    }
+  }
+
+  // ── Disk reclaim ────────────────────────────────────────────────────────────
+
+  /** Reclaim preview worktrees that nothing will boot again soon.
+   *
+   *  The idle reaper above rests the PROCESS and leaves the tree, so worktrees
+   *  accrued forever: one measurement found 15 of them (15 GB) behind 2 running
+   *  previews, growing ~1 GB per project ingested with nobody pruning. This is the
+   *  disk half of the same lifecycle.
+   *
+   *  🔴 The subtle hazard is that TWO lanes share `preview-worktrees/`: the preview
+   *  lane keys its trees by Hauldr project slug, and the dev-lane CARD flow checks
+   *  out `devlane_<slug>` right beside them (apps/forge/src/index.ts). A card's tree
+   *  has NO preview record, so the obvious rule — "no record means orphan, reclaim
+   *  it" — would delete the worktree out from under a running card. They are
+   *  excluded by name, and that exclusion is load-bearing.
+   *
+   *  Everything here is recoverable: the next boot re-creates the tree from the
+   *  bare repo, paying exactly what a first boot already pays. */
+  private async sweepWorktrees(previews: Preview[]): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastWorktreeSweep < 60 * 60 * 1000) return;
+    this.lastWorktreeSweep = now;
+
+    const worktrees = await this.git.listPreviewWorktrees();
+    if (worktrees.length === 0) return;
+
+    const bySlug = new Map(previews.map((p) => [p.hauldrProject, p]));
+    const reclaimed: string[] = [];
+    const blocked: string[] = [];
+    let kept = 0;
+
+    for (const wt of worktrees) {
+      const p = bySlug.get(wt.name) ?? null;
+      const verdict = worktreeReclaimVerdict({
+        name: wt.name,
+        preview: p,
+        inFlight: p ? this.live.has(p.id) || this.pending.has(p.id) || this.booting.has(p.id) : false,
+        pinned: this.pinnedProjects.has(wt.name),
+        now,
+      });
+      if (!verdict.reclaim) {
+        kept++;
+        continue;
+      }
+      const ok = await this.git.reclaimPreviewWorktree(wt.bare, wt.path);
+      (ok ? reclaimed : blocked).push(`${wt.name} (${verdict.reason})`);
+    }
+
+    // Say what was skipped, not just what was done: a sweep that only reports its
+    // successes reads as "nothing left to reclaim" when trees are in fact stuck.
+    if (reclaimed.length > 0) {
+      console.log(
+        `[preview-supervisor] reclaimed ${reclaimed.length} idle worktree(s): ${reclaimed.join(", ")} (kept ${kept})`,
+      );
+    }
+    if (blocked.length > 0) {
+      console.error(
+        `[preview-supervisor] could NOT reclaim ${blocked.length} worktree(s): ${blocked.join(", ")} — ` +
+          `they hold files the runner uid can't remove (a run that crashed under the enclave). ` +
+          `Clean as root: rm -rf <path> && git -C <bare> worktree prune`,
+      );
+    }
   }
 
   // ── Boot ────────────────────────────────────────────────────────────────────
 
-  private async boot(preview: Preview): Promise<void> {
+  private async boot(
+    preview: Preview,
+    opts?: { retain?: LivePreview },
+  ): Promise<void> {
+    const retain = opts?.retain;
     console.log(
-      `[preview-supervisor] booting ${preview.subdomain} (${preview.id})`,
+      `[preview-supervisor] booting ${preview.subdomain} (${preview.id})` +
+        (retain ? ` soft-over :${retain.port}` : ""),
     );
+
+    // Phase stopwatch. There was NO duration instrumentation here, so "why is a
+    // wake slow?" could only be guessed at — and the most expensive phase
+    // (install) is invisible because it's concatenated into the dev command's
+    // `sh -c`, inside the spawn. `ready` therefore covers install + first
+    // compile together until that gets split out.
+    const bootStart = Date.now();
+    let phaseMark = bootStart;
+    const phases: Record<string, number> = {};
+    const phase = (name: string): void => {
+      const now = Date.now();
+      phases[name] = now - phaseMark;
+      phaseMark = now;
+    };
+    const phaseSummary = (): string =>
+      Object.entries(phases)
+        .map(([k, ms]) => `${k}=${(ms / 1000).toFixed(1)}s`)
+        .join(" ") + ` total=${((Date.now() - bootStart) / 1000).toFixed(1)}s`;
 
     // Resolve project → repository from the control plane
     const project = await this.controlGet<{
@@ -471,6 +635,7 @@ export class PreviewSupervisor {
         err,
       );
     }
+    phase("db");
 
     // Resolve the working directory. The forge preview runs `next dev` (HMR) — ADR
     // 0017 moved the real `next build` to the Coolify dev-build; the forge preview is
@@ -485,6 +650,7 @@ export class PreviewSupervisor {
       branch: preview.branch,
       name: preview.hauldrProject,
     });
+    phase("checkout");
 
     // Stamp the sha this boot serves (the checkout's HEAD) — it's what turns
     // this row into a *deploy* for Heimdall's fleet view (which drops commitless
@@ -541,16 +707,18 @@ export class PreviewSupervisor {
         );
       }
     }
+    phase("migrate");
 
-    const port = this.allocatePort();
+    const port = await this.allocatePort();
     // ADR 0017: the forge preview is always the HMR loop (`next dev`) — the real
     // `next build` gate now lives in the Coolify dev-build. Command comes from the
     // resolved RuntimeSpec's "dev" preset (Sleipnir); BROKK_PREVIEW_DEV_CMD stays as
     // an explicit ops override when set.
-    const override = process.env.BROKK_PREVIEW_DEV_CMD;
-    const baseCmd =
-      override && override.trim() ? override : composeCommand(spec, "dev");
-    const cmd = this.expandCmd(baseCmd, port);
+    const appDir = spec.appRoot && spec.appRoot !== "." ? join(wtPath, spec.appRoot) : wtPath;
+    const inst = needsInstall(appDir);
+    console.log(
+      `[preview-supervisor] ${preview.subdomain}: install=${inst.install ? "SIM" : "não"} (${inst.reason})`,
+    );
     console.log(
       `[preview-supervisor] ${preview.subdomain}: runtime=${spec.label} (${spec.source})`,
     );
@@ -600,7 +768,76 @@ export class PreviewSupervisor {
       ...appEnv,
       HOME: home,
       COREPACK_HOME: `${home}/.cache/corepack`,
+      // A preview boots headless (no TTY). When a leftover node_modules is
+      // incompatible with the current pnpm/store, `pnpm install` wants to purge
+      // it and PROMPT — which aborts non-interactively with
+      // ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY and kills the boot (took down
+      // the whole preview lane). CI=true lets pnpm purge + reinstall silently.
+      CI: "true",
     };
+
+    // Install BEFORE spawn so we can patch native SWC into the tree (Turbopack).
+    // Override keeps the old "one shell string" behaviour — ops own that command.
+    const override = process.env.BROKK_PREVIEW_DEV_CMD;
+    if (!override?.trim() && inst.install) {
+      const lockPm = Object.values(PACKAGE_MANAGERS).find((pm) =>
+        existsSync(join(appDir, pm.lockfile)),
+      );
+      const installCmd = lockPm?.install ?? PACKAGE_MANAGERS.pnpm.install;
+      console.log(`[preview-supervisor] ${preview.subdomain}: running ${installCmd}`);
+      await this.controlPatch(`/previews/${preview.id}`, {
+        detail: "Instalando dependências…",
+      }).catch(() => {});
+      try {
+        await promisify(execFile)("sh", ["-c", installCmd], {
+          cwd: appDir,
+          env,
+          maxBuffer: 8 * 1024 * 1024,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[preview-supervisor] ${preview.subdomain}: install failed:`, msg);
+        await this.controlPatch(`/previews/${preview.id}`, {
+          status: "failed",
+          detail: `Install falhou: ${msg.slice(0, 240)}`,
+          pid: null,
+          port: null,
+        }).catch(() => {});
+        this.usedPorts.delete(port);
+        return;
+      }
+    }
+
+    // Turbopack needs @next/swc-linux-x64-gnu on this glibc forge (BROKK-31).
+    if (!override?.trim() && spec.id === "nextjs") {
+      try {
+        const swc = await ensureNativeNextSwc(appDir, env);
+        if (swc.status === "ok") {
+          console.log(
+            `[preview-supervisor] ${preview.subdomain}: swc-gnu ${swc.version} (${swc.via})`,
+          );
+        } else {
+          console.log(
+            `[preview-supervisor] ${preview.subdomain}: swc-gnu skipped (${swc.reason})`,
+          );
+        }
+      } catch (err) {
+        console.warn(
+          `[preview-supervisor] ${preview.subdomain}: swc-gnu ensure failed:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    // ADR 0017: the forge preview is always the HMR loop (`next dev`) — the real
+    // `next build` gate now lives in the Coolify dev-build. Command comes from the
+    // resolved RuntimeSpec's "dev" preset (Sleipnir); BROKK_PREVIEW_DEV_CMD stays as
+    // an explicit ops override when set.
+    const baseCmd =
+      override && override.trim()
+        ? override
+        : composeCommand(spec, "dev", { skipInstall: true });
+    const cmd = this.expandCmd(baseCmd, port);
 
     // Report a redacted snapshot of what we loaded, so the preview bar's Env
     // inspector can show an operator what this dev preview is wired to (e.g. that
@@ -621,28 +858,62 @@ export class PreviewSupervisor {
     // (e.g. Vite's allowedHosts wrapper config). Framework-agnostic: the forge
     // just writes what the spec declares, under appRoot, then the dev command
     // opts them in. Untracked, so `reset --hard` on refresh leaves them in place.
-    const appDir = spec.appRoot && spec.appRoot !== "." ? join(wtPath, spec.appRoot) : wtPath;
+    // (`appDir` is resolved above, where the install guard needs it.)
     for (const f of spec.prepareFiles ?? []) {
       const dest = join(appDir, f.path);
       mkdirSync(dirname(dest), { recursive: true });
-      writeFileSync(dest, f.contents);
-      console.log(`[preview-supervisor] ${preview.subdomain}: wrote prepare file ${f.path}`);
+      // Skip rewrite when identical — Vite watches this file; rewriting on every
+      // soft-respin triggered "config changed, restarting" storms and left orphans.
+      let same = false;
+      try {
+        same = readFileSync(dest, "utf8") === f.contents;
+      } catch {
+        same = false;
+      }
+      if (!same) {
+        writeFileSync(dest, f.contents);
+        console.log(`[preview-supervisor] ${preview.subdomain}: wrote prepare file ${f.path}`);
+      }
     }
 
     const proc = spawn("sh", ["-c", cmd], {
       cwd: wtPath,
       env,
-      detached: false,
+      // Own process group so killTree(-pid) reaps pnpm/vite/next children.
+      detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
     const tag = `[preview:${preview.subdomain}]`;
-    proc.stdout?.on("data", (d: Buffer) => process.stdout.write(`${tag} ${d}`));
-    proc.stderr?.on("data", (d: Buffer) => process.stderr.write(`${tag} ${d}`));
+    // Keep the tail of the child's output. The dev command is `install && dev`, so a
+    // boot dies before serving either because the dev server crashed OR because the
+    // install failed and `&&` short-circuited — the dev server never ran at all.
+    // "exited before serving" alone reads identically for both, which sent an
+    // operator hunting a Vite crash that had never happened (the install was exiting
+    // 1 on ERR_PNPM_IGNORED_BUILDS). Echo the last lines back on failure so the
+    // reason is in the log next to the verdict.
+    const tail: string[] = [];
+    const keepTail = (d: Buffer) => {
+      for (const line of d.toString().split("\n")) {
+        const s = line.trim();
+        if (!s) continue;
+        tail.push(s);
+        if (tail.length > TAIL_LINES) tail.shift();
+      }
+    };
+    proc.stdout?.on("data", (d: Buffer) => {
+      keepTail(d);
+      process.stdout.write(`${tag} ${d}`);
+    });
+    proc.stderr?.on("data", (d: Buffer) => {
+      keepTail(d);
+      process.stderr.write(`${tag} ${d}`);
+    });
 
     // Register locally BEFORE the first await so concurrent ticks don't
-    // double-boot (the `this.live` check in tick() gates further starts).
-    this.live.set(preview.id, {
+    // double-boot. Soft cutover: keep the outgoing process in `live` and park
+    // the incoming one in `pending` until health flips the pointer.
+    const entry: LivePreview = {
       proc,
       port,
       startedAt: Date.now(),
@@ -650,41 +921,65 @@ export class PreviewSupervisor {
       wtPath,
       hauldrProject: preview.hauldrProject,
       branch: preview.branch,
-    });
+    };
+    if (retain) {
+      this.pending.set(preview.id, entry);
+    } else {
+      this.live.set(preview.id, entry);
+    }
 
     // Don't flip to 'live' the instant the process spawns — that's why the iframe
     // used to render a broken page while `pnpm install` + the first compile were
     // still running (status was 'live' but nothing was listening yet). Hold
     // 'starting' with a phase until the server actually answers, so the pane
     // shows the spinner through install/compile and the iframe only appears when
-    // there's really something to render.
+    // there's really something to render. Soft cutover keeps the OLD port on the
+    // row so the gateway can keep serving until we flip.
     await this.controlPatch(`/previews/${preview.id}`, {
-      detail: "Instalando dependências e compilando…",
+      detail: retain
+        ? "Reiniciando preview (o atual segue no ar)…"
+        : "Instalando dependências e compilando…",
+      // Keep serving the retained port while status is starting (gateway accepts it).
+      ...(retain ? { port: retain.port, pid: retain.proc.pid ?? null } : {}),
     }).catch(() => {});
 
     const outcome = await this.waitHealthy(preview, proc, port, spec.health ?? "/");
     if (outcome === "exited") {
-      // Process died during startup (install/build error). We return here BEFORE
-      // the success-path `proc.on("exit")` handler is wired, so clean up + mark
-      // 'failed' ourselves — otherwise the dead proc leaks in `this.live` (its
-      // port too) and the row is stranded in 'starting' forever, which the fleet
-      // view then mirrors as a perpetual "Starting" for a preview that never came
-      // up. 'failed' is honest and still re-triggerable by a push.
       console.log(
-        `[preview-supervisor] ${preview.subdomain}: exited before serving`,
+        `[preview-supervisor] ${preview.subdomain}: exited before serving (exit=${proc.exitCode})`,
       );
+      for (const l of tail) {
+        console.log(`[preview-supervisor] ${preview.subdomain}:   | ${l}`);
+      }
+      this.pending.delete(preview.id);
+      this.usedPorts.delete(port);
+      killTree(proc);
+      if (retain && this.live.get(preview.id)?.proc === retain.proc) {
+        // Soft-respin failed — keep the old process as the live preview.
+        await this.controlPatch(`/previews/${preview.id}`, {
+          status: "live",
+          detail: null,
+          pid: retain.proc.pid ?? null,
+          port: retain.port,
+        }).catch(() => {});
+        return;
+      }
       const lp = this.live.get(preview.id);
       if (lp && lp.proc === proc) this.killAndClean(preview.id, lp);
       await this.controlPatch(`/previews/${preview.id}`, {
         status: "failed",
-        detail: "Build/start falhou antes de servir — ver os logs do preview.",
+        detail: tail.length
+          ? `Saiu antes de servir (exit=${proc.exitCode}): ${tail[tail.length - 1]!.slice(0, 200)}`
+          : "Build/start falhou antes de servir — ver os logs do preview.",
         pid: null,
         port: null,
       }).catch(() => {});
       return;
     }
 
-    // Update the control plane: live + pid + port.
+    // Flip: new process is healthy — point traffic, then retire the old one.
+    this.live.set(preview.id, entry);
+    this.pending.delete(preview.id);
     await this.controlPatch(`/previews/${preview.id}`, {
       status: "live",
       detail: null,
@@ -692,10 +987,31 @@ export class PreviewSupervisor {
       port,
     });
 
+    if (retain && retain.proc !== proc) {
+      console.log(
+        `[preview-supervisor] ${preview.subdomain}: cutover :${retain.port} → :${port} (retiring old pid=${retain.proc.pid})`,
+      );
+      this.usedPorts.delete(retain.port);
+      killTree(retain.proc);
+    }
+
+    phase("ready");
+    // Stamp only now: a boot that never got healthy must not mark the tree good.
+    if (inst.fingerprint) {
+      try {
+        writeFileSync(installStampPath(appDir), inst.fingerprint);
+      } catch {
+        /* best effort — a missing stamp just means the next boot installs */
+      }
+    }
     console.log(
       `[preview-supervisor] ${preview.subdomain} live on :${port}` +
         ` (pid=${proc.pid}, health=${outcome})`,
     );
+    // `ready` = spawn → first successful health poll, so it still bundles the
+    // install with the first compile (they share one `sh -c`). Splitting the
+    // install out makes this number mean "compile" alone.
+    console.log(`[preview-supervisor] ${preview.subdomain}: fases ${phaseSummary()}`);
 
     // Auto-stop when the process exits unexpectedly
     proc.on("exit", (code, signal) => {
@@ -744,21 +1060,23 @@ export class PreviewSupervisor {
     const sha = p.commitSha ?? "unknown";
     const restartKey = `${p.id}:${sha}`;
 
-    // N1 — clean-cache restart. Clear Metro's transform caches in the worktree,
-    // kill the process, and drop the row back to 'starting' so the next tick boots
-    // it fresh (equivalent to `expo start -c`). Once per broken commit.
+    // N1 — clean-cache soft-respin. Clear Metro's transform caches in the worktree
+    // and drop the row to 'starting' WITHOUT killing the live process — the tick
+    // soft-boots a replacement on a new port and only then retires this one.
     if (!this.restartedShas.has(restartKey)) {
       this.restartedShas.add(restartKey);
       console.log(
-        `[preview-supervisor] ${p.subdomain}: bundle broken on ${sha.slice(0, 8)} — clean-cache restart (N1)\n  ${err.slice(0, 200)}`,
+        `[preview-supervisor] ${p.subdomain}: bundle broken on ${sha.slice(0, 8)} — clean-cache soft-respin (N1)\n  ${err.slice(0, 200)}`,
       );
       await this.clearMetroCache(lp.wtPath);
-      this.killAndClean(p.id, lp);
       this.brokenStreak.delete(streakKey);
       await this.controlPatch(`/previews/${p.id}`, {
         status: "starting",
-        detail: "Metro travou o bundle — reiniciando com cache limpo…",
-      }).catch(() => {});
+        detail: "Reiniciando preview (mantendo o atual no ar)…",
+        // Keep port/pid so the gateway keeps routing the outgoing process.
+        port: lp.port,
+        pid: lp.proc.pid ?? null,
+      });
       return;
     }
 
@@ -861,12 +1179,17 @@ export class PreviewSupervisor {
   }
 
   /** Pick the next free port in [previewPortMin, previewPortMax]. */
-  private allocatePort(): number {
+  private async allocatePort(): Promise<number> {
     for (let p = this.cfg.previewPortMin; p <= this.cfg.previewPortMax; p++) {
-      if (!this.usedPorts.has(p)) {
-        this.usedPorts.add(p);
-        return p;
-      }
+      if (this.usedPorts.has(p)) continue;
+      // The in-memory Set only knows about processes THIS supervisor started.
+      // A survivor from a previous runner instance (reconcileOnStartup leaves
+      // live ones running by design) holds a port we'd happily hand out again —
+      // the second bind then fails, or worse, a consumer reaches the wrong app
+      // on a recycled port. Probe the real bind before claiming.
+      if (!(await portFree(p))) continue; // held from outside; retried next time
+      this.usedPorts.add(p);
+      return p;
     }
     throw new Error(
       `[preview-supervisor] no free ports in range` +
@@ -874,15 +1197,11 @@ export class PreviewSupervisor {
     );
   }
 
-  /** Send SIGTERM to the process and remove it from local state. */
+  /** Send SIGTERM to the process group and remove it from local state. */
   private killAndClean(id: string, lp: LivePreview): void {
     this.live.delete(id);
     this.usedPorts.delete(lp.port);
-    try {
-      lp.proc.kill("SIGTERM");
-    } catch {
-      /* already dead */
-    }
+    killTree(lp.proc);
   }
 
   // ── Control-plane HTTP ──────────────────────────────────────────────────────
@@ -935,3 +1254,165 @@ export class PreviewSupervisor {
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Sum VmRSS of `rootPid` and its descendants (KiB→MiB). Preview boots
+ *  `sh -c` detached, so the real vite/next cost lives in the children. */
+function processTreeRssMb(rootPid: number | undefined): number | null {
+  if (!rootPid) return null;
+  try {
+    const children = new Map<number, number[]>();
+    for (const ent of readdirSync("/proc")) {
+      if (!/^\d+$/.test(ent)) continue;
+      const pid = Number(ent);
+      let st = "";
+      try {
+        st = readFileSync(`/proc/${pid}/status`, "utf8");
+      } catch {
+        continue;
+      }
+      const ppid = Number(/PPid:\s+(\d+)/.exec(st)?.[1] ?? NaN);
+      if (!Number.isFinite(ppid)) continue;
+      const list = children.get(ppid) ?? [];
+      list.push(pid);
+      children.set(ppid, list);
+    }
+    const stack = [rootPid];
+    const seen = new Set<number>();
+    let kb = 0;
+    while (stack.length) {
+      const pid = stack.pop()!;
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      try {
+        const st = readFileSync(`/proc/${pid}/status`, "utf8");
+        const m = /VmRSS:\s+(\d+)\s+kB/.exec(st);
+        if (m) kb += Number(m[1]);
+      } catch {
+        continue;
+      }
+      for (const c of children.get(pid) ?? []) stack.push(c);
+    }
+    if (kb <= 0) return null;
+    return Math.max(1, Math.round(kb / 1024));
+  } catch {
+    return null;
+  }
+}
+
+/** Kill the whole process group. Preview boots `sh -c "pnpm exec vite|next…"` —
+ *  SIGTERM on the shell alone orphans the real server (vite/next) under PID 1,
+ *  which is how the forge filled up with dozens of zombies at 95% RAM. Spawn with
+ *  detached:true so the shell is group leader; negative-pid kill reaps the tree. */
+function killTree(proc: ChildProcess): void {
+  const pid = proc.pid;
+  if (!pid) return;
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    try {
+      proc.kill("SIGTERM");
+    } catch {
+      /* already dead */
+    }
+  }
+}
+
+/** Sweep vite/next listening on the preview port range that we are NOT tracking.
+ *  Covers survivors from before group-kill and from soft-respin cutovers that
+ *  only killed the shell. Best-effort — never throws into the tick. */
+function reapOrphanPreviewServers(keepPorts: ReadonlySet<number>, portMin: number, portMax: number): number {
+  let killed = 0;
+  try {
+    for (const ent of readdirSync("/proc")) {
+      if (!/^\d+$/.test(ent)) continue;
+      let cmdline = "";
+      try {
+        cmdline = readFileSync(`/proc/${ent}/cmdline`, "utf8");
+      } catch {
+        continue;
+      }
+      const flat = cmdline.replace(/\0/g, " ");
+      // vite.js --port N  |  next dev … -p N
+      const m =
+        flat.match(/\bvite\.js\s+--port\s+(\d+)\b/) ||
+        flat.match(/\bnext\s+dev\b(?:.*?\s-p\s+(\d+))/);
+      if (!m) continue;
+      const port = Number(m[1]);
+      if (!Number.isFinite(port) || port < portMin || port > portMax) continue;
+      if (keepPorts.has(port)) continue;
+      try {
+        process.kill(Number(ent), "SIGTERM");
+        killed++;
+      } catch {
+        /* gone */
+      }
+    }
+  } catch {
+    /* /proc unavailable */
+  }
+  return killed;
+}
+
+/** Where the install stamp lives. Deliberately INSIDE node_modules: if the tree
+ *  is wiped, the stamp goes with it and the next boot reinstalls — the state can
+ *  never claim dependencies that aren't there. */
+function installStampPath(appDir: string): string {
+  return join(appDir, "node_modules", ".brokk-install-stamp");
+}
+
+/** Fingerprint of the app's lockfile, or null when it has none (then we cannot
+ *  reason about freshness and always install, i.e. today's behaviour). */
+function lockfileFingerprint(appDir: string): string | null {
+  for (const info of Object.values(PACKAGE_MANAGERS)) {
+    const lock = join(appDir, info.lockfile);
+    if (!existsSync(lock)) continue;
+    try {
+      return createHash("sha256").update(readFileSync(lock)).digest("hex");
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** Whether this boot must run the install step.
+ *
+ *  Install ran on EVERY boot because it is concatenated into the dev command.
+ *  Skipping it needs all three guards, or a preview boots against a tree that
+ *  doesn't match its lockfile:
+ *    1. no lockfile      → cannot reason, install (unchanged behaviour)
+ *    2. no node_modules  → obviously install
+ *    3. stamp missing or different from the lockfile hash → install
+ *  The stamp is only written once a boot reaches healthy, so a failed install
+ *  never marks the tree as good. */
+function needsInstall(appDir: string): { install: boolean; reason: string; fingerprint: string | null } {
+  const fingerprint = lockfileFingerprint(appDir);
+  if (!fingerprint) return { install: true, reason: "sem lockfile", fingerprint };
+  if (!existsSync(join(appDir, "node_modules"))) {
+    return { install: true, reason: "node_modules ausente", fingerprint };
+  }
+  let stamp: string | null = null;
+  try {
+    stamp = readFileSync(installStampPath(appDir), "utf8").trim();
+  } catch {
+    stamp = null;
+  }
+  if (stamp !== fingerprint) {
+    return { install: true, reason: stamp ? "lockfile mudou" : "sem carimbo (install anterior falhou?)", fingerprint };
+  }
+  return { install: false, reason: "árvore casa com o lockfile", fingerprint };
+}
+
+/** True when nothing is listening on `port`. Binds 0.0.0.0 — the same interface
+ *  the preview dev servers use (`-H 0.0.0.0`), so a bind held on any interface
+ *  is detected. Best-effort by nature: there is a TOCTOU window between this
+ *  probe and the child's own bind, but it closes the common case (a port held by
+ *  a process this supervisor did not start). */
+function portFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = createServer();
+    srv.once("error", () => resolve(false));
+    srv.once("listening", () => srv.close(() => resolve(true)));
+    srv.listen(port, "0.0.0.0");
+  });
+}

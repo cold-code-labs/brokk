@@ -60,6 +60,10 @@ services:
       BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
       HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
       HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+      # Lane backend comes from Heimdall (scoped), not from HAULDR_TOKEN. This
+      # is a URL, not a credential: the preview applies its OWN migrations with
+      # its per-project migrate token.
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       BROKK_EGRESS: '1'
       BROKK_PREVIEW_SECRETS_DIR: ${BROKK_PREVIEW_SECRETS_DIR:-/home/brokk/preview-secrets}
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
@@ -70,9 +74,16 @@ services:
     volumes:
     - brokk_home:/home/brokk
     networks:
-    - default
-    - coolify
-    - litellm
+      default:
+        aliases:
+      # `*.localhost` é o que o guard de cross-origin do dev do Next allowlista de
+      # fábrica. Com este alias o agente de QA do chat dirige o preview em
+      # http://forge.localhost:<porta> e o websocket de HMR é aceito — sem que
+      # cada app precise declarar allowedDevOrigins. Uma linha de topologia em
+      # vez de 19 edições de next.config (BROKK-20/21).
+        - forge.localhost
+      coolify: {}
+      litellm: {}
   forge-b:
     restart: unless-stopped
     build:
@@ -122,6 +133,10 @@ services:
       BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
       HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
       HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+      # Lane backend comes from Heimdall (scoped), not from HAULDR_TOKEN. This
+      # is a URL, not a credential: the preview applies its OWN migrations with
+      # its per-project migrate token.
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       BROKK_EGRESS: '1'
       BROKK_SUPERVISOR: '0'
       BROKK_PREVIEW_SECRETS_DIR: ${BROKK_PREVIEW_SECRETS_DIR:-/home/brokk/preview-secrets}
@@ -185,6 +200,10 @@ services:
       BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
       HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
       HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+      # Lane backend comes from Heimdall (scoped), not from HAULDR_TOKEN. This
+      # is a URL, not a credential: the preview applies its OWN migrations with
+      # its per-project migrate token.
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       BROKK_EGRESS: '1'
       EITRI_APP_ID: ${EITRI_APP_ID:-}
       EITRI_APP_PRIVATE_KEY_FILE: ${EITRI_APP_PRIVATE_KEY_FILE:-/home/brokk/eitri-app.pem}
@@ -232,6 +251,9 @@ services:
       BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://brokk-api:8789}
       BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
+      # Access gate. Must equal BROKK_PREVIEW_KEY on the web, which mints the
+      # keys this verifies. UNSET = every request 403s (closed, on purpose).
+      BROKK_PREVIEW_KEY: ${BROKK_PREVIEW_KEY:-}
     expose:
     - '3020'
     ports:
@@ -288,6 +310,10 @@ services:
       BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
       HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
       HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+      # Lane backend comes from Heimdall (scoped), not from HAULDR_TOKEN. This
+      # is a URL, not a credential: the preview applies its OWN migrations with
+      # its per-project migrate token.
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       BROKK_EGRESS: '1'
       SINDRI_PORT: '8795'
       SINDRI_WORKDIR: ${SINDRI_WORKDIR:-/home/brokk/work/sindri}

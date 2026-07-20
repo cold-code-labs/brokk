@@ -54,6 +54,12 @@ export interface RunnerConfig {
 
   /** Hauldr control-plane base URL (e.g. https://api.hauldr.io). Empty = Hauldr
    *  provisioning is skipped (app starts without Hauldr env vars). */
+  /** Heimdall's WEB base — the scoped Agent API (/api/agent/lanes) the forge
+   *  asks for a dev lane's backend through. Empty = previews run passthrough. */
+  heimdallAgentUrl: string;
+  /** the SCOPED agent token. Deliberately not a data-plane key: it reaches only
+   *  <app>_dev lanes of registered apps, never a client's prod project. */
+  heimdallAgentToken: string;
   hauldrControlUrl: string;
   /** Bearer token for the Hauldr API. */
   hauldrToken: string;
@@ -116,6 +122,8 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     chromiumPath: env.BROKK_CHROMIUM ?? "/usr/bin/chromium",
     pollIntervalMs: Number(env.BROKK_RUNNER_POLL_MS ?? 3000),
     // Preview supervisor
+    heimdallAgentUrl: (env.HEIMDALL_AGENT_URL ?? "").replace(/\/$/, ""),
+    heimdallAgentToken: env.HEIMDALL_AGENT_TOKEN ?? "",
     hauldrControlUrl: (env.HAULDR_CONTROL_URL ?? "").replace(/\/$/, ""),
     hauldrToken: env.HAULDR_TOKEN ?? "",
     previewCmd: env.BROKK_PREVIEW_CMD ?? "next build && next start -p $PORT",

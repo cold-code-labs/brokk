@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import { version } from "../package.json";
 import { chatRoutes } from "./routes/chat.js";
 import { conversationsRoutes } from "./routes/conversations.js";
+import { driverRunsRoutes } from "./routes/driver-runs.js";
 import { mimirRoutes } from "./routes/mimir.js";
 import { missionsRoutes } from "./routes/missions.js";
 import { previewsRoutes } from "./routes/previews.js";
@@ -35,8 +36,10 @@ export interface AppDeps {
   sindriUrl?: string;
   /** Hauldr control-plane base URL + bearer, for the read-only Studio (resolve a
    *  preview's Hauldr project → dbUrl → introspect). Both empty = /studio off. */
-  hauldrControlUrl?: string;
-  hauldrToken?: string;
+  /** Heimdall's WEB base — the Studio resolves a dev lane's db url through the
+   *  scoped /api/agent/lanes proxy, never the data plane's management key. */
+  heimdallAgentUrl?: string;
+  heimdallAgentToken?: string;
   /** Heimdall control-plane base URL + bearer — the provisioning engine "Nova
    *  Conversa" (ADR 0038) calls to birth a dev-first app. Both empty =
    *  /conversations → 503. */
@@ -87,6 +90,10 @@ export function buildApp(deps: AppDeps): Hono {
       path.startsWith("/runner") ||
       path.startsWith("/webhooks") ||
       path.startsWith("/previews") ||
+      // /driver-runs (ADR 0054): the forge claims + reports with the runner
+      // secret; the route has its own requireRunnerOrApiSecret. Guarding here
+      // would 401 the forge's claim/status writes and freeze the driver lane.
+      path.startsWith("/driver-runs") ||
       isRunnerRunWrite
     )
       return next();
@@ -99,6 +106,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/conversations", conversationsRoutes(deps));
   app.route("/projects", projectsRoutes(deps));
   app.route("/previews", previewsRoutes(deps));
+  app.route("/driver-runs", driverRunsRoutes(deps));
   app.route("/mimir", mimirRoutes(deps));
   app.route("/chat", chatRoutes(deps));
   app.route("/users", usersRoutes(deps));

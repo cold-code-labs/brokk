@@ -24,7 +24,7 @@ export interface ChatSession {
   branch: string | null;
   model: string;
   effort: string | null;
-  /** afl (native) / cli / cursor-* engines. Fixed at creation. */
+  /** afl / cli / cursor-* engines. Chosen freely until the first message; then locked. */
   engine?: string;
   /** Optional Brokk Skill id pinned at creation (skills/<id>/SKILL.md). */
   skill?: string | null;
@@ -67,13 +67,26 @@ export type AgentEvent =
   | { type: "error"; message: string }
   | { type: "ping" };
 
+/** An answer we actually heard back from the server. The status travels with it
+ *  so callers can tell a verdict (404: the session is gone) from the fleet
+ *  blinking (502 mid-redeploy) — one is worth surfacing, the other retrying. */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function j<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: body ? { "content-type": "application/json" } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`${method} ${path} → ${res.status} ${await res.text().catch(() => "")}`);
+  if (!res.ok)
+    throw new ApiError(`${method} ${path} → ${res.status} ${await res.text().catch(() => "")}`, res.status);
   return (await res.json()) as T;
 }
 
@@ -94,12 +107,51 @@ export const chat = {
     j<{ skills: { name: string; description: string; kind: string }[] }>("GET", "/skills").then(
       (r) => r.skills,
     ),
+  listEngines: () =>
+    j<{
+      engines: { id: string; available: boolean; reason?: string }[];
+    }>("GET", "/engines").then((r) => r.engines),
   getSession: (id: string) =>
     j<{ session: ChatSession; messages: ChatMessage[]; running: boolean }>("GET", `/sessions/${id}`),
-  patchSession: (id: string, patch: { title?: string; status?: string; model?: string; effort?: string | null }) =>
-    j<{ session: ChatSession }>("PATCH", `/sessions/${id}`, patch).then((r) => r.session),
+  patchSession: (
+    id: string,
+    patch: {
+      title?: string;
+      status?: string;
+      model?: string;
+      effort?: string | null;
+      /** Only while the session has zero messages. */
+      engine?: string;
+    },
+  ) => j<{ session: ChatSession }>("PATCH", `/sessions/${id}`, patch).then((r) => r.session),
   deleteSession: (id: string) => j<{ ok: true }>("DELETE", `/sessions/${id}`),
   stop: (id: string) => j<{ stopped: boolean }>("POST", `/sessions/${id}/stop`),
+  devtreeStatus: (projectId: string, sessionId?: string | null) =>
+    j<{
+      dirty: boolean;
+      branch: string;
+      files: string[];
+      path: string | null;
+      ahead: number | null;
+      missing?: boolean;
+    }>(
+      "GET",
+      `/projects/${encodeURIComponent(projectId)}/devtree${
+        sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""
+      }`,
+    ),
+  devtreeCommit: (
+    projectId: string,
+    opts?: { message?: string; sessionId?: string | null },
+  ) =>
+    j<{ ok: true; sha: string; pushed: boolean; branch: string }>(
+      "POST",
+      `/projects/${encodeURIComponent(projectId)}/devtree/commit`,
+      {
+        message: opts?.message,
+        sessionId: opts?.sessionId || undefined,
+      },
+    ),
 };
 
 export type { Preview };
@@ -209,13 +261,13 @@ export async function sendMessage(
     }),
     signal,
   });
-  if (!res.ok) throw new Error(`send → ${res.status} ${await res.text().catch(() => "")}`);
+  if (!res.ok) throw new ApiError(`send → ${res.status} ${await res.text().catch(() => "")}`, res.status);
   await consumeSSE(res, onEvent, signal);
 }
 
 /** Reattach to an in-flight turn's live stream (replays the recent tail). */
 export async function attach(sessionId: string, onEvent: (e: AgentEvent) => void, signal?: AbortSignal): Promise<void> {
   const res = await fetch(`${BASE}/sessions/${sessionId}/stream`, { signal });
-  if (!res.ok) throw new Error(`attach → ${res.status}`);
+  if (!res.ok) throw new ApiError(`attach → ${res.status}`, res.status);
   await consumeSSE(res, onEvent, signal);
 }

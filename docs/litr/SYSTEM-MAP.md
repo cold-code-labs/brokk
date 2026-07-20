@@ -81,8 +81,8 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Checkbox / radio (accent) | ✓ | globals input[type=checkbox/radio] |
 | Eyebrow + hot tick | ✓ | forge.css `.forge-eyebrow` |
 | Cooling rule / section rule | ✓ | `.forge-head-rule` / `.forge-h-rule` |
-| Crumb (mono breadcrumb) | ✓ | forge.css `.forge-crumb` |
-| Identity plate (initials) | ✓ | globals `.brokk-user-plate` |
+| Crumb (← Fleet / ← Board) | ✗ retired | nav vive na forge lintel |
+| Identity plate (initials) | ✓ | globals `.forge-avatar` / Topbar UserMenu |
 | Skeleton (metal heating shimmer) | ✓ | forge.css `.forge-skeleton` |
 | Tooltip | ✓ | `[data-tip]` etched mono plate (CSS-only); rich/positioned tips promote to component later |
 
@@ -91,6 +91,15 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 |---|---|---|
 | Masthead / stamped nameplate | ✓ | `.forge-head*` (+ `.forge-head-copy` / `.forge-head-actions` baseline) |
 | Workshop room frame | ✓ | `.forge-room` + `.ygg-main` gutter; Sindri stays edge-to-edge |
+| Collapsible rail | ✗ replaced | wall-rail (2026-07) |
+| Wall rail | ✗ replaced | → **Forge lintel** (verga) |
+| Forge lintel (verga) | ✓ | `.forge-lintel` + rooms + Bench visível + Anvil + User |
+| ⌘K command palette | ✗ retired | over-engineering; Bench/rooms na barra |
+| Anvil switcher (forged menu) | ✓ | Topbar Anvil + ComposerMenu portal sob âncora |
+| Session rail (New + Recents) | ✓ | `.sindri-rail*` — parede de `/chat` (mobília da sala, não chrome); ember = em fogo |
+| Floating head (overlay) | ✓ | `.sindri-head` — flutua sobre o body; única casa do switch de janela |
+| Bench line (contexto do turno) | ✓ | `.sindri-bench*` — anvil · branch acima da tray |
+| Growing composer tray | ✓ | `.sindri-input` auto-grow + `--sindri-input-max` |
 | Section heading | ✓ | `.forge-h*` |
 | Vitals strip | ✓ | `.forge-tiles/tile` |
 | Ledger (+ running row, table-hosted) | ✓ | `.forge-ledger/row` |
@@ -101,14 +110,15 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Cold hearth (empty state) | ✓ | `.forge-empty` |
 | Banner (info/ok/err) | ✓ | globals `.ygg-banner` restyle |
 | Toast — quiet confirmation stack | ✓ | `.forge-toast*` + Toaster.tsx; adopted: Discovery, Board (queue/done), Connect, Crew, Mímir (save) |
-| Dialog / modal plate | ◐ | forge.css `.forge-dialog*`; no adopter yet (Board uses inline drawer by design) |
+| Dialog / modal plate | ✓ | forge.css `.forge-dialog*` + New card (`is-form` / owner picks) |
 | Panel card | ✓ | `.forge-panel` |
 | Identity pod | ✓ | globals `.brokk-user` |
 
 ### L5 Patterns
 | Word | Status | Where |
 |---|---|---|
-| Sidebar chrome (rail, groups, active, switcher) | ✓ | globals + shell.css |
+| Sidebar chrome (rail, groups, active, switcher) | ✗ replaced | → forge bar |
+| Session tab strip (tira horizontal) | ✗ replaced | → session rail (parede de `/chat`, 2026-07-16) |
 | Kanban board (anvil, columns, snap-scroll) | ✓ | `.anvil-*` incl. `.anvil-card*` (selected/running states, act buttons, PR link); drawer stays inline by design |
 | Chat cockpit (bubbles, composer, chips) | ✓ | globals `.sindri-*` (bespoke layer, in-language) |
 | Data table | ✓ | `.forge-ledger table` (History) |
@@ -116,17 +126,18 @@ Status: ✓ forged and adopted · ◐ forged, adoption incomplete · ✗ missing
 | Notification stack | ✓ | `.forge-toasts` (top-right, stacking) |
 | Route loading state | ✓ | `app/(app)/loading.tsx` skeleton (nav never feels dead) |
 
-### L6 Pages (each = one mission; product frame pass 2026-07-14)
-Fleet ✓ (nameplate, not boxed hero) · Dashboard ✓ · Board ✓ (forge-toolbar +
-forge-seg) · Discovery ✓ · Sindri ✓ (edge-to-edge reference) · Mímir ✓ ·
+### L6 Pages (each = one mission; new-face pass 2026-07-14)
+Fleet ✓ (queue-first hot spot) · Dashboard ✓ · Board ✓ (forge-dialog new card) ·
+Discovery ✓ · Sindri ✓ (growing tray + rail room) · Mímir ✓ ·
 Connect ✓ · History ✓ · Crew ✓ · Settings ✓ · Landing ✓ (own art, kept).
 
 ### Known debt (next rounds)
-1. Board drawer/modal style constants → vocabulary (token-driven today, inline in form; heavy SSE logic — convert with care).
+1. Board drawer/detail still inline styles (convert when touching Detail).
 2. Sindri live-session surfaces (thread, Studio, FileViewer) gate-walked with a real open session.
 3. Populated-board gate shot once real cards exist on any project.
-4. Gate A/B dark+light shots for this workshop-frame pass on the real preview (auth).
-5. Fleet-wide: extract the product-agnostic halves of this map into
+4. Gate A/B dark+light shots for this new-face pass on the real preview (auth).
+5. Promote collapsible rail into Yggdrasil NavSidebar when a second app needs it.
+6. Fleet-wide: extract the product-agnostic halves of this map into
    `@cold-code-labs/yggdrasil-litr` METHOD.md when Heimdall builds its soul.
 
 ## The showroom — Claude Design sync

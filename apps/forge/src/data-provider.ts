@@ -12,7 +12,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { createHmac } from "node:crypto";
-import type { HauldrClient } from "./hauldr.js";
+import type { Hauldr } from "@brokk/core";
+
 
 export interface DataProviderResult {
   /** Env vars spread into the preview process. */
@@ -38,7 +39,7 @@ export const passthroughProvider: DataProvider = {
 };
 
 /** The CCL fleet provider: Hauldr dev-DB per app. */
-export function makeHauldrDataProvider(client: HauldrClient, controlUrl: string): DataProvider {
+export function makeHauldrDataProvider(client: Hauldr, controlUrl: string): DataProvider {
   return {
     name: "hauldr",
     async ensureEnv(project) {
@@ -98,6 +99,26 @@ export function makeHauldrDataProvider(client: HauldrClient, controlUrl: string)
         DEMO_LOGIN_EMAIL: DEMO_EMAIL,
         DEMO_LOGIN_PASSWORD: DEMO_PASSWORD,
       };
+
+      // Storage plane — só quando o projeto TEM sidecar de storage pronto.
+      //
+      // Sem isto o preview roda com `storageEnabled()` = false e TODA rota que
+      // serve bytes do Garage 404-a (aprovações, /projetos/artefato/…/imagem,
+      // /estudio/…/preview): nunca deu pra testar feature de storage em dev.
+      //
+      // Injetamos HAULDR_STORAGE_URL explícito em vez de HAULDR_URL de propósito.
+      // O template deriva de HAULDR_URL tanto storage QUANTO realtime, e realtime
+      // não é provisionado na maioria dos projetos (maglink_dev reporta
+      // `realtime: null`) — setar HAULDR_URL ligaria um realtime que não existe.
+      //
+      // O guard é o `ready` do control-plane, não um default otimista: a maioria
+      // dos previews não tem storage, e apontar pra um gateway ausente troca
+      // "desligado" (limpo) por "quebrado". O template espera <base>/storage/v1;
+      // o control-plane devolve a base em /storage.
+      if (hp.storageUrl) {
+        env.HAULDR_STORAGE_URL = `${hp.storageUrl.replace(/\/+$/, "")}/v1`;
+      }
+
       // Seed the one-click demo user into this preview's GoTrue (idempotent),
       // so the injected DEMO_LOGIN button actually authenticates.
       await seedDemoUser(hp.gotrueUrl, hp.jwtSecret).catch((err) =>

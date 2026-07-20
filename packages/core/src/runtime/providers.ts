@@ -94,6 +94,9 @@ export const PROVIDERS: Provider[] = [
       anyScriptMatches: "next (dev|build|start)",
     },
     commands: {
+      // Default Turbopack (`next dev`). Forge ensures @next/swc-linux-x64-gnu
+      // (BROKK-31) so native bindings load on Debian glibc. Opt into webpack with
+      // BROKK_NEXT_WEBPACK=1 if a worktree still can't load SWC.
       dev: "{exec} next dev -p $PORT -H 0.0.0.0",
       build: "{exec} next build",
       start: "{exec} next start -p $PORT -H 0.0.0.0",
@@ -112,9 +115,10 @@ export const PROVIDERS: Provider[] = [
       anyScriptMatches: "vite( build| preview)?",
     },
     commands: {
-      dev: `{exec} vite --port $PORT --host 0.0.0.0 --config ${VITE_PREVIEW_CONFIG_PATH}`,
+      // `--config=path` (equals form) — space-separated path is not an allowlist token.
+      dev: `{exec} vite --port $PORT --host 0.0.0.0 --config=${VITE_PREVIEW_CONFIG_PATH}`,
       build: "{exec} vite build",
-      start: `{exec} vite preview --port $PORT --host 0.0.0.0 --config ${VITE_PREVIEW_CONFIG_PATH}`,
+      start: `{exec} vite preview --port $PORT --host 0.0.0.0 --config=${VITE_PREVIEW_CONFIG_PATH}`,
     },
     prepareFiles: [{ path: VITE_PREVIEW_CONFIG_PATH, contents: VITE_PREVIEW_CONFIG }],
     health: "/",

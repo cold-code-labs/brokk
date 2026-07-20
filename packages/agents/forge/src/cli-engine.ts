@@ -1,20 +1,34 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// ClaudeCliEngine — the SECOND engine behind core's AgentEngine port (opt-in via
-// BROKK_FORGE_ENGINE=cli; ForgeEngine/afl stays the default).
+// CliEngine — the CLI family behind core's AgentEngine port, in two flavours:
+// ClaudeCliEngine (`claude`) and CursorCliEngine (`cursor-agent`).
 //
 // Instead of driving the afl loop against the gateway (LiteLLM → Ratatoskr),
-// each forge pass runs the genuine Claude Code CLI headless in the worktree
-// (packages/afl/src/claude-cli.ts). Heal passes RESUME the same CLI session, so
-// the agent keeps its memory of what it already tried — the same continuity
-// property the native engine has, via the CLI's own transcript instead of ours.
+// each forge pass runs a genuine vendor CLI headless in the worktree
+// (packages/afl/src/{claude,cursor}-cli.ts). Heal passes RESUME the same CLI
+// session, so the agent keeps its memory of what it already tried — the same
+// continuity property the native engine has, via the CLI's own transcript
+// instead of ours.
 //
-// Event mapping preserves the SDK-era shapes (`usage`={input_tokens,output_tokens},
+// The two lanes differ ONLY in the turn driver and how a model alias resolves;
+// the forge → verify → autofix → heal orchestration below is shared, so a run
+// behaves identically from the outside whichever CLI produced it. Event mapping
+// preserves the SDK-era shapes (`usage`={input_tokens,output_tokens},
 // `message`={role,content}) exactly like ForgeEngine.forgeHooks, so the control
-// plane, Board UI, and Langfuse tracer need no change. Verify → autofix → heal
-// orchestration mirrors ForgeEngine so runs behave identically from the outside.
+// plane, Board UI, and Langfuse tracer need no change.
+//
+// ⚠️ maxTurns is a CLAUDE-ONLY guard. `cursor-agent` has no equivalent flag, so
+// runCursorCliTurn silently ignores it: on the cursor lane the only bound on a
+// runaway pass is turnTimeoutMs. Kept explicit here because the cap looks
+// engine-agnostic at the call site and is not.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { runClaudeCliTurn, type AgentEvent, type CliTurnOutcome } from "@brokk/afl";
+import {
+  runClaudeCliTurn,
+  runCursorCliTurn,
+  type AgentEvent,
+  type CliTurnInput,
+  type CliTurnOutcome,
+} from "@brokk/afl";
 import type { AgentEngine, AgentRunContext, RunResult, RunUsage, VerifyOutcome } from "@brokk/core";
 import { buildHealPrompt, buildPrompt, DEFAULT_SYSTEM_PROMPT } from "./prompts.js";
 
@@ -23,10 +37,18 @@ export interface ClaudeCliEngineOptions {
   models?: { haiku: string; sonnet: string; opus: string };
   /** Tell the agent it has a headless browser (via bash). Default OFF. */
   browser?: boolean;
-  /** Hard cap on agentic turns per pass (runaway guard). */
+  /** Hard cap on agentic turns per pass (runaway guard). Claude lane only —
+   *  see the header note; the cursor CLI has no equivalent. */
   maxTurns?: number;
   /** Kill a single pass after this long. Default 1h. */
   turnTimeoutMs?: number;
+}
+
+export interface CursorCliEngineOptions extends Omit<ClaudeCliEngineOptions, "models"> {
+  /** Concrete model handed to `cursor-agent --model`. Default "auto" — Cursor
+   *  picks per task, and the CCL aliases (sonnet/opus/haiku) are meaningless to
+   *  it, so a project's stored alias must NOT leak through. */
+  model?: string;
 }
 
 const DEFAULT_MODELS: Record<string, string> = {
@@ -35,12 +57,27 @@ const DEFAULT_MODELS: Record<string, string> = {
   opus: "claude-opus-4-8",
 };
 
-export class ClaudeCliEngine implements AgentEngine {
-  constructor(private readonly opts: ClaudeCliEngineOptions = {}) {}
+type CliDriver = (input: CliTurnInput) => Promise<CliTurnOutcome>;
+
+interface CliEngineSpec {
+  /** Which vendor CLI drives a pass. */
+  driver: CliDriver;
+  /** Goes out on the `agent_start` status event; the Board shows it. */
+  label: string;
+  /** Human name for the pass-failure message. */
+  cliName: string;
+  /** ctx.model (an alias like "sonnet") → the id this CLI understands. */
+  resolveModel: (alias: string) => string;
+}
+
+class CliEngine implements AgentEngine {
+  constructor(
+    private readonly spec: CliEngineSpec,
+    private readonly opts: ClaudeCliEngineOptions = {},
+  ) {}
 
   async run(ctx: AgentRunContext): Promise<RunResult> {
-    const models: Record<string, string> = { ...DEFAULT_MODELS, ...(this.opts.models ?? {}) };
-    const model = models[ctx.model] ?? ctx.model;
+    const model = this.spec.resolveModel(ctx.model);
     const usage: RunUsage = { tokensIn: 0, tokensOut: 0, headroomSaved: 0 };
     // tool_use id → name, so tool_result events carry the name like forgeHooks'.
     const toolNames = new Map<string, string>();
@@ -72,7 +109,7 @@ export class ClaudeCliEngine implements AgentEngine {
     };
 
     const pass = (prompt: string): Promise<CliTurnOutcome> =>
-      runClaudeCliTurn({
+      this.spec.driver({
         cwd: ctx.cwd,
         prompt,
         model,
@@ -99,7 +136,7 @@ export class ClaudeCliEngine implements AgentEngine {
       const outcome = await pass(prompt);
       cliSessionId = outcome.cliSessionId ?? cliSessionId;
       if (outcome.stop === "error") {
-        throw new Error(`claude CLI pass failed: ${outcome.resultText.slice(0, 2000)}`);
+        throw new Error(`${this.spec.cliName} CLI pass failed: ${outcome.resultText.slice(0, 2000)}`);
       }
       return outcome;
     };
@@ -111,7 +148,7 @@ export class ClaudeCliEngine implements AgentEngine {
     const maxHeal = ctx.verify ? Math.max(0, ctx.maxHealAttempts ?? 0) : 0;
 
     try {
-      ctx.emit({ type: "status", payload: { phase: "agent_start", model, engine: "cli" } });
+      ctx.emit({ type: "status", payload: { phase: "agent_start", model, engine: this.spec.label } });
       const first = await forgePass(buildPrompt(ctx, this.opts.browser));
       ctx.emit({ type: "status", payload: { phase: "forge_pass", stop: first.stop } });
 
@@ -152,5 +189,41 @@ export class ClaudeCliEngine implements AgentEngine {
 
     ctx.emit({ type: "status", payload: { phase: "agent_done", usage, healAttempts, autofixResolved } });
     return { usage, verify, healAttempts, lastHealFailure, autofixResolved };
+  }
+}
+
+/** The Claude Code CLI lane. Aliases resolve to concrete Anthropic model ids. */
+export class ClaudeCliEngine extends CliEngine {
+  constructor(opts: ClaudeCliEngineOptions = {}) {
+    const models: Record<string, string> = { ...DEFAULT_MODELS, ...(opts.models ?? {}) };
+    super(
+      {
+        driver: runClaudeCliTurn,
+        label: "cli",
+        cliName: "claude",
+        resolveModel: (alias) => models[alias] ?? alias,
+      },
+      opts,
+    );
+  }
+}
+
+/** The Cursor Agent CLI lane. Unlike Claude, the model is NOT derived from the
+ *  project's alias: Cursor has its own catalogue and `auto` lets it choose per
+ *  task, which is how the fleet already runs it in Svalinn's deepsec engine.
+ *  Feeding it a stored "sonnet" would either error or silently pin the wrong
+ *  thing, so the alias is dropped on purpose. */
+export class CursorCliEngine extends CliEngine {
+  constructor(opts: CursorCliEngineOptions = {}) {
+    const model = opts.model ?? "auto";
+    super(
+      {
+        driver: runCursorCliTurn,
+        label: "cursor-cli",
+        cliName: "cursor-agent",
+        resolveModel: () => model,
+      },
+      opts,
+    );
   }
 }

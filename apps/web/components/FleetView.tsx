@@ -5,9 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { Flame, FolderGit2 } from "lucide-react";
 import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
 import { STATUS_COLOR } from "../lib/theme";
-import { PreviewChip } from "./PreviewChip";
 import { discovery, type BriefStatus } from "../lib/chat";
-import type { Preview, Project, Repository, Task } from "@brokk/sdk";
+import type { Project, Repository, Task } from "@brokk/sdk";
 
 /** A per-project "environment is being prepared" chip. Right after a repo is
  *  connected, Huginn clones it and detects its runtime (the discovery brief:
@@ -113,19 +112,11 @@ function ProjectCard({
   repo,
   running,
   counts,
-  preview,
-  previewBusy,
-  onPreview,
-  onStopPreview,
 }: {
   project: Project;
   repo?: Repository;
   running: number;
   counts: (s: string) => number;
-  preview?: Preview;
-  previewBusy?: boolean;
-  onPreview: (id: string) => void;
-  onStopPreview: (id: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   function move(e: React.MouseEvent) {
@@ -158,15 +149,6 @@ function ProjectCard({
         <span className="ygg-badge" data-tone={counts("queued") ? "warn" : undefined}>{counts("queued")} queued</span>
         <span className="ygg-badge" data-tone={counts("review") ? "info" : undefined}>{counts("review")} PR</span>
       </div>
-      <div className="fleet-card-foot">
-        {preview ? (
-          <PreviewChip preview={preview} onStop={() => onStopPreview(preview.id)} />
-        ) : (
-          <Button variant="outline" size="sm" type="button" onClick={() => onPreview(project.id)} disabled={previewBusy}>
-            {previewBusy ? "starting…" : "Preview dev"}
-          </Button>
-        )}
-      </div>
     </div>
   );
 }
@@ -177,8 +159,6 @@ export interface FleetViewProps {
   projectById: Map<string, Project>;
   tasksByProject: Map<string, Task[]>;
   queue: Task[];
-  previewsByProject: Map<string, Preview>;
-  previewBusy: Record<string, boolean>;
   counts: { running: number; queued: number; review: number; seats: number };
   err: string | null;
   pid: string;
@@ -187,8 +167,6 @@ export interface FleetViewProps {
   onPid: (v: string) => void;
   onTitle: (v: string) => void;
   onSubmit: (e: React.FormEvent) => void;
-  onPreview: (projectId: string) => void;
-  onStopPreview: (previewId: string) => void;
 }
 
 /** Pure presentational Fleet. All data arrives as props so it renders identically
@@ -197,14 +175,14 @@ export default function FleetView(p: FleetViewProps) {
   const running = p.counts.running;
   return (
     <main className="fleet forge-room">
-      {/* hero — stamped nameplate (product); aurora is atmosphere only */}
+      {/* nameplate — quiet; the hot spot is the queue bar below */}
       <header className="fleet-hero">
         <div className="fleet-aurora" aria-hidden />
         <div className="fleet-hero-inner">
           <div className="fleet-hero-copy">
             <span className="fleet-eyebrow">Brokk · the forge</span>
-            <h1 className="fleet-title">Fleet</h1>
-            <p className="fleet-subtitle">Every CCL repo, its queue, and the global forge — one board, live.</p>
+            <h1 className="fleet-title">Projects</h1>
+            <p className="fleet-subtitle">Queue work onto any anvil. The forge runs the rest.</p>
           </div>
           <div className="fleet-hero-actions">
             <span className={`fleet-pulse${running > 0 ? "" : " is-quiet"}`}>
@@ -222,16 +200,8 @@ export default function FleetView(p: FleetViewProps) {
 
       {p.err && <Banner tone="err">⚠ {p.err}</Banner>}
 
-      {/* stats */}
-      <div className="fleet-stats">
-        <Stat value={p.counts.running} label="Running now" live />
-        <Stat value={p.counts.queued} label="Queued" />
-        <Stat value={p.counts.review} label="In review · PR" live />
-        <Stat value={p.counts.seats} label="Max seats" />
-      </div>
-
-      {/* composer — one seamless command-bar */}
-      <form onSubmit={p.onSubmit} className="fleet-composer">
+      {/* fleet floor — primary gesture: Queue → */}
+      <form onSubmit={p.onSubmit} className="fleet-composer is-hotspot">
         <div className="fleet-pick">
           <select value={p.pid} onChange={(e) => p.onPid(e.target.value)} aria-label="Project">
             {p.projects.length === 0 && <option value="">no project — connect a repo</option>}
@@ -250,6 +220,14 @@ export default function FleetView(p: FleetViewProps) {
           {p.busy ? "Forging…" : "Queue →"}
         </button>
       </form>
+
+      {/* vitals — demoted under the gesture */}
+      <div className="fleet-stats is-quiet">
+        <Stat value={p.counts.running} label="Running now" live />
+        <Stat value={p.counts.queued} label="Queued" />
+        <Stat value={p.counts.review} label="In review · PR" live />
+        <Stat value={p.counts.seats} label="Max seats" />
+      </div>
 
       {/* projects */}
       <section className="forge-section">
@@ -281,10 +259,6 @@ export default function FleetView(p: FleetViewProps) {
                   repo={p.repoById.get(proj.repositoryId)}
                   running={c("running")}
                   counts={c}
-                  preview={p.previewsByProject.get(proj.id)}
-                  previewBusy={p.previewBusy[proj.id]}
-                  onPreview={p.onPreview}
-                  onStopPreview={p.onStopPreview}
                 />
               );
             })}

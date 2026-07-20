@@ -30,18 +30,66 @@ export class GhProvider implements GitProvider {
     return join(this.opts.workDir, "repos", `${repo.owner}__${repo.name}.git`);
   }
 
+  /** Every preview worktree currently registered across the cached bare repos,
+   *  as {bare, path, name} — `name` is the dir basename, which is the Hauldr
+   *  project slug the supervisor keys previews by.
+   *
+   *  Driven off `git worktree list` rather than a readdir so each hit carries the
+   *  bare repo that owns it: removing a worktree needs BOTH, and a plain rm -rf
+   *  would strand the registration inside the bare (git then refuses to re-add
+   *  the same path later). Dirs with no registration are deliberately NOT
+   *  reported here — see reclaimPreviewWorktree for why they need a different
+   *  teardown. */
+  async listPreviewWorktrees(): Promise<{ bare: string; path: string; name: string }[]> {
+    const reposDir = join(this.opts.workDir, "repos");
+    if (!existsSync(reposDir)) return [];
+    const prefix = join(this.opts.workDir, "preview-worktrees") + "/";
+    const out: { bare: string; path: string; name: string }[] = [];
+    const { readdir } = await import("node:fs/promises");
+    const bares = await readdir(reposDir).catch(() => [] as string[]);
+    for (const entry of bares) {
+      const bare = join(reposDir, entry);
+      // Best-effort per repo: one broken bare must not blind the whole sweep.
+      const listing = await git(bare, ["worktree", "list", "--porcelain"]).catch(() => "");
+      for (const line of listing.split("\n")) {
+        if (!line.startsWith("worktree ")) continue;
+        const path = line.slice("worktree ".length).trim();
+        if (!path.startsWith(prefix)) continue; // forge/run worktrees aren't ours
+        out.push({ bare, path, name: path.slice(prefix.length) });
+      }
+    }
+    return out;
+  }
+
+  /** Tear a preview worktree down: drop the registration, then the dir, then
+   *  prune whatever the first step left pinned. Same sequence persistentCheckout
+   *  uses before re-adding, and it must stay the same — a dir removed without the
+   *  prune wedges every future checkout at that path.
+   *
+   *  Returns false (never throws) when the dir SURVIVES, which means it holds
+   *  files the runner uid can't remove — the fingerprint of a run that crashed
+   *  under the isolation enclave. The caller logs it; a reclaim sweep must not
+   *  die on one poisoned tree while 14 healthy ones wait behind it. */
+  async reclaimPreviewWorktree(bare: string, path: string): Promise<boolean> {
+    await git(bare, ["worktree", "remove", "--force", path]).catch(() => {});
+    await rm(path, { recursive: true, force: true }).catch(() => {});
+    await git(bare, ["worktree", "prune"]).catch(() => {});
+    return !existsSync(path);
+  }
+
   private refExists(bare: string, ref: string): Promise<boolean> {
     return git(bare, ["rev-parse", "--verify", ref]).then(() => true).catch(() => false);
   }
 
-  /** Refresh `baseBranch` into a REMOTE-TRACKING ref and return the freshest start
-   *  point to fork from. Never fetches into `refs/heads/<base>`: the preview
-   *  supervisor may have that branch checked out in a persistent worktree of this
-   *  same bare clone, and git refuses to fetch into a checked-out branch. */
+  /** Refresh REMOTE-TRACKING refs and return the freshest start point to fork from.
+   *  Never fetches into `refs/heads/*`: the preview supervisor may have a branch
+   *  checked out in a persistent worktree of this same bare clone, and git refuses
+   *  to fetch into a checked-out branch. Fetches every branch rather than just base
+   *  — this bare has no remote.origin.fetch, so a narrow refspec leaves the rest
+   *  pinned to their clone-time values, which is how `origin/main` becomes a fossil
+   *  that reads as truth. */
   private async resolveBase(bare: string, baseBranch: string, defaultBranch: string): Promise<string> {
-    await git(bare, ["fetch", "origin", `+refs/heads/${baseBranch}:refs/remotes/origin/${baseBranch}`]).catch(
-      () => {},
-    );
+    await git(bare, ["fetch", "origin", "+refs/heads/*:refs/remotes/origin/*"]).catch(() => {});
     if (await this.refExists(bare, `refs/remotes/origin/${baseBranch}`)) return `refs/remotes/origin/${baseBranch}`;
     if (await this.refExists(bare, `refs/heads/${baseBranch}`)) return `refs/heads/${baseBranch}`;
     return defaultBranch; // base not created on the remote yet → fork off default
@@ -267,9 +315,19 @@ export class GhProvider implements GitProvider {
 
     await mkdir(join(this.opts.workDir, "preview-worktrees"), { recursive: true });
 
+    // Resolve the fetched tip to a SHA *here, in the bare*. FETCH_HEAD is a
+    // per-worktree ref: each worktree gitdir keeps its own. Naming it in a command
+    // run inside the worktree (below) resolves the WORKTREE's FETCH_HEAD — written
+    // by refreshCheckout's own fetch, not by the one above — so the reuse path
+    // would reset onto a stale tip and still report success. That pinned the viken
+    // preview 29 commits behind for days: it never went 'live', so the live-only
+    // drift refresh never re-fetched, and every boot reset it back onto the same
+    // frozen sha.
+    const tip = await git(bare, ["rev-parse", "FETCH_HEAD"]);
+
     // Try to refresh an existing worktree (the "reuse" path — no teardown):
     // reset onto the freshly fetched tip.
-    const refreshed = await git(path, ["reset", "--hard", "FETCH_HEAD"])
+    const refreshed = await git(path, ["reset", "--hard", tip])
       .then(() => true)
       .catch(() => false);
     if (refreshed) return { path, branch };

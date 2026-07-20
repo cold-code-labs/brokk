@@ -13,7 +13,10 @@ import {
   runTurn,
 } from "@brokk/chat";
 import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 import { runCliSessionTurn } from "./cli-turn.js";
 import { writeInboxUploads } from "./inbox.js";
 import { unseal } from "./secrets.js";
@@ -29,8 +32,10 @@ import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { CheckoutManager } from "./checkout.js";
 import { fsRoutes } from "./fs-routes.js";
+import { devtreeRoutes } from "./devtree-routes.js";
 import type { McpToolProvider } from "@brokk/mcp";
 import { HeimdallAgentClient } from "./heimdall.js";
+import { screencast } from "./live-view.js";
 import { TurnManager } from "./turns.js";
 
 /** Canonical engine ids + legacy aliases (afl/cli). */
@@ -92,6 +97,8 @@ const PatchSession = z.object({
   status: z.enum(["active", "archived"]).optional(),
   model: z.string().optional(),
   effort: z.enum(["low", "medium", "high"]).nullable().optional(),
+  /** Allowed only while the session still has zero messages (BROKK-33). */
+  engine: ENGINE_ENUM.optional(),
 });
 
 const SendMessage = z.object({
@@ -196,10 +203,112 @@ export function buildSindri(deps: SindriDeps): Hono {
   app.onError((err, c) => c.json({ error: err instanceof Error ? err.message : String(err) }, 500));
   app.get("/health", (c) => c.json({ ok: true, service: "sindri" }));
 
-  // Shared-secret guard (the control-plane API injects it). Health stays open.
+  // Which motors this Sindri image can actually run (BROKK-34: Cursor CLI needs
+  // the glibc `agent` binary — Alpine chat historically advertises the chip but
+  // create/patch then 400s, leaving the UI out of sync with the session).
+  app.get("/engines", (c) => {
+    const cursorCli = cursorCliAvailable();
+    const claudeCli = claudeCliAvailable();
+    const cursorSeat = Boolean(
+      process.env.CURSOR_SEAT_URL || process.env.CURSOR_SEAT_INGRESS,
+    );
+    return c.json({
+      engines: [
+        { id: "claude-api", available: true },
+        {
+          id: "claude-cli",
+          available: claudeCli,
+          ...(claudeCli
+            ? {}
+            : { reason: "claude binary or CLAUDE_CODE_OAUTH_TOKEN missing" }),
+        },
+        {
+          id: "cursor-api",
+          available: cursorSeat,
+          ...(cursorSeat ? {} : { reason: "CURSOR_SEAT_URL unset" }),
+        },
+        {
+          id: "cursor-cli",
+          available: cursorCli,
+          ...(cursorCli
+            ? {}
+            : {
+                reason:
+                  "agent binary or CURSOR_API_KEY missing on this chat image — use Cursor API",
+              }),
+        },
+      ],
+    });
+  });
+
+  // Serve images produced by the generate_image tool. Reached in the browser via
+  // the authed /api/chat/images/:id proxy hop. Ids are uuids we minted.
+  app.get("/images/:id", async (c) => {
+    const id = c.req.param("id").replace(/[^a-fA-F0-9-]/g, "");
+    if (!id) return c.json({ error: "bad id" }, 400);
+    try {
+      const buf = await readFile(join(IMAGE_DIR, `${id}.png`));
+      return new Response(new Uint8Array(buf), {
+        headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" },
+      });
+    } catch {
+      return c.json({ error: "not found" }, 404);
+    }
+  });
+
+  // Live-view (ADR 0054): an MJPEG screencast of the shared browser the QA agent
+  // drives. The preview pane renders it with a plain <img src="…/live/:id"> — no
+  // WebSocket client, no canvas. `:id` is the chat session (cosmetic for now; one
+  // shared browser). 503 when nothing's driving yet.
+  app.get("/live/:id", (c) => {
+    const boundary = "brokkframe";
+    const enc = new TextEncoder();
+    let stop = () => {};
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          stop = await screencast((jpeg) => {
+            try {
+              controller.enqueue(
+                enc.encode(`--${boundary}\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`),
+              );
+              controller.enqueue(new Uint8Array(jpeg));
+              controller.enqueue(enc.encode("\r\n"));
+            } catch {
+              /* stream closed by the client */
+            }
+          });
+        } catch {
+          controller.close();
+          return;
+        }
+        c.req.raw.signal.addEventListener("abort", () => {
+          stop();
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        });
+      },
+      cancel() {
+        stop();
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": `multipart/x-mixed-replace; boundary=${boundary}`,
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Connection: "keep-alive",
+      },
+    });
+  });
+
+  // Shared-secret guard (the control-plane API injects it). Health + engine
+  // catalogue stay open (no secrets — just which motors this image can run).
   app.use("*", async (c, next) => {
     if (!deps.runnerSecret) return next();
-    if (c.req.path === "/health") return next();
+    if (c.req.path === "/health" || c.req.path === "/engines") return next();
     if (c.req.header("authorization") === `Bearer ${deps.runnerSecret}`) return next();
     return c.json({ error: "unauthorized" }, 401);
   });
@@ -222,6 +331,7 @@ export function buildSindri(deps: SindriDeps): Hono {
   // Reads/writes the session's working checkout on disk. Mounted before the
   // session routes below; guarded by the same shared-secret middleware above.
   app.route("/", fsRoutes(deps.checkouts));
+  app.route("/", devtreeRoutes({ store: deps.store, checkouts: deps.checkouts }));
 
   // ── Sessions ────────────────────────────────────────────────────────────────
 
@@ -280,6 +390,11 @@ export function buildSindri(deps: SindriDeps): Hono {
         400,
       );
     }
+    // "auto" is Cursor-seat only — never persist it on a Claude engine (BROKK-34).
+    let model = parsed.data.model ?? "haiku";
+    if (model === "auto" && engine !== "cursor-api" && engine !== "cursor-cli") {
+      model = "sonnet";
+    }
     const skillRaw = parsed.data.skill?.trim() || null;
     if (skillRaw) {
       const known = new Set(skillMetaList([
@@ -294,7 +409,7 @@ export function buildSindri(deps: SindriDeps): Hono {
     const created = await deps.store.insertChatSession({
       projectId: project.id,
       title: parsed.data.title ?? "New chat",
-      model: parsed.data.model ?? "haiku",
+      model,
       effort: parsed.data.effort ?? null,
       engine,
       skill: skillRaw,
@@ -318,7 +433,62 @@ export function buildSindri(deps: SindriDeps): Hono {
   app.patch("/sessions/:id", async (c) => {
     const parsed = PatchSession.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const session = await deps.store.updateChatSession(c.req.param("id"), parsed.data);
+    const id = c.req.param("id");
+    const existing = await deps.store.getChatSession(id);
+    if (!existing) return c.json({ error: "not found" }, 404);
+
+    if (parsed.data.engine !== undefined) {
+      const engine = normalizeEngine(parsed.data.engine);
+      const msgs = await deps.store.listChatMessages(id);
+      if (msgs.length > 0 && normalizeEngine(existing.engine) !== engine) {
+        return c.json(
+          {
+            error:
+              "engine is locked after the first message — open a new chat to switch motors",
+          },
+          409,
+        );
+      }
+      if (engine === "claude-cli" && !claudeCliAvailable()) {
+        return c.json(
+          { error: "Claude CLI unavailable: claude binary or CLAUDE_CODE_OAUTH_TOKEN missing" },
+          400,
+        );
+      }
+      if (engine === "cursor-cli" && !cursorCliAvailable()) {
+        return c.json(
+          { error: "Cursor CLI unavailable: agent binary or CURSOR_API_KEY/CURSOR_AUTH_TOKEN missing" },
+          400,
+        );
+      }
+      const { engine: _rawEng, ...rest } = parsed.data;
+      let model = rest.model;
+      if (
+        (model === "auto" || (model === undefined && existing.model === "auto")) &&
+        engine !== "cursor-api" &&
+        engine !== "cursor-cli"
+      ) {
+        model = "sonnet";
+      }
+      const session = await deps.store.updateChatSession(id, {
+        ...rest,
+        ...(model !== undefined ? { model } : {}),
+        engine,
+      });
+      return c.json({ session });
+    }
+
+    // Model-only patch: never leave "auto" on a Claude engine.
+    const patch = { ...parsed.data };
+    const eng = normalizeEngine(existing.engine);
+    if (
+      patch.model === "auto" &&
+      eng !== "cursor-api" &&
+      eng !== "cursor-cli"
+    ) {
+      patch.model = "sonnet";
+    }
+    const session = await deps.store.updateChatSession(id, patch);
     return c.json({ session });
   });
 
@@ -798,6 +968,13 @@ async function runSessionTurn(
       emit({ type: "status", phase: "planejando" });
       return runPlan(deps, project, intent);
     },
+    // The generate_image tool bridges to the Cursor seat's image lane (Ratatoskr
+    // cursor-img). Generation is slow (~1–2 min) — surface a status; the PNG is
+    // persisted and returned as a markdown tag served via the /api/chat/* proxy.
+    generateImage: (prompt) => {
+      emit({ type: "status", phase: "gerando imagem" });
+      return runImage(prompt);
+    },
     // Infra-intent bridges (set_env / redeploy_app / register_route /
     // register_job) → Heimdall's scoped Agent API. Present only when the agent
     // token is configured; the tools are confirmation-gated in makeDomainExecutor.
@@ -848,6 +1025,61 @@ async function runSessionTurn(
   }
   if (isFirstTurn) {
     void autoTitle(deps.store, deps.cfg, session.id, text, (title) => emit({ type: "title", title }));
+  }
+}
+
+// ── generate_image bridge ────────────────────────────────────────────────────
+// Hits the Cursor seat's image lane (OpenAI /v1/images/generations), persists the
+// PNG under IMAGE_DIR (on the durable /home/brokk volume, so it survives redeploys),
+// and returns a markdown tag pointing at GET /images/:id — reachable in the browser
+// through the authed /api/chat/* proxy (which strips /chat → /images/:id).
+//
+// Routing is env-driven:
+//   • default → the cursor-img sidecar directly, with the same ingress key the
+//     cursor-api engine already uses (self-contained, no LiteLLM dependency).
+//   • metered → set CURSOR_IMAGE_URL=http://litellm:4000 + CURSOR_IMAGE_KEY=<vkey>;
+//     the request carries model=CURSOR_IMAGE_MODEL so LiteLLM attributes/ budgets it.
+// The model field is harmless to the sidecar (its shim ignores it).
+const IMAGE_BASE = (process.env.CURSOR_IMAGE_URL || "http://ratatoskr-cursor-img:8794").replace(/\/$/, "");
+const IMAGE_KEY =
+  process.env.CURSOR_IMAGE_KEY ||
+  process.env.CURSOR_SEAT_INGRESS ||
+  process.env.CURSOR_INGRESS_KEYS?.split(",")[0]?.trim() ||
+  "";
+const IMAGE_MODEL = process.env.CURSOR_IMAGE_MODEL || "cursor-image";
+// Persist under the runner workdir (on the durable /home/brokk volume, writable by
+// the app uid) so images survive redeploys. Fall back to tmp elsewhere (ephemeral
+// but always writable) — NOT homedir(): the app runs with HOME unset (→ "/"), which
+// is not writable (EACCES).
+const IMAGE_DIR =
+  process.env.BROKK_CHAT_IMAGES_DIR ||
+  (process.env.BROKK_RUNNER_WORKDIR
+    ? join(process.env.BROKK_RUNNER_WORKDIR, ".chat-images")
+    : join(tmpdir(), "brokk-chat-images"));
+
+async function runImage(prompt: string): Promise<{ ok: boolean; content: string }> {
+  if (!IMAGE_KEY)
+    return { ok: false, content: "image generation is not configured (CURSOR_IMAGE_KEY/CURSOR_SEAT_INGRESS unset)" };
+  try {
+    const res = await fetch(`${IMAGE_BASE}/v1/images/generations`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${IMAGE_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: IMAGE_MODEL, prompt, n: 1 }),
+      signal: AbortSignal.timeout(240_000),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      return { ok: false, content: `image generation failed (${res.status}): ${t.slice(0, 200)}` };
+    }
+    const j = (await res.json()) as { data?: Array<{ b64_json?: string }> };
+    const b64 = j.data?.[0]?.b64_json;
+    if (!b64) return { ok: false, content: "image generation returned no image" };
+    const id = randomUUID();
+    await mkdir(IMAGE_DIR, { recursive: true });
+    await writeFile(join(IMAGE_DIR, `${id}.png`), Buffer.from(b64, "base64"));
+    return { ok: true, content: `![${prompt.slice(0, 80)}](/api/chat/images/${id})` };
+  } catch (e) {
+    return { ok: false, content: `image generation error: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
 

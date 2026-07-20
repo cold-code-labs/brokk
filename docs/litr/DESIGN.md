@@ -2,50 +2,88 @@
 
 **Register:** product (console `/(app)`). Brand landing unchanged.
 **Soul:** The Forge at Night (`docs/litr/soul.json`).
-**Dials (Taste):** VARIANCE low–medium · MOTION low · DENSITY high · hot-spot bump local.
-**Passe:** workshop frame — 2026-07-14 (litr-frontend-design Modo A, product).
+**Dials (Taste):** VARIANCE medium (chrome) · MOTION low · DENSITY high · hot-spot bump local.
+**Passe:** forge lintel — 2026-07-14 (topbar Hauldr-form, Brokk soul; Bench visível, sem ⌘K).
+**Passe:** session rail — 2026-07-16 (sessões do Sindri saem da tira de tabs e viram
+a parede esquerda da sala `/chat`: New session + Recents do projeto ativo. A sala
+abre SEM sessão e SEM preview — nada entra no frame sem ser pedido; o head vira
+overlay flutuante e é a única casa do switch de janela).
 
 ## Cena física (product)
 
-A oficina à noite vista de dentro: parede escura (sidebar), chão quieto (canvas),
-uma placa carimbada no alto de cada sala, e o único calor no gesto/trabalho
-vivo. O cockpit Sindri (chat|preview) define o ritmo de margem — edge-to-edge;
-as outras salas herdam o **mesmo alinhamento de nameplate + gutter**, sem se
-fazerem de landing.
+Uma oficina vista de dentro: a **verga** (lintel / `.forge-lintel`, ~44px) é a
+trave do portal — mark + **Brokk**, rooms (Projects · Chat · Board · New),
+**Bench** á vista (Dashboard · Connect · History · Crew · Settings), spacer,
+Anvil (projeto ativo), avatar na **extrema direita**. Menus Anvil/User
+portalizam sob o clique. O **chão** (canvas) é quase todo o frame abaixo. O
+calor só no trabalho: Queue →, ember em running, Publicar. Forma de workbench
+topbar (Hauldr), alma Brokk — **nunca** eclipses Svalinn.
 
 ## Assinatura de superfície (product)
 
 | Nome | O quê | Onde |
 |---|---|---|
-| Workshop frame | Gutter único (`--sp-5`) + max-width por papel; canvas `min-width:0` | `.forge-room` / `.ygg-main` |
-| Stamped nameplate | Eyebrow mono + title display alinhado a actions na mesma baseline | `.forge-head*` |
-| Ember pulse | Único calor; quieto quando a forja descansa | `.forge-pulse` / fleet |
+| **Forge lintel (verga)** | Topbar fixa; Anvil/User em pop portaled sob âncora | `.forge-lintel` |
+| Workshop frame | Gutter + max-width por papel | `.forge-room` |
+| Stamped nameplate | Eyebrow + title display | `.forge-head*` |
+| Growing tray | Composer auto-grow | `.sindri-input` |
+| **Session rail** | Parede esquerda do `/chat`: New session + Recents do projeto ativo; ember na sessão em fogo | `.sindri-rail*` |
+| **Floating head** | Overlay no topo do chat; só o switch de janela, em tokens paper | `.sindri-head` |
+| **Bench line** | Contexto do turno (anvil · branch) acima da tray | `.sindri-bench*` |
+| Ember pulse | Único calor no trabalho vivo | `.forge-pulse` / fleet |
+
+**Fronteira (não confundir com a forma aposentada):** o *session rail* é
+**mobília da sala** `/chat` — lista o trabalho do projeto ativo, e só ele. Sidebar
+de **chrome** (rooms / Bench / Anvil / switcher) segue banida: orientação do app
+mora na verga, e só nela. O rail nunca navega; ele escolhe a sessão.
+
+**Custo aceito (medido):** com o rail a `/chat` tem 3 colunas — mas o preview
+nasce fechado, então o normal é rail 240 + chat 1200. Só quem pede o split paga:
+rail 240 + chat 552 + preview 647 (1440px). Decisão do Vitor em 2026-07-16.
+
+**Regra do switch de janela:** existe UM só, no head flutuante — nunca uma 2ª
+cópia na barra do preview. Ele sobrevive aos 3 modos (inclusive preview-cheio,
+onde a coluna de chat não é renderizada): sem isso, preview-cheio é sala sem porta.
 
 ## FORBIDDEN (product)
 
-- Hero boxed com border + shadow na home (ainda SaaS/marketing)
-- `style={{ maxWidth, padding, margin }}` de apresentação nas salas
-- Title display > ~2.4rem no console (grita; competir com o work)
-- Actions do masthead em `align-items: flex-end` solto (skew visual)
-- Emprestar eclipse (Svalinn) / selo (Syn) / ritmo Heimdall
+- Sidebar / wall-rail de ícones **de navegação** (forma aposentada)
+- Sidebar larga com grupos Forge / Anvil / Bench rotulados
+- Rail de sessão fora do `/chat` — a parede é mobília DAQUELA sala, não do app
+- Overflow ⋯ / Bench menu — Bench fica **visível** na verga
+- ⌘K / CommandPalette no chrome
+- Crumbs "← Fleet" / "← Board" e Preview-dev chip fora do Sindri
+- Title display > ~2.35rem no console
+- Native `<select>` no chrome
+- Emprestar eclipse (Svalinn) / ritmo Heimdall
+- AI Elements / shadcn chat registry
+- Card grid de marketing dentro do product shell
 
 ## Room map
 
 | Route | Mission | Primary gesture | Noise to demote | Hot spot |
 |---|---|---|---|---|
-| `/fleet` | Ver a frota e enfileirar trabalho | Queue → | Hero card, aurora forte | fleet floor |
-| `/dashboard` | Ler vitais do anvil ativo | (leitura) | Title oversized | vitals strip |
-| `/projects/[id]` | Operar o board | New card | Inline toolbar styles | anvil board |
-| `/chat` | Conversar + ver preview | Send | (já referência) | sindri cockpit |
-| `/connect` | Ligar repos | Connect N | maxWidth inline | connect ledger |
-| `/new` | Nascer projeto | Create | — | new plate |
+| chrome | Orientar sem comer canvas | rooms + Bench na verga | Fat nav labels · ⌘K · crumbs | **forge lintel** |
+| `/fleet` | Ver frota + enfileirar | Queue → | Stats-first hero · Preview chip | fleet floor |
+| `/chat` | Conversar + preview | Send | Tira de tabs horizontal · Fixed 2-line composer | sindri cockpit |
+| `/projects/[id]` | Operar o board | New card | Inline drawer · ← Fleet | anvil board |
+| `/dashboard` | Ler vitais | (leitura) | Title oversized | vitals strip |
+| `/connect` | Ligar repos | Connect N | ← Fleet | connect ledger |
+| `/new` | Nascer projeto | Create | ← Fleet | new plate |
 | `/history` | Ledger de runs | — | — | history ledger |
 | `/users` | Crew + seats | Connect seat | — | crew plate |
-| `/settings` | Theme + project truth | Theme | section inline margin | toolbench |
+| `/settings` | Theme + truth | Theme | — | toolbench |
 
-## Type / palette (product)
+## Type / palette
 
-- Display: Big Shoulders uppercase — mastheads only, clamp ≤ 2.35rem console
-- Body: Inter · Data: JetBrains Mono
-- Literal `--ember` só running work / pulse / Publicar
-- Chrome: night registers já em `forge.css`
+- Display: Big Shoulders · Body: Inter · Mono: JetBrains
+- `--ember` só running / pulse / Publicar. **O "active link inset" saiu
+  (2026-07-17):** estar numa sala não é trabalho no fogo. Onde-você-está e
+  sessão-aberta são fill neutro; o calor ficou exclusivo de trabalho vivo.
+- ~~Chrome quiet night~~ → **a verga é PAPER nos dois temas** (2026-07-17): mesmo
+  branco da bancada do Sindri, para não lerem como dois materiais.
+  ⚠️ **Custo aceito pelo Vitor, de olhos abertos:** as salas abaixo (Fleet, Board,
+  Dashboard, History, Settings) seguem o tema, então **no dark a verga é branca
+  sobre chão escuro**. Não "consertar" re-tematizando a verga — foi decidido
+  assim. A saída definitiva, se incomodar, é tirar o branco cravado do Sindri e
+  deixar tudo seguir o tema (opção descartada em 2026-07-17).

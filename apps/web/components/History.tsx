@@ -68,7 +68,7 @@ export default function History() {
           <p className="forge-empty-sub">Finished work is recorded here, newest first.</p>
           <span className="forge-empty-action">
             <Button asChild>
-              <Link href="/">Queue work</Link>
+              <Link href="/fleet">Queue work</Link>
             </Button>
           </span>
         </div>

@@ -63,7 +63,9 @@ interface HeimdallApp {
   status: string;
 }
 
-/** Call the Heimdall control-plane. Returns { ok, status, body }. */
+/** Call Heimdall's SCOPED Agent API (`/api/agent/*` on its web app, NOT the
+ *  control plane). Returns { ok, status, body }. A 403 here means the app wasn't
+ *  created by this agent — Heimdall refuses lifecycle verbs outside that scope. */
 async function heimdall(
   deps: AppDeps,
   method: string,
@@ -100,7 +102,7 @@ export function conversationsRoutes(deps: AppDeps): Hono {
 
   r.post("/", async (c) => {
     if (!deps.heimdallUrl || !deps.heimdallToken) {
-      return c.json({ error: "provisioning disabled (no HEIMDALL_API_URL/TOKEN)" }, 503);
+      return c.json({ error: "provisioning disabled (no HEIMDALL_AGENT_URL/TOKEN)" }, 503);
     }
     const parsed = NewConversationBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
@@ -109,13 +111,15 @@ export function conversationsRoutes(deps: AppDeps): Hono {
     // 1. Heimdall births the dev side (repo + <slug>_dev Hauldr + dev branch).
     let app: HeimdallApp;
     try {
-      const res = await fetch(`${deps.heimdallUrl.replace(/\/$/, "")}/apps`, {
+      const res = await fetch(`${deps.heimdallUrl.replace(/\/$/, "")}/api/agent/apps`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${deps.heimdallToken}`,
         },
-        body: JSON.stringify({ name, template: template ?? "client", mode: "dev" }),
+        // No `mode` — the agent proxy forces dev-first and ignores what we ask
+        // for. Sending it would imply this side chooses the birth lane.
+        body: JSON.stringify({ name, template: template ?? "client" }),
         signal: AbortSignal.timeout(120_000),
       });
       const payload = (await res.json().catch(() => ({}))) as HeimdallApp & { error?: unknown };
@@ -178,7 +182,7 @@ export function conversationsRoutes(deps: AppDeps): Hono {
     c: Context,
   ): Promise<{ appId: string; projectId: string; repoFullName: string } | Response> {
     if (!deps.heimdallUrl || !deps.heimdallToken) {
-      return c.json({ error: "provisioning disabled (no HEIMDALL_API_URL/TOKEN)" }, 503);
+      return c.json({ error: "provisioning disabled (no HEIMDALL_AGENT_URL/TOKEN)" }, 503);
     }
     const projectId = c.req.param("projectId");
     if (!projectId) return c.json({ error: "projectId required" }, 400);
@@ -197,7 +201,7 @@ export function conversationsRoutes(deps: AppDeps): Hono {
   r.post("/:projectId/publish", async (c) => {
     const resolved = await resolveApp(c);
     if (resolved instanceof Response) return resolved;
-    const out = await heimdall(deps, "POST", `/apps/${resolved.appId}/publish`);
+    const out = await heimdall(deps, "POST", `/api/agent/apps/${resolved.appId}/publish`);
     if (!out.ok) return c.json({ error: `heimdall: ${JSON.stringify(out.body?.error ?? out.body)}` }, 502);
     if (out.body?.laneStage && out.body.laneStage !== "dev") {
       await deps.store.setProjectPublished(resolved.projectId, true).catch(() => {});
@@ -222,7 +226,7 @@ export function conversationsRoutes(deps: AppDeps): Hono {
   r.get("/:projectId/versions", async (c) => {
     const resolved = await resolveApp(c);
     if (resolved instanceof Response) return resolved;
-    const out = await heimdall(deps, "GET", `/apps/${resolved.appId}/versions`);
+    const out = await heimdall(deps, "GET", `/api/agent/apps/${resolved.appId}/versions`);
     if (!out.ok) return c.json({ error: `heimdall: ${JSON.stringify(out.body?.error ?? out.body)}` }, 502);
     return c.json(out.body);
   });
@@ -234,7 +238,7 @@ export function conversationsRoutes(deps: AppDeps): Hono {
     const body = await c.req.json().catch(() => ({}));
     const sha = typeof body?.sha === "string" ? body.sha : "";
     if (!sha) return c.json({ error: "sha is required" }, 400);
-    const out = await heimdall(deps, "POST", `/apps/${resolved.appId}/rollback`, { sha });
+    const out = await heimdall(deps, "POST", `/api/agent/apps/${resolved.appId}/rollback`, { sha });
     if (!out.ok) return c.json({ error: `heimdall: ${JSON.stringify(out.body?.error ?? out.body)}` }, 502);
     return c.json(out.body);
   });

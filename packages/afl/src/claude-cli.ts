@@ -171,10 +171,16 @@ export async function runClaudeCliTurn(input: CliTurnInput): Promise<CliTurnOutc
   if (input.appendSystem) args.push("--append-system-prompt", input.appendSystem);
   if (input.maxTurns && input.maxTurns > 0) args.push("--max-turns", String(input.maxTurns));
 
+  // detached → the CLI leads its own process group. A CLI turn can spawn a tree
+  // of children (bash, stdio MCP servers, and — for a driver turn — the browser
+  // those MCP servers launch). Killing only the CLI pid on abort would orphan
+  // that tree; signalling the GROUP (kill(-pgid)) tears the whole turn down.
+  // ADR 0054's central lesson, applied to every CLI turn, not just the driver.
   const proc = spawn(cliBin(), args, {
     cwd: input.cwd,
     env: cliEnv(input),
     stdio: ["pipe", "pipe", "pipe"],
+    detached: true,
   });
   proc.stdin.write(input.prompt);
   proc.stdin.end();
@@ -190,9 +196,25 @@ export async function runClaudeCliTurn(input: CliTurnInput): Promise<CliTurnOutc
 
   const kill = () => {
     aborted = true;
-    proc.kill("SIGTERM");
-    // The CLI traps SIGTERM to flush; escalate if it lingers.
-    setTimeout(() => proc.kill("SIGKILL"), 5_000).unref?.();
+    // Signal the whole process group (negative pid) so the CLI's children —
+    // stdio MCP servers and the browser they drive — die with it. Falls back to
+    // the bare pid if the group is already gone. The CLI traps SIGTERM to flush;
+    // escalate to SIGKILL on the group if it lingers.
+    const pid = proc.pid;
+    const signalGroup = (sig: NodeJS.Signals) => {
+      if (pid == null) return;
+      try {
+        process.kill(-pid, sig);
+      } catch {
+        try {
+          proc.kill(sig);
+        } catch {
+          /* already gone */
+        }
+      }
+    };
+    signalGroup("SIGTERM");
+    setTimeout(() => signalGroup("SIGKILL"), 5_000).unref?.();
   };
   const onAbort = () => kill();
   input.signal?.addEventListener("abort", onAbort, { once: true });

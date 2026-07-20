@@ -46,6 +46,12 @@ export interface ToolContext {
    *  Mímir into proposed backlog cards. Injected by the Sindri app (which owns the
    *  planner config + gateway); absent in contexts without a planner. */
   planWork?: (intent: string) => Promise<{ ok: boolean; content: string }>;
+  /** Host-provided image bridge (the `generate_image` tool): generate an image on
+   *  the Cursor seat (Ratatoskr's cursor-img lane), persist it, and return a
+   *  markdown image tag the model echoes into its reply so it renders in chat.
+   *  Injected by the Sindri app (which owns the gateway + the serving route);
+   *  absent in contexts without it. */
+  generateImage?: (prompt: string) => Promise<{ ok: boolean; content: string }>;
   /** Host-injected Brokk Skills (ADR 0039), reached via the `invoke_skill` tool.
    *  The app binds the concrete handlers (Discovery/Enhance need the checkout +
    *  Mímir/Huginn config); advertise the same list in buildSystemPrompt so the
@@ -108,6 +114,22 @@ const DOMAIN_TOOL_DEFS: ToolDef[] = [
         },
       },
       required: ["title"],
+    },
+  },
+  {
+    name: "generate_image",
+    description:
+      "Generate an image from a text prompt (photorealistic or illustrative) on the Cursor seat and show it in the chat. Use whenever the user asks for an image, picture, illustration, mockup, logo, or visual. Generation takes ~1–2 minutes. Returns a markdown image tag — include it VERBATIM in your reply so the image renders for the user.",
+    input_schema: {
+      type: "object",
+      properties: {
+        prompt: {
+          type: "string",
+          description:
+            "A detailed description of the image to generate: subject, style, composition, colors.",
+        },
+      },
+      required: ["prompt"],
     },
   },
   {
@@ -314,6 +336,13 @@ function makeDomainExecutor(ctx: ToolContext): PartialExecutor {
           const intent = String(input.intent ?? "").trim();
           if (!intent) return { ok: false, content: "plan_work needs an intent" };
           return await ctx.planWork(intent);
+        }
+        case "generate_image": {
+          if (!ctx.generateImage)
+            return { ok: false, content: "image generation is not available in this context" };
+          const prompt = String(input.prompt ?? "").trim();
+          if (!prompt) return { ok: false, content: "generate_image needs a prompt" };
+          return await ctx.generateImage(prompt);
         }
         case "invoke_skill": {
           const skill = String(input.skill ?? "").trim();
