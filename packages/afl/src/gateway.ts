@@ -83,7 +83,11 @@ export async function streamAssistant(
   // so a turn rides out a busy seat instead of dying. Retry only happens BEFORE
   // any stream byte (the 429 lands on the initial response), so nothing duplicates.
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms).unref?.());
-  let maxTokens = req.maxTokens;
+  // Anthropic requires max_tokens > thinking.budget_tokens. Callers usually clamp
+  // already; we enforce here so a 429 shrink (below) cannot re-break the invariant
+  // and surface as a confusing gateway 400 (BROKK-32).
+  let thinkingBudget = req.thinkingBudget && req.thinkingBudget > 0 ? req.thinkingBudget : 0;
+  let maxTokens = Math.max(req.maxTokens, thinkingBudget > 0 ? thinkingBudget + 1024 : req.maxTokens);
   let res: Response | undefined;
   const maxAttempts = 8;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -115,8 +119,8 @@ export async function streamAssistant(
     };
     if (req.tools.length) body.tools = req.tools;
     if (req.toolChoice) body.tool_choice = req.toolChoice;
-    if (req.thinkingBudget && req.thinkingBudget > 0) {
-      body.thinking = { type: "enabled", budget_tokens: req.thinkingBudget };
+    if (thinkingBudget > 0) {
+      body.thinking = { type: "enabled", budget_tokens: thinkingBudget };
     }
 
     let r: Response;
@@ -160,7 +164,18 @@ export async function streamAssistant(
       16_000,
       Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1500 * 2 ** attempt,
     );
-    if (r.status === 429 && maxTokens > 768) maxTokens = Math.max(768, Math.floor(maxTokens / 2));
+    if (r.status === 429 && maxTokens > 768) {
+      maxTokens = Math.max(768, Math.floor(maxTokens / 2));
+      // Keep Anthropic's invariant: max_tokens > budget_tokens. Prefer shrinking
+      // the thinking budget with the reservation; drop thinking entirely if the
+      // floor can't clear it (better a non-thinking reply than a hard 400).
+      if (thinkingBudget > 0 && maxTokens <= thinkingBudget) {
+        thinkingBudget = Math.max(0, maxTokens - 1024);
+        if (thinkingBudget > 0 && maxTokens <= thinkingBudget) {
+          thinkingBudget = 0;
+        }
+      }
+    }
     await sleep(backoff);
   }
   if (!res || !res.body) throw new GatewayError("gateway: no response after retries", 502);

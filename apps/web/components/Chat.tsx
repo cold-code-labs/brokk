@@ -751,14 +751,19 @@ export default function Chat() {
     }
   }
 
-  async function newChat() {
+  async function newChat(engineOverride?: string) {
     if (!projectId) return;
     setError("");
+    const eng = normalizeEngineUi(engineOverride ?? engine);
+    if (engineOverride) {
+      setEngine(eng);
+      if (isCursorEngine(eng)) setModel("auto");
+    }
     const s = await chat.createSession({
       projectId,
-      model: isCursorEngine(engine) ? "auto" : model,
+      model: isCursorEngine(eng) ? "auto" : model,
       effort,
-      engine,
+      engine: eng,
     });
     const withStats: ChatSessionWithStats = {
       ...s,
@@ -1310,7 +1315,7 @@ export default function Chat() {
                       />
                     )}
                     <ComposerChip
-                      title="Motor (vale para novos chats)"
+                      title="Motor — troca abre um chat novo (continuidade é do motor)"
                       value={engine}
                       items={ENGINES.map((m) => ({
                         id: m.id,
@@ -1319,8 +1324,17 @@ export default function Chat() {
                         tag: m.id.startsWith("cursor") ? "cursor" : "claude",
                       }))}
                       onChange={(id) => {
-                        setEngine(id);
-                        if (isCursorEngine(id)) setModel("auto");
+                        const next = normalizeEngineUi(id);
+                        const cur = normalizeEngineUi(currentSession?.engine ?? engine);
+                        setEngine(next);
+                        if (isCursorEngine(next)) setModel("auto");
+                        // Engine is fixed at session creation (CLI resume / API
+                        // transcript). Switching mid-chat only updated the chip
+                        // before — turns kept the old motor and users saw a
+                        // Claude gateway 400 while the UI said Cursor (BROKK-32).
+                        if (sessionId && cur !== next) {
+                          void newChat(next);
+                        }
                       }}
                     />
                   </div>
