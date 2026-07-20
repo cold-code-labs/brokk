@@ -80,7 +80,7 @@
    },
    "commands": {
     "install": "{install}",
-    "dev": "{exec} next dev --webpack -p $PORT -H 0.0.0.0",
+    "dev": "{exec} next dev -p $PORT -H 0.0.0.0",
     "build": "{exec} next build",
     "start": "{exec} next start -p $PORT -H 0.0.0.0"
    },

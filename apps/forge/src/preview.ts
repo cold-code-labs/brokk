@@ -37,6 +37,7 @@ import { buildDetectCtx, composeCommand, PACKAGE_MANAGERS, resolveRuntime } from
 import type { RunnerConfig } from "./config.js";
 import type { GhProvider } from "./git.js";
 import type { DataProvider } from "./data-provider.js";
+import { ensureNativeNextSwc } from "./next-swc.js";
 
 interface LivePreview {
   proc: ChildProcess;
@@ -705,16 +706,8 @@ export class PreviewSupervisor {
     // `next build` gate now lives in the Coolify dev-build. Command comes from the
     // resolved RuntimeSpec's "dev" preset (Sleipnir); BROKK_PREVIEW_DEV_CMD stays as
     // an explicit ops override when set.
-    const override = process.env.BROKK_PREVIEW_DEV_CMD;
-    // Install only when the tree can't be proven fresh (see needsInstall). An
-    // override is used verbatim — ops asked for that exact command.
     const appDir = spec.appRoot && spec.appRoot !== "." ? join(wtPath, spec.appRoot) : wtPath;
     const inst = needsInstall(appDir);
-    const baseCmd =
-      override && override.trim()
-        ? override
-        : composeCommand(spec, "dev", { skipInstall: !inst.install });
-    const cmd = this.expandCmd(baseCmd, port);
     console.log(
       `[preview-supervisor] ${preview.subdomain}: install=${inst.install ? "SIM" : "não"} (${inst.reason})`,
     );
@@ -774,6 +767,69 @@ export class PreviewSupervisor {
       // the whole preview lane). CI=true lets pnpm purge + reinstall silently.
       CI: "true",
     };
+
+    // Install BEFORE spawn so we can patch native SWC into the tree (Turbopack).
+    // Override keeps the old "one shell string" behaviour — ops own that command.
+    const override = process.env.BROKK_PREVIEW_DEV_CMD;
+    if (!override?.trim() && inst.install) {
+      const lockPm = Object.values(PACKAGE_MANAGERS).find((pm) =>
+        existsSync(join(appDir, pm.lockfile)),
+      );
+      const installCmd = lockPm?.install ?? PACKAGE_MANAGERS.pnpm.install;
+      console.log(`[preview-supervisor] ${preview.subdomain}: running ${installCmd}`);
+      await this.controlPatch(`/previews/${preview.id}`, {
+        detail: "Instalando dependências…",
+      }).catch(() => {});
+      try {
+        await promisify(execFile)("sh", ["-c", installCmd], {
+          cwd: appDir,
+          env,
+          maxBuffer: 8 * 1024 * 1024,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[preview-supervisor] ${preview.subdomain}: install failed:`, msg);
+        await this.controlPatch(`/previews/${preview.id}`, {
+          status: "failed",
+          detail: `Install falhou: ${msg.slice(0, 240)}`,
+          pid: null,
+          port: null,
+        }).catch(() => {});
+        this.usedPorts.delete(port);
+        return;
+      }
+    }
+
+    // Turbopack needs @next/swc-linux-x64-gnu on this glibc forge (BROKK-31).
+    if (!override?.trim() && spec.id === "nextjs") {
+      try {
+        const swc = await ensureNativeNextSwc(appDir, env);
+        if (swc.status === "ok") {
+          console.log(
+            `[preview-supervisor] ${preview.subdomain}: swc-gnu ${swc.version} (${swc.via})`,
+          );
+        } else {
+          console.log(
+            `[preview-supervisor] ${preview.subdomain}: swc-gnu skipped (${swc.reason})`,
+          );
+        }
+      } catch (err) {
+        console.warn(
+          `[preview-supervisor] ${preview.subdomain}: swc-gnu ensure failed:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
+    // ADR 0017: the forge preview is always the HMR loop (`next dev`) — the real
+    // `next build` gate now lives in the Coolify dev-build. Command comes from the
+    // resolved RuntimeSpec's "dev" preset (Sleipnir); BROKK_PREVIEW_DEV_CMD stays as
+    // an explicit ops override when set.
+    const baseCmd =
+      override && override.trim()
+        ? override
+        : composeCommand(spec, "dev", { skipInstall: true });
+    const cmd = this.expandCmd(baseCmd, port);
 
     // Report a redacted snapshot of what we loaded, so the preview bar's Env
     // inspector can show an operator what this dev preview is wired to (e.g. that

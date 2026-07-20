@@ -12,7 +12,8 @@ import type { DetectCtx, RuntimeSpec } from "../index.js";
 import { PACKAGE_MANAGERS, PM_ORDER, type PmId, PROVIDERS } from "./providers.js";
 
 export type { DetectCtx, RuntimeSpec } from "../index.js";
-export { PACKAGE_MANAGERS, PROVIDERS } from "./providers.js";
+export { PACKAGE_MANAGERS, PROVIDERS, PM_ORDER } from "./providers.js";
+export type { PmId } from "./providers.js";
 
 // ── The allowlist (the gate that replaces a human) ──────────────────────────────
 //
@@ -372,10 +373,11 @@ export async function resolveRuntime(
  *  cold checkout), then `dev` runs the HMR server and `build` runs build + serve.
  *  Prefixes a `cd <appRoot>` when the app isn't at root. $PORT is expanded by the
  *  supervisor. */
-/** Forge image has no native @next/swc; Next 16 Turbopack then crashes. Stale
- *  project.runtime pins still say `next dev` — inject `--webpack` at compose time
- *  so a pin from before the preset bump keeps booting. */
+/** Forge image has no native @next/swc by default in app worktrees; BROKK-31
+ *  installs `@next/swc-linux-x64-gnu` before boot. Keep `--webpack` as an
+ *  explicit escape hatch (BROKK_NEXT_WEBPACK=1) for worktrees that still fail. */
 function ensureNextWebpack(cmd: string): string {
+  if (process.env.BROKK_NEXT_WEBPACK !== "1") return cmd;
   if (!/\bnext\s+dev\b/.test(cmd) || /\s--webpack\b/.test(cmd)) return cmd;
   return cmd.replace(/\bnext\s+dev\b/, "next dev --webpack");
 }

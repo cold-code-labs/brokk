@@ -132,7 +132,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
       // `pnpm exec` resolves the local `next` from node_modules/.bin and forwards
       // args cleanly (bare `next` isn't on PATH under `sh -c`; `pnpm run dev --`
       // leaks the `--` into next's argv). Verified e2e on the dev lane.
-      "pnpm install --no-frozen-lockfile --prod=false && pnpm exec next dev --webpack -p $PORT -H 0.0.0.0",
+      "pnpm install --no-frozen-lockfile --prod=false && pnpm exec next dev -p $PORT -H 0.0.0.0",
     previewHealthTimeoutMs: Number(env.BROKK_PREVIEW_HEALTH_TIMEOUT_MS ?? 2 * 60 * 1000),
     previewPortMin: Number(env.BROKK_PREVIEW_PORT_MIN ?? 4100),
     previewPortMax: Number(env.BROKK_PREVIEW_PORT_MAX ?? 4199),

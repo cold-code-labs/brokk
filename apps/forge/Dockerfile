@@ -108,6 +108,21 @@ RUN curl -fsSL https://cursor.com/install | HOME=/opt/cursor-home bash \
 # baked above (PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH). Inert unless enabled.
 RUN npm install -g @playwright/mcp@0.0.78
 
+# Native Next SWC (glibc) — Turbopack's hard requirement on this Debian forge.
+# Preview worktrees often only ship the musl optional dep (wrong libc). The
+# supervisor symlinks from here before `next dev` (see next-swc.ts / BROKK-31).
+# Warm a few fleet Next versions so the first boot of each doesn't hit npm cold.
+RUN mkdir -p /opt/brokk/next-swc \
+ && cd /tmp \
+ && for v in 15.5.7 16.0.7 16.2.6 16.2.10; do \
+      npm pack "@next/swc-linux-x64-gnu@${v}" \
+      && mkdir -p "/opt/brokk/next-swc/${v}" \
+      && tar -xzf next-swc-linux-x64-gnu-*.tgz -C "/opt/brokk/next-swc/${v}" --strip-components=1 \
+      && rm -f next-swc-linux-x64-gnu-*.tgz \
+      && echo "cached swc-gnu ${v}"; \
+    done \
+ && chmod -R a+rX /opt/brokk/next-swc
+
 # Isolation Nível 3 (egress uid-split). A second unprivileged uid (1002, same gid as
 # the worker's 1001) that the bash hand drops to; the nft ruleset firewalls it off
 # RFC1918. HOME is shared + group-writable (setgid dir) so both uids write the

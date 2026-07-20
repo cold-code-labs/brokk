@@ -39,11 +39,12 @@ const NEXT_PKG = JSON.stringify({
 test("allows the canonical Next.js preset commands", () => {
   for (const cmd of [
     "pnpm install --no-frozen-lockfile --prod=false",
-    "pnpm exec next dev --webpack -p $PORT -H 0.0.0.0",
+    "pnpm exec next dev -p $PORT -H 0.0.0.0",
     "pnpm exec next build",
     "pnpm exec next start -p $PORT -H 0.0.0.0",
-    "npm install && npx next dev --webpack -p $PORT -H 0.0.0.0",
-    "bun install && bunx next dev --webpack -p ${PORT} -H 0.0.0.0",
+    "npm install && npx next dev -p $PORT -H 0.0.0.0",
+    "bun install && bunx next dev -p ${PORT} -H 0.0.0.0",
+    "pnpm exec next dev --webpack -p $PORT -H 0.0.0.0",
   ]) {
     assert.equal(matchesAllowlist(cmd), true, `should allow: ${cmd}`);
   }
@@ -83,7 +84,7 @@ function nextSpec(over: Partial<RuntimeSpec> = {}): RuntimeSpec {
     label: "Next.js",
     appRoot: ".",
     install: "pnpm install --no-frozen-lockfile --prod=false",
-    dev: "pnpm exec next dev --webpack -p $PORT -H 0.0.0.0",
+    dev: "pnpm exec next dev -p $PORT -H 0.0.0.0",
     build: "pnpm exec next build",
     start: "pnpm exec next start -p $PORT -H 0.0.0.0",
     health: "/",
@@ -260,20 +261,24 @@ test("composeCommand prefixes cd for a non-root appRoot", () => {
   assert.match(out, /^cd apps\/web && /);
 });
 
-test("composeCommand injects --webpack into a stale next-dev pin", () => {
-  const out = composeCommand(
-    nextSpec({ dev: "pnpm exec next dev -p $PORT -H 0.0.0.0" }),
-    "dev",
-    { skipInstall: true },
-  );
-  assert.match(out, /next dev --webpack/);
-  // Already present → no double inject.
-  const again = composeCommand(
-    nextSpec({ dev: "pnpm exec next dev --webpack -p $PORT -H 0.0.0.0" }),
-    "dev",
-    { skipInstall: true },
-  );
-  assert.equal(again.match(/--webpack/g)?.length, 1);
+test("composeCommand only injects --webpack when BROKK_NEXT_WEBPACK=1", () => {
+  const stale = "pnpm exec next dev -p $PORT -H 0.0.0.0";
+  const prev = process.env.BROKK_NEXT_WEBPACK;
+  delete process.env.BROKK_NEXT_WEBPACK;
+  try {
+    assert.equal(
+      composeCommand(nextSpec({ dev: stale }), "dev", { skipInstall: true }),
+      stale,
+    );
+    process.env.BROKK_NEXT_WEBPACK = "1";
+    assert.match(
+      composeCommand(nextSpec({ dev: stale }), "dev", { skipInstall: true }),
+      /next dev --webpack/,
+    );
+  } finally {
+    if (prev === undefined) delete process.env.BROKK_NEXT_WEBPACK;
+    else process.env.BROKK_NEXT_WEBPACK = prev;
+  }
 });
 
 // ── workspace-aware fastPath ────────────────────────────────────────────────────
