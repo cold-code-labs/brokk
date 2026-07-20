@@ -112,6 +112,7 @@ RUN npm install -g @playwright/mcp@0.0.78
 # Preview worktrees often only ship the musl optional dep (wrong libc). The
 # supervisor symlinks from here before `next dev` (see next-swc.ts / BROKK-31).
 # Warm a few fleet Next versions so the first boot of each doesn't hit npm cold.
+# Missing versions are skipped (next releases prune old optionals occasionally).
 RUN mkdir -p /opt/brokk/next-swc \
  && cd /tmp \
  && for v in 15.5.7 16.0.7 16.2.6 16.2.10; do \
@@ -119,9 +120,11 @@ RUN mkdir -p /opt/brokk/next-swc \
       && mkdir -p "/opt/brokk/next-swc/${v}" \
       && tar -xzf next-swc-linux-x64-gnu-*.tgz -C "/opt/brokk/next-swc/${v}" --strip-components=1 \
       && rm -f next-swc-linux-x64-gnu-*.tgz \
-      && echo "cached swc-gnu ${v}"; \
+      && echo "cached swc-gnu ${v}" \
+      || echo "skip swc-gnu ${v} (not on registry)"; \
     done \
- && chmod -R a+rX /opt/brokk/next-swc
+ && chmod -R a+rX /opt/brokk/next-swc \
+ && ls /opt/brokk/next-swc
 
 # Isolation Nível 3 (egress uid-split). A second unprivileged uid (1002, same gid as
 # the worker's 1001) that the bash hand drops to; the nft ruleset firewalls it off
