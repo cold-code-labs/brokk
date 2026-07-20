@@ -1,14 +1,19 @@
 #!/usr/bin/env node
 /**
- * BROKK-39 acceptance — floor drill-in opens Live run log with thinking + tools.
+ * Combined acceptance after merging BROKK-38 + BROKK-39.
  *
- * Env:
- *   BROKK_ACCEPTANCE_URL   base URL of the booted app
- *   BROKK_CHROMIUM         headless Chromium binary
- *   BROKK_ACCEPTANCE_SHOT  PNG path for the receipt screenshot
+ * 1) BROKK-38: fixture under `.brokk/inbox/` appears in turn-context block;
+ *    public /attach-smoke serves the Attach affordance.
+ * 2) BROKK-39: /brokk/observer floor row opens drawer with Live run log,
+ *    thinking + tool rows; writes BROKK_ACCEPTANCE_SHOT.
+ *
+ * Env: BROKK_ACCEPTANCE_URL, BROKK_CHROMIUM, BROKK_ACCEPTANCE_SHOT
  */
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const BASE = process.env.BROKK_ACCEPTANCE_URL;
@@ -20,11 +25,64 @@ if (!BASE || !CHROME || !SHOT) {
   process.exit(2);
 }
 
-const TARGET = `${BASE.replace(/\/$/, "")}/brokk/observer`;
+const ROOT = BASE.replace(/\/$/, "");
+const OBSERVER = `${ROOT}/brokk/observer`;
+const INBOX_DIR = ".brokk/inbox";
 
 function die(code, msg) {
   console.error(msg);
   process.exit(code);
+}
+
+function attachmentContextBlock(paths) {
+  const clean = [];
+  const seen = new Set();
+  for (const raw of paths) {
+    const p = String(raw ?? "")
+      .replace(/\\/g, "/")
+      .replace(/^\/+/, "")
+      .trim();
+    if (!p.startsWith(`${INBOX_DIR}/`) || p.includes("..") || p.includes("\0")) continue;
+    const rest = p.slice(INBOX_DIR.length + 1);
+    if (!rest || rest.includes("/")) continue;
+    if (seen.has(p)) continue;
+    seen.add(p);
+    clean.push(p);
+  }
+  if (!clean.length) return "";
+  return [
+    "## Attachments (this turn)",
+    "Client files were saved into this checkout under `.brokk/inbox/`. Read them with your FS tools (`read_file` / `bash`); do not ask the user to re-upload or paste their contents.",
+    ...clean.map((p) => `- \`${p}\``),
+  ].join("\n");
+}
+
+async function dogfoodInboxContext() {
+  const root = join(tmpdir(), `brokk-38-accept-${process.pid}`);
+  const rel = `${INBOX_DIR}/fixture-costs.txt`;
+  const abs = join(root, rel);
+  await mkdir(join(root, INBOX_DIR), { recursive: true });
+  await writeFile(abs, "sku,qty\nA,1\n", "utf8");
+  const block = attachmentContextBlock([rel]);
+  await rm(root, { recursive: true, force: true }).catch(() => {});
+  if (!block.includes(rel)) {
+    throw new Error(`dogfood failed: turn context missing ${rel}\n---\n${block}`);
+  }
+  if (!block.includes("## Attachments (this turn)")) {
+    throw new Error("dogfood failed: missing attachments heading");
+  }
+  console.log(`[ok] BROKK-38 dogfood: wrote ${rel} and found it in turn context`);
+}
+
+async function assertAttachSmoke() {
+  const url = `${ROOT}/attach-smoke`;
+  const res = await fetch(url);
+  const html = await res.text();
+  if (!res.ok) throw new Error(`GET ${url} → ${res.status}`);
+  if (!html.includes('data-testid="sindri-attach"') && !html.includes("data-sindri-attach")) {
+    throw new Error(`attach-smoke HTML missing attach markers\n${html.slice(0, 400)}`);
+  }
+  console.log(`[ok] BROKK-38 HTTP: ${url} serves attach affordance`);
 }
 
 /** Minimal CDP over WebSocket — dependency-free. */
@@ -66,7 +124,7 @@ async function waitForDevtools(stderrBuf) {
   return null;
 }
 
-async function main() {
+async function assertObserverDrillIn() {
   const chrome = spawn(
     CHROME,
     [
@@ -95,8 +153,7 @@ async function main() {
   const host = new URL(browserWs).host;
 
   try {
-    // Open a page target pointed at the fixture route.
-    const created = await fetch(`http://${host}/json/new?${encodeURIComponent(TARGET)}`, {
+    const created = await fetch(`http://${host}/json/new?${encodeURIComponent(OBSERVER)}`, {
       method: "PUT",
     }).then((r) => r.json());
     const pageWs = created.webSocketDebuggerUrl;
@@ -105,7 +162,7 @@ async function main() {
     await withCdp(pageWs, async (send) => {
       await send("Page.enable");
       await send("Runtime.enable");
-      await send("Page.navigate", { url: TARGET });
+      await send("Page.navigate", { url: OBSERVER });
 
       let ready = false;
       for (let i = 0; i < 40; i++) {
@@ -120,7 +177,7 @@ async function main() {
         }
       }
       if (!ready) die(1, "floor row never appeared on /brokk/observer");
-      console.log("checked: forge floor row is present and clickable");
+      console.log("[ok] BROKK-39: forge floor row is present and clickable");
 
       await send("Runtime.evaluate", {
         expression: `document.querySelector('[data-testid="forge-floor-row"]').click()`,
@@ -132,39 +189,45 @@ async function main() {
         returnByValue: true,
       });
       if (!drawer?.value) die(1, "drawer did not open after floor row click");
-      console.log("checked: click opens observer drawer");
+      console.log("[ok] BROKK-39: click opens observer drawer");
 
       const { result: log } = await send("Runtime.evaluate", {
         expression: `!!document.querySelector('[data-testid="run-log"]')`,
         returnByValue: true,
       });
       if (!log?.value) die(1, "Live run log missing in drawer");
-      console.log("checked: Live run log mounted");
+      console.log("[ok] BROKK-39: Live run log mounted");
 
       const { result: thinking } = await send("Runtime.evaluate", {
         expression: `!!document.querySelector('[data-testid="run-log-thinking"]')`,
         returnByValue: true,
       });
       if (!thinking?.value) die(1, "thinking/reasoning block missing in RunLog");
-      console.log("checked: thinking rendered in RunLog");
+      console.log("[ok] BROKK-39: thinking rendered in RunLog");
 
       const { result: shell } = await send("Runtime.evaluate", {
         expression: `document.body.innerText.includes("Shell")`,
         returnByValue: true,
       });
       if (!shell?.value) die(1, "tool row (Shell) missing in RunLog");
-      console.log("checked: tool use rendered in RunLog");
+      console.log("[ok] BROKK-39: tool use rendered in RunLog");
 
       const { data } = await send("Page.captureScreenshot", { format: "png" });
       writeFileSync(SHOT, Buffer.from(data, "base64"));
       console.log(`screenshot → ${SHOT}`);
     });
-
-    console.log("BROKK-39 acceptance met");
-    process.exit(0);
   } finally {
     chrome.kill("SIGKILL");
   }
+}
+
+async function main() {
+  console.log("acceptance — BROKK-38 attachments + BROKK-39 forge observer");
+  await dogfoodInboxContext();
+  await assertAttachSmoke();
+  await assertObserverDrillIn();
+  console.log("acceptance met");
+  process.exit(0);
 }
 
 main().catch((e) => die(1, String(e?.stack || e)));
