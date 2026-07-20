@@ -309,11 +309,7 @@ async function handleRun(
     await git.push({
       cwd: wt.path,
       branch,
-      message: isPlan
-        ? `brokk: ${task.title} [${task.planKey}]`
-        : isRevise
-          ? `brokk: revise — ${task.title}`
-          : `brokk: ${task.title}`,
+      message: forgeCommitMessage(task.title, { isPlan, isRevise, planKey: task.planKey }),
     });
 
     // PR routing:
@@ -553,7 +549,7 @@ async function runDevLane(
     const sha = await git.commitPushIfChanged({
       cwd: wt.path,
       branch: "dev",
-      message: `brokk: ${task.title}`,
+      message: forgeCommitMessage(task.title, {}),
     });
     trace?.complete({ verify, healAttempts: result.healAttempts, usage, prUrl: "" });
     await buffer.flush();
@@ -620,6 +616,20 @@ class EventBuffer {
       console.error("[forge] event flush failed:", err),
     );
   }
+}
+
+/** Commit subject for a forge push.
+ *  If the card title already carries an Urðr KEY (`MAGLINK-80: …`), keep it as the
+ *  subject so sync/links work — don't bury it under `brokk:`. Dogfood MAGLINK-80. */
+function forgeCommitMessage(
+  title: string,
+  opts: { isPlan?: boolean; isRevise?: boolean; planKey?: string | null },
+): string {
+  const t = title.trim();
+  if (opts.isPlan) return /^[A-Z][A-Z0-9]+-\d+:/.test(t) ? `${t} [${opts.planKey}]` : `brokk: ${t} [${opts.planKey}]`;
+  if (opts.isRevise) return /^[A-Z][A-Z0-9]+-\d+:/.test(t) ? `revise — ${t}` : `brokk: revise — ${t}`;
+  if (/^[A-Z][A-Z0-9]+-\d+:/.test(t)) return t;
+  return `brokk: ${t}`;
 }
 
 async function register(cfg: RunnerConfig): Promise<string> {

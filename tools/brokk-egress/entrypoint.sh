@@ -57,17 +57,19 @@ if [ "$(id -u)" = "0" ]; then
 	mkdir -p /home/brokk/work/repos 2>/dev/null || true
 	chmod 2775 /home/brokk/work /home/brokk/work/repos 2>/dev/null || true
 
-	# Same reasoning for the cursor-cli engine's state dir: CLAIM it as setgid
-	# group-writable BEFORE anything else can, rather than only repairing it when
-	# it already exists. Whoever creates it first wins the ownership, and the CLI
-	# is invoked from several places (worker uid 1001, and root inside the enclave)
-	# — the loser then gets EACCES on every turn.
+	# .cursor — ver comentário acima (cursor-cli projects dir).
 	mkdir -p /home/brokk/.cursor/projects 2>/dev/null || true
 	chown -R 1001:1001 /home/brokk/.cursor 2>/dev/null || true
 	chmod 2775 /home/brokk/.cursor /home/brokk/.cursor/projects 2>/dev/null || true
-	# g+rwX (capital X) so nested dirs get traverse but cli-config.json does NOT
-	# become executable — a recursive 2775 would setgid regular files too.
 	chmod -R g+rwX /home/brokk/.cursor 2>/dev/null || true
+
+	# .config/cursor — o agent também escreve auth/state aqui. Se o volume nasceu
+	# root-owned (deploy mid-run / docker cp), o worker 1001 leva EPERM no chmod
+	# interno do CLI → "cursor-agent CLI pass failed" (MAGLINK-80 dogfood).
+	mkdir -p /home/brokk/.config/cursor 2>/dev/null || true
+	chown -R 1001:1001 /home/brokk/.config/cursor 2>/dev/null || true
+	chmod 2775 /home/brokk/.config /home/brokk/.config/cursor 2>/dev/null || true
+	chmod -R g+rwX /home/brokk/.config/cursor 2>/dev/null || true
 
 	if [ "${BROKK_EGRESS:-0}" = "1" ]; then
 		if command -v nft >/dev/null 2>&1 && nft -f /etc/brokk/egress.nft 2>/dev/null; then
