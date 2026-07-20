@@ -19,8 +19,9 @@ export type {
   ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
   Plan, PlanDraft, PlannedCard, PlanMode, PlanStatus, ClarifyQuestion,
   TaskAnalysis, AnalysisStatus, AnalysisStep, AnalysisEvidence, AnalysisRevision, AnalysisQuestion,
+  RunLogEntry, RunLogTool, RunLogToolResult,
 } from "@brokk/core";
-export { TASK_STATUSES, TASK_OWNERS, TASK_SOURCES } from "@brokk/core";
+export { TASK_STATUSES, TASK_OWNERS, TASK_SOURCES, foldRunLogEvents } from "@brokk/core";
 
 /** What POST /tasks/:id/analysis/approve returns — atomic enqueues the card,
  *  feature spawns the sub-cards under a new plan. */

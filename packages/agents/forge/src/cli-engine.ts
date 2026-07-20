@@ -63,8 +63,11 @@ export class ClaudeCliEngine implements AgentEngine {
             },
           });
           break;
+        case "thinking_delta":
+          if (e.text) ctx.emit({ type: "thinking", payload: { text: e.text } });
+          break;
         default:
-          break; // deltas/status handled elsewhere; the run stream stays lean
+          break; // text_delta/status stay lean — message blocks carry final text
       }
     };
 

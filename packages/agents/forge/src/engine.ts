@@ -60,6 +60,10 @@ export interface ForgeEngineOptions {
   /** When true, tell the agent it has a headless browser (via bash) for UI/HTTP
    *  acceptance checks. Default OFF — behaviour is fs/bash/git only. */
   browser?: boolean;
+  /** Extended-thinking budget (tokens). Omit/0 = off. Env
+   *  `BROKK_FORGE_THINKING_BUDGET` fills in when unset (default 2500 so the
+   *  forge-floor observer can watch reasoning live). Set the env to 0 to disable. */
+  thinkingBudget?: number;
 }
 
 const DEFAULT_MODELS = {
@@ -111,6 +115,12 @@ export class ForgeEngine implements AgentEngine {
     const tools = ctx.migration ? [...FS_TOOL_DEFS, MIGRATION_TOOL_DEF] : FS_TOOL_DEFS;
     const usage: RunUsage = { tokensIn: 0, tokensOut: 0, headroomSaved: 0 };
     const hooks = this.forgeHooks(ctx, usage);
+    // Observer (BROKK-39): stream thinking to /runs/:id/events when budget > 0.
+    const thinkingBudget =
+      this.opts.thinkingBudget ??
+      (Number.isFinite(Number(process.env.BROKK_FORGE_THINKING_BUDGET))
+        ? Number(process.env.BROKK_FORGE_THINKING_BUDGET)
+        : 2500);
 
     // One growing transcript carries every forge + heal pass. The worktree holds
     // the code; the conversation holds the reasoning. Both persist across heals.
@@ -126,8 +136,9 @@ export class ForgeEngine implements AgentEngine {
         messages,
         tools,
         exec,
-        maxTokens: cfg.maxTokens,
+        maxTokens: Math.max(cfg.maxTokens, thinkingBudget > 0 ? thinkingBudget + 1024 : cfg.maxTokens),
         maxRounds: cfg.maxRounds,
+        thinkingBudget: thinkingBudget > 0 ? thinkingBudget : undefined,
         hooks,
       });
 
@@ -197,6 +208,13 @@ export class ForgeEngine implements AgentEngine {
    *  {role,content} (Board reads content[].text). Also folds usage into RunUsage. */
   private forgeHooks(ctx: AgentRunContext, usage: RunUsage): AgentLoopHooks {
     return {
+      // Live deltas → run SSE so the floor observer sees thinking/tools mid-round
+      // (message + tool_use still fire at round boundaries as before).
+      onDelta: (d) => {
+        if (d.type === "thinking_delta" && d.text) {
+          ctx.emit({ type: "thinking", payload: { text: d.text } });
+        }
+      },
       onAssistant: (blocks, meta) => {
         ctx.emit({ type: "message", payload: { role: "assistant", content: blocks } });
         ctx.emit({

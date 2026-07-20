@@ -1,6 +1,7 @@
 "use client";
 
 import type { Preview, Project, Run, RunEvent, Task, TaskEvent, TaskOwner } from "@brokk/sdk";
+import { foldRunLogEvents } from "@brokk/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -8,6 +9,7 @@ import {
   Brain,
   Camera,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Columns3,
   FileEdit,
@@ -399,7 +401,7 @@ export default function Board({ projectId }: { projectId?: string }) {
       )}
 
       {selectedTask && (
-        <Detail
+        <TaskDetail
           task={selectedTask}
           onClose={() => setSelected(null)}
           onChanged={() => refresh(project?.id)}
@@ -645,7 +647,9 @@ function NewCardModal({
   );
 }
 
-function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void; onChanged: () => void }) {
+/** Task drawer — Live run log (SSE) + handoff. Exported so the forge floor
+ *  (Dashboard) can open the same observer without reimplementing it. */
+export function TaskDetail({ task, onClose, onChanged }: { task: Task; onClose: () => void; onChanged: () => void }) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
@@ -1158,10 +1162,8 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
 
 // ── Live run log — a legible activity feed (icons + per-type treatment, à la
 // Sindri). The forge emits typed RunEvents; we render assistant narration, tool
-// calls (paired with their result), phase pills, and verify output — not raw
-// `message [tool_use]` lines. Tools come from message content blocks (always
-// present); standalone tool_use events are deduped by id; tool_result events
-// supply the pairing. ──────────────────────────────────────────────────────────
+// calls (paired with their result), phase pills, thinking, and verify output.
+// Folded via foldRunLogEvents (tested in @brokk/core). ─────────────────────────
 
 type ToolBlock = { id?: string; name?: string; input?: Record<string, unknown> };
 type ToolResultP = { tool_use_id?: string; ok?: boolean; preview?: string };
@@ -1200,49 +1202,64 @@ function phaseMeta(p: Record<string, unknown>): { label: string; tint: string; I
   }
 }
 
-function RunLog({ events, logRef }: { events: RunEvent[]; logRef: React.RefObject<HTMLDivElement | null> }) {
-  const resultById = new Map<string, ToolResultP>();
-  for (const e of events) {
-    if (e.type === "tool_result") {
-      const p = e.payload as ToolResultP;
-      if (p?.tool_use_id) resultById.set(p.tool_use_id, p);
-    }
-  }
-
+/** Exported for the BROKK-39 acceptance fixture (static observer without a live run). */
+export function RunLog({ events, logRef }: { events: RunEvent[]; logRef?: React.RefObject<HTMLDivElement | null> }) {
+  const entries = foldRunLogEvents(events);
   const items: React.ReactNode[] = [];
-  events.forEach((e, i) => {
-    const p = e.payload as any;
-    if (e.type === "status") {
-      const m = phaseMeta(p ?? {});
+
+  entries.forEach((entry, i) => {
+    if (entry.kind === "phase") {
+      const m = phaseMeta(entry.phase);
       if (m) items.push(<PhaseRow key={i} {...m} />);
       return;
     }
-    if (e.type === "log") {
-      const text = p?.verify ?? p?.error ?? (typeof p === "string" ? p : "");
-      if (text) items.push(<LogRow key={i} error={p?.level === "error"} text={String(text)} />);
+    if (entry.kind === "log") {
+      items.push(<LogRow key={i} error={entry.error} text={entry.text} />);
       return;
     }
-    if (e.type === "acceptance") {
-      items.push(<AcceptanceRow key={i} receipt={p ?? {}} />);
+    if (entry.kind === "acceptance") {
+      items.push(<AcceptanceRow key={i} receipt={entry.receipt} />);
       return;
     }
-    if (e.type === "message") {
-      const c = p?.content ?? p?.message?.content;
-      const blocks: any[] = Array.isArray(c) ? c : [];
-      const text = blocks.filter((b) => b?.type === "text").map((b) => b.text).join("\n").trim();
-      if (text) items.push(<TextRow key={`${i}-t`} text={text} />);
-      blocks
-        .filter((b) => b?.type === "tool_use")
-        .forEach((b: ToolBlock, j) =>
-          items.push(<ToolRow key={`${i}-${j}`} tool={b} result={b.id ? resultById.get(b.id) : undefined} />),
-        );
+    if (entry.kind === "thinking") {
+      items.push(<ReasoningRow key={i} text={entry.text} live={entry.live} />);
+      return;
     }
-    // standalone tool_use / tool_result / usage: deduped/folded (rendered via message)
+    if (entry.kind === "text") {
+      items.push(<TextRow key={i} text={entry.text} />);
+      return;
+    }
+    if (entry.kind === "tool") {
+      items.push(<ToolRow key={i} tool={entry.tool} result={entry.result} />);
+    }
   });
 
   return (
-    <div ref={logRef} style={runLogBox}>
+    <div ref={logRef} style={runLogBox} data-testid="run-log">
       {items.length === 0 ? <span className="ygg-dim" style={{ fontSize: 12 }}>No events yet.</span> : items}
+    </div>
+  );
+}
+
+/** Extended thinking — same quiet collapsible as Sindri's Reasoning panel. */
+function ReasoningRow({ text, live }: { text: string; live?: boolean }) {
+  const [open, setOpen] = useState(!!live);
+  useEffect(() => {
+    if (live) setOpen(true);
+  }, [live]);
+  if (!text.trim()) return null;
+  return (
+    <div className={`sindri-reasoning ${live ? "is-live" : ""}`} data-testid="run-log-thinking">
+      <button type="button" className="sindri-reasoning-head" onClick={() => setOpen((o) => !o)}>
+        <Brain size={13} className={live ? "sindri-reasoning-pulse" : ""} />
+        <span>{live ? "Thinking…" : "Reasoning"}</span>
+        <ChevronDown size={13} className={`sindri-reasoning-caret ${open ? "is-open" : ""}`} />
+      </button>
+      {open ? (
+        <div className="sindri-reasoning-body" style={{ whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.5 }}>
+          {text}
+        </div>
+      ) : null}
     </div>
   );
 }

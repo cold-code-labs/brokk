@@ -92,7 +92,9 @@ export type RunEventType =
   | "tool_result"
   | "log"
   | "usage"
-  | "acceptance";
+  | "acceptance"
+  /** Live extended-thinking chunk from the forge agent (payload: `{ text }`). */
+  | "thinking";
 
 export const RUN_EVENT_TYPES: readonly RunEventType[] = [
   "status",
@@ -102,7 +104,15 @@ export const RUN_EVENT_TYPES: readonly RunEventType[] = [
   "log",
   "usage",
   "acceptance",
+  "thinking",
 ] as const;
+
+export {
+  foldRunLogEvents,
+  type RunLogEntry,
+  type RunLogTool,
+  type RunLogToolResult,
+} from "./run-log";
 
 /** Live-acceptance receipt (Nv2 QA): the forge booted the worktree app and ran
  *  the card's `.brokk/acceptance.mjs` check against it. `ran=false` means the
