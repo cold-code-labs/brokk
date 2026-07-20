@@ -23,8 +23,15 @@ function cliHome(): string {
 }
 
 /** Launch (once) the shared browser the QA agent drives and we stream. Detached
- *  process group so tini reaps it; the MCP connects to it via --cdp-endpoint. */
-export function startSharedBrowser(chromiumPath = "/usr/bin/chromium-browser"): void {
+ *  process group so tini reaps it; the MCP connects to it via --cdp-endpoint.
+ *  Path: PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, else Debian `/usr/bin/chromium`,
+ *  else Alpine `/usr/bin/chromium-browser` (BROKK-35). */
+export function startSharedBrowser(
+  chromiumPath =
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
+    process.env.BROKK_CHROMIUM_PATH ||
+    "/usr/bin/chromium",
+): void {
   if (proc) return;
   const home = cliHome();
   proc = spawn(
@@ -43,6 +50,11 @@ export function startSharedBrowser(chromiumPath = "/usr/bin/chromium-browser"): 
     ],
     { stdio: "ignore", detached: true, env: { ...process.env, HOME: home } },
   );
+  // Missing binary must not take down Sindri (Alpine path vs Debian, etc.).
+  proc.on("error", (err) => {
+    console.error(`[sindri] shared chromium failed (${chromiumPath}):`, err.message);
+    proc = null;
+  });
   proc.on("exit", () => {
     proc = null;
   });
