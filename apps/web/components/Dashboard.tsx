@@ -8,6 +8,7 @@ import { Main, Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import { brokk } from "../lib/api";
 import { useProject } from "../lib/project-context";
 import { STATUS_COLOR, STATUS_LABEL } from "../lib/theme";
+import { TaskDetail } from "./Board";
 
 /* Tile order: live work first, then the record. Keys are API status values
  * (logic) — labels are render-only forge voice. */
@@ -31,6 +32,8 @@ export default function Dashboard() {
   const { current: project, currentId, loading: projectsLoading } = useProject();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  // BROKK-39: drill into a floor row → same Board TaskDetail (Live run log + SSE).
+  const [selected, setSelected] = useState<string | null>(null);
 
   const refresh = useCallback(async (projectId?: string) => {
     if (!projectId) return;
@@ -58,6 +61,7 @@ export default function Dashboard() {
   const activeCount = count("running") + count("queued");
   const running = count("running");
   const recent = tasks.slice(0, 12);
+  const selectedTask = tasks.find((t) => t.id === selected) ?? null;
 
   return (
     <Main className="forge-room">
@@ -127,7 +131,14 @@ export default function Dashboard() {
         ) : (
           <div className="forge-ledger">
             {recent.map((task) => (
-              <div key={task.id} className={`forge-row${task.status === "running" ? " is-running" : ""}`}>
+              <button
+                key={task.id}
+                type="button"
+                data-task-id={task.id}
+                data-testid="forge-floor-row"
+                className={`forge-row is-clickable${task.status === "running" ? " is-running" : ""}`}
+                onClick={() => setSelected(task.id)}
+              >
                 <span
                   style={{
                     width: 8,
@@ -145,6 +156,7 @@ export default function Dashboard() {
                     rel="noreferrer"
                     className="forge-row-mono"
                     style={{ color: "var(--accent)", flexShrink: 0 }}
+                    onClick={(e) => e.stopPropagation()}
                   >
                     PR ↗
                   </a>
@@ -152,7 +164,7 @@ export default function Dashboard() {
                 <span className="forge-row-meta" style={{ flexShrink: 0, color: STATUS_COLOR[task.status] ?? "var(--fg-dim)" }}>
                   {STATUS_LABEL[task.status] ?? task.status}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -165,6 +177,14 @@ export default function Dashboard() {
           </p>
         )}
       </section>
+
+      {selectedTask && (
+        <TaskDetail
+          task={selectedTask}
+          onClose={() => setSelected(null)}
+          onChanged={() => refresh(currentId ?? undefined)}
+        />
+      )}
     </Main>
   );
 }

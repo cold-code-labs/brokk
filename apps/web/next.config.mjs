@@ -14,6 +14,7 @@ const nextConfig = {
   // yggdrasil packages ship source too and must be transpiled in this app.
   transpilePackages: [
     "@brokk/sdk",
+    "@brokk/core",
     "@cold-code-labs/yggdrasil-tokens",
     "@cold-code-labs/yggdrasil-brand",
     "@cold-code-labs/yggdrasil-react",

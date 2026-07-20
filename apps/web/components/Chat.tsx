@@ -49,6 +49,8 @@ import {
   PanelLeftOpen,
   PanelRight,
   Columns2,
+  Paperclip,
+  X,
 } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import PublishControls from "./PublishControls";
@@ -65,6 +67,7 @@ import {
   type Preview,
   type AgentEvent,
 } from "../lib/chat";
+import { files, inboxRelPath } from "../lib/files";
 import { STATUS_COLOR, t as theme } from "../lib/theme";
 import { StudioPanel } from "./StudioPanel";
 import { FileViewer } from "./FileViewer";
@@ -194,6 +197,19 @@ function relTime(iso?: string | null): string {
 
 function sessionTime(s: ChatSessionWithStats): string {
   return s.stats.lastMessageAt || s.updatedAt;
+}
+
+
+/** Browser File → base64 (no data: prefix) for the no-checkout upload fallback. */
+async function fileToBase64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
 }
 
 // A tool_use whose name implies a file mutation → the app may have a renderable
@@ -413,6 +429,10 @@ export default function Chat() {
   const [blankDraft, setBlankDraft] = useState("");
   const [blankBusy, setBlankBusy] = useState(false);
   const [error, setError] = useState("");
+  /** Staged composer files — uploaded to `.brokk/inbox/` on send. */
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [attachBusy, setAttachBusy] = useState(false);
+  const [composerDrag, setComposerDrag] = useState(false);
   // The rail can be folded away; the choice sticks per browser, like the split.
   const [railOpen, setRailOpen] = useState(true);
   useEffect(() => {
@@ -462,6 +482,8 @@ export default function Chat() {
 
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const attachInputRef = useRef<HTMLInputElement | null>(null);
+  const composerDragDepth = useRef(0);
 
   /** Grow the tray with the prompt; thread keeps scroll for long chats. */
   function resizeComposer(el: HTMLTextAreaElement | null = inputRef.current) {
@@ -736,6 +758,7 @@ export default function Chat() {
     setLiveText("");
     setLiveThinking("");
     setError("");
+    setPendingFiles([]);
     liveSeqRef.current = -1;
     const { session, messages: msgs, running: live } = await chat.getSession(id);
     // Reflect the session's saved model + effort (all tiers are selectable now).
@@ -794,18 +817,20 @@ export default function Chat() {
   async function send(sidOverride?: string, textOverride?: string) {
     const sid = sidOverride ?? sessionId;
     const raw = (textOverride ?? input).trim();
-    if (!raw || !sid || running) return;
+    const staged = pendingFiles;
+    if ((!raw && !staged.length) || !sid || running || attachBusy) return;
     const known = new Set(skillOptions.map((s) => s.name));
-    const { skill: slashSkill, text } = extractSkillSlash(raw, known);
-    if (!text) return;
+    const { skill: slashSkill, text } = extractSkillSlash(raw || "Please read the attached files.", known);
+    if (!text && !staged.length) return;
     setInput("");
+    setPendingFiles([]);
     setSlashOpen(false);
     requestAnimationFrame(() => resizeComposer());
     setError("");
     setLiveText("");
     setLiveThinking("");
     setRunning(true);
-    setPhase("starting");
+    setPhase(staged.length ? "uploading" : "starting");
     if (slashSkill) {
       setSessions((prev) =>
         prev.map((s) => (s.id === sid ? { ...s, skill: slashSkill } : s)),
@@ -831,17 +856,51 @@ export default function Chat() {
       }
     }
     // optimistic user bubble at the next seq
-    upsert({ seq: liveSeqRef.current + 1, role: "user", blocks: [{ type: "text", text: raw }] });
+    const bubble =
+      staged.length > 0
+        ? `${raw || text}${raw || text ? "\n\n" : ""}📎 ${staged.map((f) => f.name).join(", ")}`
+        : raw;
+    upsert({ seq: liveSeqRef.current + 1, role: "user", blocks: [{ type: "text", text: bubble }] });
     const ac = new AbortController();
     abortRef.current = ac;
     pendingRef.current = raw;
     terminalRef.current = false;
     lastFrameRef.current = Date.now();
     try {
-      await sendMessage(sid, text, handleEvent, ac.signal, slashSkill);
+      let attachments: string[] | undefined;
+      let attachmentUploads: { name: string; dataBase64: string }[] | undefined;
+      if (staged.length) {
+        setAttachBusy(true);
+        const uploaded: string[] = [];
+        const inline: { name: string; dataBase64: string }[] = [];
+        for (const f of staged) {
+          const rel = inboxRelPath(f.name);
+          try {
+            await files.upload(sid, rel, f);
+            uploaded.push(rel);
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            // No checkout yet → land bytes with the turn after ensure().
+            if (/\b409\b/.test(msg) || /no checkout/i.test(msg)) {
+              inline.push({ name: f.name, dataBase64: await fileToBase64(f) });
+            } else {
+              throw e;
+            }
+          }
+        }
+        if (uploaded.length) attachments = uploaded;
+        if (inline.length) attachmentUploads = inline;
+        setAttachBusy(false);
+        setPhase("starting");
+      }
+      await sendMessage(sid, text, handleEvent, ac.signal, slashSkill, {
+        attachments,
+        attachmentUploads,
+      });
       if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(sid);
     } catch (e) {
       if (ac.signal.aborted) return;
+      setAttachBusy(false);
       // A 5xx here is ambiguous — the POST may have started a turn whose
       // response we never got. Don't guess: resync asks the server what's
       // actually running.
@@ -850,6 +909,41 @@ export default function Chat() {
         setRunning(false);
       } else scheduleRetry(sid);
     }
+  }
+
+  function stageFiles(list: FileList | File[]) {
+    const next = Array.from(list).filter((f) => f.size > 0);
+    if (!next.length) return;
+    setPendingFiles((prev) => {
+      const names = new Set(prev.map((f) => f.name));
+      const merged = [...prev];
+      for (const f of next) {
+        if (merged.length >= 8) break;
+        if (names.has(f.name)) continue;
+        names.add(f.name);
+        merged.push(f);
+      }
+      return merged;
+    });
+  }
+
+  function onComposerDrop(e: React.DragEvent) {
+    e.preventDefault();
+    composerDragDepth.current = 0;
+    setComposerDrag(false);
+    if (e.dataTransfer.files?.length) stageFiles(e.dataTransfer.files);
+  }
+  function onComposerDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    if (Array.from(e.dataTransfer.types).includes("Files")) {
+      composerDragDepth.current += 1;
+      setComposerDrag(true);
+    }
+  }
+  function onComposerDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    composerDragDepth.current = Math.max(0, composerDragDepth.current - 1);
+    if (composerDragDepth.current === 0) setComposerDrag(false);
   }
 
   async function stop() {
@@ -1242,7 +1336,14 @@ export default function Chat() {
               </StickToBottom>
 
               {/* composer = cockpit: the controls live where the hand acts */}
-              <div className="sindri-composer">
+              <div
+                className={`sindri-composer${composerDrag ? " is-drop" : ""}`}
+                data-sindri-attach="1"
+                onDragEnter={onComposerDragEnter}
+                onDragOver={(e) => e.preventDefault()}
+                onDragLeave={onComposerDragLeave}
+                onDrop={onComposerDrop}
+              >
                 <div className="sindri-composer-stack">
                   <ComposerMenu
                     open={slashOpen}
@@ -1258,10 +1359,31 @@ export default function Chat() {
                     onClose={() => setSlashOpen(false)}
                     emptyHint={skillOptions.length ? "No skill matches" : "No skills loaded"}
                   />
+                  {pendingFiles.length > 0 ? (
+                    <ul className="sindri-attach-list" aria-label="Attachments">
+                      {pendingFiles.map((f) => (
+                        <li key={f.name} className="sindri-attach-chip" title={`.brokk/inbox/${f.name}`}>
+                          <FileText size={12} aria-hidden />
+                          <span>{f.name}</span>
+                          <button
+                            type="button"
+                            className="sindri-attach-remove"
+                            aria-label={`Remove ${f.name}`}
+                            disabled={running || attachBusy}
+                            onClick={() =>
+                              setPendingFiles((prev) => prev.filter((x) => x.name !== f.name))
+                            }
+                          >
+                            <X size={12} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   <textarea
                     ref={inputRef}
                     className="sindri-input"
-                    placeholder="Describe the work"
+                    placeholder="Describe the work…  (/ for skills · attach files · Enter sends)"
                     value={input}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -1294,7 +1416,7 @@ export default function Chat() {
                       type="button"
                       className="sindri-send"
                       onClick={() => send()}
-                      disabled={!input.trim()}
+                      disabled={!input.trim() && pendingFiles.length === 0}
                       title="Send (Enter)"
                       aria-label="Send"
                     >
@@ -1314,6 +1436,29 @@ export default function Chat() {
                       The anvil lives in the lintel and the branch in the session —
                       neither needs restating under every prompt. */}
                   <div className="sindri-cockpit-controls">
+                    <button
+                      type="button"
+                      className="sindri-chip sindri-attach-btn"
+                      title="Attach file (xlsx / pdf / txt) → .brokk/inbox/"
+                      aria-label="Attach file"
+                      data-testid="sindri-attach"
+                      disabled={running || attachBusy}
+                      onClick={() => attachInputRef.current?.click()}
+                    >
+                      <Paperclip size={13} />
+                      <span className="sindri-chip-label">Attach</span>
+                    </button>
+                    <input
+                      ref={attachInputRef}
+                      type="file"
+                      className="sindri-attach-input"
+                      multiple
+                      accept=".xlsx,.xls,.pdf,.txt,.csv,.md,.json,.tsv,text/*,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      onChange={(e) => {
+                        if (e.target.files) stageFiles(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
                     {context ? <ContextRing context={context} spent={tokens} /> : null}
                     {engine !== "claude-cli" && engine !== "cursor-cli" && (
                       <ComposerChip
@@ -1421,6 +1566,11 @@ export default function Chat() {
                     />
                   </div>
                 </div>
+                {composerDrag ? (
+                  <div className="sindri-composer-drop" aria-hidden>
+                    Drop into <code>.brokk/inbox/</code>
+                  </div>
+                ) : null}
               </div>
             </>
           </section>

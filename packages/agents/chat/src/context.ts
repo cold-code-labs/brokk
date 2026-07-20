@@ -13,6 +13,7 @@
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import type { Store } from "@brokk/db";
+import { attachmentContextBlock } from "./attachments.js";
 import { pinnedSkillBlock, skillCatalogue, type Skill } from "./skills.js";
 
 export interface ContextInput {
@@ -27,6 +28,8 @@ export interface ContextInput {
   skills?: Skill[];
   /** When set, inject that skill's instructions as a pinned session block. */
   pinnedSkill?: Skill;
+  /** Relative paths under `.brokk/inbox/` attached on this turn (composer upload). */
+  attachments?: string[];
 }
 
 const IDENTITY = [
@@ -76,6 +79,7 @@ export async function buildSystemPrompt(input: ContextInput): Promise<string> {
   const guide = await repoGuide(input.cwd);
   const catalogue = skillCatalogue(input.skills);
   const pinned = pinnedSkillBlock(input.pinnedSkill);
+  const attachments = attachmentContextBlock(input.attachments ?? []);
 
   return [
     IDENTITY,
@@ -86,6 +90,7 @@ export async function buildSystemPrompt(input: ContextInput): Promise<string> {
     `- Working branch: ${input.branch}`,
     `- Working directory: the checkout root (all tool paths are relative to it)`,
     "",
+    ...(attachments ? [attachments, ""] : []),
     ...(pinned ? [pinned, ""] : []),
     ...(catalogue ? [catalogue, ""] : []),
     "## Open cards in this project",

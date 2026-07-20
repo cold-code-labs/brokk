@@ -3,6 +3,7 @@ import {
   claudeCliAvailable,
   cursorCliAvailable,
   loadInstructionSkills,
+  normalizeInboxPaths,
   skillMetaList,
   type AflConfig,
   type AgentEvent,
@@ -17,6 +18,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { runCliSessionTurn } from "./cli-turn.js";
+import { writeInboxUploads } from "./inbox.js";
 import { unseal } from "./secrets.js";
 import { autoTitle } from "./titler.js";
 import { detectRuntime, runDiscovery, runMeetingScout, runResolve } from "@brokk/scout";
@@ -103,6 +105,18 @@ const SendMessage = z.object({
   text: z.string().min(1),
   /** Optional Brokk Skill for this turn (slash `/skill` from the composer). */
   skill: z.string().min(1).max(80).optional().nullable(),
+  /** Relative paths already written under `.brokk/inbox/` via fs/write. */
+  attachments: z.array(z.string().min(1).max(240)).max(8).optional(),
+  /** Inline bytes when the checkout was not ready for fs/write yet. */
+  attachmentUploads: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(180),
+        dataBase64: z.string().min(1).max(18_000_000),
+      }),
+    )
+    .max(8)
+    .optional(),
 });
 
 // Per-teammate seat routing for the interactive chat (default ON; BROKK_DIRECT_SEAT=0
@@ -514,6 +528,8 @@ export function buildSindri(deps: SindriDeps): Hono {
       deps.turns.start(id, (emit, signal) =>
         runSessionTurn(deps, id, parsed.data.text, emit, signal, {
           skill: parsed.data.skill?.trim() || null,
+          attachments: parsed.data.attachments,
+          attachmentUploads: parsed.data.attachmentUploads,
         }),
       );
     } catch (e) {
@@ -805,7 +821,11 @@ async function runSessionTurn(
   text: string,
   emit: (e: AgentEvent) => void,
   signal: AbortSignal,
-  opts?: { skill?: string | null },
+  opts?: {
+    skill?: string | null;
+    attachments?: string[];
+    attachmentUploads?: { name: string; dataBase64: string }[];
+  },
 ): Promise<void> {
   let session = await deps.store.getChatSession(sessionId);
   if (!session) throw new Error("session not found");
@@ -866,6 +886,24 @@ async function runSessionTurn(
     ).path;
   }
 
+  // Composer attachments: prefer paths already written via fs/write; otherwise
+  // land inline uploads now that the checkout exists.
+  let attachments = normalizeInboxPaths(opts?.attachments ?? []);
+  if (opts?.attachmentUploads?.length) {
+    const written = await writeInboxUploads(path, opts.attachmentUploads).catch((e) => {
+      emit({
+        type: "status",
+        phase: "attachments",
+        detail: { error: e instanceof Error ? e.message : String(e) },
+      });
+      return [] as string[];
+    });
+    attachments = normalizeInboxPaths([...attachments, ...written]);
+  }
+  if (attachments.length) {
+    emit({ type: "status", phase: "attachments", detail: { paths: attachments } });
+  }
+
   // Serialize concurrent live-worktree edits across sessions (see liveWorktreeLocks).
   if (live && liveWorktreeLocks.has(path)) {
     emit({
@@ -895,6 +933,7 @@ async function runSessionTurn(
         store: deps.store,
         cwd: path,
         repoFullName: repo.fullName,
+        attachments,
         emit,
         signal,
         kind: engine === "cursor-cli" ? "cursor" : "claude",
@@ -950,6 +989,7 @@ async function runSessionTurn(
     branch,
     skills,
     pinnedSkill,
+    attachments,
   });
 
   // Cursor API → Ratatoskr cursor sidecar (Messages-compat). Claude API → seat

@@ -10,6 +10,7 @@ import {
   type AgentEvent,
   type CliTurnInput,
   type ContentBlock,
+  attachmentContextBlock,
   loadInstructionSkills,
   resolveModel,
   runClaudeCliTurn,
@@ -35,6 +36,8 @@ export interface CliSessionTurnInput {
   /** The session checkout (worktree) the CLI works in. */
   cwd: string;
   repoFullName: string;
+  /** Relative `.brokk/inbox/` paths attached this turn (composer). */
+  attachments?: string[];
   emit: (e: AgentEvent) => void;
   signal?: AbortSignal;
   /** Claude Code vs Cursor Agent CLI. Default claude. */
@@ -104,6 +107,7 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
   const pinned = session.skill
     ? loadInstructionSkills().find((s) => s.name === session.skill)
     : undefined;
+  const attachBlock = attachmentContextBlock(input.attachments ?? []);
 
   // "QA na conversa" (ADR 0054): resolve the session's live preview so the agent
   // can DRIVE it for a visual / GUI / QA review. The browser (chromium + the
@@ -126,6 +130,7 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
     `Your checkout is a dedicated git worktree on branch \`${session.branch}\`. Do NOT switch branches or reset history — stay here.`,
     `COMMIT POLICY: Do NOT git commit or git push unless the user explicitly asks. Live preview / HMR already shows file edits — leave the tree dirty for the Commit button in the preview toolbar. If they ask you to commit, typecheck when available, then commit + push origin HEAD:dev (never force-push).`,
     previewNote,
+    attachBlock,
     pinned?.instructions
       ? `\n## Active skill (pinned): ${pinned.name}\nFollow this skill for the whole conversation unless the user releases it.\n\n${pinned.instructions}`
       : "",

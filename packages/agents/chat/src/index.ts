@@ -19,6 +19,13 @@ export {
   runCursorCliTurn,
 } from "@brokk/afl";
 export { buildSystemPrompt, type ContextInput } from "./context.js";
+export {
+  INBOX_DIR,
+  attachmentContextBlock,
+  inboxRelPath,
+  normalizeInboxPaths,
+  safeInboxFilename,
+} from "./attachments.js";
 export { GatewayError, streamAssistant } from "@brokk/afl";
 export { runTurn, type RunTurnInput } from "./loop.js";
 export { makeExecutor, TOOL_DEFS, type ToolContext } from "./tools.js";

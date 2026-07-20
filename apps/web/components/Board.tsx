@@ -1,12 +1,15 @@
 "use client";
 
-import type { Project, Run, RunEvent, Task, TaskEvent, TaskOwner } from "@brokk/sdk";
+import type { Preview, Project, Run, RunEvent, Task, TaskEvent, TaskOwner } from "@brokk/sdk";
+import { foldRunLogEvents } from "@brokk/sdk";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Bot,
   Brain,
   Camera,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Columns3,
   FileEdit,
@@ -37,6 +40,7 @@ import { analysis as analysisApi, type AnalysisQuestion, type TaskAnalysis } fro
 import { useProject } from "../lib/project-context";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
 import { AgentAvatar } from "./AgentAvatar";
+import { PreviewChip } from "./PreviewChip";
 
 const COLUMNS = ["backlog", "analysis", "queued", "running", "review", "done", "failed"] as const;
 
@@ -72,6 +76,10 @@ export default function Board({ projectId }: { projectId?: string }) {
     if (projectId) setCurrentId(projectId);
   }, [projectId, setCurrentId]);
 
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewErr, setPreviewErr] = useState<string | null>(null);
+
   const refresh = useCallback(async (pid?: string) => {
     if (!pid) return;
     try {
@@ -104,6 +112,59 @@ export default function Board({ projectId }: { projectId?: string }) {
     const i = setInterval(() => refresh(project.id), 3000);
     return () => clearInterval(i);
   }, [project?.id, refresh]);
+
+  // Load the most-recent active preview when the project becomes known.
+  useEffect(() => {
+    if (!project?.id) return;
+    brokk
+      .listPreviews(project.id)
+      .then((ps) => {
+        const active = ps.find((x) => x.status === "starting" || x.status === "live");
+        setPreview(active ?? null);
+      })
+      .catch(() => {});
+  }, [project?.id]);
+
+  // Poll the preview status every 2 s while it is still starting.
+  const previewId = preview?.id;
+  const previewStatus = preview?.status;
+  useEffect(() => {
+    if (!previewId || previewStatus !== "starting") return;
+    const id = previewId;
+    const i = setInterval(() => {
+      brokk.getPreview(id).then(setPreview).catch(() => {});
+    }, 2000);
+    return () => clearInterval(i);
+  }, [previewId, previewStatus]);
+
+  async function handlePreview() {
+    if (!project) return;
+    setPreviewBusy(true);
+    setPreviewErr(null);
+    try {
+      const pv = await brokk.createPreview({ projectId: project.id });
+      setPreview(pv);
+    } catch (e) {
+      setPreviewErr(String(e));
+    } finally {
+      setPreviewBusy(false);
+    }
+  }
+
+  async function handleStopPreview() {
+    if (!preview) return;
+    // Failed previews are just dismissed locally; live/starting ones are stopped via API.
+    if (preview.status === "failed") {
+      setPreview(null);
+      return;
+    }
+    try {
+      await brokk.stopPreview(preview.id);
+      setPreview(null);
+    } catch (e) {
+      setPreviewErr(String(e));
+    }
+  }
 
   // Create a manual card. owner='brokk' + queue → straight to the forge; owner
   // ='human' → it stays a backlog card you own (the runner never claims it).
@@ -203,6 +264,9 @@ export default function Board({ projectId }: { projectId?: string }) {
   return (
     <Main className="forge-room is-wide">
       <header className="forge-head">
+        <Link href="/fleet" className="forge-crumb">
+          ← Fleet
+        </Link>
         <div className="forge-head-top">
           <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the anvil</span>
@@ -219,6 +283,14 @@ export default function Board({ projectId }: { projectId?: string }) {
                 New card
               </Button>
             )}
+            {project &&
+              (preview && preview.status !== "stopped" ? (
+                <PreviewChip preview={preview} onStop={handleStopPreview} />
+              ) : (
+                <Button variant="outline" size="sm" type="button" onClick={handlePreview} disabled={previewBusy}>
+                  {previewBusy ? "Starting…" : "Preview dev"}
+                </Button>
+              ))}
           </div>
         </div>
         <div className="forge-head-rule" />
@@ -254,6 +326,7 @@ export default function Board({ projectId }: { projectId?: string }) {
       </div>
 
       {err && <Banner tone="err">{err}</Banner>}
+      {previewErr && <Banner tone="err">Preview failed: {previewErr}</Banner>}
 
       {view === "board" ? (
         visible.length === 0 ? (
@@ -328,7 +401,7 @@ export default function Board({ projectId }: { projectId?: string }) {
       )}
 
       {selectedTask && (
-        <Detail
+        <TaskDetail
           task={selectedTask}
           onClose={() => setSelected(null)}
           onChanged={() => refresh(project?.id)}
@@ -525,61 +598,45 @@ function NewCardModal({
   }
 
   return (
-    <div className="forge-scrim" onClick={onClose} role="presentation">
-      <div
-        className="forge-dialog is-form"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="forge-new-card-title"
-      >
-        <div className="forge-dialog-head">
-          <h2 id="forge-new-card-title" className="forge-dialog-title">New card</h2>
+    <div style={overlay} onClick={onClose}>
+      <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <h2 style={{ margin: 0, fontSize: 16 }}>New card</h2>
           <Button variant="outline" size="icon" onClick={onClose} aria-label="Close">✕</Button>
         </div>
         {err && <Banner tone="err">{err}</Banner>}
-        <label className="forge-field">
-          <span className="forge-field-label">Title</span>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Title…"
-            // biome-ignore lint/a11y/noAutofocus: modal opened on explicit action
-            autoFocus
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submit()}
-          />
-        </label>
-        <label className="forge-field">
-          <span className="forge-field-label">Work</span>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="What needs doing…"
-            rows={4}
-          />
-        </label>
-        <p className="forge-field-label">Who forges it</p>
-        <div className="forge-owner-picks">
-          <button
-            type="button"
-            className={`forge-owner-pick${owner === "brokk" ? " is-on" : ""}`}
-            onClick={() => setOwner("brokk")}
-          >
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Title…"
+          // biome-ignore lint/a11y/noAutofocus: modal opened on explicit action
+          autoFocus
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && submit()}
+          style={{ ...field, width: "100%", marginBottom: 8 }}
+        />
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="What needs doing…"
+          rows={4}
+          style={{ ...field, width: "100%", resize: "vertical", marginBottom: 14 }}
+        />
+        <div className="ygg-dim" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 7 }}>
+          Who forges it
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+          <button type="button" onClick={() => setOwner("brokk")} style={ownerPick(owner === "brokk")}>
             <Bot size={16} />
-            <span className="forge-owner-pick-title">Brokk</span>
-            <span className="forge-owner-pick-sub">goes to the forge queue</span>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>Brokk</span>
+            <span className="ygg-dim" style={{ fontSize: 11 }}>goes to the forge queue</span>
           </button>
-          <button
-            type="button"
-            className={`forge-owner-pick${owner === "human" ? " is-on" : ""}`}
-            onClick={() => setOwner("human")}
-          >
+          <button type="button" onClick={() => setOwner("human")} style={ownerPick(owner === "human")}>
             <UserIcon size={16} />
-            <span className="forge-owner-pick-title">Me</span>
-            <span className="forge-owner-pick-sub">stays yours — the runner skips it</span>
+            <span style={{ fontWeight: 600, fontSize: 13 }}>Me</span>
+            <span className="ygg-dim" style={{ fontSize: 11 }}>stays yours — the runner skips it</span>
           </button>
         </div>
-        <div className="forge-dialog-actions">
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button onClick={submit} disabled={busy || !title.trim()}>
             {busy ? "Creating…" : owner === "brokk" ? "Create → queue" : "Create card"}
@@ -590,7 +647,9 @@ function NewCardModal({
   );
 }
 
-function Detail({ task, onClose, onChanged }: { task: Task; onClose: () => void; onChanged: () => void }) {
+/** Task drawer — Live run log (SSE) + handoff. Exported so the forge floor
+ *  (Dashboard) can open the same observer without reimplementing it. */
+export function TaskDetail({ task, onClose, onChanged }: { task: Task; onClose: () => void; onChanged: () => void }) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [events, setEvents] = useState<RunEvent[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
@@ -1103,10 +1162,8 @@ function AnalysisPanel({ task, onChanged, onClose }: { task: Task; onChanged: ()
 
 // ── Live run log — a legible activity feed (icons + per-type treatment, à la
 // Sindri). The forge emits typed RunEvents; we render assistant narration, tool
-// calls (paired with their result), phase pills, and verify output — not raw
-// `message [tool_use]` lines. Tools come from message content blocks (always
-// present); standalone tool_use events are deduped by id; tool_result events
-// supply the pairing. ──────────────────────────────────────────────────────────
+// calls (paired with their result), phase pills, thinking, and verify output.
+// Folded via foldRunLogEvents (tested in @brokk/core). ─────────────────────────
 
 type ToolBlock = { id?: string; name?: string; input?: Record<string, unknown> };
 type ToolResultP = { tool_use_id?: string; ok?: boolean; preview?: string };
@@ -1145,49 +1202,64 @@ function phaseMeta(p: Record<string, unknown>): { label: string; tint: string; I
   }
 }
 
-function RunLog({ events, logRef }: { events: RunEvent[]; logRef: React.RefObject<HTMLDivElement | null> }) {
-  const resultById = new Map<string, ToolResultP>();
-  for (const e of events) {
-    if (e.type === "tool_result") {
-      const p = e.payload as ToolResultP;
-      if (p?.tool_use_id) resultById.set(p.tool_use_id, p);
-    }
-  }
-
+/** Exported for the BROKK-39 acceptance fixture (static observer without a live run). */
+export function RunLog({ events, logRef }: { events: RunEvent[]; logRef?: React.RefObject<HTMLDivElement | null> }) {
+  const entries = foldRunLogEvents(events);
   const items: React.ReactNode[] = [];
-  events.forEach((e, i) => {
-    const p = e.payload as any;
-    if (e.type === "status") {
-      const m = phaseMeta(p ?? {});
+
+  entries.forEach((entry, i) => {
+    if (entry.kind === "phase") {
+      const m = phaseMeta(entry.phase);
       if (m) items.push(<PhaseRow key={i} {...m} />);
       return;
     }
-    if (e.type === "log") {
-      const text = p?.verify ?? p?.error ?? (typeof p === "string" ? p : "");
-      if (text) items.push(<LogRow key={i} error={p?.level === "error"} text={String(text)} />);
+    if (entry.kind === "log") {
+      items.push(<LogRow key={i} error={entry.error} text={entry.text} />);
       return;
     }
-    if (e.type === "acceptance") {
-      items.push(<AcceptanceRow key={i} receipt={p ?? {}} />);
+    if (entry.kind === "acceptance") {
+      items.push(<AcceptanceRow key={i} receipt={entry.receipt} />);
       return;
     }
-    if (e.type === "message") {
-      const c = p?.content ?? p?.message?.content;
-      const blocks: any[] = Array.isArray(c) ? c : [];
-      const text = blocks.filter((b) => b?.type === "text").map((b) => b.text).join("\n").trim();
-      if (text) items.push(<TextRow key={`${i}-t`} text={text} />);
-      blocks
-        .filter((b) => b?.type === "tool_use")
-        .forEach((b: ToolBlock, j) =>
-          items.push(<ToolRow key={`${i}-${j}`} tool={b} result={b.id ? resultById.get(b.id) : undefined} />),
-        );
+    if (entry.kind === "thinking") {
+      items.push(<ReasoningRow key={i} text={entry.text} live={entry.live} />);
+      return;
     }
-    // standalone tool_use / tool_result / usage: deduped/folded (rendered via message)
+    if (entry.kind === "text") {
+      items.push(<TextRow key={i} text={entry.text} />);
+      return;
+    }
+    if (entry.kind === "tool") {
+      items.push(<ToolRow key={i} tool={entry.tool} result={entry.result} />);
+    }
   });
 
   return (
-    <div ref={logRef} style={runLogBox}>
+    <div ref={logRef} style={runLogBox} data-testid="run-log">
       {items.length === 0 ? <span className="ygg-dim" style={{ fontSize: 12 }}>No events yet.</span> : items}
+    </div>
+  );
+}
+
+/** Extended thinking — same quiet collapsible as Sindri's Reasoning panel. */
+function ReasoningRow({ text, live }: { text: string; live?: boolean }) {
+  const [open, setOpen] = useState(!!live);
+  useEffect(() => {
+    if (live) setOpen(true);
+  }, [live]);
+  if (!text.trim()) return null;
+  return (
+    <div className={`sindri-reasoning ${live ? "is-live" : ""}`} data-testid="run-log-thinking">
+      <button type="button" className="sindri-reasoning-head" onClick={() => setOpen((o) => !o)}>
+        <Brain size={13} className={live ? "sindri-reasoning-pulse" : ""} />
+        <span>{live ? "Thinking…" : "Reasoning"}</span>
+        <ChevronDown size={13} className={`sindri-reasoning-caret ${open ? "is-open" : ""}`} />
+      </button>
+      {open ? (
+        <div className="sindri-reasoning-body" style={{ whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.5 }}>
+          {text}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1448,6 +1520,21 @@ const ownerChip = (color: string): React.CSSProperties => ({
   color,
   background: `${color}14`,
   whiteSpace: "nowrap",
+});
+const modalCard: React.CSSProperties = { width: "min(520px, 100%)", margin: "auto", alignSelf: "center", background: t.bg, border: `1px solid ${t.border}`, borderRadius: 12, padding: 22, boxShadow: "var(--shadow-2)" };
+const ownerPick = (active: boolean): React.CSSProperties => ({
+  flex: 1,
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+  alignItems: "flex-start",
+  textAlign: "left",
+  padding: "11px 13px",
+  borderRadius: 9,
+  cursor: "pointer",
+  border: `1px solid ${active ? t.borderActive : t.border}`,
+  background: active ? t.surface3 : t.surface2,
+  color: t.text,
 });
 const handoffBar: React.CSSProperties = { display: "flex", gap: 8, margin: "14px 0 4px", flexWrap: "wrap" };
 // Per-card ⋯ menu: a flat icon button + a fixed-positioned popover (escapes the
