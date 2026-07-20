@@ -62,12 +62,28 @@ export const files = {
   downloadUrl: (sessionId: string, path: string) =>
     `${BASE}/sessions/${sessionId}/fs/read?path=${q(path)}&raw=1`,
   /** Upload raw bytes to `path` (relative to the checkout root). */
-  upload: async (sessionId: string, path: string, data: Blob): Promise<{ size: number }> => {
+  upload: async (sessionId: string, path: string, data: Blob): Promise<{ size: number; path?: string }> => {
     const res = await fetch(`${BASE}/sessions/${sessionId}/fs/write?path=${q(path)}`, {
       method: "POST",
       body: data,
     });
     if (!res.ok) throw new Error(await failMessage(res));
-    return (await res.json()) as { size: number };
+    return (await res.json()) as { size: number; path?: string };
   },
 };
+
+/** Basename safe for `.brokk/inbox/<name>` (mirrors @brokk/chat safeInboxFilename). */
+export function safeInboxFilename(name: string): string {
+  const base = (name ?? "").split(/[/\\]/).pop() ?? "";
+  const cleaned = base
+    .replace(/[^\w.\-+() ]+/g, "_")
+    .replace(/^\.+/, "")
+    .trim();
+  const out = cleaned || "file";
+  return out.slice(0, 180);
+}
+
+/** Relative checkout path for a composer attachment. */
+export function inboxRelPath(filename: string): string {
+  return `.brokk/inbox/${safeInboxFilename(filename)}`;
+}

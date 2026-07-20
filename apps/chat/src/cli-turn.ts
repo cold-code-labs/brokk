@@ -10,6 +10,7 @@ import {
   type AgentEvent,
   type CliTurnInput,
   type ContentBlock,
+  attachmentContextBlock,
   loadInstructionSkills,
   resolveModel,
   runClaudeCliTurn,
@@ -35,6 +36,8 @@ export interface CliSessionTurnInput {
   /** The session checkout (worktree) the CLI works in. */
   cwd: string;
   repoFullName: string;
+  /** Relative `.brokk/inbox/` paths attached this turn (composer). */
+  attachments?: string[];
   emit: (e: AgentEvent) => void;
   signal?: AbortSignal;
   /** Claude Code vs Cursor Agent CLI. Default claude. */
@@ -104,11 +107,13 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
   const pinned = session.skill
     ? loadInstructionSkills().find((s) => s.name === session.skill)
     : undefined;
+  const attachBlock = attachmentContextBlock(input.attachments ?? []);
 
   const appendSystem = [
     `You are Sindri, the session agent inside Brokk (CCL's coding pillar), working on repo ${input.repoFullName}.`,
     `Your checkout is a dedicated git worktree on branch \`${session.branch}\`. Do NOT switch branches or reset history — stay here.`,
     `CLOSE THE LOOP: editing files is not finishing. When the user wants to SEE a change, you are done ONLY after you commit and PUSH it (following this repo's CLAUDE.md publishing convention, e.g. \`git push origin HEAD:dev\`) so the preview updates. Run typecheck first. Never leave a wanted change uncommitted/unpublished; state clearly whether you published.`,
+    attachBlock,
     pinned?.instructions
       ? `\n## Active skill (pinned): ${pinned.name}\nFollow this skill for the whole conversation unless the user releases it.\n\n${pinned.instructions}`
       : "",

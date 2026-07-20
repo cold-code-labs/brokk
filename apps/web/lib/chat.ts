@@ -191,11 +191,22 @@ export async function sendMessage(
   onEvent: (e: AgentEvent) => void,
   signal?: AbortSignal,
   skill?: string | null,
+  opts?: {
+    /** Paths already written under `.brokk/inbox/` via fs/write. */
+    attachments?: string[];
+    /** Inline bytes when the checkout was not ready for fs/write. */
+    attachmentUploads?: { name: string; dataBase64: string }[];
+  },
 ): Promise<void> {
   const res = await fetch(`${BASE}/sessions/${sessionId}/messages`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text, ...(skill ? { skill } : {}) }),
+    body: JSON.stringify({
+      text,
+      ...(skill ? { skill } : {}),
+      ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
+      ...(opts?.attachmentUploads?.length ? { attachmentUploads: opts.attachmentUploads } : {}),
+    }),
     signal,
   });
   if (!res.ok) throw new Error(`send → ${res.status} ${await res.text().catch(() => "")}`);
