@@ -2304,6 +2304,8 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     await db.execute(sql`ALTER TYPE task_status ADD VALUE IF NOT EXISTS 'analysis' AFTER 'backlog';`);
     // Nv2 QA: the live-acceptance receipt run event. Same ADD VALUE self-heal.
     await db.execute(sql`ALTER TYPE run_event_type ADD VALUE IF NOT EXISTS 'acceptance';`);
+    // BROKK-39: live extended-thinking chunks on the forge observer SSE stream.
+    await db.execute(sql`ALTER TYPE run_event_type ADD VALUE IF NOT EXISTS 'thinking';`);
     // Origin evidence (Muninn verbatim excerpts) on the drizzle-pushed tasks table.
     await db.execute(sql`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS evidence jsonb NOT NULL DEFAULT '[]'::jsonb;`);
     // from-brief idempotency key (ADR 0005). Self-healed column + a partial lookup

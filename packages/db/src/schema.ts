@@ -51,6 +51,7 @@ export const runEventType = pgEnum("run_event_type", [
   "log",
   "usage",
   "acceptance",
+  "thinking",
 ]);
 
 export const authMode = pgEnum("auth_mode", ["api_key", "subscription"]);
