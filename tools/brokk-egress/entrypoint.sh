@@ -38,7 +38,12 @@ if [ "$(id -u)" = "0" ]; then
 	# dirs the sandbox grants RW. NOT .config/gh — that stays Landlock's to gate.
 	chown 1001:1001 /home/brokk 2>/dev/null || true
 	chmod 2775 /home/brokk 2>/dev/null || true
-	for d in .npm .cache .local .config/pnpm .yarn .bun .semgrep work; do
+	# .cursor is load-bearing for the cursor-cli engine: the CLI writes a
+	# per-project dir under $HOME/.cursor/projects on EVERY turn. It gets created
+	# root-owned 0755 (setgid, not group-writable), so the worker uid 1001 then
+	# fails with `EACCES: mkdir /home/brokk/.cursor/projects/...` — and because the
+	# CLI writes that to stderr and exits 0, the run surfaced as an EMPTY error.
+	for d in .npm .cache .local .config/pnpm .yarn .bun .semgrep .cursor work; do
 		[ -e "/home/brokk/$d" ] && chmod -R g+rwX "/home/brokk/$d" 2>/dev/null
 	done
 
@@ -51,6 +56,18 @@ if [ "$(id -u)" = "0" ]; then
 	# every object group-brokk group-writable regardless of which uid wrote it.
 	mkdir -p /home/brokk/work/repos 2>/dev/null || true
 	chmod 2775 /home/brokk/work /home/brokk/work/repos 2>/dev/null || true
+
+	# Same reasoning for the cursor-cli engine's state dir: CLAIM it as setgid
+	# group-writable BEFORE anything else can, rather than only repairing it when
+	# it already exists. Whoever creates it first wins the ownership, and the CLI
+	# is invoked from several places (worker uid 1001, and root inside the enclave)
+	# — the loser then gets EACCES on every turn.
+	mkdir -p /home/brokk/.cursor/projects 2>/dev/null || true
+	chown -R 1001:1001 /home/brokk/.cursor 2>/dev/null || true
+	chmod 2775 /home/brokk/.cursor /home/brokk/.cursor/projects 2>/dev/null || true
+	# g+rwX (capital X) so nested dirs get traverse but cli-config.json does NOT
+	# become executable — a recursive 2775 would setgid regular files too.
+	chmod -R g+rwX /home/brokk/.cursor 2>/dev/null || true
 
 	if [ "${BROKK_EGRESS:-0}" = "1" ]; then
 		if command -v nft >/dev/null 2>&1 && nft -f /etc/brokk/egress.nft 2>/dev/null; then

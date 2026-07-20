@@ -17,6 +17,8 @@ export type ComposerMenuItem = {
   hint?: string;
   /** Small eyebrow / kind tag */
   tag?: string;
+  /** Greyed out — shown but not selectable (e.g. Cursor CLI on Alpine chat). */
+  disabled?: boolean;
 };
 
 type Props = {
@@ -144,12 +146,17 @@ export function ComposerMenu({
             type="button"
             role="option"
             data-idx={i}
+            disabled={item.disabled}
             className={`sindri-menu-item${i === activeIndex ? " is-active" : ""}${
               selectedId && item.id === selectedId ? " is-selected" : ""
-            }`}
+            }${item.disabled ? " is-disabled" : ""}`}
             aria-selected={selectedId ? item.id === selectedId : i === activeIndex}
+            aria-disabled={item.disabled || undefined}
             onMouseEnter={() => onActiveIndex(i)}
-            onClick={() => onPick(item.id)}
+            onClick={() => {
+              if (item.disabled) return;
+              onPick(item.id);
+            }}
           >
             {selectedId ? (
               <span className="sindri-menu-item-check" aria-hidden="true">

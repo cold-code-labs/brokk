@@ -189,6 +189,44 @@ export function buildSindri(deps: SindriDeps): Hono {
   app.onError((err, c) => c.json({ error: err instanceof Error ? err.message : String(err) }, 500));
   app.get("/health", (c) => c.json({ ok: true, service: "sindri" }));
 
+  // Which motors this Sindri image can actually run (BROKK-34: Cursor CLI needs
+  // the glibc `agent` binary — Alpine chat historically advertises the chip but
+  // create/patch then 400s, leaving the UI out of sync with the session).
+  app.get("/engines", (c) => {
+    const cursorCli = cursorCliAvailable();
+    const claudeCli = claudeCliAvailable();
+    const cursorSeat = Boolean(
+      process.env.CURSOR_SEAT_URL || process.env.CURSOR_SEAT_INGRESS,
+    );
+    return c.json({
+      engines: [
+        { id: "claude-api", available: true },
+        {
+          id: "claude-cli",
+          available: claudeCli,
+          ...(claudeCli
+            ? {}
+            : { reason: "claude binary or CLAUDE_CODE_OAUTH_TOKEN missing" }),
+        },
+        {
+          id: "cursor-api",
+          available: cursorSeat,
+          ...(cursorSeat ? {} : { reason: "CURSOR_SEAT_URL unset" }),
+        },
+        {
+          id: "cursor-cli",
+          available: cursorCli,
+          ...(cursorCli
+            ? {}
+            : {
+                reason:
+                  "agent binary or CURSOR_API_KEY missing on this chat image — use Cursor API",
+              }),
+        },
+      ],
+    });
+  });
+
   // Serve images produced by the generate_image tool. Reached in the browser via
   // the authed /api/chat/images/:id proxy hop. Ids are uuids we minted.
   app.get("/images/:id", async (c) => {
@@ -252,10 +290,11 @@ export function buildSindri(deps: SindriDeps): Hono {
     });
   });
 
-  // Shared-secret guard (the control-plane API injects it). Health stays open.
+  // Shared-secret guard (the control-plane API injects it). Health + engine
+  // catalogue stay open (no secrets — just which motors this image can run).
   app.use("*", async (c, next) => {
     if (!deps.runnerSecret) return next();
-    if (c.req.path === "/health") return next();
+    if (c.req.path === "/health" || c.req.path === "/engines") return next();
     if (c.req.header("authorization") === `Bearer ${deps.runnerSecret}`) return next();
     return c.json({ error: "unauthorized" }, 401);
   });
@@ -337,6 +376,11 @@ export function buildSindri(deps: SindriDeps): Hono {
         400,
       );
     }
+    // "auto" is Cursor-seat only — never persist it on a Claude engine (BROKK-34).
+    let model = parsed.data.model ?? "haiku";
+    if (model === "auto" && engine !== "cursor-api" && engine !== "cursor-cli") {
+      model = "sonnet";
+    }
     const skillRaw = parsed.data.skill?.trim() || null;
     if (skillRaw) {
       const known = new Set(skillMetaList([
@@ -351,7 +395,7 @@ export function buildSindri(deps: SindriDeps): Hono {
     const created = await deps.store.insertChatSession({
       projectId: project.id,
       title: parsed.data.title ?? "New chat",
-      model: parsed.data.model ?? "haiku",
+      model,
       effort: parsed.data.effort ?? null,
       engine,
       skill: skillRaw,
@@ -404,11 +448,33 @@ export function buildSindri(deps: SindriDeps): Hono {
         );
       }
       const { engine: _rawEng, ...rest } = parsed.data;
-      const session = await deps.store.updateChatSession(id, { ...rest, engine });
+      let model = rest.model;
+      if (
+        (model === "auto" || (model === undefined && existing.model === "auto")) &&
+        engine !== "cursor-api" &&
+        engine !== "cursor-cli"
+      ) {
+        model = "sonnet";
+      }
+      const session = await deps.store.updateChatSession(id, {
+        ...rest,
+        ...(model !== undefined ? { model } : {}),
+        engine,
+      });
       return c.json({ session });
     }
 
-    const session = await deps.store.updateChatSession(id, parsed.data);
+    // Model-only patch: never leave "auto" on a Claude engine.
+    const patch = { ...parsed.data };
+    const eng = normalizeEngine(existing.engine);
+    if (
+      patch.model === "auto" &&
+      eng !== "cursor-api" &&
+      eng !== "cursor-cli"
+    ) {
+      patch.model = "sonnet";
+    }
+    const session = await deps.store.updateChatSession(id, patch);
     return c.json({ session });
   });
 

@@ -396,6 +396,9 @@ export default function Chat() {
   const [effort, setEffort] = useState("medium");
   const [engine, setEngine] = useState("claude-api");
   const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
+  const [engineAvail, setEngineAvail] = useState<
+    Record<string, { available: boolean; reason?: string }>
+  >({});
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashActive, setSlashActive] = useState(0);
   const [slashQuery, setSlashQuery] = useState("");
@@ -493,6 +496,18 @@ export default function Chat() {
     chat.listSkills()
       .then(setSkillOptions)
       .catch(() => setSkillOptions([]));
+  }, []);
+
+  // Which motors this Sindri deploy can actually run (Cursor CLI needs glibc agent).
+  useEffect(() => {
+    chat
+      .listEngines()
+      .then((list) => {
+        const map: Record<string, { available: boolean; reason?: string }> = {};
+        for (const e of list) map[e.id] = { available: e.available, reason: e.reason };
+        setEngineAvail(map);
+      })
+      .catch(() => setEngineAvail({}));
   }, []);
 
   // On environment change: load the project's sessions into the rail — and stop
@@ -759,10 +774,11 @@ export default function Chat() {
     if (engineOverride) {
       setEngine(eng);
       if (isCursorEngine(eng)) setModel("auto");
+      else if (model === "auto") setModel("sonnet");
     }
     const s = await chat.createSession({
       projectId,
-      model: isCursorEngine(eng) ? "auto" : model,
+      model: isCursorEngine(eng) ? "auto" : model === "auto" ? "sonnet" : model,
       effort,
       engine: eng,
     });
@@ -802,7 +818,7 @@ export default function Chat() {
       try {
         const updated = await chat.patchSession(sid, {
           engine: eng,
-          model: isCursorEngine(eng) ? "auto" : model,
+          model: isCursorEngine(eng) ? "auto" : model === "auto" ? "sonnet" : model,
           effort,
         });
         setSessions((prev) => prev.map((s) => (s.id === sid ? { ...s, ...updated } : s)));
@@ -1341,30 +1357,59 @@ export default function Chat() {
                           : "Motor — travado nesta sessão (troca abre chat novo)"
                       }
                       value={engine}
-                      items={ENGINES.map((m) => ({
-                        id: m.id,
-                        label: m.label,
-                        hint: m.hint,
-                        tag: m.id.startsWith("cursor") ? "cursor" : "claude",
-                      }))}
+                      items={ENGINES.map((m) => {
+                        const avail = engineAvail[m.id];
+                        const disabled = avail ? !avail.available : false;
+                        return {
+                          id: m.id,
+                          label: m.label,
+                          hint: disabled && avail?.reason ? avail.reason : m.hint,
+                          tag: m.id.startsWith("cursor") ? "cursor" : "claude",
+                          disabled,
+                        };
+                      })}
                       onChange={(id) => {
                         const next = normalizeEngineUi(id);
+                        if (engineAvail[next] && !engineAvail[next]!.available) {
+                          setError(
+                            engineAvail[next]!.reason ||
+                              `${next} unavailable on this chat image`,
+                          );
+                          return;
+                        }
+                        const prev = engine;
                         setEngine(next);
-                        if (isCursorEngine(next)) setModel("auto");
+                        if (isCursorEngine(next)) {
+                          setModel("auto");
+                        } else if (isCursorEngine(prev) || model === "auto") {
+                          // Leaving Cursor: drop the seat-only "auto" alias so a
+                          // Claude/LiteLLM turn never sees model=auto (BROKK-34).
+                          setModel("sonnet");
+                        }
                         if (!sessionId) return;
                         // Empty session: patch in place — don't mint a new chat.
                         if (messages.length === 0) {
+                          const patchModel = isCursorEngine(next)
+                            ? "auto"
+                            : model === "auto" || isCursorEngine(prev)
+                              ? "sonnet"
+                              : model;
+                          if (!isCursorEngine(next) && patchModel !== model) setModel(patchModel);
                           void chat
                             .patchSession(sessionId, {
                               engine: next,
-                              model: isCursorEngine(next) ? "auto" : model,
+                              model: patchModel,
                             })
                             .then((s) => {
-                              setSessions((prev) =>
-                                prev.map((row) => (row.id === sessionId ? { ...row, ...s } : row)),
+                              setSessions((prevS) =>
+                                prevS.map((row) => (row.id === sessionId ? { ...row, ...s } : row)),
                               );
                             })
-                            .catch(() => {});
+                            .catch((e) => {
+                              setError(String(e));
+                              // Revert chip to whatever the server still has.
+                              setEngine(normalizeEngineUi(currentSession?.engine ?? prev));
+                            });
                           return;
                         }
                         // After the first message the engine owns continuity —

@@ -193,6 +193,14 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
     emit({ type: "status", phase: "cli_error", detail: { stderrTail: stderrTail.slice(-800) } });
   }
 
+  // Mirror claude-cli: on a failure that produced no result event, the stderr IS
+  // the result. Without this the engine throws "cursor-agent CLI pass failed:"
+  // with an EMPTY message and the card carries no cause — which is exactly how
+  // the first cursor-cli run failed, hiding a one-line EACCES behind silence.
+  if (!ok && !resultText) {
+    resultText = stderrTail.trim() || `cursor-agent exited ${exitCode} without a result event`;
+  }
+
   return { ok, cliSessionId, resultText, usage, stop, exitCode };
 }
 

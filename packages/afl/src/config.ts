@@ -81,9 +81,12 @@ export function loadAflConfig(env: NodeJS.ProcessEnv = process.env): AflConfig {
 }
 
 /** Resolve a session's model alias to the concrete id the gateway expects. An
- *  already-concrete id (contains "-") passes through untouched. */
+ *  already-concrete id (contains "-") passes through untouched.
+ *  "auto" is a Cursor-seat alias — never forward it to Anthropic/LiteLLM
+ *  (BROKK-34: gateway 404 `model: auto`). */
 export function resolveModel(cfg: AflConfig, alias: string): string {
   const a = (alias || "haiku").toLowerCase();
+  if (a === "auto") return cfg.models.sonnet;
   if (a === "haiku" || a === "sonnet" || a === "opus") return cfg.models[a];
   return alias; // already a concrete model id
 }

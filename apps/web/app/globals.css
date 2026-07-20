@@ -1580,6 +1580,13 @@ body:has(.sindri) {
 .sindri-menu-item.is-active {
   background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
+.sindri-menu-item.is-disabled,
+.sindri-menu-item.is-disabled:hover,
+.sindri-menu-item.is-disabled.is-active {
+  opacity: 0.42;
+  cursor: not-allowed;
+  background: transparent;
+}
 /* Check column for menus that carry a selection (model / effort / engine). */
 .sindri-menu-item-check {
   flex-shrink: 0;

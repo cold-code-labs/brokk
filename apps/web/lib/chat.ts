@@ -107,6 +107,10 @@ export const chat = {
     j<{ skills: { name: string; description: string; kind: string }[] }>("GET", "/skills").then(
       (r) => r.skills,
     ),
+  listEngines: () =>
+    j<{
+      engines: { id: string; available: boolean; reason?: string }[];
+    }>("GET", "/engines").then((r) => r.engines),
   getSession: (id: string) =>
     j<{ session: ChatSession; messages: ChatMessage[]; running: boolean }>("GET", `/sessions/${id}`),
   patchSession: (

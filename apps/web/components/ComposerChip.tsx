@@ -58,7 +58,7 @@ export function ComposerChip({ title, value, items, onChange, icon, className, t
     if (e.key === "Enter") {
       e.preventDefault();
       const item = items[active];
-      if (item) {
+      if (item && !item.disabled) {
         onChange(item.id);
         close();
       }
