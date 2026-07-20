@@ -385,6 +385,9 @@ export interface Preview {
   builtAt: string | null;
   /** OS PID of the preview process on the runner host, if running. */
   pid: number | null;
+  /** Approximate RSS of the preview process tree on the forge (MiB), or null
+   *  when unknown / not live. Shared across chat sessions of the same project. */
+  rssMb: number | null;
   /** Redacted snapshot of the env the supervisor loaded into this preview
    *  (secret values masked) — powers the "Env" inspector in the preview bar.
    *  Null until the supervisor stamps it on boot. */

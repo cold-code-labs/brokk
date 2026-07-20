@@ -95,6 +95,8 @@ const PatchSession = z.object({
   status: z.enum(["active", "archived"]).optional(),
   model: z.string().optional(),
   effort: z.enum(["low", "medium", "high"]).nullable().optional(),
+  /** Allowed only while the session still has zero messages (BROKK-33). */
+  engine: ENGINE_ENUM.optional(),
 });
 
 const SendMessage = z.object({
@@ -373,7 +375,40 @@ export function buildSindri(deps: SindriDeps): Hono {
   app.patch("/sessions/:id", async (c) => {
     const parsed = PatchSession.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const session = await deps.store.updateChatSession(c.req.param("id"), parsed.data);
+    const id = c.req.param("id");
+    const existing = await deps.store.getChatSession(id);
+    if (!existing) return c.json({ error: "not found" }, 404);
+
+    if (parsed.data.engine !== undefined) {
+      const engine = normalizeEngine(parsed.data.engine);
+      const msgs = await deps.store.listChatMessages(id);
+      if (msgs.length > 0 && normalizeEngine(existing.engine) !== engine) {
+        return c.json(
+          {
+            error:
+              "engine is locked after the first message — open a new chat to switch motors",
+          },
+          409,
+        );
+      }
+      if (engine === "claude-cli" && !claudeCliAvailable()) {
+        return c.json(
+          { error: "Claude CLI unavailable: claude binary or CLAUDE_CODE_OAUTH_TOKEN missing" },
+          400,
+        );
+      }
+      if (engine === "cursor-cli" && !cursorCliAvailable()) {
+        return c.json(
+          { error: "Cursor CLI unavailable: agent binary or CURSOR_API_KEY/CURSOR_AUTH_TOKEN missing" },
+          400,
+        );
+      }
+      const { engine: _rawEng, ...rest } = parsed.data;
+      const session = await deps.store.updateChatSession(id, { ...rest, engine });
+      return c.json({ session });
+    }
+
+    const session = await deps.store.updateChatSession(id, parsed.data);
     return c.json({ session });
   });
 

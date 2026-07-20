@@ -119,11 +119,12 @@ export function previewsRoutes(deps: AppDeps): Hono {
       pid: z.number().int().nullable().optional(),
       port: z.number().int().nullable().optional(),
       loadedEnv: z.record(z.string()).nullable().optional(),
+      rssMb: z.number().int().nonnegative().nullable().optional(),
     });
     const parsed = PatchBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
 
-    const { status, detail, commitSha, builtAt, pid, port, loadedEnv } = parsed.data;
+    const { status, detail, commitSha, builtAt, pid, port, loadedEnv, rssMb } = parsed.data;
     const patch = {
       ...(status !== undefined ? { status } : {}),
       ...(detail !== undefined ? { detail } : {}),
@@ -132,6 +133,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
       ...(pid !== undefined ? { pid } : {}),
       ...(port !== undefined ? { port } : {}),
       ...(loadedEnv !== undefined ? { loadedEnv } : {}),
+      ...(rssMb !== undefined ? { rssMb } : {}),
     };
 
     try {

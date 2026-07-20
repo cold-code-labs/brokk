@@ -83,7 +83,8 @@ const EFFORTS = [
   { id: "high", label: "Deep" },
 ];
 
-// Turn engine — fixed at session creation (the engine owns the continuity).
+// Turn engine — locked on the FIRST message (CLI resume / API transcript continuity).
+// Until then the chips are free to change on an empty session (BROKK-33).
 // IDs: claude-api | claude-cli | cursor-api | cursor-cli (legacy afl/cli still accepted).
 const ENGINES = [
   { id: "claude-api", label: "Claude API", hint: "LiteLLM → Ratatoskr Max seat" },
@@ -794,6 +795,25 @@ export default function Chat() {
         prev.map((s) => (s.id === sid ? { ...s, skill: slashSkill } : s)),
       );
     }
+    // Lock motor/model/effort on the first shot — empty sessions stay editable
+    // until this moment (BROKK-33).
+    if (messages.length === 0) {
+      const eng = normalizeEngineUi(engine);
+      try {
+        const updated = await chat.patchSession(sid, {
+          engine: eng,
+          model: isCursorEngine(eng) ? "auto" : model,
+          effort,
+        });
+        setSessions((prev) => prev.map((s) => (s.id === sid ? { ...s, ...updated } : s)));
+      } catch (e) {
+        if (isVerdict(e)) {
+          setError(String(e));
+          setRunning(false);
+          return;
+        }
+      }
+    }
     // optimistic user bubble at the next seq
     upsert({ seq: liveSeqRef.current + 1, role: "user", blocks: [{ type: "text", text: raw }] });
     const ac = new AbortController();
@@ -1315,7 +1335,11 @@ export default function Chat() {
                       />
                     )}
                     <ComposerChip
-                      title="Motor — troca abre um chat novo (continuidade é do motor)"
+                      title={
+                        messages.length === 0
+                          ? "Motor — livre até a 1ª mensagem"
+                          : "Motor — travado nesta sessão (troca abre chat novo)"
+                      }
                       value={engine}
                       items={ENGINES.map((m) => ({
                         id: m.id,
@@ -1325,14 +1349,27 @@ export default function Chat() {
                       }))}
                       onChange={(id) => {
                         const next = normalizeEngineUi(id);
-                        const cur = normalizeEngineUi(currentSession?.engine ?? engine);
                         setEngine(next);
                         if (isCursorEngine(next)) setModel("auto");
-                        // Engine is fixed at session creation (CLI resume / API
-                        // transcript). Switching mid-chat only updated the chip
-                        // before — turns kept the old motor and users saw a
-                        // Claude gateway 400 while the UI said Cursor (BROKK-32).
-                        if (sessionId && cur !== next) {
+                        if (!sessionId) return;
+                        // Empty session: patch in place — don't mint a new chat.
+                        if (messages.length === 0) {
+                          void chat
+                            .patchSession(sessionId, {
+                              engine: next,
+                              model: isCursorEngine(next) ? "auto" : model,
+                            })
+                            .then((s) => {
+                              setSessions((prev) =>
+                                prev.map((row) => (row.id === sessionId ? { ...row, ...s } : row)),
+                              );
+                            })
+                            .catch(() => {});
+                          return;
+                        }
+                        // After the first message the engine owns continuity —
+                        // switching means a fresh session.
+                        if (normalizeEngineUi(currentSession?.engine) !== next) {
                           void newChat(next);
                         }
                       }}
@@ -1683,6 +1720,14 @@ function SindriPreview({
           <span className="sindri-preview-dot" style={{ background: statusColor }} />
           {statusLabel}
         </span>
+        {preview?.status === "live" && preview.rssMb != null ? (
+          <span
+            className="sindri-preview-statuschip"
+            title="RAM do processo HMR neste preview (compartilhado entre chats do mesmo app)"
+          >
+            {preview.rssMb}&nbsp;MB
+          </span>
+        ) : null}
         {/* branch chip hidden (ADR 0038): the session worktree is dev-lane
             plumbing — noise in the v0-face preview cockpit. */}
         {/* Session tokens moved to the composer cockpit: the composer is always on

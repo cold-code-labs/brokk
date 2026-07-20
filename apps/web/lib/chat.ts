@@ -24,7 +24,7 @@ export interface ChatSession {
   branch: string | null;
   model: string;
   effort: string | null;
-  /** afl (native) / cli / cursor-* engines. Fixed at creation. */
+  /** afl / cli / cursor-* engines. Chosen freely until the first message; then locked. */
   engine?: string;
   /** Optional Brokk Skill id pinned at creation (skills/<id>/SKILL.md). */
   skill?: string | null;
@@ -109,8 +109,17 @@ export const chat = {
     ),
   getSession: (id: string) =>
     j<{ session: ChatSession; messages: ChatMessage[]; running: boolean }>("GET", `/sessions/${id}`),
-  patchSession: (id: string, patch: { title?: string; status?: string; model?: string; effort?: string | null }) =>
-    j<{ session: ChatSession }>("PATCH", `/sessions/${id}`, patch).then((r) => r.session),
+  patchSession: (
+    id: string,
+    patch: {
+      title?: string;
+      status?: string;
+      model?: string;
+      effort?: string | null;
+      /** Only while the session has zero messages. */
+      engine?: string;
+    },
+  ) => j<{ session: ChatSession }>("PATCH", `/sessions/${id}`, patch).then((r) => r.session),
   deleteSession: (id: string) => j<{ ok: true }>("DELETE", `/sessions/${id}`),
   stop: (id: string) => j<{ stopped: boolean }>("POST", `/sessions/${id}/stop`),
   devtreeStatus: (projectId: string, sessionId?: string | null) =>

@@ -375,6 +375,7 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
     commitSha: row.commitSha ?? null,
     builtAt: iso(row.builtAt),
     pid: row.pid,
+    rssMb: row.rssMb ?? null,
     loadedEnv: row.loadedEnv ?? null,
     lastActivityAt: row.lastActivityAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
@@ -662,6 +663,7 @@ export interface Store {
       pid?: number | null;
       port?: number | null;
       loadedEnv?: Record<string, string> | null;
+      rssMb?: number | null;
     },
   ): Promise<Preview>;
   /** Bump last activity to now (idle-reaper heartbeat). Null if the row is gone. */
@@ -1711,6 +1713,7 @@ export function createStore(db: Db): Store {
       if (patch.pid !== undefined) set.pid = patch.pid;
       if (patch.port !== undefined) set.port = patch.port;
       if (patch.loadedEnv !== undefined) set.loadedEnv = patch.loadedEnv ?? null;
+      if (patch.rssMb !== undefined) set.rssMb = patch.rssMb;
       // Activity that should keep a preview warm without a UI heartbeat: a
       // (re)boot to starting/live, and a fresh build (new commitSha) — a card's
       // push that drift-refreshes the running HMR server counts as work on it.
@@ -1736,7 +1739,7 @@ export function createStore(db: Db): Store {
     async stopPreview(id) {
       const rows = await db
         .update(previews)
-        .set({ status: "stopped", pid: null, updatedAt: new Date() })
+        .set({ status: "stopped", pid: null, rssMb: null, updatedAt: new Date() })
         .where(eq(previews.id, id))
         .returning();
       if (!rows[0]) throw new Error(`preview ${id} not found`);
@@ -2417,6 +2420,8 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     // "deploy" in Heimdall's fleet view (commitless previews are dropped there).
     await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS commit_sha text;`);
     await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS built_at timestamptz;`);
+    // Forge stamps RSS of the live HMR process tree (MiB) on each supervisor tick.
+    await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS rss_mb integer;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS runtime jsonb;`);
     // ADR 0017 lane lease (serial per-app dev-checkout). Self-healed so it lands
     // without a push (which hangs on db_brokk).

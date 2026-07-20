@@ -415,6 +415,7 @@ export class PreviewSupervisor {
               status: "stopped",
               pid: null,
               port: null,
+              rssMb: null,
             }).catch(() => {});
             break;
           }
@@ -433,8 +434,15 @@ export class PreviewSupervisor {
               status: "stopped",
               pid: null,
               port: null,
+              rssMb: null,
             }).catch(() => {});
             break;
+          }
+
+          // Stamp RSS of the HMR tree (shell + vite/next children) for the UI.
+          const rssMb = processTreeRssMb(lp.proc.pid);
+          if (rssMb != null && rssMb !== p.rssMb) {
+            void this.controlPatch(`/previews/${p.id}`, { rssMb }).catch(() => {});
           }
 
           // Drift refresh: pull the branch tip into the worktree so pushes that
@@ -1246,6 +1254,50 @@ export class PreviewSupervisor {
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Sum VmRSS of `rootPid` and its descendants (KiB→MiB). Preview boots
+ *  `sh -c` detached, so the real vite/next cost lives in the children. */
+function processTreeRssMb(rootPid: number | undefined): number | null {
+  if (!rootPid) return null;
+  try {
+    const children = new Map<number, number[]>();
+    for (const ent of readdirSync("/proc")) {
+      if (!/^\d+$/.test(ent)) continue;
+      const pid = Number(ent);
+      let st = "";
+      try {
+        st = readFileSync(`/proc/${pid}/status`, "utf8");
+      } catch {
+        continue;
+      }
+      const ppid = Number(/PPid:\s+(\d+)/.exec(st)?.[1] ?? NaN);
+      if (!Number.isFinite(ppid)) continue;
+      const list = children.get(ppid) ?? [];
+      list.push(pid);
+      children.set(ppid, list);
+    }
+    const stack = [rootPid];
+    const seen = new Set<number>();
+    let kb = 0;
+    while (stack.length) {
+      const pid = stack.pop()!;
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      try {
+        const st = readFileSync(`/proc/${pid}/status`, "utf8");
+        const m = /VmRSS:\s+(\d+)\s+kB/.exec(st);
+        if (m) kb += Number(m[1]);
+      } catch {
+        continue;
+      }
+      for (const c of children.get(pid) ?? []) stack.push(c);
+    }
+    if (kb <= 0) return null;
+    return Math.max(1, Math.round(kb / 1024));
+  } catch {
+    return null;
+  }
+}
 
 /** Kill the whole process group. Preview boots `sh -c "pnpm exec vite|next…"` —
  *  SIGTERM on the shell alone orphans the real server (vite/next) under PID 1,
