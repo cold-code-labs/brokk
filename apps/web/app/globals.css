@@ -951,6 +951,7 @@ body:has(.sindri) {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  position: relative;
   /* The input is a recessed tray at the foot of the chat panel — NOT a second
      boxed card floating inside it (crit: "composer cheio de overlays"). Flush to
      the panel edges, parted from the thread by a single hairline; its darker
@@ -1229,6 +1230,78 @@ body:has(.sindri) {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-size: 0.62rem;
+}
+/* Composer attachments → .brokk/inbox/ */
+.sindri-composer.is-drop {
+  background: color-mix(in srgb, var(--ember, var(--accent)) 8%, var(--bg));
+}
+.sindri-composer-drop {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border: 1px dashed color-mix(in srgb, var(--ember, var(--accent)) 55%, var(--line-soft));
+  background: color-mix(in srgb, var(--ember, var(--accent)) 12%, var(--bg));
+  color: var(--fg);
+  font-size: 0.85rem;
+  z-index: 2;
+}
+.sindri-composer-drop code {
+  font-size: 0.8rem;
+}
+.sindri-attach-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0.15rem 0.2rem 0.35rem;
+}
+.sindri-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 14rem;
+  padding: 0.15rem 0.35rem 0.15rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ember, var(--accent)) 30%, var(--border));
+  background: color-mix(in srgb, var(--ember, var(--accent)) 8%, var(--card));
+  font-size: 0.72rem;
+  color: var(--fg-soft);
+}
+.sindri-attach-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sindri-attach-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  padding: 0;
+  border-radius: 999px;
+}
+.sindri-attach-remove:hover {
+  color: var(--fg);
+}
+.sindri-attach-btn {
+  flex-shrink: 0;
+}
+.sindri-attach-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 /* effort signal bars — fill up with the reasoning level (leve/médio/profundo),
    like equalizer/signal bars: taller AND fuller as the effort grows. */
