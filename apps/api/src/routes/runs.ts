@@ -222,13 +222,21 @@ export function runsRoutes(deps: AppDeps): Hono {
           ? "failed"
           : "cancelled";
     const resolvedPrNumber = prNumber ?? (prUrl ? prNumberFromUrl(prUrl) : null);
+    // Always persist the PR pointer on complete (BROKK-45): a re-forge that opens
+    // a successor PR must overwrite the stale # on the card, even when the column
+    // stays `review`.
+    const prev = await deps.store.getTask(run.taskId);
     const task = await deps.store.transitionTask(run.taskId, taskStatus, {
       actor: "forge",
       reason:
         status === "succeeded"
           ? landed
             ? "pushed to dev"
-            : "PR opened"
+            : prev?.prNumber != null &&
+                resolvedPrNumber != null &&
+                prev.prNumber !== resolvedPrNumber
+              ? `PR replaced (#${prev.prNumber} → #${resolvedPrNumber})`
+              : "PR opened"
           : status === "failed"
             ? error
               ? firstLine(error)
