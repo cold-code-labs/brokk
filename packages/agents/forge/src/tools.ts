@@ -24,8 +24,9 @@ export interface MigrationToolContext {
   cwd: string;
   /** Control-plane base url (HAULDR_CONTROL_URL). */
   controlUrl: string;
-  /** Bearer for the migrate endpoint — the fleet management key (accepted by
-   *  POST /v1/projects/:name/migrate) or a per-project migrate token. */
+  /** Bearer for the migrate endpoint — the per-project migrate token Heimdall
+   *  returns (accepted by POST /v1/projects/:name/migrate). Never the retired
+   *  data-plane management key (HAULDR_TOKEN). */
   token: string;
   /** The project whose dev DB receives the DDL, e.g. `logcheck_dev`. */
   project: string;
@@ -127,6 +128,15 @@ export function makeMigrationExecutor(ctx: MigrationToolContext): PartialExecuto
     const text = await res.text();
     if (!res.ok) {
       await fs.rm(file, { force: true });
+      if (res.status === 401 || res.status === 403) {
+        return {
+          ok: false,
+          content:
+            `apply_migration: AUTH FAILED (${res.status}). Credential rejected for ` +
+            `${ctx.project} — use the per-project migrate token from Heimdall, not ` +
+            `HAULDR_TOKEN. Do not retry with the same token. ${text}`.trim(),
+        };
+      }
       return { ok: false, content: `apply_migration: ${res.status} ${text}` };
     }
 
