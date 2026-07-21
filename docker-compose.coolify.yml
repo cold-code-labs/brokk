@@ -102,6 +102,11 @@ x-worker-env: &worker-env
   # HAULDR_CONTROL_URL stays: it is a URL, not a credential — the preview needs
   # it to apply its OWN migrations with its per-project migrate token.
   HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
+  # MCP tool servers (Hauldr/Heimdall etc). Coolify does not auto-inject
+  # worker env into the container beyond what is listed here — a server
+  # config that relies on this var being implicitly present goes silently
+  # dead (401 / tool morta).
+  BROKK_MCP_SERVERS: ${BROKK_MCP_SERVERS:-}
 
 services:
   brokk-api:

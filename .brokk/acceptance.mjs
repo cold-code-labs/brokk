@@ -13,7 +13,15 @@
  *    BROKK_PLAYWRIGHT_MCP env; must name ensurePlaywrightMcp + playwright-mcp.
  * 5. Dogfood: same SECRET_KEY_RE / redact contract as apps/forge/src/preview.ts
  *    — COOLIFY_PAT is masked, PATH is not.
- * 6. Screenshot of the booted app (receipt).
+ *
+ * BROKK-14 acceptance — MCP/Hauldr auth must fail loud; forge migrate token
+ * path must not use the retired HAULDR_TOKEN.
+ *
+ * 6. Source contracts: forge runDevLane resolves migrateToken via Heimdall;
+ *    config no longer reads HAULDR_TOKEN; MCP auth helpers exist.
+ * 7. Dogfood: expandEnv + isAuthFailure + authFailureMessage (same contracts
+ *    as packages/mcp) — empty Bearer is rejected; 401 copy says AUTH FAILED.
+ * 8. Screenshot of the booted app (receipt).
  *
  * Env (injected by Brokk verify):
  *   BROKK_ACCEPTANCE_URL, BROKK_CHROMIUM, BROKK_ACCEPTANCE_SHOT
@@ -98,6 +106,106 @@ function assertRedactDogfood() {
   console.log("[ok] redactEnv dogfood: COOLIFY_PAT masked, PATH/URLs clear");
 }
 
+/** Mirror of packages/mcp/src/config.ts expandEnv. */
+function expandEnv(value, env) {
+  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_m, braced, bare) => {
+    const key = braced ?? bare;
+    return env[key] ?? "";
+  });
+}
+
+/** Mirror of packages/mcp/src/provider.ts isAuthFailure. */
+function isAuthFailure(message) {
+  const m = String(message).toLowerCase();
+  return (
+    /\b401\b/.test(m) ||
+    /\b403\b/.test(m) ||
+    m.includes("unauthorized") ||
+    m.includes("forbidden") ||
+    m.includes("authentication") ||
+    m.includes("invalid token") ||
+    m.includes("invalid api key")
+  );
+}
+
+/** Mirror of packages/mcp/src/provider.ts authFailureMessage. */
+function authFailureMessage(server, detail) {
+  const d = String(detail).trim() || "401/403";
+  return (
+    `mcp ${server}: AUTH FAILED (${d}). Credential rejected — fix BROKK_MCP_SERVERS ` +
+    `headers (do not embed a retired HAULDR_TOKEN; expand \${ENV} from a live secret) ` +
+    `or remove the server. Do not retry the same call.`
+  );
+}
+
+function assertMcpSourceContracts() {
+  const forgeIndex = readFileSync(join(REPO, "apps/forge/src/index.ts"), "utf8");
+  if (!/lanes\.getProject\(project\)/.test(forgeIndex)) {
+    fail("forge index must resolve migrate token via lanes.getProject");
+  }
+  if (!/hp\.migrateToken/.test(forgeIndex)) {
+    fail("forge index must use hp.migrateToken for apply_migration");
+  }
+  if (/cfg\.hauldrToken/.test(forgeIndex)) {
+    fail("forge index must not still gate migration on cfg.hauldrToken");
+  }
+  if (!/refusing to fall back to HAULDR_TOKEN/.test(forgeIndex)) {
+    fail("forge must refuse HAULDR_TOKEN fallback in loud error copy");
+  }
+
+  const forgeCfg = readFileSync(join(REPO, "apps/forge/src/config.ts"), "utf8");
+  if (/hauldrToken:\s*env\.HAULDR_TOKEN/.test(forgeCfg)) {
+    fail("forge config must not read HAULDR_TOKEN anymore");
+  }
+
+  const mcpProvider = readFileSync(join(REPO, "packages/mcp/src/provider.ts"), "utf8");
+  if (!/export function isAuthFailure/.test(mcpProvider) || !/export function authFailureMessage/.test(mcpProvider)) {
+    fail("packages/mcp must export isAuthFailure + authFailureMessage");
+  }
+  if (!/AUTH FAILED/.test(mcpProvider)) {
+    fail("mcp provider must spell AUTH FAILED for credential rejection");
+  }
+
+  const mcpConfig = readFileSync(join(REPO, "packages/mcp/src/config.ts"), "utf8");
+  if (!/export function expandEnv/.test(mcpConfig)) {
+    fail("packages/mcp must expand ${ENV} in BROKK_MCP_SERVERS fields");
+  }
+  if (!/empty Bearer/.test(mcpConfig)) {
+    fail("parseMcpServers must reject empty Bearer after expansion");
+  }
+
+  const tools = readFileSync(join(REPO, "packages/agents/forge/src/tools.ts"), "utf8");
+  if (!/AUTH FAILED/.test(tools) || !/HAULDR_TOKEN/.test(tools)) {
+    fail("apply_migration must loud-fail 401 mentioning HAULDR_TOKEN");
+  }
+
+  const compose = readFileSync(join(REPO, "docker-compose.coolify.yml"), "utf8");
+  if (!/BROKK_MCP_SERVERS:\s*\$\{BROKK_MCP_SERVERS/.test(compose)) {
+    fail("coolify worker-env must pass BROKK_MCP_SERVERS (Coolify does not auto-inject)");
+  }
+
+  console.log(
+    "[ok] source contracts: Heimdall migrateToken path, no HAULDR_TOKEN, loud MCP/apply_migration auth",
+  );
+}
+
+function assertAuthDogfood() {
+  const expanded = expandEnv("Bearer ${HAULDR_MCP_TOKEN}", { HAULDR_MCP_TOKEN: "live" });
+  if (expanded !== "Bearer live") fail(`expandEnv failed: ${expanded}`);
+
+  const empty = expandEnv("Bearer ${HAULDR_TOKEN}", {});
+  if (empty !== "Bearer ") fail(`empty expand expected 'Bearer ', got ${JSON.stringify(empty)}`);
+
+  if (!isAuthFailure("HTTP 401 Unauthorized")) fail("isAuthFailure should catch 401");
+  if (isAuthFailure("conn reset")) fail("isAuthFailure should ignore non-auth errors");
+
+  const msg = authFailureMessage("hauldr", "401 Unauthorized");
+  if (!/AUTH FAILED/.test(msg) || !/hauldr/.test(msg) || !/Do not retry/.test(msg)) {
+    fail(`authFailureMessage too quiet: ${msg}`);
+  }
+  console.log("[ok] auth dogfood: expandEnv + loud AUTH FAILED copy");
+}
+
 async function main() {
   const health = await fetch(`${base}/health`);
   if (!health.ok) fail(`/health → ${health.status}`);
@@ -163,6 +271,8 @@ async function main() {
 
   assertSourceContracts();
   assertRedactDogfood();
+  assertMcpSourceContracts();
+  assertAuthDogfood();
 
   // Receipt screenshot of /health (API has no HTML UI).
   await new Promise((resolve, reject) => {
