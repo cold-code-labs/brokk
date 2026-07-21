@@ -40,6 +40,48 @@ const MAX_SAME_ERROR = 2;
 const DRIVER_STALE_MS = 45 * 60 * 1000;
 /** Auto intake: only shepherd failed cards newer than this. */
 const AUTO_INTAKE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** Default pause after Mímir 429/529 before auto-intake resumes (30 min). */
+const DEFAULT_AUTO_PAUSE_MS = 30 * 60 * 1000;
+
+/**
+ * In-memory circuit breaker for BROKK_AUTO. Survives across ticks in-process;
+ * a redeploy clears it (acceptable — Coolify restart is rare vs. seat cooldown).
+ * Surtr 2026-07-20: overnight auto + seat 429 → Regin kept intaking failed cards
+ * every 30s and burning the gateway; Hostinger throttled the box.
+ */
+let autoPausedUntil = 0;
+
+/** Test/ops helper: clear the auto-intake pause. */
+export function resetAutoPause(): void {
+  autoPausedUntil = 0;
+}
+
+/** Whether auto-intake is currently paused (rate-limit cooldown). */
+export function isAutoPaused(now = Date.now()): boolean {
+  return now < autoPausedUntil;
+}
+
+/** Cap how many auto-brokk missions may be planning/running at once. */
+export function autoLiveCapReached(
+  liveAutoCount: number,
+  maxLive = Number(process.env.BROKK_AUTO_MAX_LIVE ?? 1),
+): boolean {
+  const cap = Number.isFinite(maxLive) && maxLive > 0 ? Math.floor(maxLive) : 1;
+  return liveAutoCount >= cap;
+}
+
+/** Trip the auto-intake breaker on gateway rate-limit / overload. */
+export function noteMimirThrottle(err: unknown): void {
+  const status =
+    err && typeof err === "object" && "status" in err ? Number((err as { status: unknown }).status) : 0;
+  if (status !== 429 && status !== 529) return;
+  const raw = Number(process.env.BROKK_AUTO_PAUSE_MS ?? DEFAULT_AUTO_PAUSE_MS);
+  const pauseMs = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_AUTO_PAUSE_MS;
+  autoPausedUntil = Math.max(autoPausedUntil, Date.now() + pauseMs);
+  console.warn(
+    `[regin] auto-intake paused until ${new Date(autoPausedUntil).toISOString()} (mimir ${status})`,
+  );
+}
 
 /** Normalize a run error into a stable fingerprint for same-error detection. */
 export function errorFingerprint(err: string): string {
@@ -172,6 +214,7 @@ async function tickPlanning(deps: MissionDeps, mission: Mission): Promise<void> 
   try {
     draft = await planJob(mission.goal, deps.mimir, repoContext);
   } catch (err) {
+    noteMimirThrottle(err);
     const reason = err instanceof Error ? err.message : String(err);
     await store.patchMission(mission.id, { status: "blocked", detail: `planner falhou: ${reason}` });
     await store.addMissionEvent(mission.id, "escalation", { reason: `planner failed: ${reason}` });
@@ -382,20 +425,29 @@ async function tickRunning(deps: MissionDeps, mission: Mission): Promise<void> {
 
 /** BROKK-44 Auto Brokk intake: when BROKK_AUTO=1, wrap one orphaned recent-failed
  *  card into an autoApprove mission so Regin shepherds overnight retries.
- *  Cap: one mission per tick. Skip cards already pinned to a live mission. */
+ *  Caps: one mission per tick; at most BROKK_AUTO_MAX_LIVE auto missions in
+ *  planning/running (default 1); skip while the Mímir 429 circuit breaker is open. */
 async function tickAutoIntake(deps: MissionDeps): Promise<void> {
   if (process.env.BROKK_AUTO !== "1") return;
+  if (isAutoPaused()) return;
   const { store } = deps;
+
+  const active = [
+    ...(await store.listMissions({ status: "planning" })),
+    ...(await store.listMissions({ status: "running" })),
+  ];
+  const liveAuto = active.filter((m) => m.createdBy === "auto-brokk");
+  if (autoLiveCapReached(liveAuto.length)) return;
+
   const failed = await store.listTasks({ status: "failed" });
   if (failed.length === 0) return;
 
-  const live = [
-    ...(await store.listMissions({ status: "planning" })),
-    ...(await store.listMissions({ status: "running" })),
-    ...(await store.listMissions({ status: "blocked" })),
-  ];
+  // Blocked missions still pin their cards so we don't re-intake the same failure.
   const pinned = new Set<string>();
-  for (const m of live) {
+  for (const m of [
+    ...active,
+    ...(await store.listMissions({ status: "blocked" })),
+  ]) {
     for (const id of m.state.taskIds ?? []) pinned.add(id);
   }
 
@@ -478,6 +530,7 @@ async function decideReplan(deps: MissionDeps, card: Task): Promise<ReplanDecisi
     if (!raw || (raw.action !== "revise" && raw.action !== "escalate")) return null;
     return raw;
   } catch (err) {
+    noteMimirThrottle(err);
     console.warn(`[regin] replan decision failed for card ${card.id.slice(0, 8)}:`, err);
     return null;
   }
