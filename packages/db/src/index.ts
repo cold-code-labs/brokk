@@ -50,7 +50,7 @@ import type {
   User,
 } from "@brokk/core";
 import { forcaToModel } from "@brokk/core";
-import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -550,8 +550,14 @@ export interface Store {
   resolveByHand(id: string, opts: { actor: string; reason?: string }): Promise<Task>;
   /** The card's append-only lifecycle trail (task_events), oldest first. */
   listTaskEvents(taskId: string): Promise<TaskEvent[]>;
-  /** Match a merged PR back to its forge card (by stored pr_url or pr_number). */
-  findTaskForMergedPr(prUrl: string, prNumber: number): Promise<Task | null>;
+  /** Match a merged PR back to its forge card (by stored pr_url or repo-scoped
+   *  pr_number). Pass `repoFullName` (`org/repo`) so #1 in repo A never closes a
+   *  card that stored #1 from repo B (BROKK-45). */
+  findTaskForMergedPr(
+    prUrl: string,
+    prNumber: number,
+    repoFullName?: string | null,
+  ): Promise<Task | null>;
   /** Is there already a revise task in flight for this PR? (dedup the loop) */
   openReviseExists(prNumber: number): Promise<boolean>;
 
@@ -606,8 +612,13 @@ export interface Store {
   setPlanPrIfUnset(planId: string, url: string, number: number | null): Promise<Plan>;
   /** If every card of the plan is in review/done, advance the plan → review. */
   maybeAdvancePlan(planId: string): Promise<Plan | null>;
-  /** Match a merged PR back to its plan (the shared feature PR). */
-  findPlanForMergedPr(prUrl: string, prNumber: number): Promise<Plan | null>;
+  /** Match a merged PR back to its plan (the shared feature PR). Pass
+   *  `repoFullName` to scope pr_number matches to that repository (BROKK-45). */
+  findPlanForMergedPr(
+    prUrl: string,
+    prNumber: number,
+    repoFullName?: string | null,
+  ): Promise<Plan | null>;
   /** PR merged → mark the plan and every one of its cards done (one tx). */
   markPlanDone(planId: string, prUrl: string, prNumber: number | null): Promise<Plan>;
 
@@ -1066,17 +1077,24 @@ export function createStore(db: Db): Store {
         .orderBy(asc(taskEvents.at));
       return rows.map(rowToTaskEvent);
     },
-    async findTaskForMergedPr(prUrl, prNumber) {
+    async findTaskForMergedPr(prUrl, prNumber, repoFullName) {
+      // BROKK-45: never match bare pr_number across the fleet — #1 on Markuplab
+      // must not close a Brokk card that also stored #1. URL match is always safe;
+      // number match requires the card's project repo to equal `repoFullName`.
       const url = prUrl.replace(/\/$/, "");
+      const urlHit = or(eq(tasks.prUrl, url), eq(tasks.prUrl, url + "/"));
+      const numHit = repoFullName
+        ? and(eq(tasks.prNumber, prNumber), eq(repositories.fullName, repoFullName))
+        : eq(tasks.prNumber, prNumber);
       const rows = await db
-        .select()
+        .select({ task: tasks })
         .from(tasks)
-        .where(
-          sql`(${tasks.prUrl} = ${url} OR ${tasks.prUrl} = ${url + "/"} OR ${tasks.prNumber} = ${prNumber})`,
-        )
+        .innerJoin(projects, eq(tasks.projectId, projects.id))
+        .innerJoin(repositories, eq(projects.repositoryId, repositories.id))
+        .where(or(urlHit, numHit))
         .orderBy(sql`case when ${tasks.status} = 'review' then 0 else 1 end`)
         .limit(1);
-      return rows[0] ? rowToTask(rows[0]) : null;
+      return rows[0] ? rowToTask(rows[0].task) : null;
     },
     async openReviseExists(prNumber) {
       const rows = await db
@@ -1450,16 +1468,20 @@ export function createStore(db: Db): Store {
         .returning();
       return updated[0] ? rowToPlan(updated[0]) : null;
     },
-    async findPlanForMergedPr(prUrl, prNumber) {
+    async findPlanForMergedPr(prUrl, prNumber, repoFullName) {
       const url = prUrl.replace(/\/$/, "");
+      const urlHit = or(eq(plans.prUrl, url), eq(plans.prUrl, url + "/"));
+      const numHit = repoFullName
+        ? and(eq(plans.prNumber, prNumber), eq(repositories.fullName, repoFullName))
+        : eq(plans.prNumber, prNumber);
       const rows = await db
-        .select()
+        .select({ plan: plans })
         .from(plans)
-        .where(
-          sql`(${plans.prUrl} = ${url} OR ${plans.prUrl} = ${url + "/"} OR ${plans.prNumber} = ${prNumber})`,
-        )
+        .innerJoin(projects, eq(plans.projectId, projects.id))
+        .innerJoin(repositories, eq(projects.repositoryId, repositories.id))
+        .where(or(urlHit, numHit))
         .limit(1);
-      return rows[0] ? rowToPlan(rows[0]) : null;
+      return rows[0] ? rowToPlan(rows[0].plan) : null;
     },
     async markPlanDone(planId, prUrl, prNumber) {
       return db.transaction(async (tx) => {

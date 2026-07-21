@@ -1,233 +1,111 @@
-#!/usr/bin/env node
 /**
- * Combined acceptance after merging BROKK-38 + BROKK-39.
+ * BROKK-45 acceptance — Review→Done close loop is reachable on the API.
  *
- * 1) BROKK-38: fixture under `.brokk/inbox/` appears in turn-context block;
- *    public /attach-smoke serves the Attach affordance.
- * 2) BROKK-39: /brokk/observer floor row opens drawer with Live run log,
- *    thinking + tool rows; writes BROKK_ACCEPTANCE_SHOT.
+ * Checks:
+ *   1. /health is up
+ *   2. POST /webhooks/github accepts pull_request closed+merged (unsigned when
+ *      BROKK_GITHUB_WEBHOOK_SECRET is empty) and returns JSON with ok:true
+ *   3. closed-without-merge does NOT claim a done status (status closed_unmerged)
  *
- * Env: BROKK_ACCEPTANCE_URL, BROKK_CHROMIUM, BROKK_ACCEPTANCE_SHOT
+ * Env (injected by Brokk verify):
+ *   BROKK_ACCEPTANCE_URL, BROKK_CHROMIUM, BROKK_ACCEPTANCE_SHOT
  */
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 
-const BASE = process.env.BROKK_ACCEPTANCE_URL;
-const CHROME = process.env.BROKK_CHROMIUM;
-const SHOT = process.env.BROKK_ACCEPTANCE_SHOT;
+const base = (process.env.BROKK_ACCEPTANCE_URL || "http://127.0.0.1:8789").replace(/\/$/, "");
+const chromium = process.env.BROKK_CHROMIUM || "chromium";
+const shot = process.env.BROKK_ACCEPTANCE_SHOT || "/tmp/brokk-acceptance.png";
 
-if (!BASE || !CHROME || !SHOT) {
-  console.error("missing BROKK_ACCEPTANCE_URL / BROKK_CHROMIUM / BROKK_ACCEPTANCE_SHOT");
-  process.exit(2);
-}
-
-const ROOT = BASE.replace(/\/$/, "");
-const OBSERVER = `${ROOT}/brokk/observer`;
-const INBOX_DIR = ".brokk/inbox";
-
-function die(code, msg) {
-  console.error(msg);
-  process.exit(code);
-}
-
-function attachmentContextBlock(paths) {
-  const clean = [];
-  const seen = new Set();
-  for (const raw of paths) {
-    const p = String(raw ?? "")
-      .replace(/\\/g, "/")
-      .replace(/^\/+/, "")
-      .trim();
-    if (!p.startsWith(`${INBOX_DIR}/`) || p.includes("..") || p.includes("\0")) continue;
-    const rest = p.slice(INBOX_DIR.length + 1);
-    if (!rest || rest.includes("/")) continue;
-    if (seen.has(p)) continue;
-    seen.add(p);
-    clean.push(p);
-  }
-  if (!clean.length) return "";
-  return [
-    "## Attachments (this turn)",
-    "Client files were saved into this checkout under `.brokk/inbox/`. Read them with your FS tools (`read_file` / `bash`); do not ask the user to re-upload or paste their contents.",
-    ...clean.map((p) => `- \`${p}\``),
-  ].join("\n");
-}
-
-async function dogfoodInboxContext() {
-  const root = join(tmpdir(), `brokk-38-accept-${process.pid}`);
-  const rel = `${INBOX_DIR}/fixture-costs.txt`;
-  const abs = join(root, rel);
-  await mkdir(join(root, INBOX_DIR), { recursive: true });
-  await writeFile(abs, "sku,qty\nA,1\n", "utf8");
-  const block = attachmentContextBlock([rel]);
-  await rm(root, { recursive: true, force: true }).catch(() => {});
-  if (!block.includes(rel)) {
-    throw new Error(`dogfood failed: turn context missing ${rel}\n---\n${block}`);
-  }
-  if (!block.includes("## Attachments (this turn)")) {
-    throw new Error("dogfood failed: missing attachments heading");
-  }
-  console.log(`[ok] BROKK-38 dogfood: wrote ${rel} and found it in turn context`);
-}
-
-async function assertAttachSmoke() {
-  const url = `${ROOT}/attach-smoke`;
-  const res = await fetch(url);
-  const html = await res.text();
-  if (!res.ok) throw new Error(`GET ${url} → ${res.status}`);
-  if (!html.includes('data-testid="sindri-attach"') && !html.includes("data-sindri-attach")) {
-    throw new Error(`attach-smoke HTML missing attach markers\n${html.slice(0, 400)}`);
-  }
-  console.log(`[ok] BROKK-38 HTTP: ${url} serves attach affordance`);
-}
-
-/** Minimal CDP over WebSocket — dependency-free. */
-async function withCdp(wsUrl, fn) {
-  const ws = new WebSocket(wsUrl);
-  await new Promise((resolve, reject) => {
-    ws.addEventListener("open", resolve);
-    ws.addEventListener("error", reject);
-  });
-  let nextId = 1;
-  const pending = new Map();
-  ws.addEventListener("message", (ev) => {
-    const msg = JSON.parse(String(ev.data));
-    if (msg.id != null && pending.has(msg.id)) {
-      const { resolve, reject } = pending.get(msg.id);
-      pending.delete(msg.id);
-      if (msg.error) reject(new Error(JSON.stringify(msg.error)));
-      else resolve(msg.result);
-    }
-  });
-  const send = (method, params = {}) => {
-    const id = nextId++;
-    ws.send(JSON.stringify({ id, method, params }));
-    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
-  };
-  try {
-    return await fn(send);
-  } finally {
-    ws.close();
-  }
-}
-
-async function waitForDevtools(stderrBuf) {
-  for (let i = 0; i < 50; i++) {
-    await sleep(100);
-    const m = stderrBuf.text.match(/DevTools listening on (ws:\/\/\S+)/);
-    if (m) return m[1];
-  }
-  return null;
-}
-
-async function assertObserverDrillIn() {
-  const chrome = spawn(
-    CHROME,
-    [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--remote-debugging-port=0",
-      "--window-size=1280,800",
-      "about:blank",
-    ],
-    { stdio: ["ignore", "pipe", "pipe"] },
-  );
-
-  const stderrBuf = { text: "" };
-  chrome.stderr.setEncoding("utf8");
-  chrome.stderr.on("data", (c) => {
-    stderrBuf.text += c;
-  });
-
-  const browserWs = await waitForDevtools(stderrBuf);
-  if (!browserWs) {
-    chrome.kill("SIGKILL");
-    die(1, `chromium did not expose DevTools:\n${stderrBuf.text.slice(-800)}`);
-  }
-
-  const host = new URL(browserWs).host;
-
-  try {
-    const created = await fetch(`http://${host}/json/new?${encodeURIComponent(OBSERVER)}`, {
-      method: "PUT",
-    }).then((r) => r.json());
-    const pageWs = created.webSocketDebuggerUrl;
-    if (!pageWs) die(1, `no page websocket: ${JSON.stringify(created)}`);
-
-    await withCdp(pageWs, async (send) => {
-      await send("Page.enable");
-      await send("Runtime.enable");
-      await send("Page.navigate", { url: OBSERVER });
-
-      let ready = false;
-      for (let i = 0; i < 40; i++) {
-        await sleep(250);
-        const { result } = await send("Runtime.evaluate", {
-          expression: `!!document.querySelector('[data-testid="forge-floor-row"]')`,
-          returnByValue: true,
-        });
-        if (result?.value) {
-          ready = true;
-          break;
-        }
-      }
-      if (!ready) die(1, "floor row never appeared on /brokk/observer");
-      console.log("[ok] BROKK-39: forge floor row is present and clickable");
-
-      await send("Runtime.evaluate", {
-        expression: `document.querySelector('[data-testid="forge-floor-row"]').click()`,
-      });
-      await sleep(500);
-
-      const { result: drawer } = await send("Runtime.evaluate", {
-        expression: `!!document.querySelector('[data-testid="observer-drawer"]')`,
-        returnByValue: true,
-      });
-      if (!drawer?.value) die(1, "drawer did not open after floor row click");
-      console.log("[ok] BROKK-39: click opens observer drawer");
-
-      const { result: log } = await send("Runtime.evaluate", {
-        expression: `!!document.querySelector('[data-testid="run-log"]')`,
-        returnByValue: true,
-      });
-      if (!log?.value) die(1, "Live run log missing in drawer");
-      console.log("[ok] BROKK-39: Live run log mounted");
-
-      const { result: thinking } = await send("Runtime.evaluate", {
-        expression: `!!document.querySelector('[data-testid="run-log-thinking"]')`,
-        returnByValue: true,
-      });
-      if (!thinking?.value) die(1, "thinking/reasoning block missing in RunLog");
-      console.log("[ok] BROKK-39: thinking rendered in RunLog");
-
-      const { result: shell } = await send("Runtime.evaluate", {
-        expression: `document.body.innerText.includes("Shell")`,
-        returnByValue: true,
-      });
-      if (!shell?.value) die(1, "tool row (Shell) missing in RunLog");
-      console.log("[ok] BROKK-39: tool use rendered in RunLog");
-
-      const { data } = await send("Page.captureScreenshot", { format: "png" });
-      writeFileSync(SHOT, Buffer.from(data, "base64"));
-      console.log(`screenshot → ${SHOT}`);
-    });
-  } finally {
-    chrome.kill("SIGKILL");
-  }
+function fail(msg) {
+  console.error("ACCEPTANCE FAIL:", msg);
+  process.exit(1);
 }
 
 async function main() {
-  console.log("acceptance — BROKK-38 attachments + BROKK-39 forge observer");
-  await dogfoodInboxContext();
-  await assertAttachSmoke();
-  await assertObserverDrillIn();
-  console.log("acceptance met");
+  const health = await fetch(`${base}/health`);
+  if (!health.ok) fail(`/health → ${health.status}`);
+  const healthBody = await health.json();
+  console.log("checked /health", healthBody);
+
+  const mergedPayload = {
+    action: "closed",
+    repository: { full_name: "acme/acceptance" },
+    pull_request: {
+      number: 42,
+      merged: true,
+      html_url: "https://github.com/acme/acceptance/pull/42",
+      body: "acceptance probe — no matching card expected",
+    },
+  };
+  const mergedRes = await fetch(`${base}/webhooks/github`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-github-event": "pull_request",
+    },
+    body: JSON.stringify(mergedPayload),
+  });
+  if (mergedRes.status === 401) {
+    fail(
+      "webhook rejected signature — acceptance expects empty BROKK_GITHUB_WEBHOOK_SECRET in verify",
+    );
+  }
+  if (!mergedRes.ok) fail(`/webhooks/github merged → ${mergedRes.status}`);
+  const mergedJson = await mergedRes.json();
+  if (!mergedJson.ok) fail(`merged response not ok: ${JSON.stringify(mergedJson)}`);
+  if (mergedJson.status !== "not_found" && mergedJson.status !== "done") {
+    fail(`unexpected merged status: ${JSON.stringify(mergedJson)}`);
+  }
+  console.log("checked merged webhook →", mergedJson.status);
+
+  const closedPayload = {
+    action: "closed",
+    repository: { full_name: "acme/acceptance" },
+    pull_request: {
+      number: 43,
+      merged: false,
+      html_url: "https://github.com/acme/acceptance/pull/43",
+      body: "closed without merge",
+    },
+  };
+  const closedRes = await fetch(`${base}/webhooks/github`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-github-event": "pull_request",
+    },
+    body: JSON.stringify(closedPayload),
+  });
+  if (!closedRes.ok) fail(`/webhooks/github closed → ${closedRes.status}`);
+  const closedJson = await closedRes.json();
+  if (closedJson.status !== "closed_unmerged" && closedJson.status !== "ignored") {
+    // applyMergedPr returns ignored when !merged; webhook maps to closed_unmerged
+    fail(`closed-unmerged should not close a card: ${JSON.stringify(closedJson)}`);
+  }
+  console.log("checked closed-unmerged webhook →", closedJson.status);
+
+  // Receipt screenshot of /health (API has no HTML UI).
+  await new Promise((resolve, reject) => {
+    const child = spawn(
+      chromium,
+      [
+        "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        `--screenshot=${shot}`,
+        "--window-size=800,600",
+        `${base}/health`,
+      ],
+      { stdio: "inherit" },
+    );
+    child.on("error", reject);
+    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`chromium exit ${code}`))));
+  });
+  writeFileSync(shot.replace(/\.png$/, ".txt"), "brokk-45 webhook close loop ok\n");
+  console.log("screenshot →", shot);
+  console.log("ACCEPTANCE OK");
   process.exit(0);
 }
 
-main().catch((e) => die(1, String(e?.stack || e)));
+main().catch((err) => fail(String(err?.stack || err)));
