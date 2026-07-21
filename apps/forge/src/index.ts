@@ -699,7 +699,7 @@ async function resolveRepository(task: Task): Promise<Repository> {
     fullName: full,
     owner: owner!,
     name: name!,
-    defaultBranch: process.env.BROKK_DEFAULT_BRANCH ?? "main",
+    defaultBranch: process.env.BROKK_DEFAULT_BRANCH || "main",
     cloneUrl: `https://github.com/${full}.git`,
     installationId: null,
     repoMap: null,
