@@ -103,9 +103,12 @@ RUN curl -fsSL https://cursor.com/install | HOME=/opt/cursor-home bash \
  && chmod -R a+rX /opt/cursor-home \
  && cursor-agent --version
 
-# Playwright MCP — the browser hands for driver sessions (ADR 0054), opt-in via
-# BROKK_PLAYWRIGHT_MCP. Bin `mcp-server-playwright`; drives the system chromium
-# baked above (PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH). Inert unless enabled.
+# Playwright MCP — browser hands for driver sessions (ADR 0054). Bin
+# `playwright-mcp` (@playwright/mcp); drives the system chromium above
+# (PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH). No env toggle for this package —
+# the real surface is ensurePlaywrightMcp() in apps/forge/src/driver.ts (and
+# apps/chat/src/browser-mcp.ts for Sindri), which registers the stdio MCP when a
+# driver / QA turn needs it.
 RUN npm install -g @playwright/mcp@0.0.78
 
 # Native Next SWC (glibc) — Turbopack's hard requirement on this Debian forge.

@@ -43,3 +43,30 @@ export function unseal(stored: string): string {
 export function preview(token: string): string {
   return "…" + token.slice(-6);
 }
+
+/** Keys whose VALUE must never leave the API in clear (Env inspector / loadedEnv).
+ *  Mirrors apps/forge/src/preview.ts — `(^|_)pat$` catches COOLIFY_PAT without
+ *  matching PATH. Defense in depth: even a pre-redacted row or a buggy runner
+ *  cannot leak through GET /previews. */
+const SECRET_KEY_RE =
+  /(secret|token|password|passwd|jwt|service_role|_key$|apikey|api_key|credential|(^|_)pat$)/i;
+
+/** Redact an env map before the API returns (or stores) it. */
+export function redactEnv(env: Record<string, string>): Record<string, string> {
+  const mask = (v: string) => (v ? `••••${v.length > 4 ? v.slice(-4) : ""}` : v);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    out[k] = SECRET_KEY_RE.test(k)
+      ? mask(v)
+      : v.replace(/:\/\/([^:@/]+):[^@/]+@/, (_m, user) => `://${user}:••••@`);
+  }
+  return out;
+}
+
+/** Apply redactEnv to a preview's loadedEnv (null stays null). */
+export function redactPreviewEnv<T extends { loadedEnv?: Record<string, string> | null }>(
+  preview: T,
+): T {
+  if (!preview.loadedEnv) return preview;
+  return { ...preview, loadedEnv: redactEnv(preview.loadedEnv) };
+}
