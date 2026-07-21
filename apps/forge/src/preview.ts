@@ -96,9 +96,11 @@ const TAIL_LINES = 12;
 /** Porcelain paths that Next (etc.) rewrites on boot — not human live-edits (BROKK-2). */
 const GENERATED_DIRTY_RE = /(?:^|\s)(?:\.\/)?next-env\.d\.ts$/;
 
-/** Keys whose VALUE is a secret and must never be shown in the Env inspector. */
+/** Keys whose VALUE is a secret and must never be shown in the Env inspector.
+ *  `(^|_)pat$` catches Coolify/GitHub-style PATs (COOLIFY_PAT) without matching
+ *  PATH / COMPATIBLE / PATTERN. */
 const SECRET_KEY_RE =
-  /(secret|token|password|passwd|jwt|service_role|_key$|apikey|api_key|credential)/i;
+  /(secret|token|password|passwd|jwt|service_role|_key$|apikey|api_key|credential|(^|_)pat$)/i;
 
 /** Redact an env map for display: mask secret-keyed values (keep a 4-char tail
  *  for identification) and strip the password out of any connection string, but

@@ -88,9 +88,10 @@ RUN curl -fsSL https://cursor.com/install | HOME=/opt/cursor-home bash \
  && chmod -R a+rX /opt/cursor-home \
  && cursor-agent --version
 
-# Playwright MCP — "QA na conversa" (ADR 0054): a claude-cli Sindri session mounts
-# these browser tools (registered at boot) to drive the live preview. Chromium is
-# the system one above. Inert on non-cli sessions.
+# Playwright MCP — "QA na conversa" (ADR 0054). Registered at boot by
+# ensurePlaywrightMcp() in apps/chat/src/browser-mcp.ts (stdio → shared CDP
+# browser). No env gate — the package is baked; registration is the surface.
+# Chromium is the system one above. Best-effort when claude/chromium are absent.
 RUN npm install -g @playwright/mcp@0.0.78
 
 # Isolation Nível 3 (egress uid-split). Second unprivileged uid (1002, gid 1001)

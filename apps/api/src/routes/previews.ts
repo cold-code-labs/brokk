@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { MiddlewareHandler } from "hono";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
-import { secretEquals } from "../secrets.js";
+import { redactEnv, redactPreviewEnv, secretEquals } from "../secrets.js";
 
 const CreatePreviewBody = z.object({
   projectId: z.string().uuid(),
@@ -82,20 +82,21 @@ export function previewsRoutes(deps: AppDeps): Hono {
       status: "starting",
     });
 
-    return c.json(preview, created ? 201 : 200);
+    return c.json(redactPreviewEnv(preview), created ? 201 : 200);
   });
 
   /** GET /previews?projectId= — list all previews, optionally filtered by project. */
   r.get("/", async (c) => {
     const projectId = c.req.query("projectId") ?? undefined;
-    return c.json(await deps.store.listPreviews({ projectId }));
+    const rows = await deps.store.listPreviews({ projectId });
+    return c.json(rows.map(redactPreviewEnv));
   });
 
   /** GET /previews/:id — fetch a single preview by id. */
   r.get("/:id", async (c) => {
     const preview = await deps.store.getPreview(c.req.param("id"));
     if (!preview) return c.json({ error: "not found" }, 404);
-    return c.json(preview);
+    return c.json(redactPreviewEnv(preview));
   });
 
   /** POST /previews/:id/ping — the idle-reaper heartbeat. The Brokk screen calls
@@ -104,7 +105,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
   r.post("/:id/ping", async (c) => {
     const preview = await deps.store.touchPreview(c.req.param("id"));
     if (!preview) return c.json({ error: "not found" }, 404);
-    return c.json(preview);
+    return c.json(redactPreviewEnv(preview));
   });
 
   /** PATCH /previews/:id — runner updates status, pid, port.
@@ -132,13 +133,13 @@ export function previewsRoutes(deps: AppDeps): Hono {
       ...(builtAt !== undefined ? { builtAt: builtAt ? new Date(builtAt) : null } : {}),
       ...(pid !== undefined ? { pid } : {}),
       ...(port !== undefined ? { port } : {}),
-      ...(loadedEnv !== undefined ? { loadedEnv } : {}),
+      ...(loadedEnv !== undefined ? { loadedEnv: loadedEnv ? redactEnv(loadedEnv) : null } : {}),
       ...(rssMb !== undefined ? { rssMb } : {}),
     };
 
     try {
       const updated = await deps.store.patchPreview(c.req.param("id"), patch);
-      return c.json(updated);
+      return c.json(redactPreviewEnv(updated));
     } catch (err) {
       if (err instanceof Error && err.message.includes("not found")) {
         return c.json({ error: "not found" }, 404);
