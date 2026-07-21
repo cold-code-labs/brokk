@@ -38,11 +38,10 @@ export interface RunnerConfig {
    *  name. Empty = every app keeps the PR flow (safe default); pilot = "logcheck".
    *  Plans/revise always stay on the PR path. BROKK_DEVLANE_APPS (comma-separated). */
   devLaneApps: Set<string>;
-  /** When true, attach the Playwright MCP server to the forge agent so it can
-   *  drive a real headless browser while forging (e.g. to check a running app
-   *  against the card's acceptance criteria). Default OFF — when unset the agent
-   *  behaves exactly as today (file/bash/git tools only, no browser). Toggled by
-   *  BROKK_BROWSER ("1"/"true"). See engine.ts for the wiring. */
+  /** When true, the forge agent prompt advertises a headless Chromium available
+   *  via the bash hand (acceptance receipts / chrome-headless scripts) — not the
+   *  Playwright MCP. The MCP is a separate surface: ensurePlaywrightMcp() in
+   *  driver.ts, registered per driver turn. Default OFF. BROKK_BROWSER ("1"/"true"). */
   browser: boolean;
   /** Headless Chromium binary the acceptance receipt (and browser checks) drive.
    *  Default /usr/bin/chromium (present on the surtr runner). BROKK_CHROMIUM. */
