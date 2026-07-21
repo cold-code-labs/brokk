@@ -279,8 +279,8 @@ async function handleRun(
 
     // Live-acceptance receipt (Nv2 QA): if the card shipped a `.brokk/acceptance.mjs`
     // check, boot the worktree app and run it — a green typecheck proves it compiles,
-    // this proves it BEHAVES. Best-effort: a boot/check failure is a red receipt, not
-    // a runner crash, and it does NOT (yet) fail the run — verify stays the gate.
+    // this proves it BEHAVES. A red receipt FAILS the run (Auto Brokk / BROKK-44) so
+    // Regin can retry/replan — verify alone is no longer the only gate.
     let receipt: Awaited<ReturnType<typeof runAcceptanceReceipt>> = null;
     if (cfg.browser) {
       // Best-effort per-app secrets so gated pages can render — keyed by the
@@ -355,21 +355,29 @@ async function handleRun(
     }
     buffer.emit({ type: "status", payload: { phase: prPhase, url: pr.url } });
 
-    // Red verify → the run is a failure even though a PR exists (so the diff is
-    // still inspectable). Green / no-verify → succeeded.
-    const failed = verify ? !verify.ok : false;
+    // Red verify OR red acceptance → the run is a failure even though a PR exists
+    // (so the diff is still inspectable). Green / no-gate → succeeded.
+    const verifyFailed = verify ? !verify.ok : false;
+    const acceptanceFailed = receipt?.ran === true && receipt.ok === false;
+    const failed = verifyFailed || acceptanceFailed;
+    const failReason = verifyFailed
+      ? `verify failed:\n${verify!.output.slice(-1500)}`
+      : acceptanceFailed
+        ? `acceptance failed:\n${(receipt!.output ?? "").slice(-1500)}`
+        : undefined;
     trace?.complete({ verify, healAttempts: result.healAttempts, usage, prUrl: pr.url });
     await buffer.flush();
     await api(cfg, "POST", `/runs/${run.id}/complete`, {
       status: failed ? "failed" : "succeeded",
       prUrl: pr.url,
       prNumber: pr.number ?? undefined,
-      error: failed ? `verify failed:\n${verify!.output.slice(-1500)}` : undefined,
+      error: failReason,
       usage,
     });
     console.log(
       `[forge] run ${run.id} → PR ${pr.url}` +
         (verify ? ` · verify ${verify.ok ? "✓" : "✗"}` : "") +
+        (receipt?.ran ? ` · acceptance ${receipt.ok ? "✓" : "✗"}` : "") +
         (result.healAttempts ? ` · healed ×${result.healAttempts}` : ""),
     );
 

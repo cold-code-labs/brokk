@@ -34,6 +34,22 @@ export interface MissionDeps {
 
 const MAX_RETRIES = 2;
 const MAX_REPLANS = 1;
+/** Auto Brokk: identical failure fingerprint this many times → skip blind retry, go replan/escalate. */
+const MAX_SAME_ERROR = 2;
+/** Driver-run zombie TTL (BROKK-22): forge restart leaves `running` forever. */
+const DRIVER_STALE_MS = 45 * 60 * 1000;
+/** Auto intake: only shepherd failed cards newer than this. */
+const AUTO_INTAKE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+/** Normalize a run error into a stable fingerprint for same-error detection. */
+export function errorFingerprint(err: string): string {
+  return err
+    .replace(/\s+/g, " ")
+    .replace(/\b[0-9a-f]{7,}\b/gi, "#")
+    .replace(/\d+/g, "#")
+    .trim()
+    .slice(-400);
+}
 
 /** Start the singleton reconciler. Overlapping ticks are guarded by an in-flight
  *  flag (a slow tick skips the next beat instead of stacking). Returns a stop fn. */
@@ -43,6 +59,15 @@ export function startMissionReconciler(deps: MissionDeps, intervalMs = 30_000): 
     if (inFlight) return;
     inFlight = true;
     try {
+      // BROKK-22: reap driver_runs stuck after forge recreate (no heartbeat).
+      const reaped = await deps.store.reapStaleDriverRuns(DRIVER_STALE_MS).catch(() => 0);
+      if (reaped > 0) console.warn(`[regin] reaped ${reaped} stale driver-run(s)`);
+
+      // BROKK-44: overnight intake — wrap orphaned failed cards into auto missions.
+      await tickAutoIntake(deps).catch((err) =>
+        console.error("[regin] auto-intake failed:", err),
+      );
+
       const missions = [
         ...(await deps.store.listMissions({ status: "planning" })),
         ...(await deps.store.listMissions({ status: "running" })),
@@ -263,7 +288,20 @@ async function tickRunning(deps: MissionDeps, mission: Mission): Promise<void> {
     const attempts = state.attempts[card.id] ?? 0;
     const replans = state.replans[card.id] ?? 0;
 
-    if (attempts < MAX_RETRIES) {
+    // Auto Brokk: fingerprint the last run error. Same fingerprint ×N → skip
+    // blind retries (they won't help) and jump to replan/escalate.
+    const runs = await store.listRunsByTask(card.id);
+    const fp = errorFingerprint(runs[0]?.error ?? "");
+    const prevFp = state.lastErrorFp?.[card.id] ?? "";
+    const streak = fp && fp === prevFp ? (state.sameErrorStreak?.[card.id] ?? 0) + 1 : 1;
+    state = {
+      ...state,
+      lastErrorFp: { ...state.lastErrorFp, [card.id]: fp },
+      sameErrorStreak: { ...state.sameErrorStreak, [card.id]: streak },
+    };
+
+    const sameErrorExhausted = Boolean(fp) && streak >= MAX_SAME_ERROR;
+    if (attempts < MAX_RETRIES && !sameErrorExhausted) {
       state = { ...state, attempts: { ...state.attempts, [card.id]: attempts + 1 } };
       await store.patchMission(mission.id, { state });
       await store.transitionTask(card.id, "queued", {
@@ -288,11 +326,14 @@ async function tickRunning(deps: MissionDeps, mission: Mission): Promise<void> {
         });
         await store.transitionTask(card.id, "queued", {
           actor: "regin",
-          reason: "mission replan (card revisado)",
+          reason: sameErrorExhausted
+            ? "mission replan (mesmo erro ×N — card revisado)"
+            : "mission replan (card revisado)",
         });
         await store.addMissionEvent(mission.id, "replan", {
           taskId: card.id,
           reason: decision.reason ?? null,
+          sameError: sameErrorExhausted,
         });
         return;
       }
@@ -301,6 +342,7 @@ async function tickRunning(deps: MissionDeps, mission: Mission): Promise<void> {
     }
     // attempts and replans exhausted — terminal for this card; handled below
     // when the whole board settles.
+    await store.patchMission(mission.id, { state });
   }
   if (reacted) return; // statuses changed under us — recompute next tick
 
@@ -336,6 +378,51 @@ async function tickRunning(deps: MissionDeps, mission: Mission): Promise<void> {
   await store.patchMission(mission.id, { status: "done", detail: summary });
   await store.addMissionEvent(mission.id, "synthesis", { summary, prUrl });
   await store.addMissionEvent(mission.id, "status", { from: "running", to: "done" });
+}
+
+/** BROKK-44 Auto Brokk intake: when BROKK_AUTO=1, wrap one orphaned recent-failed
+ *  card into an autoApprove mission so Regin shepherds overnight retries.
+ *  Cap: one mission per tick. Skip cards already pinned to a live mission. */
+async function tickAutoIntake(deps: MissionDeps): Promise<void> {
+  if (process.env.BROKK_AUTO !== "1") return;
+  const { store } = deps;
+  const failed = await store.listTasks({ status: "failed" });
+  if (failed.length === 0) return;
+
+  const live = [
+    ...(await store.listMissions({ status: "planning" })),
+    ...(await store.listMissions({ status: "running" })),
+    ...(await store.listMissions({ status: "blocked" })),
+  ];
+  const pinned = new Set<string>();
+  for (const m of live) {
+    for (const id of m.state.taskIds ?? []) pinned.add(id);
+  }
+
+  const cutoff = Date.now() - AUTO_INTAKE_MAX_AGE_MS;
+  const orphan = failed.find((t) => {
+    if (pinned.has(t.id)) return false;
+    if (Date.parse(t.updatedAt) < cutoff) return false;
+    return true;
+  });
+  if (!orphan) return;
+
+  const mission = await store.insertMission({
+    projectId: orphan.projectId,
+    goal: `Auto Brokk: retomar card falho — ${orphan.title}`,
+    autoApprove: true,
+    createdBy: "auto-brokk",
+  });
+  await store.patchMission(mission.id, {
+    status: "running",
+    state: { attempts: {}, replans: {}, taskIds: [orphan.id] },
+    detail: "intake overnight",
+  });
+  await store.addMissionEvent(mission.id, "created", {
+    source: "auto-intake",
+    taskId: orphan.id,
+  });
+  console.log(`[regin] auto-intake mission ${mission.id.slice(0, 8)} ← task ${orphan.id.slice(0, 8)}`);
 }
 
 async function escalate(store: Store, mission: Mission, card: Task, reason: string): Promise<void> {

@@ -93,6 +93,8 @@ export function loadAppSecrets(dir: string, project: string): Record<string, str
 
 /** How many trailing output lines a boot keeps to explain a death before serving. */
 const TAIL_LINES = 12;
+/** Porcelain paths that Next (etc.) rewrites on boot — not human live-edits (BROKK-2). */
+const GENERATED_DIRTY_RE = /(?:^|\s)(?:\.\/)?next-env\.d\.ts$/;
 
 /** Keys whose VALUE is a secret and must never be shown in the Env inspector. */
 const SECRET_KEY_RE =
@@ -250,9 +252,17 @@ export class PreviewSupervisor {
       // pinned the guard on forever, so a plain `git push` to dev never landed
       // (the reported bug). `git reset --hard` never touches untracked files anyway,
       // so ignoring them here is safe as well as necessary.
+      //
+      // BROKK-2: Next rewrites tracked `next-env.d.ts` on boot — that is NOT a live
+      // edit. Treating it as dirty permanently deferred drift-refresh (maglink 2026-07-16).
       const dirty = (
         await run("git", ["status", "--porcelain", "--untracked-files=no"], { cwd: path })
-      ).stdout.trim();
+      ).stdout
+        .split("\n")
+        .map((l) => l.trimEnd())
+        .filter((l) => l && !GENERATED_DIRTY_RE.test(l))
+        .join("\n")
+        .trim();
       if (dirty) {
         console.log(
           `[preview-supervisor] ${hauldrProject}: worktree dirty (live edits) — deferring reset to ${fetched.slice(0, 8)}`,

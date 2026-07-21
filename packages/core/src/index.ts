@@ -1090,6 +1090,10 @@ export interface MissionState {
   replans: Record<string, number>;
   /** The cards this mission created, stamped at planning time. */
   taskIds?: string[];
+  /** Last failure fingerprint per card (Auto Brokk — same-error stop). */
+  lastErrorFp?: Record<string, string>;
+  /** Consecutive identical-failure streak per card. */
+  sameErrorStreak?: Record<string, number>;
 }
 
 /** One goal under Regin's watch. */

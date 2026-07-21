@@ -311,6 +311,8 @@ async function attemptMerge(
     console.log(`[eitri] ${repo}#${pr.number} targets main — not auto-merging (protected)`);
   } else if (!cfg.autoMerge) {
     console.log(`[eitri] ${repo}#${pr.number} mergeable (${verdict}) — auto-merge off, leaving for a human`);
+  } else if (!(await forgeVerifyAllowsMerge(store, repo, pr))) {
+    console.log(`[eitri] ${repo}#${pr.number} — forge verify/task failed, not merging (BROKK-26)`);
   } else if (!(await git.isMergeable(pr.number))) {
     console.log(`[eitri] ${repo}#${pr.number} not mergeable yet — will retry on next poll`);
   } else {
@@ -326,6 +328,25 @@ async function attemptMerge(
       console.error(`[eitri] ${repo}#${pr.number} merge failed (App needs Contents:write?):`, String(e).slice(0, 160));
     }
   }
+}
+
+/** BROKK-26: do not auto-merge when the linked forge task/run failed verify.
+ *  Manual PRs with no Brokk task are left alone (return true). */
+async function forgeVerifyAllowsMerge(
+  store: ReturnType<typeof createStore>,
+  repo: string,
+  pr: OpenPr,
+): Promise<boolean> {
+  const prUrl = `https://github.com/${repo}/pull/${pr.number}`;
+  const task = await store.findTaskForMergedPr(prUrl, pr.number).catch(() => null);
+  if (!task) return true;
+  if (task.status === "failed") return false;
+  const runs = await store.listRunsByTask(task.id).catch(() => []);
+  const last = runs[0];
+  if (!last) return true;
+  if (last.status === "failed") return false;
+  if (last.error && /verify failed|acceptance failed/i.test(last.error)) return false;
+  return true;
 }
 
 /** Confidence (0..1) that a merged forge change is safe to ship to prod (#5),

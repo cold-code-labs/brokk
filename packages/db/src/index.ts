@@ -783,6 +783,9 @@ export interface Store {
    *  'cancelling' (the forge finalizes it after tearing the turn down). No-op
    *  (null) when already terminal. */
   requestCancelDriverRun(id: string): Promise<DriverRun | null>;
+  /** Mark `running` driver_runs older than `staleMs` as failed (forge recreated
+   *  without finishing — BROKK-22). Returns how many rows were reaped. */
+  reapStaleDriverRuns(staleMs: number): Promise<number>;
   listMissionEvents(missionId: string): Promise<MissionEvent[]>;
 }
 
@@ -2061,6 +2064,21 @@ export function createStore(db: Db): Store {
       const row = execRows(rows)[0];
       return row ? rowToDriverRun(row) : null;
     },
+    async reapStaleDriverRuns(staleMs) {
+      // ponytail: no heartbeat column — started_at age is the whole signal.
+      const rows = await db.execute(
+        sql`UPDATE driver_runs SET
+              status = 'failed',
+              error = COALESCE(error, 'reaped: stale running (forge likely restarted)'),
+              finished_at = now(),
+              updated_at = now()
+            WHERE status = 'running'
+              AND started_at IS NOT NULL
+              AND started_at < now() - make_interval(secs => ${Math.max(60, Math.floor(staleMs / 1000))})
+            RETURNING id`,
+      );
+      return execRows(rows).length;
+    },
   };
 }
 
@@ -2097,6 +2115,9 @@ function rowToMission(row: Record<string, unknown>): Mission {
   const st = (row.state && typeof row.state === "object" ? row.state : {}) as Partial<MissionState>;
   const attempts = st.attempts && typeof st.attempts === "object" ? st.attempts : {};
   const replans = st.replans && typeof st.replans === "object" ? st.replans : {};
+  const lastErrorFp = st.lastErrorFp && typeof st.lastErrorFp === "object" ? st.lastErrorFp : undefined;
+  const sameErrorStreak =
+    st.sameErrorStreak && typeof st.sameErrorStreak === "object" ? st.sameErrorStreak : undefined;
   return {
     id: String(row.id),
     projectId: String(row.project_id),
@@ -2111,6 +2132,8 @@ function rowToMission(row: Record<string, unknown>): Mission {
       attempts: attempts as Record<string, number>,
       replans: replans as Record<string, number>,
       ...(Array.isArray(st.taskIds) ? { taskIds: st.taskIds.map(String) } : {}),
+      ...(lastErrorFp ? { lastErrorFp: lastErrorFp as Record<string, string> } : {}),
+      ...(sameErrorStreak ? { sameErrorStreak: sameErrorStreak as Record<string, number> } : {}),
     },
     createdAt: rawIso(row.created_at),
     updatedAt: rawIso(row.updated_at),
