@@ -25,6 +25,7 @@ import { buildDetectCtx, composeCommand, PACKAGE_MANAGERS, resolveRuntime } from
 import type { RunnerConfig } from "./config.js";
 import type { GhProvider } from "./git.js";
 import type { DataProvider } from "./data-provider.js";
+import { previewSpawnEnv } from "./preview-env.js";
 
 interface LivePreview {
   proc: ChildProcess;
@@ -252,13 +253,11 @@ export class PreviewSupervisor {
       console.log(
         `[preview-supervisor] ${hauldrProject}: lockfile changed → ${pm.install}`,
       );
-      // Same HOME/corepack pinning as boot(): the runner's env can arrive without a
-      // writable HOME and corepack dies provisioning the repo-pinned pnpm.
-      const home =
-        process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
+      // Same HOME/corepack pinning as boot() — inherits the compose-pinned pnpm
+      // store (`work/.pnpm-store`); see previewSpawnEnv / BROKK-21.
       await run("sh", ["-c", pm.install], {
         cwd: path,
-        env: { ...process.env, HOME: home, COREPACK_HOME: `${home}/.cache/corepack` },
+        env: previewSpawnEnv(process.env),
         timeout: 5 * 60_000,
         maxBuffer: 16 * 1024 * 1024,
       });
@@ -566,13 +565,6 @@ export class PreviewSupervisor {
       );
     }
 
-    // pnpm shells out to corepack to provision the repo-pinned pnpm, and corepack
-    // needs a WRITABLE HOME for its download cache. The forge's runtime env can
-    // arrive without HOME (Coolify injects a curated env), so corepack falls back
-    // to `/.cache` → `EACCES: mkdir '/.cache/node/corepack'` and the build dies
-    // "before serving". Pin HOME (and the corepack cache) to a writable dir so
-    // `pnpm install` can always provision its package manager.
-    const home = process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
     // Runtime-declared env (spec.env — e.g. Expo's EXPO_PACKAGER_PROXY_URL). The
     // `$PUBLIC_URL` placeholder expands to the preview's public URL here, so the
     // provider stays generic and the supervisor stays framework-blind.
@@ -595,12 +587,9 @@ export class PreviewSupervisor {
       // across the board (ADR 0017 — the production build lives in the dev-build).
       NODE_ENV: "development",
     };
-    const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...appEnv,
-      HOME: home,
-      COREPACK_HOME: `${home}/.cache/corepack`,
-    };
+    // Pin HOME/corepack for pnpm; inherit the compose-pinned store
+    // (`work/.pnpm-store`) — do not override npm_config_store_dir (BROKK-21).
+    const env: NodeJS.ProcessEnv = previewSpawnEnv(process.env, appEnv);
 
     // Report a redacted snapshot of what we loaded, so the preview bar's Env
     // inspector can show an operator what this dev preview is wired to (e.g. that

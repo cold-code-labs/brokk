@@ -99,6 +99,26 @@ Template-light default builds then `next start -p $PORT`.
 - "Preview dev" button on each project (Fleet card + project board) → calls `POST /previews`,
   shows a live URL chip + Stop. Status: starting → live (link) → stopped/failed.
 
+## Shared pnpm store (BROKK-21 — item 5 discarded)
+
+Preview installs share **one** store: `/home/brokk/work/.pnpm-store`, pinned in
+the forge worker env (`docker-compose.forge.yml` /
+`docker-compose.coolify.yml` `x-worker-env`, commit `ee15438`). That path is
+1001-owned and setgid so dropped-uid installs can chmod hardlinked bins.
+
+BROKK-21 item 5 tried to re-pin the store from `apps/forge/src/preview.ts` to
+`${HOME}/.pnpm-store`. That was **reverted** (`8d4e114`): it mixed hardlinks
+across two stores and broke live boots with `EPERM … chmod` (e.g. Bragi /
+`nanoid`). The premise was also wrong — `pnpm store path` in a preview worktree
+already resolved to `work/.pnpm-store` via compose; historical inode divergence
+was leftover from older defaults, not something a third pin would fix.
+
+**Decision:** keep the store at the compose layer only. `previewSpawnEnv` pins
+`HOME` / `COREPACK_HOME` for corepack and **inherits** `npm_config_store_dir`.
+Do not set `npm_config_store_dir` in the supervisor. If old worktrees still
+carry stale content-addressed trees, reinstall them against the default store —
+do not invent another path.
+
 ## Promotion (out of v1, noted)
 Promote `dev` → prod by a **human** merge `dev` → `main` (Eitri's rail keeps prod
 manual). The Hauldr dev→prod migrator is **not** in this scope — promotion stays
