@@ -64,7 +64,10 @@ export interface RunnerConfig {
   /** Shell command used to boot a `mode='dev'` preview (a Sindri session's live
    *  checkout) — `next dev` with HMR so the agent's edits hot-reload. `$PORT` is
    *  substituted. Override: BROKK_PREVIEW_DEV_CMD. `pnpm exec next dev` resolves
-   *  the local binary; `-H 0.0.0.0` is load-bearing (gateway proxies 127.0.0.1). */
+   *  the local binary; `-H 0.0.0.0` is load-bearing (gateway proxies 127.0.0.1).
+   *  BROKK-37: leave Turbopack off — for Next ≥16 prefer `next dev --webpack`
+   *  (~1–1.5GB vs ~4GB Turbopack). Sleipnir densifies this automatically when the
+   *  override is unset; a manual override must opt into `--webpack` itself. */
   previewDevCmd: string;
   /** How long (ms) the supervisor waits for a freshly-spawned preview to answer
    *  its health path before flipping it 'live' anyway (degraded). Covers the
@@ -124,6 +127,8 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
       // `pnpm exec` resolves the local `next` from node_modules/.bin and forwards
       // args cleanly (bare `next` isn't on PATH under `sh -c`; `pnpm run dev --`
       // leaks the `--` into next's argv). Verified e2e on the dev lane.
+      // BROKK-37: no `--turbo`. Next ≥16 webpack is injected by densifyNextPreview
+      // when this fallback is unused (Sleipnir path); keep the string Next-15-safe.
       "pnpm install --no-frozen-lockfile --prod=false && pnpm exec next dev -p $PORT -H 0.0.0.0",
     previewHealthTimeoutMs: Number(env.BROKK_PREVIEW_HEALTH_TIMEOUT_MS ?? 2 * 60 * 1000),
     previewPortMin: Number(env.BROKK_PREVIEW_PORT_MIN ?? 4100),

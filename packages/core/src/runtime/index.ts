@@ -1,8 +1,10 @@
 /**
  * @brokk/core/runtime — Sleipnir's logic: the command allowlist (the trusted boundary
- * that replaces a human approval), `validateSpec`, the canonical fast-path, and
- * the resolver. Pure except for `buildDetectCtx` (which reads the checkout tree).
- * The supervisor consumes a `RuntimeSpec` and never knows the word "next".
+ * that replaces a human approval), `validateSpec`, the canonical fast-path, the
+ * resolver, and preview densification (BROKK-37: Next webpack over Turbopack).
+ * Pure except for `buildDetectCtx` (which reads the checkout tree). The supervisor
+ * consumes a `RuntimeSpec` and never knows the word "next" at spawn time — densify
+ * rewrites the command here before the spec is composed.
  *
  * See docs/RUNTIME.md (the plan) and docs/runtime/SKILL.md (the Huginn faculty).
  */
@@ -248,22 +250,87 @@ export function fastPath(ctx: DetectCtx): RuntimeSpec | null {
   return null;
 }
 
+// ── Preview densification (BROKK-37) ────────────────────────────────────────────
+//
+// Next.js 16+ defaults `next dev` to Turbopack (~4GB RSS/app) — inviável when the
+// forge hosts many concurrent previews. Webpack/SWC sits ~1–1.5GB. Next 15 already
+// defaults to webpack; `--webpack` is unknown there and would crash the boot.
+// Applied on every resolve (including pinned specs) so a fleet upgrade to Next 16
+// does not silently re-introduce the Turbopack tax.
+
+/** First major digit of a `next` version range (`^16.2.0` → 16). Null when absent
+ *  or unparseable (`catalog:`, `workspace:*`, …). */
+export function parseNextMajor(pkg: Record<string, unknown> | undefined): number | null {
+  if (!pkg) return null;
+  for (const key of ["dependencies", "devDependencies", "peerDependencies"]) {
+    const obj = pkg[key];
+    if (!obj || typeof obj !== "object") continue;
+    const ver = (obj as Record<string, unknown>).next;
+    if (typeof ver !== "string") continue;
+    const m = ver.match(/(?:^|[^\d])(\d+)\./);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
+
+/** Read the appRoot package.json via DetectCtx (root or nested). */
+function pkgAtAppRoot(ctx: DetectCtx, appRoot: string): Record<string, unknown> | undefined {
+  const rel = !appRoot || appRoot === "." ? "package.json" : `${appRoot.replace(/\/$/, "")}/package.json`;
+  if (rel === "package.json" && ctx.pkg) return ctx.pkg;
+  const raw = ctx.read(rel);
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Strip Turbopack flags from a `next dev` command; on Next ≥16 inject `--webpack`
+ *  so the preview stays on webpack/SWC. No-op for non-Next or unsupported specs. */
+export function densifyNextPreview(spec: RuntimeSpec, ctx: DetectCtx): RuntimeSpec {
+  if (!spec.supported || !spec.dev || !/\bnext\s+dev\b/.test(spec.dev)) return spec;
+
+  let dev = spec.dev
+    // Drop any explicit Turbopack opt-in (Next 15 scripts often ship `--turbo`).
+    .replace(/(^|\s)--turbo(?:pack)?(?=\s|$)/g, "$1")
+    // Idempotent: strip a prior --webpack before re-injecting for Next ≥16.
+    .replace(/(^|\s)--webpack(?=\s|$)/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  const major = parseNextMajor(pkgAtAppRoot(ctx, spec.appRoot ?? "."));
+  // Next 16+ Turbopack is the default — force webpack. Next ≤15 already uses
+  // webpack; passing --webpack there is `error: unknown option` and kills boot.
+  if (major !== null && major >= 16) {
+    dev = dev.replace(/\bnext\s+dev\b/, "next dev --webpack");
+  }
+
+  return dev === spec.dev ? spec : { ...spec, dev };
+}
+
 // ── The resolver ────────────────────────────────────────────────────────────────
 
 /** Resolve how to run a checkout. Precedence (decided once at connect, reused per
  *  boot): pinned spec → canonical fast-path → Huginn skill (`detect`) → a clean
  *  `unsupported`. Pure: the caller persists the result (pins `project.runtime`);
- *  `detect` is injected so this package never depends on the LLM/scout. */
+ *  `detect` is injected so this package never depends on the LLM/scout.
+ *  Always runs densifyNextPreview so pinned Next 16 specs pick up `--webpack`. */
 export async function resolveRuntime(
   pinned: RuntimeSpec | null | undefined,
   ctx: DetectCtx,
   detect?: (ctx: DetectCtx) => Promise<RuntimeSpec>,
 ): Promise<RuntimeSpec> {
-  if (pinned) return pinned; // 1 reuse the decision (supported OR unsupported)
-  const fast = fastPath(ctx); // 2 canonical preset, no LLM
-  if (fast) return fast;
-  if (detect) return validateSpec(await detect(ctx), ctx); // 3 AI faculty + audit
-  return unsupported("no supported runtime detected (and no detector available)");
+  let spec: RuntimeSpec;
+  if (pinned) {
+    spec = pinned; // 1 reuse the decision (supported OR unsupported)
+  } else {
+    const fast = fastPath(ctx); // 2 canonical preset, no LLM
+    if (fast) spec = fast;
+    else if (detect) spec = validateSpec(await detect(ctx), ctx); // 3 AI faculty + audit
+    else return unsupported("no supported runtime detected (and no detector available)");
+  }
+  return densifyNextPreview(spec, ctx);
 }
 
 /** Compose the shell command for a boot mode from a (supported) spec. Both modes
