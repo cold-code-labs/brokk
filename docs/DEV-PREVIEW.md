@@ -95,6 +95,19 @@ On `POST /previews`:
 `previewCmd` is a per-project string (env-overridable, like `BROKK_VERIFY_CMD`).
 Template-light default builds then `next start -p $PORT`.
 
+### RAM budget (BROKK-37) — webpack, not Turbopack
+Next.js 16+ defaults `next dev` to **Turbopack** (~4GB RSS per preview) — inviável
+when the forge densifies many live apps. Sleipnir's `densifyNextPreview` strips
+`--turbo`/`--turbopack` and, for Next ≥16, injects `--webpack` so previews stay on
+webpack/SWC (~1–1.5GB). Next 15 already defaults to webpack (`--webpack` would be
+an unknown option there).
+
+Operational ceiling to plan against: **~1.5GB per Next preview**. The forge
+container `mem_limit` (4–6g in `docker-compose.forge.yml`) is the host budget for
+the runner **plus** N concurrent previews — keep N such that `1.5GB × N` fits under
+that ceiling with headroom for the forge itself. Override `BROKK_PREVIEW_DEV_CMD`
+only if you must, and never with Turbopack flags.
+
 ### Board (`apps/web`)
 - "Preview dev" button on each project (Fleet card + project board) → calls `POST /previews`,
   shows a live URL chip + Stop. Status: starting → live (link) → stopped/failed.

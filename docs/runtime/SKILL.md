@@ -69,7 +69,9 @@ Work the steps in order. **Record the evidence for each step** in the spec's
    package manager detected from the lockfile. If the repo's own `scripts.dev`
    diverges from the preset, **prefer the preset binary** and record the script as
    evidence — do not copy an arbitrary script verbatim. The result MUST satisfy
-   the allowlist.
+   the allowlist. **Never emit `--turbo` / `--turbopack`** (BROKK-37: Turbopack
+   ≈4GB/app, inviável na densificação). For Next ≥16 the resolver injects
+   `--webpack` at boot; leave the template without it so Next 15 stays bootable.
 
 5. **Port + health.** Commands bind `$PORT`/`-H 0.0.0.0` (`$HOST`); the gateway
    proxies 127.0.0.1. `health` is the path polled to flip `starting -> live`
