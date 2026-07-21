@@ -306,6 +306,18 @@ async function handleRun(
         title: task.title,
         body: prBody(task, verify, receipt),
       });
+      // BROKK-45: a re-forge can open #6 while the card still points at closed #5.
+      // complete() below overwrites prUrl/prNumber; log so the pointer flip is visible.
+      if (
+        task.prNumber != null &&
+        pr.number != null &&
+        task.prNumber !== pr.number
+      ) {
+        console.log(
+          `[forge] card ${task.id.slice(0, 8)} PR pointer #${task.prNumber} → #${pr.number}`,
+        );
+        prPhase = "pr_replaced";
+      }
     }
     buffer.emit({ type: "status", payload: { phase: prPhase, url: pr.url } });
 
