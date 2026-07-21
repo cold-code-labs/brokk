@@ -16,7 +16,8 @@
     "dev:api": "pnpm --filter @brokk/api dev",
     "dev:web": "pnpm --filter @brokk/web dev",
     "lint": "pnpm -r --if-present lint",
-    "eval": "tsx evals/run.ts"
+    "eval": "tsx evals/run.ts",
+    "test:isolation": "tsx --test packages/afl/src/enclave.test.ts"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
