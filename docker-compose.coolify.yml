@@ -53,6 +53,8 @@ x-worker-env: &worker-env
   # Fresh preview installs (new app, ADR 0038) run as a dropped uid; the image's
   # default pnpm store (/pnpm) is root-owned → EPERM chmod'ing hardlinked bins.
   # Point store + caches at the 1001-owned work volume.
+  # BROKK-21: this is the ONE shared store — do not re-pin from preview.ts
+  # (pinning ~/.pnpm-store caused EPERM; reverted). See docs/DEV-PREVIEW.md.
   COREPACK_HOME: /home/brokk/work/.cache/corepack
   XDG_CACHE_HOME: /home/brokk/work/.cache
   XDG_DATA_HOME: /home/brokk/work/.local
