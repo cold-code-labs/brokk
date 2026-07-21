@@ -21,13 +21,24 @@
  *    config no longer reads HAULDR_TOKEN; MCP auth helpers exist.
  * 7. Dogfood: expandEnv + isAuthFailure + authFailureMessage (same contracts
  *    as packages/mcp) — empty Bearer is rejected; 401 copy says AUTH FAILED.
- * 8. Screenshot of the booted app (receipt).
+ *
+ * BROKK-24 acceptance — prove the post-remediation isolation stack is effective.
+ *
+ * Typecheck alone cannot catch a brokk-sandbox that warns-and-continues without
+ * Landlock, or a setuid bit that silently fails to drop the bash uid. This
+ * receipt FAIL-CLOSES when the binary is present but the jail/uid-split is not
+ * actually enforcing.
+ *
+ * 8. Source contracts (Dockerfile setuid sandbox, ExecEnclave seam, egress entrypoint)
+ * 9. Runtime: Landlock denies a sibling write; uid-split drops when setuid
+ * 10. Screenshot of the booted app (receipt)
  *
  * Env (injected by Brokk verify):
  *   BROKK_ACCEPTANCE_URL, BROKK_CHROMIUM, BROKK_ACCEPTANCE_SHOT
  */
-import { spawn } from "node:child_process";
-import { writeFileSync, readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { writeFileSync, readFileSync, chmodSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -206,6 +217,162 @@ function assertAuthDogfood() {
   console.log("[ok] auth dogfood: expandEnv + loud AUTH FAILED copy");
 }
 
+function findSandboxBin() {
+  for (const dir of (process.env.PATH ?? "").split(":")) {
+    if (!dir) continue;
+    const p = join(dir, "brokk-sandbox");
+    try {
+      if (statSync(p).isFile()) return p;
+    } catch {
+      /* keep looking */
+    }
+  }
+  return null;
+}
+
+function assertIsolationSourceContracts() {
+  const forgeDocker = readFileSync(join(REPO, "apps/forge/Dockerfile"), "utf8");
+  if (!/brokk-sandbox/.test(forgeDocker)) {
+    fail("forge Dockerfile must ship brokk-sandbox");
+  }
+  if (!/chmod 4750 \/usr\/local\/bin\/brokk-sandbox/.test(forgeDocker)) {
+    fail("forge Dockerfile must setuid brokk-sandbox (chmod 4750)");
+  }
+  if (!/adduser .*1002.*brokk-bash/.test(forgeDocker)) {
+    fail("forge Dockerfile must create egress uid 1002 (brokk-bash)");
+  }
+
+  const entry = readFileSync(join(REPO, "tools/brokk-egress/entrypoint.sh"), "utf8");
+  if (!/BROKK_EGRESS/.test(entry) || !/egress\.nft/.test(entry)) {
+    fail("brokk-egress entrypoint must install the nft egress jail");
+  }
+
+  const enclave = readFileSync(join(REPO, "packages/afl/src/enclave.ts"), "utf8");
+  for (const needle of [
+    "export function shellEnv",
+    "export class LocalEnclave",
+    "export class SplitEnclave",
+    "export function resolveEnclave",
+    "export function needsCreds",
+    "landlock",
+    "BROKK_BASH_UID",
+  ]) {
+    if (!enclave.toLowerCase().includes(needle.toLowerCase())) {
+      fail(`enclave.ts missing isolation surface: ${needle}`);
+    }
+  }
+
+  const sandboxGo = readFileSync(join(REPO, "tools/brokk-sandbox/main.go"), "utf8");
+  if (!/landlock\.V4/.test(sandboxGo) || !/Setresuid/.test(sandboxGo)) {
+    fail("brokk-sandbox must apply Landlock V4 + Setresuid uid-drop");
+  }
+
+  console.log(
+    "[ok] source contracts: setuid sandbox, egress entrypoint, ExecEnclave seam, Landlock+Setresuid",
+  );
+}
+
+/** Prove Landlock denies a sibling write the unsandboxed shell can make; prove
+ *  uid-split when the binary is setuid. */
+function assertIsolationEffective() {
+  const bin = findSandboxBin();
+  if (!bin) {
+    fail(
+      "brokk-sandbox not on PATH — isolation cannot be proven (post-remediation verify requires it)",
+    );
+  }
+
+  const st = statSync(bin);
+  const isSetuid = (st.mode & 0o4000) !== 0;
+  const bashUid = Number(process.env.BROKK_BASH_UID ?? 1002);
+  const bashGid = Number(process.env.BROKK_BASH_GID ?? 1001);
+
+  const parent = join(homedir(), `brokk-iso-accept-${process.pid}`);
+  const cwd = join(parent, "checkout");
+  const sibling = join(parent, "sibling");
+  mkdirSync(cwd, { recursive: true });
+  mkdirSync(sibling, { recursive: true });
+  chmodSync(parent, 0o2775);
+  chmodSync(cwd, 0o2775);
+  chmodSync(sibling, 0o2775);
+
+  try {
+    // Control: without the jail both writes succeed.
+    const ctrl = spawnSync(
+      "/bin/sh",
+      ["-c", "touch ok-ctrl.txt; touch ../sibling/pwn-ctrl.txt"],
+      { cwd, encoding: "utf8" },
+    );
+    if (ctrl.status !== 0) {
+      fail(`unsandboxed control probe failed (dirs not writable?): ${ctrl.stderr}`);
+    }
+
+    const args = [
+      "--verbose",
+      ...(isSetuid ? ["--uid", String(bashUid), "--gid", String(bashGid)] : []),
+      "--rw",
+      cwd,
+      "--rw",
+      "/tmp",
+      "--rw",
+      "/dev",
+      "--ro",
+      "/usr",
+      "--ro",
+      "/bin",
+      "--ro",
+      "/lib",
+      "--ro",
+      "/lib64",
+      "--ro",
+      "/etc",
+      "--ro",
+      "/proc",
+      "--ro",
+      "/sys",
+      "--ro",
+      "/run",
+      "--",
+      "/bin/sh",
+      "-c",
+      [
+        "id -u",
+        "touch ok.txt; echo IN=$?",
+        "touch ../sibling/pwn.txt; echo OUT=$?",
+        "test -f ../sibling/pwn.txt && echo SIBLING_EXISTS || echo SIBLING_ABSENT",
+      ].join("; "),
+    ];
+
+    const r = spawnSync(bin, args, { cwd, encoding: "utf8" });
+    const combined = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
+    if (r.error) fail(`failed to spawn ${bin}: ${r.error.message}`);
+
+    if (/landlock not applied/i.test(combined)) {
+      fail(`Landlock not applied (sandbox warned):\n${combined}`);
+    }
+    if (!/IN=0/.test(combined)) {
+      fail(`checkout write must succeed under jail:\n${combined}`);
+    }
+    if (!/OUT=[1-9]/.test(combined) || !/SIBLING_ABSENT/.test(combined)) {
+      fail(`Landlock not effective — sibling write leaked:\n${combined}`);
+    }
+
+    if (isSetuid) {
+      const uid = Number((combined.match(/^(\d+)/m) ?? [])[1]);
+      if (uid !== bashUid) {
+        fail(`uid-split not effective (got uid=${uid}, want ${bashUid}):\n${combined}`);
+      }
+      console.log(`[ok] uid-split effective: bash uid=${uid} (setuid ${bin})`);
+    } else {
+      console.log(`[ok] sandbox present but not setuid — uid-split skipped (${bin})`);
+    }
+
+    console.log("[ok] Landlock effective: checkout RW, sibling denied");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const health = await fetch(`${base}/health`);
   if (!health.ok) fail(`/health → ${health.status}`);
@@ -273,6 +440,8 @@ async function main() {
   assertRedactDogfood();
   assertMcpSourceContracts();
   assertAuthDogfood();
+  assertIsolationSourceContracts();
+  assertIsolationEffective();
 
   // Receipt screenshot of /health (API has no HTML UI).
   await new Promise((resolve, reject) => {
