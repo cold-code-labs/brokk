@@ -25,7 +25,7 @@ import { GhProvider } from "./git.js";
 import { ClaudeCliEngine, ForgeEngine } from "@brokk/forge";
 import { claudeCliAvailable } from "@brokk/afl";
 import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
-import { HauldrClient } from "./hauldr.js";
+import { HeimdallLanes } from "./heimdall-lanes.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
 import { makeAutofix } from "./autofix.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
@@ -84,12 +84,28 @@ async function main() {
 
   // ── Preview supervisor (parallel loop) ──────────────────────────────────────
   // Runs alongside the forge claim loop; each is independent.
-  const dataProvider = cfg.hauldrControlUrl
-    ? makeHauldrDataProvider(new HauldrClient(cfg.hauldrControlUrl, cfg.hauldrToken), cfg.hauldrControlUrl)
-    : passthroughProvider;
+  // A lane's backend comes from Heimdall, not from us. The forge used to hold
+  // HAULDR_TOKEN — the data plane's MANAGEMENT key, which reads the superuser
+  // DSN of every project on the fleet — to provision what is really one dev
+  // lane. Heimdall owns provisioning now (it also picks the envelope, which we
+  // never could), and the scoped agent token reaches only <app>_dev of a
+  // registered app.
+  //
+  // HAULDR_CONTROL_URL stays: it is a URL, not a credential, and the preview
+  // needs it to apply its OWN migrations with its per-project migrate token.
+  const lanes =
+    cfg.heimdallAgentUrl && cfg.heimdallAgentToken
+      ? new HeimdallLanes(cfg.heimdallAgentUrl, cfg.heimdallAgentToken)
+      : null;
+  const dataProvider =
+    lanes && cfg.hauldrControlUrl
+      ? makeHauldrDataProvider(lanes, cfg.hauldrControlUrl)
+      : passthroughProvider;
   if (dataProvider === passthroughProvider) {
     console.log(
-      "[forge] HAULDR_CONTROL_URL not set — previews run on passthrough env (no provisioning)",
+      `[forge] previews run on passthrough env (no provisioning) — ${
+        lanes ? "HAULDR_CONTROL_URL" : "HEIMDALL_AGENT_URL/TOKEN"
+      } not set`,
     );
   }
   // BROKK_SUPERVISOR=0 disables the preview-supervisor loop on this runner —
@@ -125,7 +141,7 @@ async function main() {
     // any app not in BROKK_DEVLANE_APPS, keep the PR flow.
     const run =
       isDevLaneCard(cfg, claimed)
-        ? runDevLane(cfg, git, engine, supervisor, claimed)
+        ? runDevLane(cfg, git, engine, supervisor, lanes, claimed)
         : handleRun(cfg, git, engine, claimed);
     await run.catch((err) =>
       console.error(`[forge] run ${claimed?.run.id} crashed:`, err),
@@ -411,6 +427,7 @@ async function runDevLane(
   git: GhProvider,
   engine: AgentEngine,
   supervisor: PreviewSupervisor,
+  lanes: HeimdallLanes | null,
   { task, run, repository, auth, memory }: Claimed,
 ): Promise<void> {
   const repo = repository!; // isDevLaneCard guarantees a resolved repository
@@ -444,6 +461,40 @@ async function runDevLane(
       },
     });
 
+    // Dev-lane schema capability (ADR 0017 §6b): unlock apply_migration against
+    // this app's `<app>_dev` DB. The Bearer MUST be the per-project migrate token
+    // Heimdall hands back — NOT HAULDR_TOKEN (the retired data-plane management
+    // key). Using the management key (or an empty one) 401s the migrate endpoint
+    // and leaves the agent with a silent dead tool. Same project + endpoint the
+    // deploy migrates through → file and live schema stay identical.
+    const project = devCheckoutSlug(repo.name);
+    let migration: { controlUrl: string; token: string; project: string } | undefined;
+    if (cfg.hauldrControlUrl && lanes) {
+      try {
+        const hp = await lanes.getProject(project);
+        if (!hp.migrateToken) {
+          console.error(
+            `[forge] apply_migration DISABLED for ${project}: Heimdall returned no migrateToken — do not invent DDL another way`,
+          );
+        } else {
+          migration = {
+            controlUrl: cfg.hauldrControlUrl,
+            token: hp.migrateToken,
+            project,
+          };
+        }
+      } catch (err) {
+        console.error(
+          `[forge] apply_migration DISABLED for ${project}: failed to resolve migrate token:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    } else if (cfg.hauldrControlUrl && !lanes) {
+      console.error(
+        "[forge] apply_migration DISABLED: HAULDR_CONTROL_URL set but Heimdall lane client missing (HEIMDALL_AGENT_URL/TOKEN) — refusing to fall back to HAULDR_TOKEN",
+      );
+    }
+
     const result: RunResult = await engine.run({
       task: {
         id: task.id,
@@ -465,18 +516,7 @@ async function runDevLane(
       maxHealAttempts: cfg.healAttempts,
       autofix:
         cfg.verifyCmd && cfg.autofix ? makeAutofix({ cwd: wt.path, cmd: cfg.autofixCmd || undefined }) : undefined,
-      // Dev-lane schema capability (ADR 0017 §6b): unlock apply_migration against
-      // this app's `<app>_dev` DB when the control plane is configured. Same project
-      // + endpoint the deploy migrates through → the file the agent writes and the
-      // live schema stay identical, and the dev-build skips what's already applied.
-      migration:
-        cfg.hauldrControlUrl && cfg.hauldrToken
-          ? {
-              controlUrl: cfg.hauldrControlUrl,
-              token: cfg.hauldrToken,
-              project: devCheckoutSlug(repo.name),
-            }
-          : undefined,
+      migration,
       emit: (e) => {
         buffer.emit(e);
         trace?.onEvent(e);

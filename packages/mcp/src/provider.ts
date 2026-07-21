@@ -90,6 +90,31 @@ export function flattenContent(content: unknown): string {
     .join("\n");
 }
 
+/** True when an error / response body is an HTTP auth rejection (401/403).
+ *  Used so we never flatten a credential failure into "(no content)". */
+export function isAuthFailure(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    /\b401\b/.test(m) ||
+    /\b403\b/.test(m) ||
+    m.includes("unauthorized") ||
+    m.includes("forbidden") ||
+    m.includes("authentication") ||
+    m.includes("invalid token") ||
+    m.includes("invalid api key")
+  );
+}
+
+/** Loud, retry-discouraging copy for a dead MCP credential. */
+export function authFailureMessage(server: string, detail: string): string {
+  const d = detail.trim() || "401/403";
+  return (
+    `mcp ${server}: AUTH FAILED (${d}). Credential rejected — fix BROKK_MCP_SERVERS ` +
+    `headers (do not embed a retired HAULDR_TOKEN; expand \${ENV} from a live secret) ` +
+    `or remove the server. Do not retry the same call.`
+  );
+}
+
 /** The one server capability the executor needs — Client satisfies it, and
  *  tests hand in fakes. */
 export interface McpCaller {
@@ -98,8 +123,9 @@ export interface McpCaller {
 
 /** Build the PartialExecutor over a set of connected servers. Owns only the
  *  `mcp__` prefix (null for everything else); within it, never throws — a
- *  transport error becomes an ok:false result the model can read. Output is
- *  clipped to the same 60k cap as the native tools. */
+ *  transport error becomes an ok:false result the model can read. Auth
+ *  failures (401/403) are spelled out so the agent cannot treat a dead token
+ *  as an empty success. Output is clipped to the same 60k cap as native tools. */
 export function makeMcpExecutor(servers: ReadonlyMap<string, McpCaller>): PartialExecutor {
   return async (name, input) => {
     if (!name.startsWith(PREFIX)) return null; // not ours — fall through
@@ -112,10 +138,27 @@ export function makeMcpExecutor(servers: ReadonlyMap<string, McpCaller>): Partia
         content?: unknown;
         isError?: boolean;
       };
-      const text = clip(flattenContent(res?.content) || "(no content)");
+      const flat = flattenContent(res?.content);
+      const combined = `${flat}\n${res?.isError === true ? "isError" : ""}`;
+      if (isAuthFailure(combined) || (res?.isError === true && isAuthFailure(flat))) {
+        return { ok: false, content: authFailureMessage(parsed.server, flat || "isError") };
+      }
+      // Empty isError bodies used to become "(no content)" — silent death for a
+      // 401 that only set the flag. Prefer a loud unknown-error over quiet ok.
+      if (res?.isError === true && !flat.trim()) {
+        return {
+          ok: false,
+          content: `mcp ${parsed.server}: tool returned isError with empty body — treat as failure (often a rejected credential)`,
+        };
+      }
+      const text = clip(flat || "(no content)");
       return { ok: res?.isError !== true, content: text };
     } catch (e) {
-      return { ok: false, content: `mcp ${parsed.server}: ${(e as Error).message}` };
+      const msg = (e as Error).message ?? String(e);
+      if (isAuthFailure(msg)) {
+        return { ok: false, content: authFailureMessage(parsed.server, msg) };
+      }
+      return { ok: false, content: `mcp ${parsed.server}: ${msg}` };
     }
   };
 }
@@ -134,8 +177,10 @@ export class McpToolProvider {
   }
 
   /** Connect each configured server and list+gate its tools. A server that
-   *  fails to connect or list is warned + skipped — the bridge never throws,
-   *  a broken MCP config must not take the agent down. */
+   *  fails to connect or list is skipped — the bridge never throws, a broken
+   *  MCP config must not take the host down. Auth failures (401/403) log at
+   *  error level with an explicit "do not call these tools" message so a dead
+   *  Hauldr token cannot sit quietly while the agent keeps retrying. */
   static async connect(configs: McpServerConfig[]): Promise<McpToolProvider> {
     const clients: Client[] = [];
     const servers = new Map<string, McpCaller>();
@@ -180,7 +225,18 @@ export class McpToolProvider {
         clients.push(client);
         servers.set(cfg.name, client);
       } catch (e) {
-        console.warn(`mcp ${cfg.name}: connect failed — skipped (${(e as Error).message})`);
+        const msg = (e as Error).message ?? String(e);
+        if (isAuthFailure(msg)) {
+          // Fail LOUD — a skipped warn was the "tool morta, calado" failure mode
+          // when Hauldr's Bearer 401'd: connect died, no tools mounted, agent
+          // still believed the server existed from docs/memory.
+          console.error(authFailureMessage(cfg.name, msg));
+          console.error(
+            `mcp ${cfg.name}: NOT mounted — remove it from BROKK_MCP_SERVERS or restore a valid credential`,
+          );
+        } else {
+          console.warn(`mcp ${cfg.name}: connect failed — skipped (${msg})`);
+        }
       }
     }
     return new McpToolProvider(clients, servers, toolDefs);

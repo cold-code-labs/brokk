@@ -7,10 +7,12 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseMcpServers } from "./config.js";
+import { parseMcpServers, expandEnv } from "./config.js";
 import {
+  authFailureMessage,
   flattenContent,
   gateTools,
+  isAuthFailure,
   makeMcpExecutor,
   type McpCaller,
   type McpToolInfo,
@@ -219,4 +221,102 @@ test("executor: clips output at the 60k cap like the native tools", async () => 
 test("executor: empty content → '(no content)' placeholder", async () => {
   const exec = makeMcpExecutor(fakeServers({ callTool: async () => ({ content: [] }) }));
   assert.deepEqual(await exec("mcp__srv__t", {}), { ok: true, content: "(no content)" });
+});
+
+// ── auth failures must not go quiet ─────────────────────────────────────────────
+
+test("expandEnv: ${VAR} and $VAR from the provided env", () => {
+  const env = { HAULDR_MIGRATE_TOKEN: "mig-secret", EMPTY: "" };
+  assert.equal(expandEnv("Bearer ${HAULDR_MIGRATE_TOKEN}", env), "Bearer mig-secret");
+  assert.equal(expandEnv("x-$EMPTY-y", env), "x--y");
+  assert.equal(expandEnv("Bearer ${MISSING}", env), "Bearer ");
+});
+
+test("parseMcpServers: expands headers/url and rejects empty Bearer after expansion", async () => {
+  const env = { MIG: "live-token" };
+  const ok = parseMcpServers(
+    JSON.stringify([
+      {
+        name: "hauldr",
+        transport: "http",
+        url: "https://mcp.example/${MISSING}",
+        headers: { Authorization: "Bearer ${MIG}" },
+      },
+    ]),
+    env,
+  );
+  assert.equal(ok.length, 1);
+  assert.equal(ok[0].url, "https://mcp.example/");
+  assert.equal(ok[0].headers?.Authorization, "Bearer live-token");
+
+  const dead = await quiet(() =>
+    parseMcpServers(
+      JSON.stringify([
+        {
+          name: "hauldr",
+          transport: "http",
+          url: "https://mcp.example.com",
+          headers: { Authorization: "Bearer ${HAULDR_TOKEN}" }, // unset → empty Bearer
+        },
+      ]),
+      {},
+    ),
+  );
+  assert.equal(dead.length, 0);
+});
+
+test("isAuthFailure / authFailureMessage: 401 is loud and names the server", () => {
+  assert.equal(isAuthFailure("HTTP 401 Unauthorized"), true);
+  assert.equal(isAuthFailure("conn reset"), false);
+  const msg = authFailureMessage("hauldr", "401 Unauthorized");
+  assert.match(msg, /AUTH FAILED/);
+  assert.match(msg, /hauldr/);
+  assert.match(msg, /Do not retry/);
+});
+
+test("executor: 401 throw / isError body → AUTH FAILED, never '(no content)'", async () => {
+  const throwExec = makeMcpExecutor(
+    new Map([
+      [
+        "hauldr",
+        {
+          callTool: async () => {
+            throw new Error(
+              "Streamable HTTP error: Error POSTing to endpoint: Error: Error POSTing to endpoint: 401 Unauthorized",
+            );
+          },
+        },
+      ],
+    ]),
+  );
+  const thrown = await throwExec("mcp__hauldr__query", {});
+  assert.equal(thrown?.ok, false);
+  assert.match(thrown?.content ?? "", /AUTH FAILED/);
+  assert.match(thrown?.content ?? "", /hauldr/);
+  assert.doesNotMatch(thrown?.content ?? "", /\(no content\)/);
+
+  const quiet401 = makeMcpExecutor(
+    new Map([
+      [
+        "hauldr",
+        {
+          callTool: async () => ({
+            isError: true,
+            content: [{ type: "text", text: "Unauthorized 401" }],
+          }),
+        },
+      ],
+    ]),
+  );
+  const body = await quiet401("mcp__hauldr__query", {});
+  assert.equal(body?.ok, false);
+  assert.match(body?.content ?? "", /AUTH FAILED/);
+
+  const emptyFlag = makeMcpExecutor(
+    new Map([["hauldr", { callTool: async () => ({ isError: true, content: [] }) }]]),
+  );
+  const empty = await emptyFlag("mcp__hauldr__query", {});
+  assert.equal(empty?.ok, false);
+  assert.doesNotMatch(empty?.content ?? "", /^\(no content\)$/);
+  assert.match(empty?.content ?? "", /isError with empty body|AUTH FAILED|rejected credential/i);
 });

@@ -34,8 +34,27 @@ const isStrRecord = (v: unknown): v is Record<string, string> =>
   typeof v === "object" && v !== null && !Array.isArray(v) &&
   Object.values(v).every((s) => typeof s === "string");
 
+/** Expand `${VAR}` / `$VAR` in a config string from `env` (default: process.env).
+ *  Unset / empty vars become "" — callers that need a live credential must check. */
+export function expandEnv(value: string, env: NodeJS.ProcessEnv = process.env): string {
+  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_m, braced, bare) => {
+    const key = (braced ?? bare) as string;
+    return env[key] ?? "";
+  });
+}
+
+function expandRecord(
+  rec: Record<string, string> | undefined,
+  env: NodeJS.ProcessEnv,
+): Record<string, string> | undefined {
+  if (!rec) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(rec)) out[k] = expandEnv(v, env);
+  return out;
+}
+
 /** Validate one raw entry; a string reason means "skip it". */
-function validateEntry(entry: unknown): McpServerConfig | string {
+function validateEntry(entry: unknown, env: NodeJS.ProcessEnv): McpServerConfig | string {
   if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return "not an object";
   const e = entry as Record<string, unknown>;
   if (!isStr(e.name)) return "missing name";
@@ -49,22 +68,41 @@ function validateEntry(entry: unknown): McpServerConfig | string {
   if (e.env !== undefined && !isStrRecord(e.env)) return `server "${e.name}" has bad env`;
   if (e.headers !== undefined && !isStrRecord(e.headers)) return `server "${e.name}" has bad headers`;
   if (e.allowTools !== undefined && !isStrArray(e.allowTools)) return `server "${e.name}" has bad allowTools`;
+  const url = e.url !== undefined ? expandEnv(e.url as string, env) : undefined;
+  const command = e.command !== undefined ? expandEnv(e.command as string, env) : undefined;
+  const headers = expandRecord(e.headers as Record<string, string> | undefined, env);
+  const entryEnv = expandRecord(e.env as Record<string, string> | undefined, env);
+  // Empty Authorization after expansion = operator pointed at a missing secret
+  // (classic: BROKK_MCP_SERVERS still says Bearer ${HAULDR_TOKEN} after that
+  // management key was retired). Refuse the entry loudly rather than mount a
+  // server that will 401 on every call.
+  if (headers) {
+    for (const [hk, hv] of Object.entries(headers)) {
+      if (/^authorization$/i.test(hk) && /^\s*Bearer\s*$/i.test(hv)) {
+        return `server "${e.name}" Authorization expands to empty Bearer — set the referenced env or drop the server`;
+      }
+    }
+  }
   return {
     name: e.name,
     transport: e.transport,
-    command: e.command as string | undefined,
+    command,
     args: e.args as string[] | undefined,
-    env: e.env as Record<string, string> | undefined,
-    url: e.url as string | undefined,
-    headers: e.headers as Record<string, string> | undefined,
+    env: entryEnv,
+    url,
+    headers,
     allowTools: e.allowTools as string[] | undefined,
     allowMutations: e.allowMutations === true,
   };
 }
 
 /** Parse the BROKK_MCP_SERVERS env (JSON array of McpServerConfig). Never
- *  throws: invalid/empty input → []; invalid entries are warned + skipped. */
-export function parseMcpServers(raw: string | undefined): McpServerConfig[] {
+ *  throws: invalid/empty input → []; invalid entries are warned + skipped.
+ *  String fields in url/headers/env/command expand `${VAR}` from `env`. */
+export function parseMcpServers(
+  raw: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): McpServerConfig[] {
   if (!raw?.trim()) return [];
   let parsed: unknown;
   try {
@@ -79,7 +117,7 @@ export function parseMcpServers(raw: string | undefined): McpServerConfig[] {
   }
   const out: McpServerConfig[] = [];
   for (const entry of parsed) {
-    const cfg = validateEntry(entry);
+    const cfg = validateEntry(entry, env);
     if (typeof cfg === "string") {
       console.warn(`BROKK_MCP_SERVERS: skipping entry (${cfg})`);
       continue;
