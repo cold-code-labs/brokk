@@ -94,9 +94,13 @@ export const PROVIDERS: Provider[] = [
       anyScriptMatches: "next (dev|build|start)",
     },
     commands: {
-      // Default Turbopack (`next dev`). Forge ensures @next/swc-linux-x64-gnu
-      // (BROKK-31) so native bindings load on Debian glibc. Opt into webpack with
-      // BROKK_NEXT_WEBPACK=1 if a worktree still can't load SWC.
+      // BROKK-37: do NOT put `--turbo`/`--turbopack` here. Next 16 defaults to
+      // Turbopack (~4GB/app); `densifyNextPreview` injects `--webpack` for Next ≥16
+      // at resolve time. Next 15 already defaults to webpack — `--webpack` would
+      // crash (`unknown option`), so the template stays version-agnostic. Forge
+      // still ensures @next/swc-linux-x64-gnu (BROKK-31) for native bindings; the
+      // BROKK_NEXT_WEBPACK=1 escape hatch remains for a worktree that can't load
+      // SWC even so.
       dev: "{exec} next dev -p $PORT -H 0.0.0.0",
       build: "{exec} next build",
       start: "{exec} next start -p $PORT -H 0.0.0.0",
