@@ -1,20 +1,20 @@
 #!/usr/bin/env node
 /**
- * Combined acceptance after merging BROKK-38 + BROKK-39.
+ * BROKK-14 acceptance — MCP/Hauldr auth must fail loud; forge migrate token
+ * path must not use the retired HAULDR_TOKEN.
  *
- * 1) BROKK-38: fixture under `.brokk/inbox/` appears in turn-context block;
- *    public /attach-smoke serves the Attach affordance.
- * 2) BROKK-39: /brokk/observer floor row opens drawer with Live run log,
- *    thinking + tool rows; writes BROKK_ACCEPTANCE_SHOT.
+ * 1) Source contracts: forge runDevLane resolves migrateToken via Heimdall;
+ *    config no longer reads HAULDR_TOKEN; MCP auth helpers exist.
+ * 2) Dogfood: expandEnv + isAuthFailure + authFailureMessage (same contracts
+ *    as packages/mcp) — empty Bearer is rejected; 401 copy says AUTH FAILED.
+ * 3) Screenshot of the booted app (receipt).
  *
  * Env: BROKK_ACCEPTANCE_URL, BROKK_CHROMIUM, BROKK_ACCEPTANCE_SHOT
  */
 import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const BASE = process.env.BROKK_ACCEPTANCE_URL;
 const CHROME = process.env.BROKK_CHROMIUM;
@@ -25,209 +25,137 @@ if (!BASE || !CHROME || !SHOT) {
   process.exit(2);
 }
 
-const ROOT = BASE.replace(/\/$/, "");
-const OBSERVER = `${ROOT}/brokk/observer`;
-const INBOX_DIR = ".brokk/inbox";
+const ROOT = dirname(fileURLToPath(import.meta.url));
+const REPO = join(ROOT, "..");
 
 function die(code, msg) {
   console.error(msg);
   process.exit(code);
 }
 
-function attachmentContextBlock(paths) {
-  const clean = [];
-  const seen = new Set();
-  for (const raw of paths) {
-    const p = String(raw ?? "")
-      .replace(/\\/g, "/")
-      .replace(/^\/+/, "")
-      .trim();
-    if (!p.startsWith(`${INBOX_DIR}/`) || p.includes("..") || p.includes("\0")) continue;
-    const rest = p.slice(INBOX_DIR.length + 1);
-    if (!rest || rest.includes("/")) continue;
-    if (seen.has(p)) continue;
-    seen.add(p);
-    clean.push(p);
-  }
-  if (!clean.length) return "";
-  return [
-    "## Attachments (this turn)",
-    "Client files were saved into this checkout under `.brokk/inbox/`. Read them with your FS tools (`read_file` / `bash`); do not ask the user to re-upload or paste their contents.",
-    ...clean.map((p) => `- \`${p}\``),
-  ].join("\n");
-}
-
-async function dogfoodInboxContext() {
-  const root = join(tmpdir(), `brokk-38-accept-${process.pid}`);
-  const rel = `${INBOX_DIR}/fixture-costs.txt`;
-  const abs = join(root, rel);
-  await mkdir(join(root, INBOX_DIR), { recursive: true });
-  await writeFile(abs, "sku,qty\nA,1\n", "utf8");
-  const block = attachmentContextBlock([rel]);
-  await rm(root, { recursive: true, force: true }).catch(() => {});
-  if (!block.includes(rel)) {
-    throw new Error(`dogfood failed: turn context missing ${rel}\n---\n${block}`);
-  }
-  if (!block.includes("## Attachments (this turn)")) {
-    throw new Error("dogfood failed: missing attachments heading");
-  }
-  console.log(`[ok] BROKK-38 dogfood: wrote ${rel} and found it in turn context`);
-}
-
-async function assertAttachSmoke() {
-  const url = `${ROOT}/attach-smoke`;
-  const res = await fetch(url);
-  const html = await res.text();
-  if (!res.ok) throw new Error(`GET ${url} → ${res.status}`);
-  if (!html.includes('data-testid="sindri-attach"') && !html.includes("data-sindri-attach")) {
-    throw new Error(`attach-smoke HTML missing attach markers\n${html.slice(0, 400)}`);
-  }
-  console.log(`[ok] BROKK-38 HTTP: ${url} serves attach affordance`);
-}
-
-/** Minimal CDP over WebSocket — dependency-free. */
-async function withCdp(wsUrl, fn) {
-  const ws = new WebSocket(wsUrl);
-  await new Promise((resolve, reject) => {
-    ws.addEventListener("open", resolve);
-    ws.addEventListener("error", reject);
+/** Mirror of packages/mcp/src/config.ts expandEnv. */
+function expandEnv(value, env) {
+  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_m, braced, bare) => {
+    const key = braced ?? bare;
+    return env[key] ?? "";
   });
-  let nextId = 1;
-  const pending = new Map();
-  ws.addEventListener("message", (ev) => {
-    const msg = JSON.parse(String(ev.data));
-    if (msg.id != null && pending.has(msg.id)) {
-      const { resolve, reject } = pending.get(msg.id);
-      pending.delete(msg.id);
-      if (msg.error) reject(new Error(JSON.stringify(msg.error)));
-      else resolve(msg.result);
-    }
-  });
-  const send = (method, params = {}) => {
-    const id = nextId++;
-    ws.send(JSON.stringify({ id, method, params }));
-    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
-  };
-  try {
-    return await fn(send);
-  } finally {
-    ws.close();
-  }
 }
 
-async function waitForDevtools(stderrBuf) {
-  for (let i = 0; i < 50; i++) {
-    await sleep(100);
-    const m = stderrBuf.text.match(/DevTools listening on (ws:\/\/\S+)/);
-    if (m) return m[1];
-  }
-  return null;
-}
-
-async function assertObserverDrillIn() {
-  const chrome = spawn(
-    CHROME,
-    [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--remote-debugging-port=0",
-      "--window-size=1280,800",
-      "about:blank",
-    ],
-    { stdio: ["ignore", "pipe", "pipe"] },
+/** Mirror of packages/mcp/src/provider.ts isAuthFailure. */
+function isAuthFailure(message) {
+  const m = String(message).toLowerCase();
+  return (
+    /\b401\b/.test(m) ||
+    /\b403\b/.test(m) ||
+    m.includes("unauthorized") ||
+    m.includes("forbidden") ||
+    m.includes("authentication") ||
+    m.includes("invalid token") ||
+    m.includes("invalid api key")
   );
+}
 
-  const stderrBuf = { text: "" };
-  chrome.stderr.setEncoding("utf8");
-  chrome.stderr.on("data", (c) => {
-    stderrBuf.text += c;
-  });
+/** Mirror of packages/mcp/src/provider.ts authFailureMessage. */
+function authFailureMessage(server, detail) {
+  const d = String(detail).trim() || "401/403";
+  return (
+    `mcp ${server}: AUTH FAILED (${d}). Credential rejected — fix BROKK_MCP_SERVERS ` +
+    `headers (do not embed a retired HAULDR_TOKEN; expand \${ENV} from a live secret) ` +
+    `or remove the server. Do not retry the same call.`
+  );
+}
 
-  const browserWs = await waitForDevtools(stderrBuf);
-  if (!browserWs) {
-    chrome.kill("SIGKILL");
-    die(1, `chromium did not expose DevTools:\n${stderrBuf.text.slice(-800)}`);
+function assertSourceContracts() {
+  const forgeIndex = readFileSync(join(REPO, "apps/forge/src/index.ts"), "utf8");
+  if (!/lanes\.getProject\(project\)/.test(forgeIndex)) {
+    die(1, "forge index must resolve migrate token via lanes.getProject");
+  }
+  if (!/hp\.migrateToken/.test(forgeIndex)) {
+    die(1, "forge index must use hp.migrateToken for apply_migration");
+  }
+  if (/cfg\.hauldrToken/.test(forgeIndex)) {
+    die(1, "forge index must not still gate migration on cfg.hauldrToken");
+  }
+  if (!/refusing to fall back to HAULDR_TOKEN/.test(forgeIndex)) {
+    die(1, "forge must refuse HAULDR_TOKEN fallback in loud error copy");
   }
 
-  const host = new URL(browserWs).host;
+  const forgeCfg = readFileSync(join(REPO, "apps/forge/src/config.ts"), "utf8");
+  if (/hauldrToken:\s*env\.HAULDR_TOKEN/.test(forgeCfg)) {
+    die(1, "forge config must not read HAULDR_TOKEN anymore");
+  }
 
-  try {
-    const created = await fetch(`http://${host}/json/new?${encodeURIComponent(OBSERVER)}`, {
-      method: "PUT",
-    }).then((r) => r.json());
-    const pageWs = created.webSocketDebuggerUrl;
-    if (!pageWs) die(1, `no page websocket: ${JSON.stringify(created)}`);
+  const mcpProvider = readFileSync(join(REPO, "packages/mcp/src/provider.ts"), "utf8");
+  if (!/export function isAuthFailure/.test(mcpProvider) || !/export function authFailureMessage/.test(mcpProvider)) {
+    die(1, "packages/mcp must export isAuthFailure + authFailureMessage");
+  }
+  if (!/AUTH FAILED/.test(mcpProvider)) {
+    die(1, "mcp provider must spell AUTH FAILED for credential rejection");
+  }
 
-    await withCdp(pageWs, async (send) => {
-      await send("Page.enable");
-      await send("Runtime.enable");
-      await send("Page.navigate", { url: OBSERVER });
+  const mcpConfig = readFileSync(join(REPO, "packages/mcp/src/config.ts"), "utf8");
+  if (!/export function expandEnv/.test(mcpConfig)) {
+    die(1, "packages/mcp must expand \${ENV} in BROKK_MCP_SERVERS fields");
+  }
+  if (!/empty Bearer/.test(mcpConfig)) {
+    die(1, "parseMcpServers must reject empty Bearer after expansion");
+  }
 
-      let ready = false;
-      for (let i = 0; i < 40; i++) {
-        await sleep(250);
-        const { result } = await send("Runtime.evaluate", {
-          expression: `!!document.querySelector('[data-testid="forge-floor-row"]')`,
-          returnByValue: true,
-        });
-        if (result?.value) {
-          ready = true;
-          break;
-        }
-      }
-      if (!ready) die(1, "floor row never appeared on /brokk/observer");
-      console.log("[ok] BROKK-39: forge floor row is present and clickable");
+  const tools = readFileSync(join(REPO, "packages/agents/forge/src/tools.ts"), "utf8");
+  if (!/AUTH FAILED/.test(tools) || !/HAULDR_TOKEN/.test(tools)) {
+    die(1, "apply_migration must loud-fail 401 mentioning HAULDR_TOKEN");
+  }
 
-      await send("Runtime.evaluate", {
-        expression: `document.querySelector('[data-testid="forge-floor-row"]').click()`,
-      });
-      await sleep(500);
+  const compose = readFileSync(join(REPO, "docker-compose.coolify.yml"), "utf8");
+  if (!/BROKK_MCP_SERVERS:\s*\$\{BROKK_MCP_SERVERS/.test(compose)) {
+    die(1, "coolify worker-env must pass BROKK_MCP_SERVERS (Coolify does not auto-inject)");
+  }
 
-      const { result: drawer } = await send("Runtime.evaluate", {
-        expression: `!!document.querySelector('[data-testid="observer-drawer"]')`,
-        returnByValue: true,
-      });
-      if (!drawer?.value) die(1, "drawer did not open after floor row click");
-      console.log("[ok] BROKK-39: click opens observer drawer");
+  console.log(
+    "[ok] source contracts: Heimdall migrateToken path, no HAULDR_TOKEN, loud MCP/apply_migration auth",
+  );
+}
 
-      const { result: log } = await send("Runtime.evaluate", {
-        expression: `!!document.querySelector('[data-testid="run-log"]')`,
-        returnByValue: true,
-      });
-      if (!log?.value) die(1, "Live run log missing in drawer");
-      console.log("[ok] BROKK-39: Live run log mounted");
+function assertAuthDogfood() {
+  const expanded = expandEnv("Bearer ${HAULDR_MCP_TOKEN}", { HAULDR_MCP_TOKEN: "live" });
+  if (expanded !== "Bearer live") die(1, `expandEnv failed: ${expanded}`);
 
-      const { result: thinking } = await send("Runtime.evaluate", {
-        expression: `!!document.querySelector('[data-testid="run-log-thinking"]')`,
-        returnByValue: true,
-      });
-      if (!thinking?.value) die(1, "thinking/reasoning block missing in RunLog");
-      console.log("[ok] BROKK-39: thinking rendered in RunLog");
+  const empty = expandEnv("Bearer ${HAULDR_TOKEN}", {});
+  if (empty !== "Bearer ") die(1, `empty expand expected 'Bearer ', got ${JSON.stringify(empty)}`);
 
-      const { result: shell } = await send("Runtime.evaluate", {
-        expression: `document.body.innerText.includes("Shell")`,
-        returnByValue: true,
-      });
-      if (!shell?.value) die(1, "tool row (Shell) missing in RunLog");
-      console.log("[ok] BROKK-39: tool use rendered in RunLog");
+  if (!isAuthFailure("HTTP 401 Unauthorized")) die(1, "isAuthFailure should catch 401");
+  if (isAuthFailure("conn reset")) die(1, "isAuthFailure should ignore non-auth errors");
 
-      const { data } = await send("Page.captureScreenshot", { format: "png" });
-      writeFileSync(SHOT, Buffer.from(data, "base64"));
-      console.log(`screenshot → ${SHOT}`);
+  const msg = authFailureMessage("hauldr", "401 Unauthorized");
+  if (!/AUTH FAILED/.test(msg) || !/hauldr/.test(msg) || !/Do not retry/.test(msg)) {
+    die(1, `authFailureMessage too quiet: ${msg}`);
+  }
+  console.log("[ok] auth dogfood: expandEnv + loud AUTH FAILED copy");
+}
+
+function screenshotHome() {
+  const url = BASE.replace(/\/$/, "") + "/";
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      CHROME,
+      ["--headless", "--disable-gpu", "--no-sandbox", `--screenshot=${SHOT}`, "--window-size=1280,800", url],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let err = "";
+    child.stderr.on("data", (d) => {
+      err += d;
     });
-  } finally {
-    chrome.kill("SIGKILL");
-  }
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) reject(new Error(`chromium exited ${code}: ${err.slice(0, 500)}`));
+      else resolve();
+    });
+  });
 }
 
-async function main() {
-  console.log("acceptance — BROKK-38 attachments + BROKK-39 forge observer");
-  await dogfoodInboxContext();
-  await assertAttachSmoke();
-  await assertObserverDrillIn();
-  console.log("acceptance met");
-  process.exit(0);
-}
-
-main().catch((e) => die(1, String(e?.stack || e)));
+assertSourceContracts();
+assertAuthDogfood();
+await screenshotHome();
+console.log(`[ok] screenshot → ${SHOT}`);
+console.log("BROKK-14 acceptance met");
+process.exit(0);

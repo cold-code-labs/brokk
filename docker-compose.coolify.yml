@@ -101,6 +101,11 @@ x-worker-env: &worker-env
   # HAULDR_CONTROL_URL stays: it is a URL, not a credential — the preview needs
   # it to apply its OWN migrations with its per-project migrate token.
   HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
+  # MCP servers for Sindri (ADR 0027 §4.1). Must be listed here — Coolify does
+  # not auto-inject. Prefer headers with ${ENV} expansion (e.g. Bearer
+  # ${SOME_LIVE_TOKEN}); never embed the retired HAULDR_TOKEN — a 401 mounts
+  # nothing and used to fail silently.
+  BROKK_MCP_SERVERS: ${BROKK_MCP_SERVERS:-}
 
 services:
   brokk-api:

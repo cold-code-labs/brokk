@@ -6,10 +6,12 @@
  * throws into the loop. Dependency-light: the official SDK + @brokk/afl types.
  */
 
-export { type McpServerConfig, parseMcpServers } from "./config.js";
+export { type McpServerConfig, expandEnv, parseMcpServers } from "./config.js";
 export {
+  authFailureMessage,
   flattenContent,
   gateTools,
+  isAuthFailure,
   makeMcpExecutor,
   type McpCaller,
   type McpToolInfo,

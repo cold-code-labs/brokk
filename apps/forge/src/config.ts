@@ -61,8 +61,6 @@ export interface RunnerConfig {
    *  <app>_dev lanes of registered apps, never a client's prod project. */
   heimdallAgentToken: string;
   hauldrControlUrl: string;
-  /** Bearer token for the Hauldr API. */
-  hauldrToken: string;
   /** Shell command used to boot a preview app. `$PORT` is substituted with the
    *  allocated port number. Per-project override: BROKK_PREVIEW_CMD env var.
    *  Default: `next build && next start -p $PORT` (Next.js apps). */
@@ -125,7 +123,6 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     heimdallAgentUrl: (env.HEIMDALL_AGENT_URL ?? "").replace(/\/$/, ""),
     heimdallAgentToken: env.HEIMDALL_AGENT_TOKEN ?? "",
     hauldrControlUrl: (env.HAULDR_CONTROL_URL ?? "").replace(/\/$/, ""),
-    hauldrToken: env.HAULDR_TOKEN ?? "",
     previewCmd: env.BROKK_PREVIEW_CMD ?? "next build && next start -p $PORT",
     previewDevCmd:
       env.BROKK_PREVIEW_DEV_CMD ??
