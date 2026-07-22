@@ -71,14 +71,105 @@ export interface Provider {
 // cwd; the wrapper lives under .brokk/ so it never matches itself) and merges in
 // the preview host allowlist for both the dev server and `vite preview`. No
 // app-repo edit required; the app keeps its plugins/aliases/port untouched.
+//
+// Also injects `brokk-forge-veil`: a small HMR overlay so full-reloads / chunk
+// swaps don't flash a blank iframe (v0/lovable-style) while Sindri is forging.
 const VITE_PREVIEW_CONFIG_PATH = ".brokk/vite.preview.config.mjs";
+/** Client module source for the virtual veil plugin (JSON-stringified into the
+ *  written config so quotes/newlines stay safe). */
+const VITE_FORGE_VEIL_CLIENT = `
+const TIPS = [
+  "Forging…",
+  "Heating the billet…",
+  "Sindri at the anvil…",
+  "Quenching…",
+  "Hammering the seam…",
+];
+let tip = 0;
+let root = null;
+let hideTimer = 0;
+
+function ensure() {
+  if (root) return root;
+  root = document.createElement("div");
+  root.id = "brokk-forge-veil";
+  root.innerHTML = \`
+    <style>
+      #brokk-forge-veil{position:fixed;inset:0;z-index:2147483646;display:grid;place-items:center;
+        background:radial-gradient(120% 80% at 50% 0%,#2a3d3a 0%,#152422 55%,#0e1817 100%);
+        color:#e8efed;font-family:ui-sans-serif,system-ui,sans-serif;opacity:0;pointer-events:none;
+        transition:opacity .18s ease}
+      #brokk-forge-veil[data-on="1"]{opacity:1;pointer-events:auto}
+      #brokk-forge-veil .bk-card{display:flex;flex-direction:column;align-items:center;gap:14px;padding:28px 32px;text-align:center}
+      #brokk-forge-veil .bk-spark{width:42px;height:42px;border-radius:12px;background:linear-gradient(145deg,#ed765d,#c45a45);
+        box-shadow:0 0 0 1px rgba(237,118,93,.35),0 12px 40px rgba(237,118,93,.25);animation:bk-pulse 1.1s ease-in-out infinite}
+      #brokk-forge-veil .bk-tip{font-size:15px;font-weight:600;letter-spacing:-.02em}
+      #brokk-forge-veil .bk-sub{font-size:12px;opacity:.65}
+      @keyframes bk-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+    </style>
+    <div class="bk-card">
+      <div class="bk-spark" aria-hidden="true"></div>
+      <div class="bk-tip" data-tip>Forging…</div>
+      <div class="bk-sub">preview updating</div>
+    </div>
+  \`;
+  document.documentElement.appendChild(root);
+  return root;
+}
+
+function show() {
+  const el = ensure();
+  el.dataset.on = "1";
+  const tipEl = el.querySelector("[data-tip]");
+  if (tipEl) tipEl.textContent = TIPS[tip++ % TIPS.length];
+  if (hideTimer) clearTimeout(hideTimer);
+}
+
+function hide() {
+  if (!root) return;
+  // Brief hold so a burst of HMR events doesn't flicker.
+  if (hideTimer) clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => {
+    if (root) root.dataset.on = "0";
+  }, 120);
+}
+
+if (import.meta.hot) {
+  import.meta.hot.on("vite:beforeUpdate", show);
+  import.meta.hot.on("vite:afterUpdate", hide);
+  import.meta.hot.on("vite:beforeFullReload", show);
+  import.meta.hot.on("vite:invalidate", show);
+  import.meta.hot.on("vite:ws:disconnect", show);
+  import.meta.hot.on("vite:ws:connect", hide);
+}
+`.trim();
+
 const VITE_PREVIEW_CONFIG = `import { loadConfigFromFile, mergeConfig } from "vite";
 const PREVIEW_HOSTS = [".preview.coldcodelabs.com"];
+const VEIL_CLIENT = ${JSON.stringify(VITE_FORGE_VEIL_CLIENT)};
+
+function brokkForgeVeil() {
+  return {
+    name: "brokk-forge-veil",
+    transformIndexHtml() {
+      return [
+        {
+          tag: "script",
+          attrs: { type: "module" },
+          children: VEIL_CLIENT,
+          injectTo: "body",
+        },
+      ];
+    },
+  };
+}
+
 export default async (env) => {
   const loaded = await loadConfigFromFile(env, undefined, process.cwd());
   return mergeConfig(loaded?.config ?? {}, {
     server: { allowedHosts: PREVIEW_HOSTS },
     preview: { allowedHosts: PREVIEW_HOSTS },
+    plugins: [brokkForgeVeil()],
   });
 };
 `;

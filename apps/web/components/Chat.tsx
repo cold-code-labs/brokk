@@ -1599,6 +1599,7 @@ export default function Chat() {
               projectId={projectId}
               branch={currentSession?.branch ?? null}
               sawEdit={sawEdit}
+              agentBusy={running}
               device={device}
               setDevice={setDevice}
               mobileOnly={mobileOnly}
@@ -1672,11 +1673,20 @@ function EnvPanel({ env }: { env: Record<string, string> | null }) {
   );
 }
 
+const FORGE_TIPS = [
+  "Forging…",
+  "Heating the billet…",
+  "Sindri at the anvil…",
+  "Quenching…",
+  "Hammering the seam…",
+] as const;
+
 function SindriPreview({
   sessionId,
   projectId,
   branch,
   sawEdit,
+  agentBusy,
   device,
   setDevice,
   mobileOnly,
@@ -1685,6 +1695,8 @@ function SindriPreview({
   projectId: string;
   branch: string | null;
   sawEdit: boolean;
+  /** Sindri turn in flight — veil the iframe so it doesn't look blank/dead. */
+  agentBusy: boolean;
   device: "desktop" | "mobile";
   setDevice: (d: "desktop" | "mobile") => void;
   mobileOnly: boolean;
@@ -1693,6 +1705,8 @@ function SindriPreview({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [iframeKey, setIframeKey] = useState(0);
+  // Fun forge tips while Sindri thinks / Vite rebuilds underneath.
+  const [forgeTip, setForgeTip] = useState(FORGE_TIPS[0]);
   // The stage shows either the live preview iframe or the read-only DB Studio.
   const [view, setView] = useState<"preview" | "code" | "database" | "env" | "agent">("preview");
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -1769,6 +1783,18 @@ function SindriPreview({
     evs.forEach((e) => document.addEventListener(e, beat, { passive: true }));
     return () => evs.forEach((e) => document.removeEventListener(e, beat));
   }, [preview?.id, preview?.status]);
+
+  // Rotate forge tips while the agent is mid-turn.
+  useEffect(() => {
+    if (!agentBusy) return;
+    let i = 0;
+    setForgeTip(FORGE_TIPS[0]);
+    const iv = setInterval(() => {
+      i = (i + 1) % FORGE_TIPS.length;
+      setForgeTip(FORGE_TIPS[i]!);
+    }, 2200);
+    return () => clearInterval(iv);
+  }, [agentBusy]);
 
   // A fresh edit on a rested preview warms it back up (work resumed).
   useEffect(() => {
@@ -1995,6 +2021,15 @@ function SindriPreview({
       </div>
 
       <div className="sindri-preview-stage" ref={stageRef}>
+        {agentBusy && view === "preview" && live ? (
+          <div className="sindri-forge-veil" role="status" aria-live="polite">
+            <div className="sindri-forge-veil-card">
+              <span className="sindri-forge-veil-spark" aria-hidden="true" />
+              <p className="sindri-forge-veil-tip">{forgeTip}</p>
+              <span className="sindri-forge-veil-sub">Sindri is updating the preview</span>
+            </div>
+          </div>
+        ) : null}
         {view === "code" ? (
           <FileViewer sessionId={sessionId} />
         ) : view === "database" ? (
