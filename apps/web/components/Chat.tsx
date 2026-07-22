@@ -1706,7 +1706,7 @@ function SindriPreview({
   const [err, setErr] = useState("");
   const [iframeKey, setIframeKey] = useState(0);
   // Fun forge tips while Sindri thinks / Vite rebuilds underneath.
-  const [forgeTip, setForgeTip] = useState(FORGE_TIPS[0]);
+  const [forgeTip, setForgeTip] = useState<string>(FORGE_TIPS[0]);
   // The stage shows either the live preview iframe or the read-only DB Studio.
   const [view, setView] = useState<"preview" | "code" | "database" | "env" | "agent">("preview");
   const stageRef = useRef<HTMLDivElement | null>(null);
