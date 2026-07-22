@@ -179,6 +179,9 @@ export interface Project {
    *  action: false → "Publicar" (birth prod); true → "Create PR" (promotion PR
    *  dev→main, reviewed by Eitri). */
   published: boolean;
+  /** ADR 0064: Logto organization that owns this project. null = CCL legado
+   *  (só isCclStaff). */
+  logtoOrgId: string | null;
   /** Pinned runtime (Sleipnir) — how the preview supervisor boots this project's
    *  checkout. Decided once at connect (Huginn skill / fast-path) and reused
    *  deterministically. Null = resolve each boot (legacy / not yet scouted). */
@@ -203,6 +206,8 @@ export interface Repository {
   repoMap: string | null;
   /** When repoMap was last refreshed by a runner. */
   repoMapAt: string | null;
+  /** ADR 0064: Logto organization that owns this repo. null = CCL legado. */
+  logtoOrgId: string | null;
   createdAt: string;
   updatedAt: string;
 }

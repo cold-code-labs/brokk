@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Hono } from "hono";
 import { z } from "zod";
+import { actorFrom, canSeeProject, listScope, orgTenancyEnabled } from "../actor.js";
 import type { AppDeps } from "../app.js";
 
 const run = promisify(execFile);
@@ -72,16 +73,25 @@ const ConnectBody = z.object({
   fullName: z.string().min(3),
   defaultBranch: z.string().default("main"),
   createProject: z.boolean().default(true),
+  logtoOrgId: z.string().min(1).nullable().optional(),
 });
 
 export function repositoriesRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
-  r.get("/", async (c) => c.json(await deps.store.listRepositories()));
+  r.get("/", async (c) => {
+    const actor = actorFrom(c);
+    return c.json(await deps.store.listRepositories(listScope(actor)));
+  });
 
   // Candidates from the org, minus the ones already connected. Powers the
-  // "auto-import via gh" picker in the UI.
+  // "auto-import via gh" picker in the UI. Staff-only when tenancy is on —
+  // the GH org is the CCL fleet surface (ADR 0064).
   r.get("/import/candidates", async (c) => {
+    const actor = actorFrom(c);
+    if (orgTenancyEnabled() && !actor.isStaff) {
+      return c.json({ error: "forbidden" }, 403);
+    }
     const org = c.req.query("org") ?? GH_ORG;
     let candidates: Candidate[];
     try {
@@ -95,7 +105,9 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
           : String(err);
       return c.json({ error: `gh repo list failed: ${msg}` }, 502);
     }
-    const connected = new Set((await deps.store.listRepositories()).map((x) => x.fullName));
+    const connected = new Set(
+      (await deps.store.listRepositories(listScope(actor))).map((x) => x.fullName),
+    );
     return c.json({
       org,
       candidates: candidates.filter((x) => !connected.has(x.fullName)),
@@ -105,13 +117,20 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
   // Single repo by id — the preview supervisor resolves a project's repo here.
   // Registered after the static "/import/candidates" route so it doesn't shadow it.
   r.get("/:id", async (c) => {
+    const actor = actorFrom(c);
     const repo = await deps.store.getRepository(c.req.param("id"));
-    if (!repo) return c.json({ error: "not found" }, 404);
+    if (!repo || !canSeeProject(actor, repo.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
     return c.json(repo);
   });
 
   // Bulk-connect selected repos (and, by default, a project each).
   r.post("/import", async (c) => {
+    const actor = actorFrom(c);
+    if (orgTenancyEnabled() && !actor.isStaff) {
+      return c.json({ error: "forbidden" }, 403);
+    }
     const parsed = ImportBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const out = [];
@@ -124,9 +143,17 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
 
   // Connect a single repo by full name (manual fallback to the importer).
   r.post("/", async (c) => {
+    const actor = actorFrom(c);
     const parsed = ConnectBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const connected = await connectOne(deps, parsed.data, parsed.data.createProject);
+    let logtoOrgId = parsed.data.logtoOrgId ?? null;
+    if (orgTenancyEnabled() && !actor.isStaff) {
+      if (!actor.orgIds.length) return c.json({ error: "no organization on session" }, 403);
+      logtoOrgId = actor.orgIds[0]!;
+    }
+    const connected = await connectOne(deps, parsed.data, parsed.data.createProject, {
+      logtoOrgId,
+    });
     return c.json(connected.repo, 201);
   });
 
@@ -137,7 +164,12 @@ export async function connectOne(
   deps: AppDeps,
   input: { fullName: string; defaultBranch: string },
   createProject: boolean,
-  opts?: { devFirst?: boolean; baseBranch?: string; heimdallAppId?: string },
+  opts?: {
+    devFirst?: boolean;
+    baseBranch?: string;
+    heimdallAppId?: string;
+    logtoOrgId?: string | null;
+  },
 ) {
   const existing = await deps.store.getRepositoryByFullName(input.fullName);
   const repo =
@@ -148,6 +180,7 @@ export async function connectOne(
       name: input.fullName.split("/").slice(1).join("/"),
       defaultBranch: input.defaultBranch,
       cloneUrl: `https://github.com/${input.fullName}.git`,
+      logtoOrgId: opts?.logtoOrgId ?? null,
     }));
 
   let project = (await deps.store.listProjects()).find((p) => p.repositoryId === repo.id) ?? null;
@@ -161,6 +194,7 @@ export async function connectOne(
       baseBranch: opts?.baseBranch ?? repo.defaultBranch,
       devFirst: opts?.devFirst ?? false,
       heimdallAppId: opts?.heimdallAppId ?? null,
+      logtoOrgId: opts?.logtoOrgId ?? repo.logtoOrgId ?? null,
     });
     // Huginn scouts the freshly-connected project (async, best-effort) so a
     // brief is waiting by the time the user opens it. Never blocks the import.

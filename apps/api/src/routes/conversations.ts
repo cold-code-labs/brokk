@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { z } from "zod";
+import { actorFrom, canSeeProject, resolveLogtoOrgId } from "../actor.js";
 import type { AppDeps } from "../app.js";
 import { connectOne } from "./repositories.js";
 
@@ -104,9 +105,12 @@ export function conversationsRoutes(deps: AppDeps): Hono {
     if (!deps.heimdallUrl || !deps.heimdallToken) {
       return c.json({ error: "provisioning disabled (no HEIMDALL_AGENT_URL/TOKEN)" }, 503);
     }
+    const actor = actorFrom(c);
     const parsed = NewConversationBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const { name, template } = parsed.data;
+    const org = resolveLogtoOrgId(actor, null);
+    if (!org.ok) return c.json({ error: org.error }, org.status);
 
     // 1. Heimdall births the dev side (repo + <slug>_dev Hauldr + dev branch).
     let app: HeimdallApp;
@@ -119,7 +123,12 @@ export function conversationsRoutes(deps: AppDeps): Hono {
         },
         // No `mode` — the agent proxy forces dev-first and ignores what we ask
         // for. Sending it would imply this side chooses the birth lane.
-        body: JSON.stringify({ name, template: template ?? "client" }),
+        // organizationId (ADR 0064) ties the Heimdall app to the Logto org when set.
+        body: JSON.stringify({
+          name,
+          template: template ?? "client",
+          ...(org.logtoOrgId ? { organizationId: org.logtoOrgId } : {}),
+        }),
         signal: AbortSignal.timeout(120_000),
       });
       const payload = (await res.json().catch(() => ({}))) as HeimdallApp & { error?: unknown };
@@ -143,7 +152,12 @@ export function conversationsRoutes(deps: AppDeps): Hono {
       deps,
       { fullName: app.repoFullName, defaultBranch: "main" },
       true,
-      { devFirst: true, baseBranch: "dev", heimdallAppId: app.id },
+      {
+        devFirst: true,
+        baseBranch: "dev",
+        heimdallAppId: app.id,
+        logtoOrgId: org.logtoOrgId,
+      },
     );
     if (!project) return c.json({ error: "failed to create Brokk project" }, 502);
 
@@ -186,8 +200,11 @@ export function conversationsRoutes(deps: AppDeps): Hono {
     }
     const projectId = c.req.param("projectId");
     if (!projectId) return c.json({ error: "projectId required" }, 400);
+    const actor = actorFrom(c);
     const project = await deps.store.getProject(projectId);
-    if (!project) return c.json({ error: "project not found" }, 404);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
     if (!project.heimdallAppId) {
       return c.json({ error: "project has no Heimdall app (not born via Nova Conversa)" }, 400);
     }

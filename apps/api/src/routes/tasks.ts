@@ -2,6 +2,7 @@ import { featureBranch, TASK_OWNERS, TASK_STATUSES } from "@brokk/core";
 import type { TaskOwner } from "@brokk/core";
 import { Hono } from "hono";
 import { z } from "zod";
+import { actorFrom, canSeeProject } from "../actor.js";
 import type { AppDeps } from "../app.js";
 
 // The actor recorded on a lifecycle event for a human-initiated API call. When the
@@ -47,13 +48,35 @@ export function tasksRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
   r.get("/", async (c) => {
+    const actor = actorFrom(c);
     const projectId = c.req.query("projectId") ?? undefined;
-    return c.json(await deps.store.listTasks({ projectId }));
+    if (projectId) {
+      const project = await deps.store.getProject(projectId);
+      if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+        return c.json({ error: "not found" }, 404);
+      }
+      return c.json(await deps.store.listTasks({ projectId }));
+    }
+    // Global list: staff / tenancy-off see everything; client gets union of org projects.
+    if (canSeeProject(actor, null)) {
+      return c.json(await deps.store.listTasks({}));
+    }
+    const projects = await deps.store.listProjects({ isStaff: false, orgIds: actor.orgIds });
+    const all = [];
+    for (const p of projects) {
+      all.push(...(await deps.store.listTasks({ projectId: p.id })));
+    }
+    return c.json(all);
   });
 
   r.post("/", async (c) => {
+    const actor = actorFrom(c);
     const parsed = CreateTaskBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const project = await deps.store.getProject(parsed.data.projectId);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
     // A card added from the board is `manual`; createdBy falls back to the actor so
     // the genesis lifecycle event is attributed to the person who added it.
     const task = await deps.store.insertTask({
@@ -67,8 +90,13 @@ export function tasksRoutes(deps: AppDeps): Hono {
   });
 
   r.get("/:id", async (c) => {
+    const actor = actorFrom(c);
     const task = await deps.store.getTask(c.req.param("id"));
     if (!task) return c.json({ error: "not found" }, 404);
+    const project = await deps.store.getProject(task.projectId);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
     return c.json(task);
   });
 

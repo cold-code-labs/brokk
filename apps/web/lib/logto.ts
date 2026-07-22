@@ -1,7 +1,12 @@
 import { UserScope, type LogtoNextConfig } from "@logto/next";
 import { getLogtoContext, signIn, signOut, handleSignIn } from "@logto/next/server-actions";
 
-import { highestRole } from "./rbac";
+import {
+  highestRole,
+  isCclStaff,
+  parseOrganizationRoles,
+  type OrgRole,
+} from "./rbac";
 
 const endpoint = process.env.LOGTO_ENDPOINT;
 const appId = process.env.LOGTO_APP_ID;
@@ -23,7 +28,14 @@ export const logtoConfig: LogtoNextConfig = {
   baseUrl: baseUrl ?? "",
   cookieSecret: cookieSecret ?? "",
   cookieSecure: process.env.NODE_ENV === "production",
-  scopes: [UserScope.Email, UserScope.Profile, UserScope.Roles],
+  scopes: [
+    UserScope.Email,
+    UserScope.Profile,
+    UserScope.Roles,
+    // ADR 0064 / 0045 — org claims for board tenancy (same pattern as Kelvin/Lofn).
+    UserScope.Organizations,
+    UserScope.OrganizationRoles,
+  ],
 };
 
 export type Session = {
@@ -33,6 +45,11 @@ export type Session = {
   email?: string;
   roles: string[];
   role?: string;
+  /** Logto organization ids the user belongs to (ADR 0045). */
+  organizations: string[];
+  organizationRoles: OrgRole[];
+  /** CCL staff — may see fleet-wide board (ADR 0064). */
+  isCclStaff: boolean;
 };
 
 export async function getSession(): Promise<Session> {
@@ -52,12 +69,25 @@ export async function getSession(): Promise<Session> {
       );
     }
     const roles = ["Proprietário"];
-    return { isAuthenticated: true, authDisabled: true, name: "Local", roles, role: highestRole(roles) };
+    return {
+      isAuthenticated: true,
+      authDisabled: true,
+      name: "Local",
+      roles,
+      role: highestRole(roles),
+      organizations: [],
+      organizationRoles: [],
+      isCclStaff: true,
+    };
   }
 
   const ctx = await getLogtoContext(logtoConfig);
-  const claims = ctx.claims;
+  const claims = ctx.claims as
+    | (typeof ctx.claims & { organizations?: string[]; organization_roles?: string[] })
+    | undefined;
   const roles = claims?.roles ?? [];
+  const organizations = claims?.organizations ?? [];
+  const organizationRoles = parseOrganizationRoles(claims?.organization_roles);
 
   return {
     isAuthenticated: ctx.isAuthenticated,
@@ -66,6 +96,9 @@ export async function getSession(): Promise<Session> {
     email: claims?.email ?? undefined,
     roles,
     role: highestRole(roles),
+    organizations,
+    organizationRoles,
+    isCclStaff: isCclStaff({ organizations, roles }),
   };
 }
 

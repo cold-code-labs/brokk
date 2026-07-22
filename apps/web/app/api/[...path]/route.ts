@@ -82,11 +82,20 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
   const isMutation =
     req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS";
   let actor = "";
+  // ADR 0064 — org claims from Logto session (never client-supplied).
+  let orgIds = "";
+  let isStaff = "0";
   const mobileEmail = mobileActor(req);
   if (mobileEmail) {
     // Per-user mobile token → authenticated AS this user (identity carried).
+    // No org claims on the token map yet → not staff; with tenancy on, lists empty
+    // until orgs are wired into BROKK_MOBILE_TOKENS (or the user uses web Logto).
     actor = mobileEmail;
-  } else if (!bearerOk(req)) {
+    isStaff = "0";
+  } else if (bearerOk(req)) {
+    // Legacy shared mobile token — identity-less ops fallback (staff).
+    isStaff = "1";
+  } else {
     // Not the legacy shared mobile token either → require a Logto session for
     // mutations; carry its email as the actor (reads stay open in dev).
     const session = await getSession();
@@ -97,6 +106,8 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
       });
     }
     actor = session.email ?? "";
+    orgIds = session.organizations.join(",");
+    isStaff = session.isCclStaff ? "1" : "0";
   }
 
   const { path = [] } = await ctx.params;
@@ -112,6 +123,9 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
   // Trusted actor identity from the Logto session (never client-supplied).
   if (actor) headers.set("x-brokk-actor", actor);
   else headers.delete("x-brokk-actor");
+  // Overwrite any inbound spoofed org headers.
+  headers.set("x-brokk-org-ids", orgIds);
+  headers.set("x-brokk-is-staff", isStaff);
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const init: RequestInit & { duplex?: "half" } = {

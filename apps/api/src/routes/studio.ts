@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import postgres from "postgres";
+import { actorFrom, canSeeProject } from "../actor.js";
 import type { AppDeps } from "../app.js";
 
 /**
@@ -78,11 +79,20 @@ export function studioRoutes(deps: AppDeps): Hono {
   const r = new Hono();
   const enabled = Boolean(deps.heimdallAgentUrl && deps.heimdallAgentToken);
 
+  async function loadPreviewForActor(c: { req: { param: (n: string) => string; header: (n: string) => string | undefined } }) {
+    const preview = await deps.store.getPreview(c.req.param("previewId"));
+    if (!preview) return null;
+    const actor = actorFrom(c as never);
+    const project = await deps.store.getProject(preview.projectId);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) return null;
+    return preview;
+  }
+
   /** GET /studio/:previewId/overview — is there a reachable Hauldr db behind this
    *  preview? Never throws on a down db — reports connected:false with a reason so
    *  the panel can render a hero instead of an error. */
   r.get("/:previewId/overview", async (c) => {
-    const preview = await deps.store.getPreview(c.req.param("previewId"));
+    const preview = await loadPreviewForActor(c);
     if (!preview) return c.json({ error: "preview not found" }, 404);
     const hauldrProject = preview.hauldrProject;
     if (!enabled) return c.json({ connected: false, hauldrProject, reason: "studio-disabled" });
@@ -113,7 +123,7 @@ export function studioRoutes(deps: AppDeps): Hono {
 
   /** GET /studio/:previewId/tables — public base tables + live-row estimate. */
   r.get("/:previewId/tables", async (c) => {
-    const preview = await deps.store.getPreview(c.req.param("previewId"));
+    const preview = await loadPreviewForActor(c);
     if (!preview) return c.json({ error: "preview not found" }, 404);
     if (!enabled) return c.json({ error: "studio disabled" }, 503);
     const dbUrl = await resolveDbUrl(deps, preview.hauldrProject);
@@ -135,7 +145,7 @@ export function studioRoutes(deps: AppDeps): Hono {
    *  (read-only). The table name is validated against the public schema before it
    *  is interpolated as an identifier. */
   r.get("/:previewId/tables/:table", async (c) => {
-    const preview = await deps.store.getPreview(c.req.param("previewId"));
+    const preview = await loadPreviewForActor(c);
     if (!preview) return c.json({ error: "preview not found" }, 404);
     if (!enabled) return c.json({ error: "studio disabled" }, 503);
     const dbUrl = await resolveDbUrl(deps, preview.hauldrProject);
