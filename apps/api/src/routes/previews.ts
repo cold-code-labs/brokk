@@ -1,6 +1,7 @@
 import { Hono } from "hono";
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import { z } from "zod";
+import { actorFrom, canSeeProject } from "../actor.js";
 import type { AppDeps } from "../app.js";
 import { secretEquals } from "../secrets.js";
 
@@ -30,6 +31,26 @@ function requireRunnerOrApiSecret(deps: AppDeps): MiddlewareHandler {
   };
 }
 
+
+/** Runner identity (forge supervisor) bypasses org filters — it must see every
+ *  preview slot. Human callers (BFF + API secret) are scoped via actor headers. */
+function isRunnerCall(c: Context, deps: AppDeps): boolean {
+  const token = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
+  return Boolean(deps.runnerSecret && secretEquals(token, deps.runnerSecret));
+}
+
+async function previewVisible(
+  deps: AppDeps,
+  c: Context,
+  preview: { projectId: string } | null,
+): Promise<boolean> {
+  if (!preview) return false;
+  if (isRunnerCall(c, deps)) return true;
+  const actor = actorFrom(c);
+  const project = await deps.store.getProject(preview.projectId);
+  return Boolean(project && canSeeProject(actor, project.logtoOrgId));
+}
+
 export function previewsRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
@@ -46,6 +67,12 @@ export function previewsRoutes(deps: AppDeps): Hono {
 
     const project = await deps.store.getProject(projectId);
     if (!project) return c.json({ error: "project not found" }, 404);
+    if (!isRunnerCall(c, deps)) {
+      const actor = actorFrom(c);
+      if (!canSeeProject(actor, project.logtoOrgId)) {
+        return c.json({ error: "project not found" }, 404);
+      }
+    }
     const repo = await deps.store.getRepository(project.repositoryId);
     if (!repo) return c.json({ error: "repository not found" }, 404);
 
@@ -88,13 +115,43 @@ export function previewsRoutes(deps: AppDeps): Hono {
   /** GET /previews?projectId= — list all previews, optionally filtered by project. */
   r.get("/", async (c) => {
     const projectId = c.req.query("projectId") ?? undefined;
-    return c.json(await deps.store.listPreviews({ projectId }));
+    if (projectId) {
+      const project = await deps.store.getProject(projectId);
+      if (!project) return c.json({ error: "not found" }, 404);
+      if (!isRunnerCall(c, deps) && !canSeeProject(actorFrom(c), project.logtoOrgId)) {
+        return c.json({ error: "not found" }, 404);
+      }
+      return c.json(await deps.store.listPreviews({ projectId }));
+    }
+    if (isRunnerCall(c, deps) || canSeeProject(actorFrom(c), null)) {
+      return c.json(await deps.store.listPreviews({}));
+    }
+    // Client: union of previews for their org projects.
+    const actor = actorFrom(c);
+    const projects = await deps.store.listProjects({ isStaff: false, orgIds: actor.orgIds });
+    const out = [];
+    for (const proj of projects) {
+      out.push(...(await deps.store.listPreviews({ projectId: proj.id })));
+    }
+    return c.json(out);
+  });
+
+  /** GET /previews/by-subdomain/:sub — used by the web preview-gate (ADR 0064). */
+  r.get("/by-subdomain/:sub", async (c) => {
+    const preview = await deps.store.getPreviewBySubdomain(c.req.param("sub"));
+    if (!(await previewVisible(deps, c, preview))) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const project = await deps.store.getProject(preview!.projectId);
+    return c.json({ preview, project });
   });
 
   /** GET /previews/:id — fetch a single preview by id. */
   r.get("/:id", async (c) => {
     const preview = await deps.store.getPreview(c.req.param("id"));
-    if (!preview) return c.json({ error: "not found" }, 404);
+    if (!(await previewVisible(deps, c, preview))) {
+      return c.json({ error: "not found" }, 404);
+    }
     return c.json(preview);
   });
 
@@ -102,6 +159,10 @@ export function previewsRoutes(deps: AppDeps): Hono {
    *  this on interaction while a preview is up; the supervisor rests it only after
    *  PREVIEW_IDLE_TTL_MS with no ping (and no respin). Cheap + idempotent. */
   r.post("/:id/ping", async (c) => {
+    const existing = await deps.store.getPreview(c.req.param("id"));
+    if (!(await previewVisible(deps, c, existing))) {
+      return c.json({ error: "not found" }, 404);
+    }
     const preview = await deps.store.touchPreview(c.req.param("id"));
     if (!preview) return c.json({ error: "not found" }, 404);
     return c.json(preview);
@@ -217,6 +278,13 @@ export function previewsRoutes(deps: AppDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const { projectId, message, stack, componentStack, kind } = parsed.data;
 
+    if (!isRunnerCall(c, deps)) {
+      const project = await deps.store.getProject(projectId);
+      if (!project || !canSeeProject(actorFrom(c), project.logtoOrgId)) {
+        return c.json({ error: "not found" }, 404);
+      }
+    }
+
     const base = (deps.sindriUrl ?? "").replace(/\/$/, "");
     if (!base) return c.json({ reported: false, reason: "no sindri url" });
 
@@ -250,6 +318,10 @@ export function previewsRoutes(deps: AppDeps): Hono {
 
   /** DELETE /previews/:id — stop a preview (mark stopped, clear pid). */
   r.delete("/:id", async (c) => {
+    const existing = await deps.store.getPreview(c.req.param("id"));
+    if (!(await previewVisible(deps, c, existing))) {
+      return c.json({ error: "not found" }, 404);
+    }
     try {
       const stopped = await deps.store.stopPreview(c.req.param("id"));
       return c.json(stopped);

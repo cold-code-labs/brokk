@@ -173,6 +173,7 @@ function rowToProject(row: typeof projects.$inferSelect): Project {
     devFirst: row.devFirst ?? false,
     heimdallAppId: row.heimdallAppId ?? null,
     published: row.published ?? false,
+    logtoOrgId: row.logtoOrgId ?? null,
     runtime: row.runtime ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -233,6 +234,7 @@ function rowToRepository(row: typeof repositories.$inferSelect): Repository {
     installationId: row.installationId,
     repoMap: row.repoMap,
     repoMapAt: iso(row.repoMapAt),
+    logtoOrgId: row.logtoOrgId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -475,7 +477,7 @@ export interface ClaimResult {
 
 export interface Store {
   // repositories (the GitHub repos the forge can work in)
-  listRepositories(): Promise<Repository[]>;
+  listRepositories(opts?: { orgIds?: string[]; isStaff?: boolean }): Promise<Repository[]>;
   getRepository(id: string): Promise<Repository | null>;
   getRepositoryByFullName(fullName: string): Promise<Repository | null>;
   insertRepository(values: typeof repositories.$inferInsert): Promise<Repository>;
@@ -500,7 +502,9 @@ export interface Store {
   }): Promise<RepoMemory>;
 
   // projects
-  listProjects(): Promise<(typeof projects.$inferSelect)[]>;
+  /** ADR 0064: when `isStaff` or tenancy off, returns all. Client actors pass
+   *  `orgIds` and only see matching `logto_org_id` (never null/legado). */
+  listProjects(opts?: { orgIds?: string[]; isStaff?: boolean }): Promise<(typeof projects.$inferSelect)[]>;
   getProject(id: string): Promise<typeof projects.$inferSelect | null>;
   /** Repos that at least one project forges into `dev` — Eitri's fleet watch set.
    *  Deduped by repo; each entry carries one projectId (for the revise enqueue). */
@@ -792,8 +796,18 @@ export interface Store {
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
 export function createStore(db: Db): Store {
   return {
-    async listRepositories() {
-      const rows = await db.select().from(repositories).orderBy(asc(repositories.fullName));
+    async listRepositories(opts) {
+      if (!opts || opts.isStaff) {
+        const rows = await db.select().from(repositories).orderBy(asc(repositories.fullName));
+        return rows.map(rowToRepository);
+      }
+      const orgIds = opts.orgIds ?? [];
+      if (!orgIds.length) return [];
+      const rows = await db
+        .select()
+        .from(repositories)
+        .where(inArray(repositories.logtoOrgId, orgIds))
+        .orderBy(asc(repositories.fullName));
       return rows.map(rowToRepository);
     },
     async getRepository(id) {
@@ -889,8 +903,14 @@ export function createStore(db: Db): Store {
       return this.listRepoMemories(repositoryId, limit);
     },
 
-    async listProjects() {
-      return db.select().from(projects);
+    async listProjects(opts) {
+      // No opts / staff → full fleet (includes logto_org_id null = CCL legado).
+      if (!opts || opts.isStaff) {
+        return db.select().from(projects);
+      }
+      const orgIds = opts.orgIds ?? [];
+      if (!orgIds.length) return [];
+      return db.select().from(projects).where(inArray(projects.logtoOrgId, orgIds));
     },
     async getProject(id) {
       const rows = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
@@ -2305,6 +2325,20 @@ export async function ensureSchema(db: Db): Promise<void> {
     .execute(
       sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS last_activity_at timestamptz NOT NULL DEFAULT now();`,
     )
+    .catch(() => {});
+
+  // ADR 0064 / BROKK-47 — org tenancy columns (self-heal; drizzle push hangs on db_brokk).
+  await db
+    .execute(sql`ALTER TABLE repositories ADD COLUMN IF NOT EXISTS logto_org_id text;`)
+    .catch(() => {});
+  await db
+    .execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS logto_org_id text;`)
+    .catch(() => {});
+  await db
+    .execute(sql`CREATE INDEX IF NOT EXISTS repositories_logto_org_idx ON repositories (logto_org_id);`)
+    .catch(() => {});
+  await db
+    .execute(sql`CREATE INDEX IF NOT EXISTS projects_logto_org_idx ON projects (logto_org_id);`)
     .catch(() => {});
 
   await ensureChatSchema(db);

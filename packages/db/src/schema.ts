@@ -87,21 +87,30 @@ export const previewStatus = pgEnum("preview_status", [
 
 // ── Tables ───────────────────────────────────────────────────────────────────
 
-export const repositories = pgTable("repositories", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  fullName: text("full_name").notNull().unique(),
-  owner: text("owner").notNull(),
-  name: text("name").notNull(),
-  defaultBranch: text("default_branch").notNull().default("main"),
-  cloneUrl: text("clone_url").notNull(),
-  installationId: text("installation_id"),
-  // The warm index (#4): a cheap repo map (tree + packages) the runner refreshes
-  // after each forge, read by the planner so it plans WITHOUT a checkout.
-  repoMap: text("repo_map"),
-  repoMapAt: timestamp("repo_map_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const repositories = pgTable(
+  "repositories",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    fullName: text("full_name").notNull().unique(),
+    owner: text("owner").notNull(),
+    name: text("name").notNull(),
+    defaultBranch: text("default_branch").notNull().default("main"),
+    cloneUrl: text("clone_url").notNull(),
+    installationId: text("installation_id"),
+    // The warm index (#4): a cheap repo map (tree + packages) the runner refreshes
+    // after each forge, read by the planner so it plans WITHOUT a checkout.
+    repoMap: text("repo_map"),
+    repoMapAt: timestamp("repo_map_at", { withTimezone: true }),
+    // ADR 0064 / BROKK-47: Logto organization that owns this repo. null = legado
+    // CCL-only (visível só isCclStaff).
+    logtoOrgId: text("logto_org_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    logtoOrg: index("repositories_logto_org_idx").on(t.logtoOrgId),
+  }),
+);
 
 /** Per-repo memory (#2): facts Brokk learned about a repo, persisted across runs.
  *  Eitri writes review failures here; the planner + forge read them so the agent
@@ -135,45 +144,54 @@ export const repoMemories = pgTable(
   }),
 );
 
-export const projects = pgTable("projects", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: text("name").notNull(),
-  repositoryId: uuid("repository_id")
-    .notNull()
-    .references(() => repositories.id, { onDelete: "cascade" }),
-  model: text("model").notNull(),
-  authMode: authMode("auth_mode").notNull().default("api_key"),
-  allowedTools: jsonb("allowed_tools").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
-  // Forge PRs target `dev` so Eitri can auto-merge them (it refuses `main` — the
-  // prod rail). Promotion dev→main stays a human merge. See docs/DEV-PREVIEW.md §7.
-  baseBranch: text("base_branch").notNull().default("dev"),
-  // ADR 0038 (v0 face): true when this app was born dev-first via Brokk's "Nova
-  // Conversa" (Heimdall provisioned only the dev side; prod is born on the first
-  // Publish). Drives the preview host — dev-first apps drop the "-dev" suffix
-  // (<app>.preview…). Forward-only: legacy projects stay false and keep <app>-dev.
-  devFirst: boolean("dev_first").notNull().default(false),
-  // ADR 0038: the Heimdall AppRecord id this project was provisioned as — the
-  // handle Publish/rollback call Heimdall with (POST /apps/:id/publish). Null for
-  // legacy projects connected before the v0 face.
-  heimdallAppId: text("heimdall_app_id"),
-  // ADR 0038: true once prod has been born (the first "Publicar" graduated the
-  // app). Flips the primary action from "Publicar" (first = provision prod) to
-  // "Create PR" (subsequent = promotion PR dev→main that Eitri reviews).
-  published: boolean("published").notNull().default(false),
-  // Sleipnir: pinned RuntimeSpec — how the preview supervisor boots this project's
-  // checkout. Decided once at connect (Huginn skill / fast-path), reused per boot.
-  // Null = resolve each boot (legacy projects fall through to the Next fast-path).
-  runtime: jsonb("runtime").$type<import("@brokk/core").RuntimeSpec>(),
-  // ADR 0017 lane lease: the run currently holding this app's dev-checkout lease.
-  // Serial per-app — claimNext skips a project whose lease is live, so one card at
-  // a time mutates the shared dev checkout (different apps still run in parallel).
-  // Renewed by the runner's heartbeat, cleared on run complete; lease_expires_at is
-  // the crash backstop (a dead runner's lease lapses → the app is reclaimable).
-  leaseRunId: uuid("lease_run_id"),
-  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    name: text("name").notNull(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    model: text("model").notNull(),
+    authMode: authMode("auth_mode").notNull().default("api_key"),
+    allowedTools: jsonb("allowed_tools").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    // Forge PRs target `dev` so Eitri can auto-merge them (it refuses `main` — the
+    // prod rail). Promotion dev→main stays a human merge. See docs/DEV-PREVIEW.md §7.
+    baseBranch: text("base_branch").notNull().default("dev"),
+    // ADR 0038 (v0 face): true when this app was born dev-first via Brokk's "Nova
+    // Conversa" (Heimdall provisioned only the dev side; prod is born on the first
+    // Publish). Drives the preview host — dev-first apps drop the "-dev" suffix
+    // (<app>.preview…). Forward-only: legacy projects stay false and keep <app>-dev.
+    devFirst: boolean("dev_first").notNull().default(false),
+    // ADR 0038: the Heimdall AppRecord id this project was provisioned as — the
+    // handle Publish/rollback call Heimdall with (POST /apps/:id/publish). Null for
+    // legacy projects connected before the v0 face.
+    heimdallAppId: text("heimdall_app_id"),
+    // ADR 0038: true once prod has been born (the first "Publicar" graduated the
+    // app). Flips the primary action from "Publicar" (first = provision prod) to
+    // "Create PR" (subsequent = promotion PR dev→main that Eitri reviews).
+    published: boolean("published").notNull().default(false),
+    // Sleipnir: pinned RuntimeSpec — how the preview supervisor boots this project's
+    // checkout. Decided once at connect (Huginn skill / fast-path), reused per boot.
+    // Null = resolve each boot (legacy projects fall through to the Next fast-path).
+    runtime: jsonb("runtime").$type<import("@brokk/core").RuntimeSpec>(),
+    // ADR 0064 / BROKK-47: denormalized from repository for cheap board filters.
+    // null = legado CCL-only (só isCclStaff).
+    logtoOrgId: text("logto_org_id"),
+    // ADR 0017 lane lease: the run currently holding this app's dev-checkout lease.
+    // Serial per-app — claimNext skips a project whose lease is live, so one card at
+    // a time mutates the shared dev checkout (different apps still run in parallel).
+    // Renewed by the runner's heartbeat, cleared on run complete; lease_expires_at is
+    // the crash backstop (a dead runner's lease lapses → the app is reclaimable).
+    leaseRunId: uuid("lease_run_id"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    logtoOrg: index("projects_logto_org_idx").on(t.logtoOrgId),
+  }),
+);
 
 /** A Mímir plan: groups the cards that compose into ONE feature PR. */
 export const plans = pgTable("plans", {

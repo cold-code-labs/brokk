@@ -1,6 +1,7 @@
 import { AUTH_MODES, featureBranch, taskSlug } from "@brokk/core";
 import { Hono } from "hono";
 import { z } from "zod";
+import { actorFrom, canSeeProject, listScope, resolveLogtoOrgId } from "../actor.js";
 import type { AppDeps } from "../app.js";
 
 const CreateProjectBody = z.object({
@@ -10,23 +11,35 @@ const CreateProjectBody = z.object({
   authMode: z.enum(AUTH_MODES as unknown as [string, ...string[]]).default("subscription"),
   allowedTools: z.array(z.string()).default([]),
   baseBranch: z.string().default("main"),
+  logtoOrgId: z.string().min(1).nullable().optional(),
 });
 
 export function projectsRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
-  r.get("/", async (c) => c.json(await deps.store.listProjects()));
+  r.get("/", async (c) => {
+    const actor = actorFrom(c);
+    return c.json(await deps.store.listProjects(listScope(actor)));
+  });
 
   r.get("/:id", async (c) => {
+    const actor = actorFrom(c);
     const project = await deps.store.getProject(c.req.param("id"));
-    if (!project) return c.json({ error: "not found" }, 404);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
     return c.json(project);
   });
 
   r.post("/", async (c) => {
+    const actor = actorFrom(c);
     const parsed = CreateProjectBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const project = await deps.store.insertProject(parsed.data as never);
+    // Non-staff must stamp their org; staff may leave null (CCL legado) or pick one.
+    const org = resolveLogtoOrgId(actor, parsed.data.logtoOrgId ?? null);
+    if (!org.ok) return c.json({ error: org.error }, org.status);
+    const { logtoOrgId: _drop, ...rest } = parsed.data;
+    const project = await deps.store.insertProject({ ...rest, logtoOrgId: org.logtoOrgId } as never);
     return c.json(project, 201);
   });
 
@@ -36,8 +49,11 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // Idempotent: re-running skips items already carded (matched on the item text).
   r.post("/:id/backlog-from-brief", async (c) => {
     const id = c.req.param("id");
+    const actor = actorFrom(c);
     const project = await deps.store.getProject(id);
-    if (!project) return c.json({ error: "not found" }, 404);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
     const brief = await deps.store.getProjectBrief(id);
     if (!brief || brief.status !== "ready") {
       return c.json({ error: "no ready brief — scout the project first" }, 400);
@@ -127,8 +143,11 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // Idempotent: dedup on card title (matched against prior Muninn cards).
   r.post("/:id/ajustes-from-meeting", async (c) => {
     const id = c.req.param("id");
+    const actor = actorFrom(c);
     const project = await deps.store.getProject(id);
-    if (!project) return c.json({ error: "not found" }, 404);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
     const parsed = AjustesFromMeetingBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const { meetingTitle, ajustes } = parsed.data;
@@ -185,17 +204,20 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // gate, so this flips the whole proposed set into the forge in one click.
   r.post("/:id/approve-proposed", async (c) => {
     const id = c.req.param("id");
+    const actor = actorFrom(c);
     const project = await deps.store.getProject(id);
-    if (!project) return c.json({ error: "not found" }, 404);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
     const backlog = await deps.store.listTasks({ projectId: id, status: "backlog" });
     const proposed = backlog.filter((t) =>
       (t.labels ?? []).some((l) => l === DISCOVERY_LABEL || l === PLAN_LABEL),
     );
     // Route through transitionTask so each move lands on the lifecycle trail and
     // gets the queued⇒owner=brokk guard (a raw updateTask would bypass both).
-    const actor = c.req.header("x-brokk-actor") || "human";
+    const who = actor.email || "human";
     for (const t of proposed) {
-      await deps.store.transitionTask(t.id, "queued", { actor, reason: "approve-proposed" });
+      await deps.store.transitionTask(t.id, "queued", { actor: who, reason: "approve-proposed" });
     }
     return c.json({ enqueued: proposed.length }, 200);
   });
