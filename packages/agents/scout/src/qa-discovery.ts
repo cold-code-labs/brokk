@@ -9,12 +9,10 @@
 import { createHash } from "node:crypto";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { AflConfig } from "@brokk/afl";
-import { resolveModel } from "@brokk/afl";
-import { streamAssistant } from "@brokk/afl";
-import { shellEnv } from "@brokk/afl";
+import { cursorCliAvailable, resolveModel, runCursorCliTurn, shellEnv, streamAssistant } from "@brokk/afl";
 import type { ChatTurnMessage, ContentBlock, ToolDef, ToolResultBlock, ToolUseBlock } from "@brokk/afl";
 
 const execAsync = promisify(exec);
@@ -41,11 +39,20 @@ export interface QaDiscoveryResult {
 }
 
 export interface RunQaDiscoveryInput {
-  cfg: AflConfig;
+  /** Required for the AFL/Messages lane. Unused on cursor-cli (fleet default). */
+  cfg?: AflConfig;
   cwd: string;
   repoFullName: string;
+  /** AFL alias (haiku/sonnet) or Cursor model id (`auto`). */
   model?: string;
+  /**
+   * Fleet default is Cursor CLI when `agent` + CURSOR_API_KEY are present
+   * (same credential path as Brokkr forge). AFL is the fallback / explicit override.
+   */
+  engine?: "cursor-cli" | "afl";
   maxRounds?: number;
+  /** Kill a Cursor CLI scout after this long (default 12m). */
+  timeoutMs?: number;
   signal?: AbortSignal;
   onProgress?: (note: string) => void;
 }
@@ -258,6 +265,148 @@ function coerceScenarios(input: Record<string, unknown>): { summary: string; sce
 
 /** Scout a checkout and return a QA scenario catalog + fingerprint. */
 export async function runQaDiscovery(input: RunQaDiscoveryInput): Promise<QaDiscoveryResult> {
+  const engine =
+    input.engine ??
+    (cursorCliAvailable() || (process.env.BROKK_FORGE_ENGINE || "").toLowerCase() === "cursor-cli"
+      ? "cursor-cli"
+      : "afl");
+  if (engine === "cursor-cli") {
+    if (!cursorCliAvailable()) {
+      throw new Error(
+        "qa discovery engine=cursor-cli but agent binary / CURSOR_API_KEY unavailable",
+      );
+    }
+    return runQaDiscoveryCursor(input);
+  }
+  if (!input.cfg) throw new Error("qa discovery engine=afl requires cfg");
+  return runQaDiscoveryAfl({ ...input, cfg: input.cfg });
+}
+
+const CATALOG_REL = ".brokk/qa/scenarios.json";
+
+const CURSOR_PROMPT = (repoFullName: string, fingerprint: string) =>
+  `You are Brokk's QA Discovery scout. Map USER JOURNEYS (scenarios) for ${repoFullName} — not product gaps.
+
+Explore this checkout (read features.json / config/modules.ts / routes / e2e). Then WRITE the catalog file:
+
+  ${CATALOG_REL}
+
+JSON shape (version 1):
+{
+  "version": 1,
+  "fingerprint": "${fingerprint}",
+  "discoveredAt": "<iso now>",
+  "summary": "<one paragraph>",
+  "scenarios": [
+    {
+      "id": "kebab-case",
+      "title": "...",
+      "module": "auth|feature-key",
+      "priority": "p0"|"p1"|"p2",
+      "role": "any|admin|...",
+      "tags": ["global"|"feature"|...],
+      "preconditions": ["..."],
+      "steps": ["observable steps"],
+      "expects": ["observable outcomes"]
+    }
+  ]
+}
+
+Rules:
+- Include globals: login, logout (if present), one auth/deep-link gate when relevant.
+- Each enabled product module: ≥1 happy path; prefer one edge.
+- 8–40 scenarios. Ground every item in files you opened. Do not invent modules.
+- After writing the file, reply with a one-line confirmation (count + fingerprint). No other files.`;
+
+async function runQaDiscoveryCursor(input: RunQaDiscoveryInput): Promise<QaDiscoveryResult> {
+  const { cwd, repoFullName, signal, onProgress } = input;
+  const fingerprint = await computeQaFingerprint(cwd);
+  const model = input.model || process.env.BROKK_CURSOR_MODEL || "auto";
+  onProgress?.(`cursor-cli · model=${model}`);
+
+  const outcome = await runCursorCliTurn({
+    cwd,
+    prompt: CURSOR_PROMPT(repoFullName, fingerprint),
+    model,
+    timeoutMs: input.timeoutMs ?? 12 * 60_000,
+    signal,
+    emit: (e) => {
+      if (e.type === "status") onProgress?.(e.phase + (e.detail ? ` ${JSON.stringify(e.detail)}` : ""));
+      if (e.type === "tool_use") onProgress?.(`tool: ${e.name}`);
+    },
+  });
+
+  if (!outcome.ok) {
+    throw new Error(
+      `cursor-cli qa discovery failed: ${outcome.resultText.slice(0, 400) || `stop=${outcome.stop}`}`,
+    );
+  }
+
+  const catalogPath = join(cwd, CATALOG_REL);
+  let raw: string;
+  try {
+    raw = await readFile(catalogPath, "utf8");
+  } catch {
+    // Fallback: agent may have only printed JSON in the final message.
+    const fromText = extractJsonObject(outcome.resultText);
+    if (!fromText) {
+      throw new Error(`cursor-cli finished but ${CATALOG_REL} is missing and no JSON was returned`);
+    }
+    await mkdir(join(cwd, ".brokk", "qa"), { recursive: true });
+    await writeFile(catalogPath, `${JSON.stringify(fromText, null, 2)}\n`, "utf8");
+    raw = JSON.stringify(fromText);
+  }
+
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch (e) {
+    throw new Error(`invalid ${CATALOG_REL}: ${e instanceof Error ? e.message : e}`);
+  }
+  // Prefer live fingerprint of this checkout over whatever the agent echoed.
+  parsed.fingerprint = fingerprint;
+  const { summary, scenarios } = coerceScenarios(parsed);
+  if (scenarios.length === 0) throw new Error("qa discovery returned zero scenarios");
+
+  // Normalize file on disk so Execution reads the same catalog we store.
+  await mkdir(join(cwd, ".brokk", "qa"), { recursive: true });
+  await writeFile(
+    catalogPath,
+    `${JSON.stringify(
+      {
+        version: 1,
+        fingerprint,
+        discoveredAt: new Date().toISOString(),
+        summary,
+        scenarios,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
+  onProgress?.(`scenarios ready (${scenarios.length})`);
+  return { summary, fingerprint, scenarios };
+}
+
+function extractJsonObject(text: string): Record<string, unknown> | null {
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = fence?.[1]?.trim() || text.trim();
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(candidate.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** AFL / Messages-API lane (LiteLLM or direct). Prefer cursor-cli on the CCL fleet. */
+async function runQaDiscoveryAfl(
+  input: RunQaDiscoveryInput & { cfg: AflConfig },
+): Promise<QaDiscoveryResult> {
   const { cfg, cwd, repoFullName, signal, onProgress } = input;
   const model = resolveModel(cfg, input.model ?? "haiku");
   const maxRounds = input.maxRounds ?? 18;

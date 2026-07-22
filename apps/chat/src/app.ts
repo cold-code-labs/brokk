@@ -781,9 +781,9 @@ export function buildSindri(deps: SindriDeps): Hono {
           cfg: deps.cfg,
           cwd: path,
           repoFullName: repo.fullName,
-          // Sonnet: haiku fleet seat often rejects oauth for org; Discovery is
-          // one-shot so the cost delta is small vs a failed catalog.
-          model: "sonnet",
+          // Fleet OAuth is Cursor CLI (same as Brokkr forge) — not Ratatoskr Anthropic OAuth.
+          engine: "cursor-cli",
+          model: process.env.BROKK_CURSOR_MODEL || "auto",
           onProgress: (n) => console.log(`[qa-discovery] ${repo.fullName}: ${n}`),
         });
         const discoveredAt = new Date().toISOString();
@@ -792,7 +792,7 @@ export function buildSindri(deps: SindriDeps): Hono {
           summary: result.summary,
           fingerprint: result.fingerprint,
           scenarios: result.scenarios,
-          model: "sonnet",
+          model: process.env.BROKK_CURSOR_MODEL || "auto",
           error: null,
         });
         await writeQaCatalogFile(path, {
@@ -1428,7 +1428,8 @@ function buildSkills(
           cfg: deps.cfg,
           cwd,
           repoFullName,
-          model: "sonnet",
+          engine: "cursor-cli",
+          model: process.env.BROKK_CURSOR_MODEL || "auto",
         });
         const discoveredAt = new Date().toISOString();
         await deps.store
@@ -1437,7 +1438,7 @@ function buildSkills(
             summary: result.summary,
             fingerprint: result.fingerprint,
             scenarios: result.scenarios,
-            model: "sonnet",
+            model: process.env.BROKK_CURSOR_MODEL || "auto",
             error: null,
           })
           .catch(() => {});
