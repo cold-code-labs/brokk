@@ -1,7 +1,7 @@
 import { AUTH_MODES, featureBranch, taskSlug } from "@brokk/core";
 import { Hono } from "hono";
 import { z } from "zod";
-import { actorFrom, canSeeProject, listScope, resolveLogtoOrgId } from "../actor.js";
+import { requestActor, canSeeProject, listScope, resolveLogtoOrgId } from "../actor.js";
 import type { AppDeps } from "../app.js";
 
 const CreateProjectBody = z.object({
@@ -18,12 +18,12 @@ export function projectsRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
   r.get("/", async (c) => {
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     return c.json(await deps.store.listProjects(listScope(actor)));
   });
 
   r.get("/:id", async (c) => {
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     const project = await deps.store.getProject(c.req.param("id"));
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -32,7 +32,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   });
 
   r.post("/", async (c) => {
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     const parsed = CreateProjectBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     // Non-staff must stamp their org; staff may leave null (CCL legado) or pick one.
@@ -49,7 +49,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // Idempotent: re-running skips items already carded (matched on the item text).
   r.post("/:id/backlog-from-brief", async (c) => {
     const id = c.req.param("id");
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -143,7 +143,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // Idempotent: dedup on card title (matched against prior Muninn cards).
   r.post("/:id/ajustes-from-meeting", async (c) => {
     const id = c.req.param("id");
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -204,7 +204,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // gate, so this flips the whole proposed set into the forge in one click.
   r.post("/:id/approve-proposed", async (c) => {
     const id = c.req.param("id");
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);

@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { secretEquals } from "./secrets.js";
 
 /**
  * Trusted actor from the web BFF (Logto session → headers). Never trust
@@ -22,6 +23,21 @@ export function actorFrom(c: Context): Actor {
     .filter(Boolean);
   const isStaff = c.req.header("x-brokk-is-staff") === "1";
   return { email, orgIds, isStaff };
+}
+
+/**
+ * Forge supervisor authenticates with BROKK_RUNNER_SECRET (same idea as the
+ * /previews runner bypass). Elevate to staff so GET /projects|/repositories
+ * resolves legado rows (`logto_org_id` null) — otherwise preview boot 404s.
+ */
+export function requestActor(c: Context, runnerSecret: string): Actor {
+  const actor = actorFrom(c);
+  if (!runnerSecret) return actor;
+  const token = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (secretEquals(token, runnerSecret)) {
+    return { ...actor, isStaff: true };
+  }
+  return actor;
 }
 
 /** Effective visibility for list/get. When tenancy is off, everyone sees the

@@ -14,6 +14,7 @@
 | T2 filtro projects/repos/tasks + connect | feito |
 | T2 preview-gate por org | feito (`GET /previews/by-subdomain/:sub` + gate) |
 | T2 studio / previews / Publicar | feito (runner bypass; humano escopado) |
+| T2b forge GET projects/repos | feito (`requestActor` eleva `BROKK_RUNNER_SECRET` a staff — evita 404 em legado null) |
 | Flag | `BROKK_ORG_TENANCY=1` liga filtro; sem flag, layout bloqueia só-cliente |
 
 **Ainda aberto:** smoke E2E com user de org de teste; convite IT (T4); UI “Novo projeto” self-serve (T3).
