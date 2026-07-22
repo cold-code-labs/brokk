@@ -471,7 +471,8 @@ test("vite prepareFiles injects forge-veil overlay for HMR blank-flash", async (
       "vite.config.ts": "export default {}",
     }),
   );
-  assert.equal(out.runtime, "vite");
+  assert.equal(out.supported, true);
+  assert.match(out.dev, /vite --port/);
   const veil = out.prepareFiles?.find((f) => f.path.endsWith("vite.preview.config.mjs"));
   assert.ok(veil, "expected .brokk/vite.preview.config.mjs");
   assert.match(veil!.contents, /brokk-forge-veil/);
