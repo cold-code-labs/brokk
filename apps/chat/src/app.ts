@@ -1430,18 +1430,13 @@ async function runPlan(
 /** Stream a session's live events over SSE. Unsubscribes (but never aborts the
  *  turn) when the client disconnects. */
 function streamSession(deps: SindriDeps, sessionId: string, c: Context) {
-  const legacy =
-    c.req.query("legacy") === "1" || c.req.header("x-brokk-sse") === "agent-event";
   // POST /messages just started the turn — replay the ring buffer.
   // GET /stream reattach: UIMessage clients hydrate from DB; live-only avoids
   // duplicating text/tool parts already in the thread.
-  const replay =
-    legacy || c.req.method === "POST" || c.req.query("replay") === "1";
+  const replay = c.req.method === "POST" || c.req.query("replay") === "1";
 
-  if (!legacy) {
-    for (const [k, v] of Object.entries(UI_MESSAGE_STREAM_HEADERS)) {
-      c.header(k, v);
-    }
+  for (const [k, v] of Object.entries(UI_MESSAGE_STREAM_HEADERS)) {
+    c.header(k, v);
   }
 
   return streamSSE(c, async (stream) => {
@@ -1467,28 +1462,20 @@ function streamSession(deps: SindriDeps, sessionId: string, c: Context) {
           });
         }
         if (queue.length === 0) {
-          if (legacy) {
-            await stream.writeSSE({ event: "ping", data: "{}" });
-          } else {
-            // SSE comment keepalive — AI SDK clients ignore unknown lines
-            await stream.write(": ping\n\n");
-          }
+          // SSE comment keepalive — AI SDK clients ignore unknown lines
+          await stream.write(": ping\n\n");
           continue;
         }
         let terminal = false;
         while (queue.length) {
           const e = queue.shift()!;
-          if (legacy) {
-            await stream.writeSSE({ event: e.type, data: JSON.stringify(e) });
-          } else {
-            for (const chunk of bridge.push(e)) {
-              await stream.writeSSE({ data: JSON.stringify(chunk) });
-            }
+          for (const chunk of bridge.push(e)) {
+            await stream.writeSSE({ data: JSON.stringify(chunk) });
           }
           if (e.type === "done" || e.type === "error") terminal = true;
         }
         if (terminal) {
-          if (!legacy) await stream.writeSSE({ data: "[DONE]" });
+          await stream.writeSSE({ data: "[DONE]" });
           break;
         }
       }
