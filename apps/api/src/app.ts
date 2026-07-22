@@ -8,6 +8,7 @@ import { conversationsRoutes } from "./routes/conversations.js";
 import { driverRunsRoutes } from "./routes/driver-runs.js";
 import { mimirRoutes } from "./routes/mimir.js";
 import { missionsRoutes } from "./routes/missions.js";
+import { plansRoutes } from "./routes/plans.js";
 import { previewsRoutes } from "./routes/previews.js";
 import { projectsRoutes } from "./routes/projects.js";
 import { repositoriesRoutes } from "./routes/repositories.js";
@@ -29,6 +30,10 @@ export interface AppDeps {
   apiSecret: string;
   /** GitHub webhook HMAC secret. Empty = skip signature check (local dev). */
   githubWebhookSecret: string;
+  /** PAT for gh (open Story PR, review reconciler). Empty = those paths 503/off. */
+  githubToken?: string;
+  /** Base URL of Eitri HTTP trigger (e.g. http://reviewer:8796). Empty = skip. */
+  eitriUrl?: string;
   /** Mímir model config (triador + enhancer). Undefined = enhance/triage → 503. */
   mimir?: MimirConfig;
   /** Base URL of the Sindri chat runtime (e.g. http://127.0.0.1:8795). Empty =
@@ -105,6 +110,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/repositories", repositoriesRoutes(deps));
   app.route("/conversations", conversationsRoutes(deps));
   app.route("/projects", projectsRoutes(deps));
+  app.route("/plans", plansRoutes(deps));
   app.route("/previews", previewsRoutes(deps));
   app.route("/driver-runs", driverRunsRoutes(deps));
   app.route("/mimir", mimirRoutes(deps));

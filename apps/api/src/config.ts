@@ -26,6 +26,9 @@ const Env = z.object({
   // Base URL of the Sindri chat runtime (worker host). Empty = /chat → 503.
   BROKK_SINDRI_URL: z.string().default(""),
 
+  // Eitri HTTP trigger base (ADR 0069). Empty = Story open-pr skips review call.
+  EITRI_URL: z.string().default(""),
+
   // Heimdall's SCOPED Agent API — the provisioning surface "Nova Conversa"
   // (ADR 0038) calls to birth a dev-first app and to publish/roll it back.
   // Both empty = /conversations disabled (503).

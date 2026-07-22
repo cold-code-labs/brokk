@@ -149,6 +149,25 @@ export interface BrokkClient {
   }>;
   /** Huginn Phase 3: enqueue every proposed (discovery/plan/qa-fail) backlog card at once. */
   approveProposed(projectId: string): Promise<{ enqueued: number }>;
+  /** ADR 0069: group qa-fail by module → Story Plans + enqueue (no per-card PR). */
+  approveQaStories(
+    projectId: string,
+    input?: { includeQueued?: boolean },
+  ): Promise<{
+    stories: { planId: string; module: string; featureBranch: string; cardIds: string[] }[];
+    enqueued: number;
+    modules: number;
+  }>;
+  listPlans(projectId?: string): Promise<{ plans: import("@brokk/core").Plan[] }>;
+  getPlan(id: string): Promise<{ plan: import("@brokk/core").Plan; tasks: Task[] }>;
+  openPlanPr(
+    id: string,
+    input?: { override?: boolean; skipEitri?: boolean },
+  ): Promise<{
+    plan: import("@brokk/core").Plan;
+    reused: boolean;
+    eitri: { ok: boolean; detail?: string } | null;
+  }>;
   listTaskRuns(id: string): Promise<Run[]>;
   getRun(id: string): Promise<Run>;
   /** Subscribe to a run's live event stream (SSE). Returns an unsubscribe fn. */
@@ -326,6 +345,30 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
         "POST",
         `/projects/${encodeURIComponent(projectId)}/approve-proposed`,
       );
+    },
+    approveQaStories(projectId, input) {
+      return req<{
+        stories: { planId: string; module: string; featureBranch: string; cardIds: string[] }[];
+        enqueued: number;
+        modules: number;
+      }>("POST", `/projects/${encodeURIComponent(projectId)}/approve-qa-stories`, input ?? {});
+    },
+    listPlans(projectId) {
+      const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+      return req<{ plans: import("@brokk/core").Plan[] }>("GET", `/plans${q}`);
+    },
+    getPlan(id) {
+      return req<{ plan: import("@brokk/core").Plan; tasks: Task[] }>(
+        "GET",
+        `/plans/${encodeURIComponent(id)}`,
+      );
+    },
+    openPlanPr(id, input) {
+      return req<{
+        plan: import("@brokk/core").Plan;
+        reused: boolean;
+        eitri: { ok: boolean; detail?: string } | null;
+      }>("POST", `/plans/${encodeURIComponent(id)}/open-pr`, input ?? {});
     },
     getRun(id) {
       return req<Run>("GET", `/runs/${encodeURIComponent(id)}`);

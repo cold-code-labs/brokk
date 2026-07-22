@@ -128,6 +128,7 @@ services:
       BROKK_API_SECRET: ${BROKK_API_SECRET:-}
       BROKK_GITHUB_WEBHOOK_SECRET: ${BROKK_GITHUB_WEBHOOK_SECRET:-}
       BROKK_SINDRI_URL: ${BROKK_SINDRI_URL:-http://chat:8795}
+      EITRI_URL: ${EITRI_URL:-http://reviewer:8796}
       BROKK_DEFAULT_REPO: ${BROKK_DEFAULT_REPO:-}
       BROKK_DEFAULT_BRANCH: ${BROKK_DEFAULT_BRANCH:-main}
       # BROKK-44: overnight Regin intake of orphaned failed cards. "1" = on.
@@ -301,6 +302,8 @@ services:
     environment:
       <<: *worker-env
       BROKK_EGRESS: "1"
+      EITRI_MODE: ${EITRI_MODE:-trigger}
+      EITRI_PORT: ${EITRI_PORT:-8796}
       EITRI_APP_ID: ${EITRI_APP_ID:-}
       EITRI_APP_PRIVATE_KEY_FILE: ${EITRI_APP_PRIVATE_KEY_FILE:-/home/brokk/eitri-app.pem}
       EITRI_PROMOTE: ${EITRI_PROMOTE:-}

@@ -15,8 +15,14 @@ export interface EitriConfig {
   /** Where bare clones + review worktrees live. */
   workDir: string;
   model: string;
-  /** Poll interval (ms) between PR scans. */
+  /** Poll interval (ms) between PR scans. Ignored when mode=trigger. */
   pollIntervalMs: number;
+  /** ADR 0069: `poll` = fleet loop; `trigger` = HTTP POST /eitri/review only. */
+  mode: "poll" | "trigger";
+  /** HTTP port for trigger mode (and health). */
+  httpPort: number;
+  /** Shared secret for POST /eitri/review (BROKK_RUNNER_SECRET). Empty = open in local. */
+  runnerSecret: string;
   /** Max revise rounds before Eitri stops looping a PR and leaves it for a human. */
   maxRevisions: number;
   /** Auto-merge (squash) a forge PR once it's mergeable (no CHANGES_REQUESTED). */
@@ -50,6 +56,8 @@ export function loadEitriConfig(env = process.env): EitriConfig {
   if (!repo.includes("/")) throw new Error("BROKK_DEFAULT_REPO (owner/name) is required for Eitri");
   const databaseUrl = env.BROKK_DATABASE_URL ?? "";
   if (!databaseUrl) throw new Error("BROKK_DATABASE_URL is required for Eitri");
+  const modeRaw = (env.EITRI_MODE ?? "poll").toLowerCase();
+  const mode: "poll" | "trigger" = modeRaw === "trigger" ? "trigger" : "poll";
   return {
     databaseUrl,
     repo,
@@ -60,6 +68,9 @@ export function loadEitriConfig(env = process.env): EitriConfig {
     workDir: env.EITRI_WORKDIR ?? "/tmp/eitri",
     model: env.EITRI_MODEL ?? env.BROKK_DEFAULT_MODEL ?? "sonnet",
     pollIntervalMs: Number(env.EITRI_POLL_MS ?? 30_000),
+    mode,
+    httpPort: Number(env.EITRI_PORT ?? 8796),
+    runnerSecret: env.BROKK_RUNNER_SECRET ?? "",
     maxRevisions: Number(env.EITRI_MAX_REVISIONS ?? 3),
     autoMerge: env.EITRI_AUTO_MERGE !== "false",
     skipAuthors: (env.EITRI_SKIP_AUTHORS ?? "").split(",").map((s) => s.trim()).filter(Boolean),

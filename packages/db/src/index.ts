@@ -202,6 +202,9 @@ function rowToPlan(row: typeof plans.$inferSelect): Plan {
     prNumber: row.prNumber,
     model: row.model,
     createdBy: row.createdBy,
+    storyModule: row.storyModule ?? null,
+    validationStatus: (row.validationStatus as Plan["validationStatus"]) ?? null,
+    validationRunId: row.validationRunId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -621,8 +624,10 @@ export interface Store {
   /** Set the plan's PR the first time a card pushes; returns the effective PR
    *  (idempotent — concurrent first cards converge on one). */
   setPlanPrIfUnset(planId: string, url: string, number: number | null): Promise<Plan>;
-  /** If every card of the plan is in review/done, advance the plan → review. */
+  /** If every card of the plan is in review/done/cancelled, advance the plan → review. */
   maybeAdvancePlan(planId: string): Promise<Plan | null>;
+  /** Story re-QA (ADR 0069): locate plan by validation_run_id. */
+  findPlanByValidationRunId(runId: string): Promise<Plan | null>;
   /** Match a merged PR back to its plan (the shared feature PR). Pass
    *  `repoFullName` to scope pr_number matches to that repository (BROKK-45). */
   findPlanForMergedPr(
@@ -751,6 +756,7 @@ export interface Store {
   createQaRun(values: {
     projectId: string;
     sessionId?: string | null;
+    planId?: string | null;
     mode: QaRunMode;
     scenarioIds: string[];
     model?: string | null;
@@ -1523,14 +1529,27 @@ export function createStore(db: Db): Store {
     async maybeAdvancePlan(planId) {
       const rows = await db.select().from(tasks).where(eq(tasks.planId, planId));
       if (rows.length === 0) return null;
-      const allDone = rows.every((t) => t.status === "review" || t.status === "done");
-      if (!allDone) return null;
+      // ADR 0069: cancelled siblings don't block the Story gate.
+      const allTerminal = rows.every(
+        (t) => t.status === "review" || t.status === "done" || t.status === "cancelled",
+      );
+      if (!allTerminal) return null;
+      const anySuccess = rows.some((t) => t.status === "review" || t.status === "done");
+      if (!anySuccess) return null;
       const updated = await db
         .update(plans)
         .set({ status: "review", updatedAt: new Date() })
         .where(and(eq(plans.id, planId), inArray(plans.status, ["planning", "forging"])))
         .returning();
       return updated[0] ? rowToPlan(updated[0]) : null;
+    },
+    async findPlanByValidationRunId(runId) {
+      const rows = await db
+        .select()
+        .from(plans)
+        .where(eq(plans.validationRunId, runId))
+        .limit(1);
+      return rows[0] ? rowToPlan(rows[0]) : null;
     },
     async findPlanForMergedPr(prUrl, prNumber, repoFullName) {
       const url = prUrl.replace(/\/$/, "");
@@ -1993,16 +2012,16 @@ export function createStore(db: Db): Store {
       const scenarioIds = JSON.stringify(values.scenarioIds ?? []);
       const rows = await db.execute(
         sql`INSERT INTO qa_runs
-              (project_id, session_id, mode, status, scenario_ids, results, model, updated_at)
-            VALUES (${values.projectId}, ${values.sessionId ?? null}, ${values.mode}, 'running',
+              (project_id, session_id, plan_id, mode, status, scenario_ids, results, model, updated_at)
+            VALUES (${values.projectId}, ${values.sessionId ?? null}, ${values.planId ?? null}, ${values.mode}, 'running',
               ${scenarioIds}::jsonb, '[]'::jsonb, ${values.model ?? null}, now())
-            RETURNING id, project_id, session_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at`,
+            RETURNING id, project_id, session_id, plan_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at`,
       );
       return rowToQaRun(execRows(rows)[0]!);
     },
     async getQaRun(id) {
       const rows = await db.execute(
-        sql`SELECT id, project_id, session_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at
+        sql`SELECT id, project_id, session_id, plan_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at
             FROM qa_runs WHERE id = ${id} LIMIT 1`,
       );
       const row = execRows(rows)[0];
@@ -2010,7 +2029,7 @@ export function createStore(db: Db): Store {
     },
     async listQaRuns(projectId, limit = 20) {
       const rows = await db.execute(
-        sql`SELECT id, project_id, session_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at
+        sql`SELECT id, project_id, session_id, plan_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at
             FROM qa_runs WHERE project_id = ${projectId}
             ORDER BY created_at DESC LIMIT ${Math.min(Math.max(limit, 1), 100)}`,
       );
@@ -2018,7 +2037,7 @@ export function createStore(db: Db): Store {
     },
     async getLatestQaRun(projectId) {
       const rows = await db.execute(
-        sql`SELECT id, project_id, session_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at
+        sql`SELECT id, project_id, session_id, plan_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at
             FROM qa_runs WHERE project_id = ${projectId}
             ORDER BY created_at DESC LIMIT 1`,
       );
@@ -2044,7 +2063,7 @@ export function createStore(db: Db): Store {
               session_id = ${sessionId},
               updated_at = now()
             WHERE id = ${id}
-            RETURNING id, project_id, session_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at`,
+            RETURNING id, project_id, session_id, plan_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at`,
       );
       const row = execRows(rows)[0];
       return row ? rowToQaRun(row) : null;
@@ -2389,6 +2408,7 @@ function rowToQaRun(row: Record<string, unknown>): QaRun {
     id: String(row.id),
     projectId: String(row.project_id),
     sessionId: (row.session_id as string | null) ?? null,
+    planId: (row.plan_id as string | null) ?? null,
     mode: String(row.mode) as QaRunMode,
     status: String(row.status) as QaRunStatus,
     scenarioIds,
@@ -2765,6 +2785,7 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     session_id uuid,
+    plan_id uuid,
     mode text NOT NULL,
     status text NOT NULL DEFAULT 'running',
     scenario_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -2778,6 +2799,16 @@ export async function ensureChatSchema(db: Db): Promise<void> {
   await db.execute(
     sql`CREATE INDEX IF NOT EXISTS qa_runs_project_created_idx ON qa_runs (project_id, created_at DESC);`,
   );
+  await db.execute(sql`ALTER TABLE qa_runs ADD COLUMN IF NOT EXISTS plan_id uuid;`).catch(() => {});
+
+  // ADR 0069 — Story QA columns on plans (self-heal; drizzle push hangs on db_brokk).
+  await db.execute(sql`ALTER TABLE plans ADD COLUMN IF NOT EXISTS story_module text;`).catch(() => {});
+  await db
+    .execute(sql`ALTER TABLE plans ADD COLUMN IF NOT EXISTS validation_status text;`)
+    .catch(() => {});
+  await db
+    .execute(sql`ALTER TABLE plans ADD COLUMN IF NOT EXISTS validation_run_id uuid;`)
+    .catch(() => {});
 
   await ensureMissionSchema(db);
 }

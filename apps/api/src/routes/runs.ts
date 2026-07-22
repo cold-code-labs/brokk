@@ -212,10 +212,22 @@ export function runsRoutes(deps: AppDeps): Hono {
     await deps.store.releaseLease(id).catch(() => {});
 
     // Map run outcome → task column. Dev-lane (landed) pushes straight to dev → the
-    // card is done. PR flow: open → review; merge (webhook) → done.
+    // card is done. Story QA (ADR 0069): commit on featureBranch without PR → done.
+    // Classic PR flow: open → review; merge (webhook) → done.
+    const prev = await deps.store.getTask(run.taskId);
+    let storyCommit = false;
+    if (
+      status === "succeeded" &&
+      !landed &&
+      !prUrl &&
+      prev?.planId
+    ) {
+      const plan = await deps.store.getPlan(prev.planId).catch(() => null);
+      storyCommit = Boolean(plan?.storyModule);
+    }
     const taskStatus =
       status === "succeeded"
-        ? landed
+        ? landed || storyCommit
           ? "done"
           : "review"
         : status === "failed"
@@ -225,13 +237,14 @@ export function runsRoutes(deps: AppDeps): Hono {
     // Always persist the PR pointer on complete (BROKK-45): a re-forge that opens
     // a successor PR must overwrite the stale # on the card, even when the column
     // stays `review`.
-    const prev = await deps.store.getTask(run.taskId);
     const task = await deps.store.transitionTask(run.taskId, taskStatus, {
       actor: "forge",
       reason:
         status === "succeeded"
           ? landed
             ? "pushed to dev"
+            : storyCommit
+              ? "committed to story branch"
             : prev?.prNumber != null &&
                 resolvedPrNumber != null &&
                 prev.prNumber !== resolvedPrNumber
@@ -252,13 +265,25 @@ export function runsRoutes(deps: AppDeps): Hono {
     // `queued` forever (the DAG never sees it reach review/done), so surface the
     // stall by failing the plan. A succeeded card advances the plan once all its
     // siblings have landed (every card in review/done) → the feature PR is ready.
+    // Story plans (storyModule): on advance, kick Targeted re-QA (ADR 0069).
     if (task.planId) {
       if (status === "failed") {
         await deps.store
           .updatePlan(task.planId, { status: "failed" })
           .catch(() => {});
       } else {
-        await deps.store.maybeAdvancePlan(task.planId).catch(() => {});
+        const advanced = await deps.store.maybeAdvancePlan(task.planId).catch(() => null);
+        if (advanced?.storyModule && deps.sindriUrl) {
+          const { fireStoryReQa } = await import("../story-reqa.js");
+          void fireStoryReQa(
+            {
+              store: deps.store,
+              sindriUrl: deps.sindriUrl,
+              runnerSecret: deps.runnerSecret,
+            },
+            advanced,
+          );
+        }
       }
     }
 

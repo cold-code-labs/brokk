@@ -210,6 +210,13 @@ export const plans = pgTable("plans", {
   prNumber: integer("pr_number"),
   model: text("model"),
   createdBy: text("created_by"),
+  /** QA Story module (ADR 0069). Null = classic Mímir/Resolve plan (PR on first card). */
+  storyModule: text("story_module"),
+  /** Targeted re-QA after all story cards forge: pending|running|pass|fail. */
+  validationStatus: text("validation_status").$type<
+    import("@brokk/core").PlanValidationStatus | null
+  >(),
+  validationRunId: uuid("validation_run_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
