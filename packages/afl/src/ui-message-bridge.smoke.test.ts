@@ -14,7 +14,7 @@ describe("ui-message smoke (cursor-cli shaped)", () => {
       { type: "tool_result", toolUseId: "1", ok: true, preview: "ok" },
       { type: "text_delta", text: "Done." },
       { type: "title", title: "List files" },
-      { type: "usage", usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0 } },
+      { type: "usage", usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheCreationTokens: 0 } },
       { type: "done" },
     ];
     const chunks = events.flatMap((e) => b.push(e));
