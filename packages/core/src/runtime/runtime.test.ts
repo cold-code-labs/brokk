@@ -459,3 +459,24 @@ test("resolveRuntime fast-path densifies Next 16 without burning the detector", 
   assert.match(out.dev, /next dev --webpack/);
   assert.equal(matchesAllowlist(out.dev), true);
 });
+
+test("vite prepareFiles injects forge-veil overlay for HMR blank-flash", async () => {
+  const out = await resolveRuntime(
+    null,
+    ctxOf({
+      "package.json": JSON.stringify({
+        name: "v",
+        dependencies: { vite: "6.0.0", react: "19.0.0" },
+      }),
+      "vite.config.ts": "export default {}",
+    }),
+  );
+  assert.equal(out.supported, true);
+  assert.match(out.dev, /vite --port/);
+  const veil = out.prepareFiles?.find((f) => f.path.endsWith("vite.preview.config.mjs"));
+  assert.ok(veil, "expected .brokk/vite.preview.config.mjs");
+  assert.match(veil!.contents, /brokk-forge-veil/);
+  assert.match(veil!.contents, /vite:beforeUpdate/);
+  assert.match(veil!.contents, /vite:beforeFullReload/);
+  assert.match(veil!.contents, /Forging/);
+});

@@ -17,7 +17,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
-import { runCliSessionTurn } from "./cli-turn.js";
+import { runCliSessionTurn, emitDirtySummary } from "./cli-turn.js";
 import { writeInboxUploads } from "./inbox.js";
 import { unseal } from "./secrets.js";
 import { autoTitle } from "./titler.js";
@@ -172,6 +172,35 @@ function canSee(session: { createdBy?: string | null }, actor: string): boolean 
   if (!session.createdBy) return true;
   return session.createdBy.trim().toLowerCase() === actor;
 }
+
+/** Normalize a user ask for duplicate-session detection (ispetro: two engines,
+ *  same sentence, ~1 min apart). */
+function normAsk(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstUserText(msgs: { role: string; blocks: unknown[] }[]): string {
+  for (const m of msgs) {
+    if (m.role !== "user") continue;
+    const text = (Array.isArray(m.blocks) ? m.blocks : [])
+      .filter(
+        (b): b is { type: string; text: string } =>
+          !!b && typeof b === "object" && (b as { type?: string }).type === "text" && typeof (b as { text?: string }).text === "string",
+      )
+      .map((b) => b.text)
+      .join("")
+      .trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+const DUP_ASK_WINDOW_MS = 30 * 60 * 1000;
 
 /** The session owner's own active Max seat token (unsealed), or null → the turn
  *  falls back to the shared seat. Keys off the session's owner email. Never throws:
@@ -406,6 +435,28 @@ export function buildSindri(deps: SindriDeps): Hono {
       }
     }
 
+    const actor = actorOf(c) || parsed.data.createdBy || null;
+
+    // Reuse an empty active session for this project+user instead of spawning a
+    // second motor for the same blank chat (engine/model still patchable).
+    if (actor) {
+      const mine = (await deps.store.listChatSessions({ projectId: project.id, status: "active" })).filter(
+        (s) => (s.createdBy ?? "").trim().toLowerCase() === actor.trim().toLowerCase(),
+      );
+      for (const s of mine) {
+        const msgs = await deps.store.listChatMessages(s.id);
+        if (msgs.length > 0) continue;
+        const session = await deps.store.updateChatSession(s.id, {
+          model,
+          effort: parsed.data.effort ?? s.effort,
+          engine,
+          skill: skillRaw,
+          title: parsed.data.title ?? s.title,
+        });
+        return c.json({ session, reused: true }, 200);
+      }
+    }
+
     const created = await deps.store.insertChatSession({
       projectId: project.id,
       title: parsed.data.title ?? "New chat",
@@ -415,7 +466,7 @@ export function buildSindri(deps: SindriDeps): Hono {
       skill: skillRaw,
       // Owner = the trusted Logto identity from the proxy; body value is only a
       // fallback for internal callers. This is what chat privacy + seat routing key off.
-      createdBy: actorOf(c) || parsed.data.createdBy || null,
+      createdBy: actor,
     });
     // Branch is derived from the (db-assigned) id so it's stable + collision-free.
     const branch = `sindri/${created.id.slice(0, 8)}`;
@@ -523,6 +574,43 @@ export function buildSindri(deps: SindriDeps): Hono {
     const session = await deps.store.getChatSession(id);
     if (!session) return c.json({ error: "not found" }, 404);
     if (deps.turns.isRunning(id)) return c.json({ error: "a turn is already running" }, 409);
+
+    // Same ask, second motor — refuse instead of forking another sindri/* branch.
+    const existingMsgs = await deps.store.listChatMessages(id);
+    if (existingMsgs.length === 0 && session.createdBy) {
+      const ask = normAsk(parsed.data.text);
+      if (ask) {
+        const since = Date.now() - DUP_ASK_WINDOW_MS;
+        const siblings = (
+          await deps.store.listChatSessions({ projectId: session.projectId, status: "active" })
+        ).filter(
+          (s) =>
+            s.id !== id &&
+            (s.createdBy ?? "").trim().toLowerCase() === session.createdBy!.trim().toLowerCase() &&
+            new Date(s.createdAt).getTime() >= since,
+        );
+        for (const s of siblings) {
+          const msgs = await deps.store.listChatMessages(s.id);
+          if (normAsk(firstUserText(msgs)) !== ask) continue;
+          if (s.turnState === "running" || deps.turns.isRunning(s.id)) {
+            return c.json(
+              {
+                error: `Mesmo pedido já está rodando na sessão ${s.id.slice(0, 8)} — reabra ela em vez de abrir outro motor.`,
+                sessionId: s.id,
+              },
+              409,
+            );
+          }
+          return c.json(
+            {
+              error: `Mesmo pedido já rodou na sessão ${s.id.slice(0, 8)} há pouco — reabra ela em vez de abrir outro motor.`,
+              sessionId: s.id,
+            },
+            409,
+          );
+        }
+      }
+    }
 
     try {
       deps.turns.start(id, (emit, signal) =>
@@ -1018,6 +1106,13 @@ async function runSessionTurn(
       extraTools: deps.mcp?.toolDefs,
       emit,
       signal,
+    });
+    await emitDirtySummary({
+      store: deps.store,
+      sessionId: session.id,
+      cwd: path,
+      emit,
+      meta: { engine },
     });
   } finally {
     if (live) liveWorktreeLocks.delete(path);
