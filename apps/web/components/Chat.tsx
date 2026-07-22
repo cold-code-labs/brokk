@@ -50,6 +50,7 @@ import { brokk } from "../lib/api";
 import {
   ApiError,
   chat,
+  qa,
   type ChatMessage,
   type ChatSessionWithStats,
   type Preview,
@@ -1326,7 +1327,6 @@ export default function Chat() {
                       disabled={running || attachBusy}
                       engine={engine}
                       onRun={async (opts) => {
-                        const text = buildQaRunPrompt(opts);
                         let sid = sessionId;
                         if (!sid) {
                           sid = (await newChat("claude-cli")) ?? "";
@@ -1341,6 +1341,20 @@ export default function Chat() {
                             /* send still goes; skill warns if MCP missing */
                           }
                         }
+                        let runId = opts.runId;
+                        if (!runId && projectId) {
+                          try {
+                            const { run } = await qa.startRun(projectId, {
+                              mode: opts.mode,
+                              scenarioIds: opts.scenarios.map((s) => s.id),
+                              sessionId: sid,
+                            });
+                            runId = run.id;
+                          } catch {
+                            /* prompt still runs; submit_qa_report can create a run */
+                          }
+                        }
+                        const text = buildQaRunPrompt({ ...opts, runId: runId || "pending" });
                         await send(sid, text);
                       }}
                     />

@@ -9,6 +9,10 @@ import type {
   QaCatalog,
   QaCatalogStatus,
   QaScenario,
+  QaRun,
+  QaRunMode,
+  QaRunStatus,
+  QaScenarioResult,
   ChatMessage,
   ChatSession,
   ChatSessionStats,
@@ -742,6 +746,29 @@ export interface Store {
       error?: string | null;
     },
   ): Promise<QaCatalog>;
+
+  // full-qa: execution runs (Full / Targeted)
+  createQaRun(values: {
+    projectId: string;
+    sessionId?: string | null;
+    mode: QaRunMode;
+    scenarioIds: string[];
+    model?: string | null;
+  }): Promise<QaRun>;
+  getQaRun(id: string): Promise<QaRun | null>;
+  listQaRuns(projectId: string, limit?: number): Promise<QaRun[]>;
+  getLatestQaRun(projectId: string): Promise<QaRun | null>;
+  updateQaRun(
+    id: string,
+    fields: {
+      status?: QaRunStatus;
+      results?: QaScenarioResult[];
+      summary?: string | null;
+      model?: string | null;
+      error?: string | null;
+      sessionId?: string | null;
+    },
+  ): Promise<QaRun | null>;
 
   // resolve (per-card analysis): the card's living, versioned understanding
   /** The latest analysis (current head) for a task, or null if never analysed. */
@@ -1962,6 +1989,67 @@ export function createStore(db: Db): Store {
       return rowToQaCatalog(row!);
     },
 
+    async createQaRun(values) {
+      const scenarioIds = JSON.stringify(values.scenarioIds ?? []);
+      const rows = await db.execute(
+        sql`INSERT INTO qa_runs
+              (project_id, session_id, mode, status, scenario_ids, results, model, updated_at)
+            VALUES (${values.projectId}, ${values.sessionId ?? null}, ${values.mode}, 'running',
+              ${scenarioIds}::jsonb, '[]'::jsonb, ${values.model ?? null}, now())
+            RETURNING id, project_id, session_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at`,
+      );
+      return rowToQaRun(execRows(rows)[0]!);
+    },
+    async getQaRun(id) {
+      const rows = await db.execute(
+        sql`SELECT id, project_id, session_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at
+            FROM qa_runs WHERE id = ${id} LIMIT 1`,
+      );
+      const row = execRows(rows)[0];
+      return row ? rowToQaRun(row) : null;
+    },
+    async listQaRuns(projectId, limit = 20) {
+      const rows = await db.execute(
+        sql`SELECT id, project_id, session_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at
+            FROM qa_runs WHERE project_id = ${projectId}
+            ORDER BY created_at DESC LIMIT ${Math.min(Math.max(limit, 1), 100)}`,
+      );
+      return execRows(rows).map(rowToQaRun);
+    },
+    async getLatestQaRun(projectId) {
+      const rows = await db.execute(
+        sql`SELECT id, project_id, session_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at
+            FROM qa_runs WHERE project_id = ${projectId}
+            ORDER BY created_at DESC LIMIT 1`,
+      );
+      const row = execRows(rows)[0];
+      return row ? rowToQaRun(row) : null;
+    },
+    async updateQaRun(id, fields) {
+      const current = await this.getQaRun(id);
+      if (!current) return null;
+      const status = fields.status ?? current.status;
+      const results = JSON.stringify(fields.results ?? current.results);
+      const summary = fields.summary !== undefined ? fields.summary : current.summary;
+      const model = fields.model !== undefined ? fields.model : current.model;
+      const error = fields.error !== undefined ? fields.error : current.error;
+      const sessionId = fields.sessionId !== undefined ? fields.sessionId : current.sessionId;
+      const rows = await db.execute(
+        sql`UPDATE qa_runs SET
+              status = ${status},
+              results = ${results}::jsonb,
+              summary = ${summary},
+              model = ${model},
+              error = ${error},
+              session_id = ${sessionId},
+              updated_at = now()
+            WHERE id = ${id}
+            RETURNING id, project_id, session_id, mode, status, scenario_ids, results, summary, model, error, created_at, updated_at`,
+      );
+      const row = execRows(rows)[0];
+      return row ? rowToQaRun(row) : null;
+    },
+
     async getTaskAnalysis(taskId) {
       const rows = await db.execute(
         sql`SELECT task_id, status, version, revised_title, details, evidence, approach, rationale, mode,
@@ -2285,6 +2373,27 @@ function rowToQaCatalog(row: Record<string, unknown>): QaCatalog {
     summary: (row.summary as string | null) ?? null,
     fingerprint: (row.fingerprint as string | null) ?? null,
     scenarios,
+    model: (row.model as string | null) ?? null,
+    error: (row.error as string | null) ?? null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+function rowToQaRun(row: Record<string, unknown>): QaRun {
+  const iso = (v: unknown): string =>
+    v instanceof Date ? v.toISOString() : typeof v === "string" ? v : new Date().toISOString();
+  const scenarioIds = Array.isArray(row.scenario_ids) ? (row.scenario_ids as string[]) : [];
+  const results = Array.isArray(row.results) ? (row.results as QaScenarioResult[]) : [];
+  return {
+    id: String(row.id),
+    projectId: String(row.project_id),
+    sessionId: (row.session_id as string | null) ?? null,
+    mode: String(row.mode) as QaRunMode,
+    status: String(row.status) as QaRunStatus,
+    scenarioIds,
+    results,
+    summary: (row.summary as string | null) ?? null,
     model: (row.model as string | null) ?? null,
     error: (row.error as string | null) ?? null,
     createdAt: iso(row.created_at),
@@ -2651,6 +2760,24 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
   );`);
+
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS qa_runs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    session_id uuid,
+    mode text NOT NULL,
+    status text NOT NULL DEFAULT 'running',
+    scenario_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+    results jsonb NOT NULL DEFAULT '[]'::jsonb,
+    summary text,
+    model text,
+    error text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS qa_runs_project_created_idx ON qa_runs (project_id, created_at DESC);`,
+  );
 
   await ensureMissionSchema(db);
 }

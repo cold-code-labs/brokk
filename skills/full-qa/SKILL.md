@@ -68,6 +68,9 @@ matrix.
 Needs live preview URL + Playwright tools (`mcp__playwright__*`). Engine should
 be `claude-cli`. If missing, say so and stop.
 
+**Watch live:** Preview panel → **Assistir o agente** (MJPEG of the shared
+Chromium). Prefer that while driving scenarios so the human can follow along.
+
 Modes:
 
 - **Full** — every scenario, p0 first, then p1/p2. Serial. Reset auth between
@@ -78,10 +81,14 @@ Method (same honesty as `qa-review`):
 
 1. Navigate → snapshot before acting → never click blind.
 2. Login via **"Entrar como demo"** or the app's documented test login.
-3. Follow `steps[]`; assert `expects[]` with snapshots/screenshots on fail.
-4. Verdict per scenario: `pass` | `fail` | `blocked` (agent could not operate UI).
-5. After the run, write a short report (and `.brokk/qa/last-report.md` if you can
-   write files): totals, failures with expected vs actual + screenshot notes.
+3. Before each scenario call `invoke_skill` → **qa-progress** with
+   `{ index, total, id, runId }` (use `runId` from the user message when present).
+4. Follow `steps[]`; assert `expects[]` with snapshots/screenshots on fail.
+5. Verdict per scenario: `pass` | `fail` | `blocked` (agent could not operate UI).
+6. After the run, call `invoke_skill` → **submit_qa_report** with
+   `{ runId, mode, results: [{id, verdict, note}], summary }` — this persists the
+   run in Brokk and writes `.brokk/qa/last-report.md`. Do not skip the tool in
+   favor of prose-only reports.
 
 ## Staleness (why re-discover)
 

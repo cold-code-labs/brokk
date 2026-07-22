@@ -121,6 +121,13 @@ const SendMessage = z.object({
     .optional(),
 });
 
+const CreateQaRun = z.object({
+  mode: z.enum(["full", "targeted"]),
+  scenarioIds: z.array(z.string().min(1)).default([]),
+  sessionId: z.string().uuid().optional().nullable(),
+  model: z.string().optional().nullable(),
+});
+
 // Per-teammate seat routing for the interactive chat (default ON; BROKK_DIRECT_SEAT=0
 // forces every turn back through the shared Ratatoskr seat). Mirrors the forge.
 const SEAT_DIRECT = process.env.BROKK_DIRECT_SEAT !== "0";
@@ -385,6 +392,16 @@ export function buildSindri(deps: SindriDeps): Hono {
           "Build / refresh the Full QA scenario catalog (user journeys) for this project.",
         kind: "capability",
       },
+      {
+        name: "submit_qa_report",
+        description: "Persist Full / Targeted QA results for this project.",
+        kind: "capability",
+      },
+      {
+        name: "qa-progress",
+        description: "Emit live QA execution progress (scenario X of N).",
+        kind: "capability",
+      },
     ]);
     return c.json({ skills: catalog });
   });
@@ -438,6 +455,8 @@ export function buildSindri(deps: SindriDeps): Hono {
         { name: "discovery", description: "", kind: "capability" },
         { name: "enhance", description: "", kind: "capability" },
         { name: "qa-discover", description: "", kind: "capability" },
+        { name: "submit_qa_report", description: "", kind: "capability" },
+        { name: "qa-progress", description: "", kind: "capability" },
       ]).map((s) => s.name));
       if (!known.has(skillRaw)) {
         return c.json({ error: `unknown skill "${skillRaw}"` }, 400);
@@ -851,7 +870,34 @@ export function buildSindri(deps: SindriDeps): Hono {
       running: qaScouting.has(projectId) || catalog?.status === "pending",
       stale,
       currentFingerprint,
+      lastRun: await deps.store.getLatestQaRun(projectId),
     });
+  });
+
+  app.get("/qa/:projectId/runs", async (c) => {
+    const projectId = c.req.param("projectId");
+    const project = await deps.store.getProject(projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    const limitRaw = Number(c.req.query("limit") ?? "20");
+    const limit = Number.isFinite(limitRaw) ? limitRaw : 20;
+    const runs = await deps.store.listQaRuns(projectId, limit);
+    return c.json({ runs });
+  });
+
+  app.post("/qa/:projectId/runs", async (c) => {
+    const projectId = c.req.param("projectId");
+    const project = await deps.store.getProject(projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    const parsed = CreateQaRun.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const run = await deps.store.createQaRun({
+      projectId,
+      mode: parsed.data.mode,
+      scenarioIds: parsed.data.scenarioIds,
+      sessionId: parsed.data.sessionId ?? null,
+      model: parsed.data.model ?? null,
+    });
+    return c.json({ run }, 201);
   });
 
   // ── Resolve: per-card analysis ────────────────────────────────────────────────
@@ -1055,6 +1101,8 @@ async function runSessionTurn(
         { name: "discovery", description: "", kind: "capability" },
         { name: "enhance", description: "", kind: "capability" },
         { name: "qa-discover", description: "", kind: "capability" },
+        { name: "submit_qa_report", description: "", kind: "capability" },
+        { name: "qa-progress", description: "", kind: "capability" },
       ]).map((s) => s.name),
     );
     if (known.has(opts.skill) && session.skill !== opts.skill) {
@@ -1477,6 +1525,113 @@ function buildSkills(
           "Catalog also at `.brokk/qa/scenarios.json`. If routes/features change later, re-run qa-discover — a stale fingerprint mis-instructs Full QA.",
         ];
         return { ok: true, content: lines.join("\n") };
+      },
+    },
+    {
+      name: "qa-progress",
+      description:
+        "Emit live Full/Targeted QA progress. Pass { index: 1-based, total, id: scenarioId, runId?: uuid }. Call before each scenario during Execution.",
+      run: async (input) => {
+        const index = Number(input.index ?? 0);
+        const total = Number(input.total ?? 0);
+        const id = String(input.id ?? "").trim() || "?";
+        const phase =
+          total > 0 && index > 0
+            ? `qa: scenario ${index}/${total} · ${id}`
+            : `qa: ${id}`;
+        emit({ type: "status", phase });
+        const runId = String(input.runId ?? "").trim();
+        if (runId && index > 0) {
+          // Mirror progress into the run summary so the project QA page can poll it.
+          await deps.store
+            .updateQaRun(runId, {
+              summary: `In progress · scenario ${index}/${total || "?"} · ${id}`,
+            })
+            .catch(() => {});
+        }
+        return { ok: true, content: phase };
+      },
+    },
+    {
+      name: "submit_qa_report",
+      description:
+        "Persist Full/Targeted QA results for THIS project. Pass { results: [{id, verdict: pass|fail|blocked, note}], summary: markdown, runId?: uuid, mode?: full|targeted, status?: ready|failed }. Prefer the runId from the user prompt when present. Also writes `.brokk/qa/last-report.md`.",
+      run: async (input) => {
+        emit({ type: "status", phase: "qa: saving report" });
+        const rawResults = Array.isArray(input.results) ? input.results : [];
+        const results = rawResults
+          .map((r) => {
+            const row = r as Record<string, unknown>;
+            const verdict = String(row.verdict ?? "");
+            if (verdict !== "pass" && verdict !== "fail" && verdict !== "blocked") return null;
+            return {
+              id: String(row.id ?? "").trim(),
+              verdict: verdict as "pass" | "fail" | "blocked",
+              note: String(row.note ?? ""),
+            };
+          })
+          .filter((r): r is { id: string; verdict: "pass" | "fail" | "blocked"; note: string } =>
+            Boolean(r && r.id),
+          );
+        const summary = String(input.summary ?? "").trim() || null;
+        const statusRaw = String(input.status ?? "ready");
+        const status = statusRaw === "failed" ? "failed" : "ready";
+        const modeRaw = String(input.mode ?? "");
+        const mode = modeRaw === "targeted" ? "targeted" : "full";
+        const runIdRaw = String(input.runId ?? "").trim();
+
+        let run = runIdRaw ? await deps.store.getQaRun(runIdRaw) : null;
+        if (!run) {
+          const latest = await deps.store.getLatestQaRun(projectId);
+          run = latest?.status === "running" ? latest : null;
+        }
+        if (!run) {
+          run = await deps.store.createQaRun({
+            projectId,
+            mode,
+            scenarioIds: results.map((r) => r.id),
+            sessionId: null,
+          });
+        }
+        const updated = await deps.store.updateQaRun(run.id, {
+          status,
+          results,
+          summary,
+          error: status === "failed" ? summary : null,
+        });
+
+        const pass = results.filter((r) => r.verdict === "pass").length;
+        const fail = results.filter((r) => r.verdict === "fail").length;
+        const blocked = results.filter((r) => r.verdict === "blocked").length;
+        const head = `${pass} passed · ${fail} failed · ${blocked} blocked`;
+        const md = [
+          `# QA report`,
+          "",
+          head,
+          "",
+          summary ?? "",
+          "",
+          "| id | verdict | note |",
+          "| --- | --- | --- |",
+          ...results.map((r) => `| \`${r.id}\` | ${r.verdict} | ${r.note.replace(/\|/g, "/")} |`),
+          "",
+        ].join("\n");
+        try {
+          const dir = join(cwd, ".brokk", "qa");
+          await mkdir(dir, { recursive: true });
+          await writeFile(join(dir, "last-report.md"), md, "utf8");
+        } catch {
+          /* best-effort */
+        }
+
+        return {
+          ok: true,
+          content: [
+            `**QA report saved** · run \`${updated?.id ?? run.id}\` · ${head}`,
+            "",
+            "Also at `.brokk/qa/last-report.md`. Open the project QA page for history.",
+          ].join("\n"),
+        };
       },
     },
   ];
