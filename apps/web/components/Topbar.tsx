@@ -154,7 +154,10 @@ export default function Topbar({ user }: { user?: TopbarUserProps }) {
   const { currentId } = useProject();
 
   const boardHref = currentId ? `/projects/${currentId}` : "/fleet";
-  const boardOn = path.startsWith("/projects") && !path.endsWith("/descoberta");
+  const boardOn =
+    path.startsWith("/projects") &&
+    !path.endsWith("/descoberta") &&
+    !/\/qa\/?$/.test(path);
   const newOn = path === "/new" || path.startsWith("/new/");
 
   return (

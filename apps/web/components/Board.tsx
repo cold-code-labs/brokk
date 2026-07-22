@@ -283,6 +283,16 @@ export default function Board({ projectId }: { projectId?: string }) {
                 New card
               </Button>
             )}
+            {project && (
+              <>
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/projects/${project.id}/descoberta`}>Discovery</Link>
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/projects/${project.id}/qa`}>QA</Link>
+                </Button>
+              </>
+            )}
             {project &&
               (preview && preview.status !== "stopped" ? (
                 <PreviewChip preview={preview} onStop={handleStopPreview} />

@@ -969,6 +969,33 @@ export interface QaCatalog {
   updatedAt: string;
 }
 
+/** Lifecycle of one Full / Targeted QA execution. */
+export type QaRunStatus = "running" | "ready" | "failed";
+export type QaRunMode = "full" | "targeted";
+export type QaVerdict = "pass" | "fail" | "blocked";
+
+export interface QaScenarioResult {
+  id: string;
+  verdict: QaVerdict;
+  note: string;
+}
+
+/** One persisted Full / Targeted QA run (Execution phase). */
+export interface QaRun {
+  id: string;
+  projectId: string;
+  sessionId: string | null;
+  mode: QaRunMode;
+  status: QaRunStatus;
+  scenarioIds: string[];
+  results: QaScenarioResult[];
+  summary: string | null;
+  model: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Resolve: per-card analysis ───────────────────────────────────────────────
 
 /** Lifecycle of a card's resolution analysis. `pending` = Resolve is analysing;

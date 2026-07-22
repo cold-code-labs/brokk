@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlaskConical, Radar, Target } from "lucide-react";
 import { ComposerMenu } from "./ComposerMenu";
-import { qa, type QaCatalog, type QaScenario } from "../lib/chat";
+import { useToast } from "./Toaster";
+import { qa, type QaCatalog, type QaRun, type QaScenario } from "../lib/chat";
 
 type Props = {
   projectId: string | null | undefined;
@@ -14,18 +16,24 @@ type Props = {
     scenarios: QaScenario[];
     stale: boolean;
     summary: string | null;
+    /** Set when the cockpit already created a `running` row; Chat may create one. */
+    runId?: string;
   }) => void;
 };
 
 /** Cockpit controls: Discover scenarios · Full QA · Targeted QA (+ stale badge). */
 export function QaControls({ projectId, disabled, engine, onRun }: Props) {
+  const toast = useToast();
   const [catalog, setCatalog] = useState<QaCatalog | null>(null);
   const [running, setRunning] = useState(false);
   const [stale, setStale] = useState(false);
+  const [lastRun, setLastRun] = useState<QaRun | null>(null);
   const [busy, setBusy] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const [targetActive, setTargetActive] = useState(0);
   const targetRef = useRef<HTMLButtonElement>(null);
+  const watchedRunId = useRef<string | null>(null);
+  const toastedRunId = useRef<string | null>(null);
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -34,24 +42,49 @@ export function QaControls({ projectId, disabled, engine, onRun }: Props) {
       setCatalog(r.catalog);
       setRunning(r.running || r.catalog?.status === "pending");
       setStale(Boolean(r.stale));
+      setLastRun(r.lastRun);
+      if (r.lastRun?.status === "running") {
+        watchedRunId.current = r.lastRun.id;
+      } else if (
+        r.lastRun &&
+        r.lastRun.status === "ready" &&
+        watchedRunId.current === r.lastRun.id &&
+        toastedRunId.current !== r.lastRun.id
+      ) {
+        toastedRunId.current = r.lastRun.id;
+        watchedRunId.current = null;
+        toast("Report salvo — abra a página de QA", { tone: "ok" });
+      }
     } catch {
       /* ignore */
     }
-  }, [projectId]);
+  }, [projectId, toast]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  // Poll catalog + lastRun while Discovery or Execution may be in flight.
   useEffect(() => {
-    if (!running) return;
-    const i = setInterval(() => void load(), 4000);
+    if (!projectId) return;
+    const i = setInterval(() => void load(), 5000);
     return () => clearInterval(i);
-  }, [running, load]);
+  }, [projectId, load]);
 
   const scenarios = catalog?.status === "ready" ? catalog.scenarios : [];
   const ready = catalog?.status === "ready" && scenarios.length > 0;
   const cliOk = engine === "claude-cli";
+  const qaHref = projectId ? `/projects/${projectId}/qa` : null;
+  const execRunning = lastRun?.status === "running";
+  const progressFromSummary =
+    execRunning && lastRun.summary?.startsWith("In progress")
+      ? lastRun.summary.replace(/^In progress ·\s*/i, "")
+      : null;
+  const progressLabel = execRunning
+    ? progressFromSummary
+      ? `${lastRun.mode === "full" ? "Full" : "Targeted"} · ${progressFromSummary}`
+      : `${lastRun.mode === "full" ? "Full QA" : "Targeted"} running · ${lastRun.scenarioIds.length || "?"} scen`
+    : null;
 
   const targetItems = useMemo(
     () =>
@@ -78,26 +111,25 @@ export function QaControls({ projectId, disabled, engine, onRun }: Props) {
     }
   }
 
-  function runFull() {
-    if (!ready) return;
+  async function startAndRun(mode: "full" | "targeted", picked: QaScenario[]) {
+    if (!projectId || !ready) return;
     onRun({
-      mode: "full",
-      scenarios,
+      mode,
+      scenarios: picked,
       stale,
       summary: catalog?.summary ?? null,
     });
+  }
+
+  function runFull() {
+    void startAndRun("full", scenarios);
   }
 
   function runTargeted(id: string) {
     const hit = scenarios.find((s) => s.id === id);
     if (!hit) return;
     setTargetOpen(false);
-    onRun({
-      mode: "targeted",
-      scenarios: [hit],
-      stale,
-      summary: catalog?.summary ?? null,
-    });
+    void startAndRun("targeted", [hit]);
   }
 
   const discoverTitle = running
@@ -118,12 +150,25 @@ export function QaControls({ projectId, disabled, engine, onRun }: Props) {
 
   return (
     <div className="sindri-qa-controls" data-testid="sindri-qa-controls">
+      {progressLabel && qaHref ? (
+        <Link href={qaHref} className="sindri-qa-live" title="Abrir página de QA do projeto">
+          {progressLabel}
+        </Link>
+      ) : null}
       {stale && ready ? (
         <span className="sindri-qa-stale" title="Fingerprint de rotas/features/e2e mudou desde o Discovery">
           stale
         </span>
       ) : null}
-      {ready ? (
+      {ready && qaHref ? (
+        <Link
+          href={qaHref}
+          className="sindri-qa-count"
+          title={catalog?.summary ?? "Abrir catálogo de QA"}
+        >
+          {scenarios.length} scen
+        </Link>
+      ) : ready ? (
         <span className="sindri-qa-count" title={catalog?.summary ?? undefined}>
           {scenarios.length} scen
         </span>
@@ -146,7 +191,7 @@ export function QaControls({ projectId, disabled, engine, onRun }: Props) {
         title={fullTitle}
         aria-label="Full QA"
         data-testid="sindri-qa-full"
-        disabled={disabled || !ready || !cliOk}
+        disabled={disabled || !ready || !cliOk || execRunning}
         onClick={runFull}
       >
         <FlaskConical size={13} />
@@ -168,7 +213,7 @@ export function QaControls({ projectId, disabled, engine, onRun }: Props) {
           aria-haspopup="listbox"
           aria-expanded={targetOpen}
           data-testid="sindri-qa-targeted"
-          disabled={disabled || !ready || !cliOk}
+          disabled={disabled || !ready || !cliOk || execRunning}
           onClick={() => {
             if (!ready || !cliOk) return;
             setTargetActive(0);
@@ -202,9 +247,11 @@ export function buildQaRunPrompt(opts: {
   scenarios: QaScenario[];
   stale: boolean;
   summary: string | null;
+  runId: string;
 }): string {
   const catalog = {
     version: 1,
+    runId: opts.runId,
     summary: opts.summary,
     stale: opts.stale,
     scenarios: opts.scenarios,
@@ -216,5 +263,6 @@ export function buildQaRunPrompt(opts: {
   const staleNote = opts.stale
     ? "\n\nWARNING: catalog is STALE (routes/features/e2e fingerprint drifted). Note gaps; prefer re-Discover after this run if failures look like missing surfaces."
     : "";
-  return `/full-qa ${head}${staleNote}\n\n\`\`\`json\n${JSON.stringify(catalog, null, 2)}\n\`\`\``;
+  const persistNote = `\n\nrunId=${opts.runId}. Between scenarios call invoke_skill → qa-progress {index,total,id,runId}. When done call invoke_skill → submit_qa_report with the same runId, results[], and summary. Watch the live Chromium via Preview → Assistir o agente.`;
+  return `/full-qa ${head}${staleNote}${persistNote}\n\n\`\`\`json\n${JSON.stringify(catalog, null, 2)}\n\`\`\``;
 }

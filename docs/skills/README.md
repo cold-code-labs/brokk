@@ -29,6 +29,8 @@ skill = add a folder under `skills/` and ship; the chat image copies the tree
   `stale: true` — re-run Discovery before trusting Full QA instructions.
 - **Instruction `full-qa`** — Execution playbook for the live preview
   (Playwright MCP). Sindri cockpit chips: **Discover**, **Full QA**, **Targeted**.
+  Project home: `/projects/:id/qa`. Persist results via **`submit_qa_report`**;
+  live progress via **`qa-progress`** + Preview → **Assistir o agente**.
 - Huginn `discovery` stays product brief (`built`/`missing`); QA Discovery is
   user journeys only.
 

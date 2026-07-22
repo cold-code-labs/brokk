@@ -170,10 +170,13 @@ export const discovery = {
     j<{ status: string; running: boolean }>("POST", `/discover/${projectId}`),
 };
 
-// ── Full QA: scenario catalog ────────────────────────────────────────────────
+// ── Full QA: scenario catalog + runs ─────────────────────────────────────────
 
 export type QaCatalogStatus = "pending" | "ready" | "failed";
 export type QaScenarioPriority = "p0" | "p1" | "p2";
+export type QaRunStatus = "running" | "ready" | "failed";
+export type QaRunMode = "full" | "targeted";
+export type QaVerdict = "pass" | "fail" | "blocked";
 
 export interface QaScenario {
   id: string;
@@ -199,14 +202,36 @@ export interface QaCatalog {
   updatedAt: string;
 }
 
+export interface QaScenarioResult {
+  id: string;
+  verdict: QaVerdict;
+  note: string;
+}
+
+export interface QaRun {
+  id: string;
+  projectId: string;
+  sessionId: string | null;
+  mode: QaRunMode;
+  status: QaRunStatus;
+  scenarioIds: string[];
+  results: QaScenarioResult[];
+  summary: string | null;
+  model: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const qa = {
-  /** Catalog + stale flag (fingerprint drift vs current checkout sources). */
+  /** Catalog + stale flag + last run. */
   get: (projectId: string) =>
     j<{
       catalog: QaCatalog | null;
       running: boolean;
       stale: boolean;
       currentFingerprint: string | null;
+      lastRun: QaRun | null;
     }>("GET", `/qa/${encodeURIComponent(projectId)}`),
   /** Kick detached QA Discovery scout. */
   discover: (projectId: string) =>
@@ -214,6 +239,23 @@ export const qa = {
       "POST",
       `/qa/${encodeURIComponent(projectId)}/discover`,
     ),
+  /** Execution history (newest first). */
+  runs: (projectId: string, limit = 20) =>
+    j<{ runs: QaRun[] }>(
+      "GET",
+      `/qa/${encodeURIComponent(projectId)}/runs?limit=${limit}`,
+    ),
+  /** Start a Full / Targeted run row (`running`) before the chat turn. */
+  startRun: (
+    projectId: string,
+    body: {
+      mode: QaRunMode;
+      scenarioIds: string[];
+      sessionId?: string | null;
+      model?: string | null;
+    },
+  ) =>
+    j<{ run: QaRun }>("POST", `/qa/${encodeURIComponent(projectId)}/runs`, body),
 };
 
 // ── Resolve: per-card analysis ────────────────────────────────────────────────

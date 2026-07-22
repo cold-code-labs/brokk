@@ -1720,6 +1720,7 @@ body:has(.sindri) {
   font-size: 0.68rem;
   color: var(--fg-dim);
   padding: 0 0.15rem;
+  text-decoration: none;
 }
 .sindri-qa-btn.is-stale {
   border-color: color-mix(in srgb, #c45c26 45%, var(--line-soft));
@@ -1727,6 +1728,27 @@ body:has(.sindri) {
 }
 .sindri-qa-btn.is-busy {
   opacity: 0.75;
+}
+a.sindri-qa-count:hover {
+  color: var(--fg);
+  text-decoration: underline;
+}
+.sindri-qa-live {
+  font-size: 0.65rem;
+  letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--ember, #c45c26) 90%, var(--fg));
+  border: 1px solid color-mix(in srgb, var(--ember, #c45c26) 35%, var(--line-soft));
+  background: color-mix(in srgb, var(--ember, #c45c26) 10%, transparent);
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  text-decoration: none;
+  white-space: nowrap;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+a.sindri-qa-live:hover {
+  border-color: color-mix(in srgb, var(--ember, #c45c26) 55%, var(--line-soft));
 }
 
 /* Composer attachments → .brokk/inbox/ */
