@@ -3,12 +3,15 @@
  * Same labels/dedupe as apps/api `backlog-from-brief` / `backlog-from-qa` (ADR 0067).
  */
 import type { Store } from "@brokk/db";
-import type { Project, ProjectBrief, QaCatalog, QaRun, Task } from "@brokk/core";
+import type { QaCatalog, QaRun, Task } from "@brokk/core";
 
 const DISCOVERY_LABEL = "discovery";
 const QA_LABEL = "qa";
 const QA_SCENARIO_LABEL = "qa-scenario";
 const QA_FAIL_LABEL = "qa-fail";
+
+/** Minimal project fields — store rows use Date; core Project uses ISO strings. */
+type ProjectRef = { id: string; baseBranch: string };
 
 function toCardTitle(item: string): string {
   const t = item.replace(/\s+/g, " ").trim();
@@ -22,7 +25,7 @@ function normItem(s: string): string {
 
 async function makeCard(
   store: Store,
-  project: Project,
+  project: ProjectRef,
   seenLabels: Set<string>,
   input: {
     title: string;
@@ -51,8 +54,8 @@ async function makeCard(
 /** Product brief `missing[]` → discovery cards (Huginn Phase 2). */
 export async function proposeFromBrief(
   store: Store,
-  project: Project,
-  brief: Pick<ProjectBrief, "missing">,
+  project: ProjectRef,
+  brief: { missing: string[] },
 ): Promise<{ created: number; skipped: number }> {
   const existing = await store.listTasks({ projectId: project.id });
   const seenText = new Set(
@@ -88,7 +91,7 @@ export async function proposeFromBrief(
 /** QA catalog scenarios → checklist cards (not forge-ready via Approve all). */
 export async function proposeFromQaCatalog(
   store: Store,
-  project: Project,
+  project: ProjectRef,
   catalog: Pick<QaCatalog, "scenarios">,
 ): Promise<{ created: number; skipped: number }> {
   const existing = await store.listTasks({ projectId: project.id });
@@ -120,7 +123,7 @@ export async function proposeFromQaCatalog(
 /** QA run fail|blocked → forge-ready cards (Approve all enqueues qa-fail). */
 export async function proposeFromQaFindings(
   store: Store,
-  project: Project,
+  project: ProjectRef,
   run: Pick<QaRun, "id" | "mode" | "results">,
   catalog: Pick<QaCatalog, "scenarios"> | null,
 ): Promise<{ created: number; skipped: number }> {
