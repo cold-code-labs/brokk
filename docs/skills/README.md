@@ -20,23 +20,21 @@ Yggdrasil keeps **tokens / UI packages** — not craft playbooks. New instructio
 skill = add a folder under `skills/` and ship; the chat image copies the tree
 (`BROKK_SKILLS_DIR=/app/skills`).
 
-## Full QA (Discovery → Execution)
+## Full QA (Discovery → QA → Forge)
 
-**Padrão de frota:** [ADR 0066](https://edda.coldcodelabs.com/decisoes/0066-brokk-full-qa-discovery-execution/)
-(Edda). Usar em todo app conectado ao Brokk — não só quando “der vontade”.
+**Padrão de frota:** [ADR 0066](https://edda.coldcodelabs.com/decisoes/0066-brokk-full-qa-discovery-execution/) ·
+dono Huginn [ADR 0067](https://edda.coldcodelabs.com/decisoes/0067-brokk-huginn-discovery-qa/)
 
-- **Capability `qa-discover`** — scout builds a versioned scenario catalog
-  (`qa_catalogs` + `.brokk/qa/scenarios.json`) with a **fingerprint** of
-  routes/features/e2e. Fleet default engine is **Cursor CLI** (same path
-  as Brokkr forge). When those sources change, `GET /qa/:projectId` returns
-  `stale: true` — re-run Discovery before trusting Full QA instructions.
-- **Instruction `full-qa`** — Execution playbook for the live preview
-  (Playwright MCP). Prefer engine **`cursor-cli`**. Sindri chips: **Discover**,
-  **Full QA**, **Targeted**. Project home: `/projects/:id/qa`. Persist via
-  **`submit_qa_report`**; progress via **`qa-progress`** + Preview →
-  **Assistir o agente**.
-- Huginn `discovery` stays product brief (`built`/`missing`); QA Discovery is
-  user journeys only.
+Pipeline: **Discovery → QA (LLM | Automated) → Forge**.
+
+- **Connect / novo projeto** dispara Discovery Huginn: brief de produto **e** catálogo QA.
+- **Capability `qa-discover`** — catálogo versionado (`qa_catalogs` + fingerprint).
+  Motor preferido **Cursor CLI**. `stale: true` → re-Discover.
+- **Instruction `full-qa`** — Execution no preview (Playwright MCP). Chips Sindri:
+  Discover · Full QA · Targeted. Persist: `submit_qa_report` / `qa-progress`.
+- **Forge** — fail|blocked (e missing do brief) viram cards propostos automaticamente;
+  Approve all enfileira `discovery` / `qa-fail` (não `qa-scenario`).
+- Pacote face: `@brokk/huginn`.
 
 ## Shape
 

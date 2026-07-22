@@ -23,7 +23,9 @@ import { UI_MESSAGE_STREAM_HEADERS } from "ai";
 import { writeInboxUploads } from "./inbox.js";
 import { unseal } from "./secrets.js";
 import { autoTitle } from "./titler.js";
-import { detectRuntime, runDiscovery, runMeetingScout, runQaDiscovery, computeQaFingerprint, runResolve } from "@brokk/scout";
+import { detectRuntime, runDiscovery, runQaDiscovery, computeQaFingerprint } from "@brokk/huginn";
+import { runMeetingScout, runResolve } from "@brokk/scout";
+import { proposeFromBrief, proposeFromQaCatalog, proposeFromQaFindings } from "./forge-from-huginn.js";
 import { buildDetectCtx, resolveRuntime } from "@brokk/core/runtime";
 import type { Store } from "@brokk/db";
 import { featureBranch, type Repository } from "@brokk/core";
@@ -711,6 +713,18 @@ export function buildSindri(deps: SindriDeps): Hono {
         });
         console.log(`[huginn] ${repo.fullName}: brief ready (${brief.missing.length} gaps)`);
 
+        // Forge: propose backlog cards from missing[] (idempotent).
+        try {
+          const { created, skipped } = await proposeFromBrief(deps.store, project, brief);
+          if (created || skipped) {
+            console.log(`[huginn] ${repo.fullName}: forge brief cards +${created} skip=${skipped}`);
+          }
+        } catch (err) {
+          console.warn(
+            `[huginn] ${repo.fullName}: forge brief skipped — ${err instanceof Error ? err.message : err}`,
+          );
+        }
+
         // Sleipnir: pin how to run this repo, decided once here (this scout IS the
         // rescan, so re-detect from scratch — pass null). The preview supervisor
         // then boots from the pinned spec without re-inferring. Best-effort: a
@@ -827,6 +841,18 @@ export function buildSindri(deps: SindriDeps): Hono {
         console.log(
           `[qa-discovery] ${repo.fullName}: ready (${result.scenarios.length} scenarios, fp=${result.fingerprint})`,
         );
+        try {
+          const { created, skipped } = await proposeFromQaCatalog(deps.store, project, {
+            scenarios: result.scenarios,
+          });
+          if (created || skipped) {
+            console.log(`[qa-discovery] ${repo.fullName}: forge scenario cards +${created} skip=${skipped}`);
+          }
+        } catch (err) {
+          console.warn(
+            `[qa-discovery] ${repo.fullName}: forge scenarios skipped — ${err instanceof Error ? err.message : err}`,
+          );
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[qa-discovery] ${repo.fullName}: failed — ${msg}`);
@@ -1413,7 +1439,7 @@ function buildSkills(
     {
       name: "discovery",
       description:
-        "Scout THIS repository end-to-end (read-only) and return a structured brief — mission, what's built, what's missing, and the stack. Use for a fresh map of an unfamiliar or freshly-connected project. Takes no input.",
+        "Scout THIS repository end-to-end (read-only) and return a structured brief — mission, what's built, what's missing, and the stack. Huginn Discovery (ADR 0067). Use for a fresh map of an unfamiliar or freshly-connected project. Takes no input.",
       run: async () => {
         emit({ type: "status", phase: "discovery" });
         const brief = await runDiscovery({ cfg: deps.cfg, cwd, repoFullName, model: "haiku" });
@@ -1524,6 +1550,19 @@ function buildSkills(
           "",
           "Catalog also at `.brokk/qa/scenarios.json`. If routes/features change later, re-run qa-discover — a stale fingerprint mis-instructs Full QA.",
         ];
+        try {
+          const project = await deps.store.getProject(projectId);
+          if (project) {
+            const { created, skipped } = await proposeFromQaCatalog(deps.store, project, {
+              scenarios: result.scenarios,
+            });
+            if (created || skipped) {
+              lines.push("", `Forge: **${created}** scenario card(s)` + (skipped ? ` (${skipped} already existed)` : "") + ".");
+            }
+          }
+        } catch {
+          /* best-effort */
+        }
         return { ok: true, content: lines.join("\n") };
       },
     },
@@ -1624,12 +1663,38 @@ function buildSkills(
           /* best-effort */
         }
 
+        // Forge: fail|blocked → proposed cards (Approve all enqueues qa-fail).
+        let forgeNote = "";
+        if (status === "ready" && (fail > 0 || blocked > 0)) {
+          try {
+            const project = await deps.store.getProject(projectId);
+            const catalog = await deps.store.getQaCatalog(projectId);
+            if (project) {
+              const { created, skipped } = await proposeFromQaFindings(
+                deps.store,
+                project,
+                { id: updated?.id ?? run.id, mode: (updated?.mode ?? run.mode) as "full" | "targeted", results },
+                catalog,
+              );
+              forgeNote =
+                created || skipped
+                  ? `\n\nForge: **${created}** card(s) from findings` +
+                    (skipped ? ` (${skipped} already existed)` : "") +
+                    "."
+                  : "";
+            }
+          } catch {
+            /* best-effort */
+          }
+        }
+
         return {
           ok: true,
           content: [
             `**QA report saved** · run \`${updated?.id ?? run.id}\` · ${head}`,
             "",
             "Also at `.brokk/qa/last-report.md`. Open the project QA page for history.",
+            forgeNote,
           ].join("\n"),
         };
       },

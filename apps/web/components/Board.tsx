@@ -270,7 +270,7 @@ export default function Board({ projectId }: { projectId?: string }) {
         <div className="forge-head-top">
           <div className="forge-head-copy">
             <span className="forge-eyebrow">Brokk · the anvil</span>
-            <h1 className="forge-title">{project ? project.name : "Board"}</h1>
+            <h1 className="forge-title">{project ? project.name : "Forge"}</h1>
             <p className="forge-sub">
               Card → agent → PR.{" "}
               {project && <span className="ygg-dim">model {project.model}</span>}

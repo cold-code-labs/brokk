@@ -191,7 +191,7 @@ export default function Topbar({ user }: { user?: TopbarUserProps }) {
             aria-current={boardOn ? "page" : undefined}
           >
             <Columns3 size={15} strokeWidth={1.75} aria-hidden />
-            <span>Board</span>
+            <span>Forge</span>
           </Link>
           <Link
             href="/new"

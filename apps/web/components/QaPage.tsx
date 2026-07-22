@@ -153,14 +153,14 @@ export default function QaPage({ projectId }: { projectId?: string }) {
     <Main className="forge-room">
       <header className="forge-head">
         <Link href={projectId ? `/projects/${projectId}` : "/fleet"} className="forge-crumb">
-          ← Board
+          ← Forge
         </Link>
         <div className="forge-head-top">
           <div className="forge-head-copy">
-            <span className="forge-eyebrow">Brokk · QA</span>
+            <span className="forge-eyebrow">Huginn · QA</span>
             <h1 className="forge-title">{project ? project.name : "QA"}</h1>
             <p className="forge-sub">
-              Scenario catalog and Full / Targeted run history. Live execution stays in Sindri.
+              Discovery → QA → Forge. Catálogo de cenários e histórico Full / Targeted. Execution no Sindri.
             </p>
             {status === "pending" && (
               <span className="forge-pulse" style={{ marginTop: "0.8rem" }}>

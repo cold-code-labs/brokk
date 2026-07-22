@@ -1,13 +1,11 @@
 # `@brokk/huginn`
 
-Huginn owns **Discovery → QA** on Brokk. Forge stays the board (cards from fails).
+Huginn owns **Discovery → QA** on Brokk ([ADR 0067](https://edda.coldcodelabs.com/decisoes/0067-brokk-huginn-discovery-qa/)).
 
-| Phase | Huginn? | Notes |
-|-------|---------|--------|
-| Discovery | yes | brief + scenario catalog (+ runtime on connect) |
-| QA LLM / QA Automated | yes (orchestration) | Execution engines under the same raven |
-| Forge | no | Brokk board; Huginn only *proposes* via fail cards |
+| Phase | Huginn | Notes |
+|-------|--------|--------|
+| Discovery | yes | Connect fires brief + QA catalog |
+| QA LLM / Automated | yes (orchestration) | Execution under Sindri |
+| Forge | proposes only | Cards from missing / scenarios / fail\|blocked |
 
-See **Edda ADR 0067**. Evolves ADR 0066. Piloto: Arte One.
-
-Import this package — not `@brokk/scout` — for Discovery / QA catalog work.
+Import Discovery/QA/runtime from here. Muninn + Resolve stay on `@brokk/scout`.
