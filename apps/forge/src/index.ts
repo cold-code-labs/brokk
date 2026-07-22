@@ -313,13 +313,18 @@ async function handleRun(
     });
 
     // PR routing:
+    //  - story plan (storyModule) → commit only; PR opened later via POST /plans/:id/open-pr
     //  - plan   → ONE shared PR (feature→base). The first card opens it; the
     //             control plane records it so later cards reuse the same PR.
     //  - revise → update the existing PR (no new one).
     //  - implement → open a fresh PR.
     let pr: { url: string; number: number | null };
     let prPhase = "pr_opened";
-    if (isPlan) {
+    const deferPr = isPlan && !!plan!.storyModule;
+    if (isPlan && deferPr) {
+      pr = { url: "", number: null };
+      prPhase = "pr_deferred";
+    } else if (isPlan) {
       if (plan!.prUrl) {
         pr = { url: plan!.prUrl, number: plan!.prNumber };
         prPhase = "pr_reused";
@@ -365,7 +370,11 @@ async function handleRun(
         prPhase = "pr_replaced";
       }
     }
-    buffer.emit({ type: "status", payload: { phase: prPhase, url: pr.url } });
+    if (pr.url) {
+      buffer.emit({ type: "status", payload: { phase: prPhase, url: pr.url } });
+    } else {
+      buffer.emit({ type: "status", payload: { phase: prPhase, branch } });
+    }
 
     // Red verify OR red acceptance → the run is a failure even though a PR exists
     // (so the diff is still inspectable). Green / no-gate → succeeded.
@@ -381,13 +390,14 @@ async function handleRun(
     await buffer.flush();
     await api(cfg, "POST", `/runs/${run.id}/complete`, {
       status: failed ? "failed" : "succeeded",
-      prUrl: pr.url,
-      prNumber: pr.number ?? undefined,
+      ...(pr.url
+        ? { prUrl: pr.url, prNumber: pr.number ?? undefined }
+        : {}),
       error: failReason,
       usage,
     });
     console.log(
-      `[forge] run ${run.id} → PR ${pr.url}` +
+      `[forge] run ${run.id} → ${pr.url ? `PR ${pr.url}` : deferPr ? `story ${branch} (PR deferred)` : "no PR"}` +
         (verify ? ` · verify ${verify.ok ? "✓" : "✗"}` : "") +
         (receipt?.ran ? ` · acceptance ${receipt.ok ? "✓" : "✗"}` : "") +
         (result.healAttempts ? ` · healed ×${result.healAttempts}` : ""),

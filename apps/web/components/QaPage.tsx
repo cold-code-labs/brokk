@@ -1,6 +1,6 @@
 "use client";
 
-import type { Project } from "@brokk/sdk";
+import type { Plan, Project } from "@brokk/sdk";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FlaskConical } from "lucide-react";
@@ -40,6 +40,9 @@ export default function QaPage({ projectId }: { projectId?: string }) {
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [cardBusy, setCardBusy] = useState(false);
+  const [storyBusy, setStoryBusy] = useState(false);
+  const [stories, setStories] = useState<Plan[]>([]);
+  const [prBusy, setPrBusy] = useState<string | null>(null);
   const toast = useToast();
 
   useEffect(() => {
@@ -65,11 +68,16 @@ export default function QaPage({ projectId }: { projectId?: string }) {
   const load = useCallback(async () => {
     if (!projectId) return;
     try {
-      const [cat, hist] = await Promise.all([qa.get(projectId), qa.runs(projectId, 30)]);
+      const [cat, hist, plansRes] = await Promise.all([
+        qa.get(projectId),
+        qa.runs(projectId, 30),
+        brokk.listPlans(projectId).catch(() => ({ plans: [] as Plan[] })),
+      ]);
       setCatalog(cat.catalog);
       setStale(Boolean(cat.stale));
       setDiscovering(cat.running || cat.catalog?.status === "pending");
       setRuns(hist.runs);
+      setStories((plansRes.plans ?? []).filter((p) => p.storyModule));
     } catch {
       /* keep prior */
     } finally {
@@ -125,6 +133,46 @@ export default function QaPage({ projectId }: { projectId?: string }) {
       toast("Não deu pra criar cards.", { meta: String(e), tone: "err" });
     } finally {
       setCardBusy(false);
+    }
+  }
+
+  /** ADR 0069: group qa-fail → Story Plans (1 PR per module). */
+  async function approveStories() {
+    if (!projectId) return;
+    setStoryBusy(true);
+    try {
+      const { stories: created, enqueued, modules } = await brokk.approveQaStories(projectId, {
+        includeQueued: true,
+      });
+      await load();
+      if (modules) {
+        toast(`${modules} Story · ${enqueued} cards no forge.`, {
+          meta: created.map((s) => s.module).join(", "),
+          tone: "ok",
+        });
+      } else {
+        toast("Nenhum qa-fail solto pra agrupar.", { tone: "info" });
+      }
+    } catch (e) {
+      toast("Não deu pra criar Stories.", { meta: String(e), tone: "err" });
+    } finally {
+      setStoryBusy(false);
+    }
+  }
+
+  async function openStoryPr(planId: string, override = false) {
+    setPrBusy(planId);
+    try {
+      const { plan, eitri } = await brokk.openPlanPr(planId, { override });
+      await load();
+      toast(plan.prUrl ? `PR aberto.` : "PR.", {
+        meta: eitri ? `Eitri: ${eitri.ok ? "ok" : eitri.detail ?? "fail"}` : undefined,
+        tone: eitri && !eitri.ok ? "err" : "ok",
+      });
+    } catch (e) {
+      toast("Não abriu o PR.", { meta: String(e), tone: "err" });
+    } finally {
+      setPrBusy(null);
     }
   }
 
@@ -193,6 +241,16 @@ export default function QaPage({ projectId }: { projectId?: string }) {
               variant="outline"
               size="sm"
               type="button"
+              onClick={() => void approveStories()}
+              disabled={storyBusy || !projectId}
+              title="Agrupa qa-fail por módulo → 1 Story (Plan) · 1 branch · 1 PR no fim"
+            >
+              {storyBusy ? "Stories…" : "Approve QA Stories"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
               onClick={() => void rediscover()}
               disabled={status === "pending" || !projectId}
             >
@@ -204,6 +262,61 @@ export default function QaPage({ projectId }: { projectId?: string }) {
       </header>
 
       {!loaded && <p className="ygg-dim" style={{ fontSize: 13 }}>Loading…</p>}
+
+      {stories.length > 0 && (
+        <section style={{ marginBottom: "1.7rem" }}>
+          <div className="forge-h" style={{ marginBottom: "0.6rem" }}>
+            <span className="forge-h-title">Stories</span>
+            <span className="forge-h-meta">{stories.length}</span>
+            <span className="forge-h-rule" />
+          </div>
+          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: "0.5rem" }}>
+            {stories.map((s) => {
+              const canOpen =
+                !s.prUrl && (s.validationStatus === "pass" || s.validationStatus === "fail");
+              return (
+                <li
+                  key={s.id}
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "0.5rem 1rem",
+                    alignItems: "center",
+                    fontSize: 13,
+                  }}
+                >
+                  <strong>{s.summary}</strong>
+                  <span className="ygg-dim">{s.featureBranch}</span>
+                  <span className="ygg-dim">
+                    re-QA {s.validationStatus ?? "—"}
+                    {s.prUrl ? " · PR" : " · PR —"}
+                  </span>
+                  {s.prUrl ? (
+                    <a href={s.prUrl} target="_blank" rel="noreferrer">
+                      abrir PR
+                    </a>
+                  ) : canOpen ? (
+                    <Button
+                      size="sm"
+                      type="button"
+                      disabled={prBusy === s.id}
+                      onClick={() =>
+                        void openStoryPr(s.id, s.validationStatus !== "pass")
+                      }
+                    >
+                      {prBusy === s.id
+                        ? "Abrindo…"
+                        : s.validationStatus === "pass"
+                          ? "Abrir PR + Eitri"
+                          : "Abrir PR (override)"}
+                    </Button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {loaded && !catalog && status !== "pending" && (
         <div className="forge-empty is-panel">

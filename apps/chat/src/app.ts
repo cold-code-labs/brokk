@@ -1639,6 +1639,29 @@ function buildSkills(
           error: status === "failed" ? summary : null,
         });
 
+        // ADR 0069: Story re-QA → stamp plan.validationStatus from this run.
+        const linkedPlanId = (updated ?? run).planId;
+        if (linkedPlanId && status === "ready") {
+          const allPass =
+            results.length > 0 && results.every((r) => r.verdict === "pass");
+          const validationStatus = allPass ? "pass" : "fail";
+          await deps.store
+            .updatePlan(linkedPlanId, { validationStatus })
+            .catch(() => {});
+          console.log(
+            `[qa] story plan ${linkedPlanId.slice(0, 8)} validation → ${validationStatus}`,
+          );
+        } else if (!linkedPlanId && status === "ready") {
+          const byRun = await deps.store.findPlanByValidationRunId(run.id).catch(() => null);
+          if (byRun) {
+            const allPass =
+              results.length > 0 && results.every((r) => r.verdict === "pass");
+            await deps.store
+              .updatePlan(byRun.id, { validationStatus: allPass ? "pass" : "fail" })
+              .catch(() => {});
+          }
+        }
+
         const pass = results.filter((r) => r.verdict === "pass").length;
         const fail = results.filter((r) => r.verdict === "fail").length;
         const blocked = results.filter((r) => r.verdict === "blocked").length;

@@ -205,6 +205,8 @@ services:
       # its per-project migrate token.
       HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
       BROKK_EGRESS: '1'
+      EITRI_MODE: ${EITRI_MODE:-trigger}
+      EITRI_PORT: ${EITRI_PORT:-8796}
       EITRI_APP_ID: ${EITRI_APP_ID:-}
       EITRI_APP_PRIVATE_KEY_FILE: ${EITRI_APP_PRIVATE_KEY_FILE:-/home/brokk/eitri-app.pem}
       EITRI_PROMOTE: ${EITRI_PROMOTE:-}

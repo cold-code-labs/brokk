@@ -1,4 +1,4 @@
-import { AUTH_MODES, featureBranch, taskSlug, type Task } from "@brokk/core";
+import { AUTH_MODES, featureBranch, storyFeatureBranch, taskSlug, type Task } from "@brokk/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requestActor, canSeeProject, listScope, resolveLogtoOrgId } from "../actor.js";
@@ -359,6 +359,105 @@ export function projectsRoutes(deps: AppDeps): Hono {
     return c.json({ enqueued: proposed.length }, 200);
   });
 
+  // ADR 0069: group qa-fail cards into Story Plans (one Plan per catalog module),
+  // share featureBranch, enqueue — forge commits without per-card PR.
+  r.post("/:id/approve-qa-stories", async (c) => {
+    const id = c.req.param("id");
+    const actor = requestActor(c, deps.runnerSecret);
+    const project = await deps.store.getProject(id);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const parsed = ApproveQaStoriesBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+    const catalog = await deps.store.getQaCatalog(id);
+    const byScenario = new Map((catalog?.scenarios ?? []).map((s) => [s.id, s]));
+
+    const candidates: Task[] = [];
+    const backlog = await deps.store.listTasks({ projectId: id, status: "backlog" });
+    for (const t of backlog) {
+      if ((t.labels ?? []).includes(QA_FAIL_LABEL) && !t.planId) candidates.push(t);
+    }
+    if (parsed.data.includeQueued) {
+      const queued = await deps.store.listTasks({ projectId: id, status: "queued" });
+      for (const t of queued) {
+        if ((t.labels ?? []).includes(QA_FAIL_LABEL) && !t.planId) candidates.push(t);
+      }
+    }
+
+    const groups = new Map<string, Task[]>();
+    for (const t of candidates) {
+      const scenId = scenarioIdFromQaFailLabels(t.labels);
+      const mod =
+        (scenId && byScenario.get(scenId)?.module) ||
+        moduleFromBody(t.body) ||
+        "qa";
+      const key = mod.trim().toLowerCase() || "qa";
+      const list = groups.get(key) ?? [];
+      list.push(t);
+      groups.set(key, list);
+    }
+
+    const who = actor.email || "human";
+    const stories: {
+      planId: string;
+      module: string;
+      featureBranch: string;
+      cardIds: string[];
+    }[] = [];
+    let enqueued = 0;
+
+    for (const [module, cards] of groups) {
+      const draft = await deps.store.insertPlan({
+        projectId: id,
+        prompt: `QA Story · ${module}`,
+        summary: `QA · ${module}`,
+        rationale: `${cards.length} qa-fail card(s) agrupados por módulo (ADR 0069).`,
+        mode: "feature",
+        status: "forging",
+        featureBranch: "pending",
+        baseBranch: project.baseBranch,
+        model: null,
+        createdBy: "huginn-story",
+        storyModule: module,
+        validationStatus: null,
+        validationRunId: null,
+      });
+      const branch = storyFeatureBranch(module, draft.id);
+      const plan = await deps.store.updatePlan(draft.id, { featureBranch: branch });
+
+      const cardIds: string[] = [];
+      let i = 0;
+      for (const t of cards) {
+        i += 1;
+        const key = `qa${i}`;
+        await deps.store.updateTask(t.id, {
+          planId: plan.id,
+          planKey: key,
+          dependsOn: [],
+          baseBranch: project.baseBranch,
+        });
+        if (t.status === "backlog") {
+          await deps.store.transitionTask(t.id, "queued", {
+            actor: who,
+            reason: `approve-qa-stories · ${module}`,
+          });
+        }
+        cardIds.push(t.id);
+        enqueued += 1;
+      }
+      stories.push({
+        planId: plan.id,
+        module,
+        featureBranch: plan.featureBranch,
+        cardIds,
+      });
+    }
+
+    return c.json({ stories, enqueued, modules: stories.length }, 201);
+  });
+
   return r;
 }
 
@@ -398,10 +497,27 @@ const BacklogFromQaBody = z.object({
   source: z.enum(["findings", "catalog", "both"]).default("both"),
   runId: z.string().uuid().optional(),
 });
+const ApproveQaStoriesBody = z.object({
+  /** Also absorb queued qa-fail cards that aren't under a plan yet (re-story). */
+  includeQueued: z.boolean().optional().default(true),
+});
 const normItem = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 200);
 /** A concise card title from a (possibly long) missing-item sentence. */
 function toCardTitle(item: string): string {
   const t = item.replace(/\s+/g, " ").trim();
   if (t.length <= 90) return t;
   return `${t.slice(0, 88).replace(/\s\S*$/, "")}…`;
+}
+
+function scenarioIdFromQaFailLabels(labels: string[] | null | undefined): string | null {
+  for (const l of labels ?? []) {
+    const m = /^qa-fail:(.+)$/i.exec(l);
+    if (m?.[1]) return m[1];
+  }
+  return null;
+}
+
+function moduleFromBody(body: string): string | null {
+  const m = /m[oó]dulo\s*=\s*([^\s·\n]+)/i.exec(body);
+  return m?.[1]?.trim() || null;
 }

@@ -1,12 +1,13 @@
 /**
  * @brokk/reviewer-app — the forge's second smith.
  *
- * Loop: for every repo in the watch set (each fleet project that forges into
- * `dev`, plus the seed BROKK_DEFAULT_REPO), poll its open PRs → for each head sha
- * not yet reviewed, check out the PR, run the Agent SDK reviewer, post the verdict
- * as a comment, and record it. Standalone daemon — it never touches the forge
- * (runner) machinery; it just shares Brokk's Postgres for its review ledger.
+ * Modes (ADR 0069):
+ *   - poll (legacy): for every fleet project on `dev` (+ seed), poll open PRs
+ *     and review each new head sha.
+ *   - trigger: HTTP only — POST /eitri/review { repo, prNumber } reviews that
+ *     PR once per head SHA. No fleet poll.
  */
+import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -44,6 +45,27 @@ async function listOpenPrs(repo: string, githubToken: string): Promise<OpenPr[]>
   return JSON.parse(stdout || "[]");
 }
 
+async function getPr(repo: string, prNumber: number, githubToken: string): Promise<OpenPr | null> {
+  try {
+    const { stdout } = await exec(
+      "gh",
+      [
+        "pr",
+        "view",
+        String(prNumber),
+        "--repo",
+        repo,
+        "--json",
+        "number,title,headRefName,baseRefName,headRefOid,author",
+      ],
+      { env: { ...process.env, GH_TOKEN: githubToken }, maxBuffer: 1024 * 1024 * 8 },
+    );
+    return JSON.parse(stdout || "null");
+  } catch {
+    return null;
+  }
+}
+
 /** The watch set, rebuilt every poll so a newly-created dev project is picked up
  *  without a restart: every fleet project on `dev`, unioned with the seed repo. */
 async function buildWatchSet(
@@ -71,6 +93,12 @@ async function resolveProjectId(
   return proj?.id ?? null;
 }
 
+function secretOk(header: string | undefined, expected: string): boolean {
+  if (!expected) return true;
+  const token = (header ?? "").replace(/^Bearer\s+/i, "").trim();
+  return token === expected;
+}
+
 async function main() {
   const cfg = loadEitriConfig();
   const { db } = createDb(cfg.databaseUrl);
@@ -94,6 +122,84 @@ async function main() {
   };
 
   const seedProjectId = cfg.repo ? await resolveProjectId(store, cfg.repo) : null;
+
+  const reviewTriggered = async (repo: string, prNumber: number): Promise<{ ok: boolean; detail: string }> => {
+    const pr = await getPr(repo, prNumber, cfg.githubToken);
+    if (!pr) return { ok: false, detail: `PR ${repo}#${prNumber} not found` };
+    if (cfg.skipAuthors.includes(pr.author?.login)) {
+      return { ok: false, detail: `author ${pr.author?.login} skipped` };
+    }
+    if (await store.hasReview(repo, pr.number, pr.headRefOid)) {
+      await tryAutoMerge(cfg, store, gitFor(repo, `https://github.com/${repo}.git`), appAuth, repo, pr).catch(
+        () => {},
+      );
+      return { ok: true, detail: `already reviewed @ ${pr.headRefOid.slice(0, 8)}` };
+    }
+    const projectId = (await resolveProjectId(store, repo)) ?? seedProjectId;
+    const cloneUrl =
+      (await store.getRepositoryByFullName(repo).catch(() => null))?.cloneUrl ??
+      `https://github.com/${repo}.git`;
+    await reviewOne(cfg, store, gitFor(repo, cloneUrl), appAuth, repo, projectId, pr);
+    return { ok: true, detail: `reviewed ${repo}#${pr.number} @ ${pr.headRefOid.slice(0, 8)}` };
+  };
+
+  // Always expose HTTP (health + trigger). In trigger mode this is the only path.
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    if (req.method === "GET" && (url.pathname === "/health" || url.pathname === "/")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, service: "eitri", mode: cfg.mode }));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/eitri/review") {
+      if (!secretOk(req.headers.authorization, cfg.runnerSecret)) {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "unauthorized" }));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      let body: { repo?: string; prNumber?: number } = {};
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      } catch {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid json" }));
+        return;
+      }
+      const repo = typeof body.repo === "string" ? body.repo.trim() : "";
+      const prNumber = typeof body.prNumber === "number" ? body.prNumber : Number(body.prNumber);
+      if (!repo.includes("/") || !Number.isFinite(prNumber) || prNumber < 1) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "repo (owner/name) and prNumber required" }));
+        return;
+      }
+      try {
+        const result = await reviewTriggered(repo, prNumber);
+        res.writeHead(result.ok ? 200 : 404, { "content-type": "application/json" });
+        res.end(JSON.stringify(result));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[eitri] trigger review failed:`, msg);
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, detail: msg }));
+      }
+      return;
+    }
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "not found" }));
+  });
+  server.listen(cfg.httpPort, () => {
+    console.log(`[eitri] http :${cfg.httpPort} · mode=${cfg.mode}`);
+  });
+
+  if (cfg.mode === "trigger") {
+    console.log(
+      `[eitri] trigger-only (no fleet poll)` +
+        (appAuth ? " · identity: GitHub App (Eitri[bot])" : cfg.hasOwnIdentity ? " · identity: own token" : " · identity: shared forge account (comment-only)"),
+    );
+    return;
+  }
 
   console.log(
     `[eitri] watching the fleet (projects on dev) + seed ${cfg.repo} every ${cfg.pollIntervalMs / 1000}s` +
@@ -139,6 +245,7 @@ async function main() {
     await sleep(cfg.pollIntervalMs);
   }
   console.log("[eitri] stopped");
+  server.close();
 }
 
 async function reviewOne(

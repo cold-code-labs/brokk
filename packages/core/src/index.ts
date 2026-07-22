@@ -679,6 +679,12 @@ export function featureBranch(summary: string, planId: string): string {
   return `brokk/feat-${taskSlug(summary)}-${planId.slice(0, 8)}`;
 }
 
+/** Shared branch for a QA Story (ADR 0069): `story/qa-<module>-<short-plan-id>`. */
+export function storyFeatureBranch(module: string, planId: string): string {
+  const slug = taskSlug(module || "qa") || "qa";
+  return `story/qa-${slug}-${planId.slice(0, 8)}`;
+}
+
 /** Map a complexity level to a concrete forge model + reasoning effort. The
  *  planner assigns `forca` per card; this is the single place that resolves it.
  *  Cheap work runs cheap; only the hard cards pull a flagship. */
@@ -985,6 +991,8 @@ export interface QaRun {
   id: string;
   projectId: string;
   sessionId: string | null;
+  /** When set, submit_qa_report updates this Story plan's validationStatus. */
+  planId: string | null;
   mode: QaRunMode;
   status: QaRunStatus;
   scenarioIds: string[];
@@ -1094,6 +1102,9 @@ export interface TaskAnalysis {
   updatedAt: string;
 }
 
+/** Story re-QA gate (ADR 0069). Null = not a QA story / not started. */
+export type PlanValidationStatus = "pending" | "running" | "pass" | "fail";
+
 /** A persisted plan: groups the cards that compose into one feature PR. */
 export interface Plan {
   id: string;
@@ -1112,6 +1123,11 @@ export interface Plan {
   prNumber: number | null;
   model: string | null;
   createdBy: string | null;
+  /** QA Story module slug (ADR 0069). Set → defer per-card PR until open-pr. */
+  storyModule: string | null;
+  /** Targeted re-QA after all story cards forge. */
+  validationStatus: PlanValidationStatus | null;
+  validationRunId: string | null;
   createdAt: string;
   updatedAt: string;
 }
