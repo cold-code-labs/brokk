@@ -207,7 +207,8 @@ export async function connectOne(
 function fireHuginnDiscovery(deps: AppDeps, projectId: string): void {
   const base = (deps.sindriUrl ?? "").replace(/\/$/, "");
   if (!base) return;
-  const headers = deps.runnerSecret ? { authorization: `Bearer ${deps.runnerSecret}` } : {};
+  const headers: Record<string, string> = {};
+  if (deps.runnerSecret) headers.authorization = `Bearer ${deps.runnerSecret}`;
   void fetch(`${base}/discover/${projectId}`, { method: "POST", headers }).catch(() => {});
   void fetch(`${base}/qa/${projectId}/discover`, { method: "POST", headers }).catch(() => {});
 }
