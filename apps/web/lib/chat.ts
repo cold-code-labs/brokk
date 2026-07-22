@@ -170,6 +170,52 @@ export const discovery = {
     j<{ status: string; running: boolean }>("POST", `/discover/${projectId}`),
 };
 
+// ── Full QA: scenario catalog ────────────────────────────────────────────────
+
+export type QaCatalogStatus = "pending" | "ready" | "failed";
+export type QaScenarioPriority = "p0" | "p1" | "p2";
+
+export interface QaScenario {
+  id: string;
+  title: string;
+  module: string;
+  priority: QaScenarioPriority;
+  role: string;
+  tags: string[];
+  preconditions: string[];
+  steps: string[];
+  expects: string[];
+}
+
+export interface QaCatalog {
+  projectId: string;
+  status: QaCatalogStatus;
+  summary: string | null;
+  fingerprint: string | null;
+  scenarios: QaScenario[];
+  model: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const qa = {
+  /** Catalog + stale flag (fingerprint drift vs current checkout sources). */
+  get: (projectId: string) =>
+    j<{
+      catalog: QaCatalog | null;
+      running: boolean;
+      stale: boolean;
+      currentFingerprint: string | null;
+    }>("GET", `/qa/${encodeURIComponent(projectId)}`),
+  /** Kick detached QA Discovery scout. */
+  discover: (projectId: string) =>
+    j<{ status: string; running: boolean }>(
+      "POST",
+      `/qa/${encodeURIComponent(projectId)}/discover`,
+    ),
+};
+
 // ── Resolve: per-card analysis ────────────────────────────────────────────────
 
 export type { TaskAnalysis, AnalysisQuestion };

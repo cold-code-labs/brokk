@@ -6,6 +6,9 @@ import type {
   AnalysisStatus,
   AnalysisStep,
   BriefStatus,
+  QaCatalog,
+  QaCatalogStatus,
+  QaScenario,
   ChatMessage,
   ChatSession,
   ChatSessionStats,
@@ -725,6 +728,20 @@ export interface Store {
       error?: string | null;
     },
   ): Promise<ProjectBrief>;
+
+  // full-qa: versioned scenario catalog (Discovery); fingerprint → stale check
+  getQaCatalog(projectId: string): Promise<QaCatalog | null>;
+  upsertQaCatalog(
+    projectId: string,
+    fields: {
+      status: QaCatalogStatus;
+      summary?: string | null;
+      fingerprint?: string | null;
+      scenarios?: QaScenario[];
+      model?: string | null;
+      error?: string | null;
+    },
+  ): Promise<QaCatalog>;
 
   // resolve (per-card analysis): the card's living, versioned understanding
   /** The latest analysis (current head) for a task, or null if never analysed. */
@@ -1916,6 +1933,35 @@ export function createStore(db: Db): Store {
       return rowToBrief(row!);
     },
 
+    async getQaCatalog(projectId) {
+      const rows = await db.execute(
+        sql`SELECT project_id, status, summary, fingerprint, scenarios, model, error, created_at, updated_at
+            FROM qa_catalogs WHERE project_id = ${projectId} LIMIT 1`,
+      );
+      const row = execRows(rows)[0];
+      return row ? rowToQaCatalog(row) : null;
+    },
+    async upsertQaCatalog(projectId, fields) {
+      const scenarios = JSON.stringify(fields.scenarios ?? []);
+      const rows = await db.execute(
+        sql`INSERT INTO qa_catalogs
+              (project_id, status, summary, fingerprint, scenarios, model, error, updated_at)
+            VALUES (${projectId}, ${fields.status}, ${fields.summary ?? null}, ${fields.fingerprint ?? null},
+              ${scenarios}::jsonb, ${fields.model ?? null}, ${fields.error ?? null}, now())
+            ON CONFLICT (project_id) DO UPDATE SET
+              status = EXCLUDED.status,
+              summary = EXCLUDED.summary,
+              fingerprint = EXCLUDED.fingerprint,
+              scenarios = EXCLUDED.scenarios,
+              model = EXCLUDED.model,
+              error = EXCLUDED.error,
+              updated_at = now()
+            RETURNING project_id, status, summary, fingerprint, scenarios, model, error, created_at, updated_at`,
+      );
+      const row = execRows(rows)[0];
+      return rowToQaCatalog(row!);
+    },
+
     async getTaskAnalysis(taskId) {
       const rows = await db.execute(
         sql`SELECT task_id, status, version, revised_title, details, evidence, approach, rationale, mode,
@@ -2222,6 +2268,23 @@ function rowToBrief(row: Record<string, unknown>): ProjectBrief {
     built: arr(row.built),
     missing: arr(row.missing),
     stack: arr(row.stack),
+    model: (row.model as string | null) ?? null,
+    error: (row.error as string | null) ?? null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+function rowToQaCatalog(row: Record<string, unknown>): QaCatalog {
+  const iso = (v: unknown): string =>
+    v instanceof Date ? v.toISOString() : typeof v === "string" ? v : new Date().toISOString();
+  const scenarios = Array.isArray(row.scenarios) ? (row.scenarios as QaScenario[]) : [];
+  return {
+    projectId: String(row.project_id),
+    status: String(row.status) as QaCatalogStatus,
+    summary: (row.summary as string | null) ?? null,
+    fingerprint: (row.fingerprint as string | null) ?? null,
+    scenarios,
     model: (row.model as string | null) ?? null,
     error: (row.error as string | null) ?? null,
     createdAt: iso(row.created_at),
@@ -2571,6 +2634,18 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     built jsonb NOT NULL DEFAULT '[]'::jsonb,
     missing jsonb NOT NULL DEFAULT '[]'::jsonb,
     stack jsonb NOT NULL DEFAULT '[]'::jsonb,
+    model text,
+    error text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );`);
+
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS qa_catalogs (
+    project_id uuid PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    status text NOT NULL DEFAULT 'pending',
+    summary text,
+    fingerprint text,
+    scenarios jsonb NOT NULL DEFAULT '[]'::jsonb,
     model text,
     error text,
     created_at timestamptz NOT NULL DEFAULT now(),

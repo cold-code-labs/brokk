@@ -935,6 +935,40 @@ export interface ProjectBrief {
   updatedAt: string;
 }
 
+// ── Full QA: scenario catalog ────────────────────────────────────────────────
+
+/** Lifecycle of a project's QA scenario catalog (Discovery phase). */
+export type QaCatalogStatus = "pending" | "ready" | "failed";
+
+export type QaScenarioPriority = "p0" | "p1" | "p2";
+
+/** One executable user journey for Full / Targeted GUI QA. */
+export interface QaScenario {
+  id: string;
+  title: string;
+  module: string;
+  priority: QaScenarioPriority;
+  role: string;
+  tags: string[];
+  preconditions: string[];
+  steps: string[];
+  expects: string[];
+}
+
+/** Versioned scenario matrix for a project. Fingerprint drifts → stale → re-discover. */
+export interface QaCatalog {
+  projectId: string;
+  status: QaCatalogStatus;
+  summary: string | null;
+  /** Hash of routes / features / e2e at discovery time. */
+  fingerprint: string | null;
+  scenarios: QaScenario[];
+  model: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── Resolve: per-card analysis ───────────────────────────────────────────────
 
 /** Lifecycle of a card's resolution analysis. `pending` = Resolve is analysing;

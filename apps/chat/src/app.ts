@@ -23,7 +23,7 @@ import { UI_MESSAGE_STREAM_HEADERS } from "ai";
 import { writeInboxUploads } from "./inbox.js";
 import { unseal } from "./secrets.js";
 import { autoTitle } from "./titler.js";
-import { detectRuntime, runDiscovery, runMeetingScout, runResolve } from "@brokk/scout";
+import { detectRuntime, runDiscovery, runMeetingScout, runQaDiscovery, computeQaFingerprint, runResolve } from "@brokk/scout";
 import { buildDetectCtx, resolveRuntime } from "@brokk/core/runtime";
 import type { Store } from "@brokk/db";
 import { featureBranch, type Repository } from "@brokk/core";
@@ -379,6 +379,12 @@ export function buildSindri(deps: SindriDeps): Hono {
         description: "Rewrite a rough prompt/spec into a sharper one via Mímir.",
         kind: "capability",
       },
+      {
+        name: "qa-discover",
+        description:
+          "Build / refresh the Full QA scenario catalog (user journeys) for this project.",
+        kind: "capability",
+      },
     ]);
     return c.json({ skills: catalog });
   });
@@ -431,6 +437,7 @@ export function buildSindri(deps: SindriDeps): Hono {
       const known = new Set(skillMetaList([
         { name: "discovery", description: "", kind: "capability" },
         { name: "enhance", description: "", kind: "capability" },
+        { name: "qa-discover", description: "", kind: "capability" },
       ]).map((s) => s.name));
       if (!known.has(skillRaw)) {
         return c.json({ error: `unknown skill "${skillRaw}"` }, 400);
@@ -726,6 +733,125 @@ export function buildSindri(deps: SindriDeps): Hono {
     return c.json({ brief, running: scouting.has(projectId) });
   });
 
+  // ── Full QA: scenario catalog (Discovery) ─────────────────────────────────────
+  const qaScouting = new Set<string>();
+
+  async function writeQaCatalogFile(
+    cwd: string,
+    payload: {
+      fingerprint: string;
+      summary: string;
+      scenarios: unknown[];
+      discoveredAt: string;
+    },
+  ): Promise<void> {
+    const dir = join(cwd, ".brokk", "qa");
+    await mkdir(dir, { recursive: true });
+    const body = {
+      version: 1,
+      fingerprint: payload.fingerprint,
+      discoveredAt: payload.discoveredAt,
+      summary: payload.summary,
+      scenarios: payload.scenarios,
+    };
+    await writeFile(join(dir, "scenarios.json"), `${JSON.stringify(body, null, 2)}\n`, "utf8");
+  }
+
+  app.post("/qa/:projectId/discover", async (c) => {
+    const projectId = c.req.param("projectId");
+    const project = await deps.store.getProject(projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    if (qaScouting.has(projectId)) return c.json({ status: "pending", running: true }, 202);
+    const repo = await deps.store.getRepository(project.repositoryId);
+    if (!repo) return c.json({ error: "repository not found" }, 404);
+
+    qaScouting.add(projectId);
+    await deps.store.upsertQaCatalog(projectId, { status: "pending" });
+
+    void (async () => {
+      const branch = `qa-discovery/${projectId.slice(0, 8)}`;
+      try {
+        const { path } = await deps.checkouts.ensure({
+          sessionId: `qa-${projectId}`,
+          branch,
+          repo: repo as Parameters<typeof deps.checkouts.ensure>[0]["repo"],
+          baseBranch: project.baseBranch,
+        });
+        const result = await runQaDiscovery({
+          cfg: deps.cfg,
+          cwd: path,
+          repoFullName: repo.fullName,
+          model: "haiku",
+          onProgress: (n) => console.log(`[qa-discovery] ${repo.fullName}: ${n}`),
+        });
+        const discoveredAt = new Date().toISOString();
+        await deps.store.upsertQaCatalog(projectId, {
+          status: "ready",
+          summary: result.summary,
+          fingerprint: result.fingerprint,
+          scenarios: result.scenarios,
+          model: "haiku",
+          error: null,
+        });
+        await writeQaCatalogFile(path, {
+          fingerprint: result.fingerprint,
+          summary: result.summary,
+          scenarios: result.scenarios,
+          discoveredAt,
+        }).catch((err) =>
+          console.warn(
+            `[qa-discovery] ${repo.fullName}: scenarios.json write skipped — ${err instanceof Error ? err.message : err}`,
+          ),
+        );
+        console.log(
+          `[qa-discovery] ${repo.fullName}: ready (${result.scenarios.length} scenarios, fp=${result.fingerprint})`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[qa-discovery] ${repo.fullName}: failed — ${msg}`);
+        await deps.store.upsertQaCatalog(projectId, { status: "failed", error: msg }).catch(() => {});
+      } finally {
+        qaScouting.delete(projectId);
+      }
+    })();
+
+    return c.json({ status: "pending", running: true }, 202);
+  });
+
+  app.get("/qa/:projectId", async (c) => {
+    const projectId = c.req.param("projectId");
+    const project = await deps.store.getProject(projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    const catalog = await deps.store.getQaCatalog(projectId);
+    let stale = false;
+    let currentFingerprint: string | null = null;
+    // Best-effort fingerprint against a fresh-ish checkout so the UI can warn
+    // when routes/features drifted since Discovery.
+    if (catalog?.status === "ready" && catalog.fingerprint) {
+      try {
+        const repo = await deps.store.getRepository(project.repositoryId);
+        if (repo) {
+          const { path } = await deps.checkouts.ensure({
+            sessionId: `qa-${projectId}`,
+            branch: `qa-discovery/${projectId.slice(0, 8)}`,
+            repo: repo as Parameters<typeof deps.checkouts.ensure>[0]["repo"],
+            baseBranch: project.baseBranch,
+          });
+          currentFingerprint = await computeQaFingerprint(path);
+          stale = currentFingerprint !== catalog.fingerprint;
+        }
+      } catch {
+        /* ignore — stale stays false if we cannot compute */
+      }
+    }
+    return c.json({
+      catalog,
+      running: qaScouting.has(projectId) || catalog?.status === "pending",
+      stale,
+      currentFingerprint,
+    });
+  });
+
   // ── Resolve: per-card analysis ────────────────────────────────────────────────
 
   // In-flight analyses, so re-triggering (or answering a question → re-run) doesn't
@@ -926,6 +1052,7 @@ async function runSessionTurn(
       skillMetaList([
         { name: "discovery", description: "", kind: "capability" },
         { name: "enhance", description: "", kind: "capability" },
+        { name: "qa-discover", description: "", kind: "capability" },
       ]).map((s) => s.name),
     );
     if (known.has(opts.skill) && session.skill !== opts.skill) {
@@ -1287,6 +1414,66 @@ function buildSkills(
           ok: true,
           content: `Enhanced (${res.mode}):\n\n${res.enhanced}\n\n— rationale: ${res.rationale}`,
         };
+      },
+    },
+    {
+      name: "qa-discover",
+      description:
+        "Build or refresh the Full QA scenario catalog for THIS project (user journeys + fingerprint). Use when starting Full QA, when the catalog is missing/stale, or the user asks to discover scenarios. Takes no input.",
+      run: async () => {
+        emit({ type: "status", phase: "qa-discover" });
+        const result = await runQaDiscovery({
+          cfg: deps.cfg,
+          cwd,
+          repoFullName,
+          model: "haiku",
+        });
+        const discoveredAt = new Date().toISOString();
+        await deps.store
+          .upsertQaCatalog(projectId, {
+            status: "ready",
+            summary: result.summary,
+            fingerprint: result.fingerprint,
+            scenarios: result.scenarios,
+            model: "haiku",
+            error: null,
+          })
+          .catch(() => {});
+        try {
+          const dir = join(cwd, ".brokk", "qa");
+          await mkdir(dir, { recursive: true });
+          await writeFile(
+            join(dir, "scenarios.json"),
+            `${JSON.stringify(
+              {
+                version: 1,
+                fingerprint: result.fingerprint,
+                discoveredAt,
+                summary: result.summary,
+                scenarios: result.scenarios,
+              },
+              null,
+              2,
+            )}\n`,
+            "utf8",
+          );
+        } catch {
+          /* best-effort file mirror */
+        }
+        const lines = [
+          `**QA catalog ready** · ${result.scenarios.length} scenarios · fingerprint \`${result.fingerprint}\``,
+          "",
+          result.summary,
+          "",
+          ...result.scenarios.map(
+            (s) =>
+              `- \`${s.id}\` [${s.priority}] ${s.title} · module=${s.module}` +
+              (s.tags.length ? ` · tags=${s.tags.join(",")}` : ""),
+          ),
+          "",
+          "Catalog also at `.brokk/qa/scenarios.json`. If routes/features change later, re-run qa-discover — a stale fingerprint mis-instructs Full QA.",
+        ];
+        return { ok: true, content: lines.join("\n") };
       },
     },
   ];

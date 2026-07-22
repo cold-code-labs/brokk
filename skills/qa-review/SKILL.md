@@ -40,6 +40,9 @@ engine + a live preview), so don't pretend to have driven anything.
 5. Screenshot the key moments (`browser_take_screenshot`) — a claim without a
    shot is weaker.
 
+For a **matrix of scenarios** (Full / Targeted QA, stale catalog, Discovery),
+use the **`full-qa`** skill instead of improvising a multi-flow run here.
+
 ## Report
 
 Lead with the verdict: **does it work?** Then, concretely:

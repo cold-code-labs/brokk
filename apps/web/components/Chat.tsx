@@ -60,6 +60,7 @@ import { StudioPanel } from "./StudioPanel";
 import { FileViewer } from "./FileViewer";
 import { ComposerChip } from "./ComposerChip";
 import { ComposerMenu } from "./ComposerMenu";
+import { QaControls, buildQaRunPrompt } from "./QaControls";
 
 // Full model choice (Claude engines only). Cursor seat is always Auto.
 const MODELS = [
@@ -1320,6 +1321,29 @@ export default function Chat() {
                       The anvil lives in the lintel and the branch in the session —
                       neither needs restating under every prompt. */}
                   <div className="sindri-cockpit-controls">
+                    <QaControls
+                      projectId={projectId}
+                      disabled={running || attachBusy}
+                      engine={engine}
+                      onRun={async (opts) => {
+                        const text = buildQaRunPrompt(opts);
+                        let sid = sessionId;
+                        if (!sid) {
+                          sid = (await newChat("claude-cli")) ?? "";
+                          if (!sid) return;
+                        }
+                        // Prefer Claude CLI so Playwright MCP is available.
+                        if (engine !== "claude-cli" && messages.length === 0) {
+                          setEngine("claude-cli");
+                          try {
+                            await chat.patchSession(sid, { engine: "claude-cli" });
+                          } catch {
+                            /* send still goes; skill warns if MCP missing */
+                          }
+                        }
+                        await send(sid, text);
+                      }}
+                    />
                     <button
                       type="button"
                       className="sindri-chip sindri-attach-btn"
