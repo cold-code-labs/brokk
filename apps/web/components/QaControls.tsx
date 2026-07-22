@@ -73,7 +73,9 @@ export function QaControls({ projectId, disabled, engine, onRun }: Props) {
 
   const scenarios = catalog?.status === "ready" ? catalog.scenarios : [];
   const ready = catalog?.status === "ready" && scenarios.length > 0;
-  const cliOk = engine === "claude-cli";
+  // Playwright MCP is wired for CLI lanes; prefer Cursor CLI (CURSOR_API_KEY) —
+  // Claude Code OAuth is often org-blocked on the fleet.
+  const cliOk = engine === "cursor-cli" || engine === "claude-cli";
   const qaHref = projectId ? `/projects/${projectId}/qa` : null;
   const execRunning = lastRun?.status === "running";
   const progressFromSummary =
@@ -143,7 +145,7 @@ export function QaControls({ projectId, disabled, engine, onRun }: Props) {
   const fullTitle = !ready
     ? "Rode Discovery antes do Full QA"
     : !cliOk
-      ? "Full QA precisa do motor Claude CLI (Playwright MCP)"
+      ? "Full QA precisa do motor Cursor CLI (ou Claude CLI) com Playwright MCP"
       : stale
         ? "Catálogo defasado — Full QA pode falhar em fluxos novos; prefira Discovery"
         : `Full QA · ${scenarios.length} cenários`;
@@ -206,7 +208,7 @@ export function QaControls({ projectId, disabled, engine, onRun }: Props) {
             !ready
               ? "Rode Discovery antes do Targeted QA"
               : !cliOk
-                ? "Targeted QA precisa do motor Claude CLI"
+                ? "Targeted QA precisa do motor Cursor CLI (ou Claude CLI)"
                 : "Targeted QA — escolher um cenário"
           }
           aria-label="Targeted QA"
@@ -263,6 +265,6 @@ export function buildQaRunPrompt(opts: {
   const staleNote = opts.stale
     ? "\n\nWARNING: catalog is STALE (routes/features/e2e fingerprint drifted). Note gaps; prefer re-Discover after this run if failures look like missing surfaces."
     : "";
-  const persistNote = `\n\nrunId=${opts.runId}. Between scenarios call invoke_skill → qa-progress {index,total,id,runId}. When done call invoke_skill → submit_qa_report with the same runId, results[], and summary. Watch the live Chromium via Preview → Assistir o agente.`;
+  const persistNote = `\n\nrunId=${opts.runId}. Between scenarios call invoke_skill → qa-progress {index,total,id,runId}. When done call invoke_skill → submit_qa_report with the same runId, results[], and summary. Watch the live Chromium via Preview → Assistir o agente. Prefer engine cursor-cli (CURSOR_API_KEY).`;
   return `/full-qa ${head}${staleNote}${persistNote}\n\n\`\`\`json\n${JSON.stringify(catalog, null, 2)}\n\`\`\``;
 }

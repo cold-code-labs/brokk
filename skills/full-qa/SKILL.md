@@ -65,8 +65,10 @@ matrix.
 
 ## Phase B — Execution
 
-Needs live preview URL + Playwright tools (`mcp__playwright__*`). Engine should
-be `claude-cli`. If missing, say so and stop.
+Needs live preview URL + Playwright tools (`mcp__playwright-chat__*` /
+`mcp__playwright__*`). Prefer engine **`cursor-cli`** (CURSOR_API_KEY).
+`claude-cli` also works when Claude Code OAuth is allowed. If neither CLI lane
+has browser tools, say so and stop.
 
 **Watch live:** Preview panel → **Assistir o agente** (MJPEG of the shared
 Chromium). Prefer that while driving scenarios so the human can follow along.

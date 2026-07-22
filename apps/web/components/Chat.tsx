@@ -1329,14 +1329,15 @@ export default function Chat() {
                       onRun={async (opts) => {
                         let sid = sessionId;
                         if (!sid) {
-                          sid = (await newChat("claude-cli")) ?? "";
+                          sid = (await newChat("cursor-cli")) ?? "";
                           if (!sid) return;
                         }
-                        // Prefer Claude CLI so Playwright MCP is available.
-                        if (engine !== "claude-cli" && messages.length === 0) {
-                          setEngine("claude-cli");
+                        // Prefer Cursor CLI (API key) so Playwright MCP is available
+                        // without Claude Code org OAuth.
+                        if (engine !== "cursor-cli" && engine !== "claude-cli" && messages.length === 0) {
+                          setEngine("cursor-cli");
                           try {
-                            await chat.patchSession(sid, { engine: "claude-cli" });
+                            await chat.patchSession(sid, { engine: "cursor-cli" });
                           } catch {
                             /* send still goes; skill warns if MCP missing */
                           }
