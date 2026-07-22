@@ -13,12 +13,13 @@
     "@brokk/chat": "workspace:*",
     "@brokk/core": "workspace:*",
     "@brokk/db": "workspace:*",
+    "@brokk/mcp": "workspace:*",
     "@brokk/mimir": "workspace:*",
-    "@hono/node-server": "^1.13.7",
-    "hono": "^4.6.14",
-    "zod": "^3.24.1",
     "@brokk/scout": "workspace:*",
-    "@brokk/mcp": "workspace:*"
+    "@hono/node-server": "^1.13.7",
+    "ai": "7.0.34",
+    "hono": "^4.6.14",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

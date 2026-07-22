@@ -18,6 +18,8 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { runCliSessionTurn, emitDirtySummary } from "./cli-turn.js";
+import { UiMessageBridge } from "@brokk/chat";
+import { UI_MESSAGE_STREAM_HEADERS } from "ai";
 import { writeInboxUploads } from "./inbox.js";
 import { unseal } from "./secrets.js";
 import { autoTitle } from "./titler.js";
@@ -1428,15 +1430,34 @@ async function runPlan(
 /** Stream a session's live events over SSE. Unsubscribes (but never aborts the
  *  turn) when the client disconnects. */
 function streamSession(deps: SindriDeps, sessionId: string, c: Context) {
+  const legacy =
+    c.req.query("legacy") === "1" || c.req.header("x-brokk-sse") === "agent-event";
+  // POST /messages just started the turn — replay the ring buffer.
+  // GET /stream reattach: UIMessage clients hydrate from DB; live-only avoids
+  // duplicating text/tool parts already in the thread.
+  const replay =
+    legacy || c.req.method === "POST" || c.req.query("replay") === "1";
+
+  if (!legacy) {
+    for (const [k, v] of Object.entries(UI_MESSAGE_STREAM_HEADERS)) {
+      c.header(k, v);
+    }
+  }
+
   return streamSSE(c, async (stream) => {
     const queue: AgentEvent[] = [];
     let wake: (() => void) | null = null;
-    const unsub = deps.turns.subscribe(sessionId, (e) => {
-      queue.push(e);
-      wake?.();
-      wake = null;
-    });
+    const unsub = deps.turns.subscribe(
+      sessionId,
+      (e) => {
+        queue.push(e);
+        wake?.();
+        wake = null;
+      },
+      { replay },
+    );
     stream.onAbort(() => unsub());
+    const bridge = new UiMessageBridge();
     try {
       while (!stream.closed) {
         if (queue.length === 0) {
@@ -1446,16 +1467,30 @@ function streamSession(deps: SindriDeps, sessionId: string, c: Context) {
           });
         }
         if (queue.length === 0) {
-          await stream.writeSSE({ event: "ping", data: "{}" });
+          if (legacy) {
+            await stream.writeSSE({ event: "ping", data: "{}" });
+          } else {
+            // SSE comment keepalive — AI SDK clients ignore unknown lines
+            await stream.write(": ping\n\n");
+          }
           continue;
         }
         let terminal = false;
         while (queue.length) {
           const e = queue.shift()!;
-          await stream.writeSSE({ event: e.type, data: JSON.stringify(e) });
+          if (legacy) {
+            await stream.writeSSE({ event: e.type, data: JSON.stringify(e) });
+          } else {
+            for (const chunk of bridge.push(e)) {
+              await stream.writeSSE({ data: JSON.stringify(chunk) });
+            }
+          }
           if (e.type === "done" || e.type === "error") terminal = true;
         }
-        if (terminal) break;
+        if (terminal) {
+          if (!legacy) await stream.writeSSE({ data: "[DONE]" });
+          break;
+        }
       }
     } finally {
       unsub();

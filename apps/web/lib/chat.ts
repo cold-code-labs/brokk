@@ -54,19 +54,6 @@ export interface ChatMessage {
   createdAt: string;
 }
 
-export type AgentEvent =
-  | { type: "status"; phase: string; detail?: unknown }
-  | { type: "text_delta"; text: string }
-  | { type: "thinking_delta"; text: string }
-  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
-  | { type: "tool_result"; toolUseId: string; ok: boolean; preview: string }
-  | { type: "message"; seq: number; role: Role; blocks: Block[] }
-  | { type: "usage"; usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number } }
-  | { type: "title"; title: string }
-  | { type: "done" }
-  | { type: "error"; message: string }
-  | { type: "ping" };
-
 /** An answer we actually heard back from the server. The status travels with it
  *  so callers can tell a verdict (404: the session is gone) from the fleet
  *  blinking (502 mid-redeploy) — one is worth surfacing, the other retrying. */
@@ -202,82 +189,3 @@ export const analysis = {
   addDetails: (taskId: string, details: string) =>
     j<{ status: string; running: boolean }>("POST", `/analyze/${taskId}`, { details }),
 };
-
-/** Parse an SSE response body, invoking onEvent per frame. Used by both the
- *  message POST and the reattach GET. Returns when the stream ends. */
-async function consumeSSE(res: Response, onEvent: (e: AgentEvent) => void, signal?: AbortSignal): Promise<void> {
-  if (!res.body) throw new Error("no stream body");
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    if (signal?.aborted) {
-      reader.cancel().catch(() => {});
-      return;
-    }
-    const { done, value } = await reader.read();
-    if (done) return;
-    buf += dec.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buf.indexOf("\n\n")) !== -1) {
-      const frame = buf.slice(0, nl);
-      buf = buf.slice(nl + 2);
-      const dataLines: string[] = [];
-      for (const line of frame.split("\n")) if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
-      const data = dataLines.join("\n");
-      if (!data) continue;
-      try {
-        onEvent(JSON.parse(data) as AgentEvent);
-      } catch {
-        /* ignore malformed frame */
-      }
-    }
-  }
-}
-
-/** Send a message and stream the turn. The turn keeps running server-side even if
- *  this stream is dropped (overnight) — reattach with attach(). */
-export async function sendMessage(
-  sessionId: string,
-  text: string,
-  onEvent: (e: AgentEvent) => void,
-  signal?: AbortSignal,
-  skill?: string | null,
-  opts?: {
-    /** Paths already written under `.brokk/inbox/` via fs/write. */
-    attachments?: string[];
-    /** Inline bytes when the checkout was not ready for fs/write. */
-    attachmentUploads?: { name: string; dataBase64: string }[];
-  },
-): Promise<void> {
-  const res = await fetch(`${BASE}/sessions/${sessionId}/messages`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      text,
-      ...(skill ? { skill } : {}),
-      ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
-      ...(opts?.attachmentUploads?.length ? { attachmentUploads: opts.attachmentUploads } : {}),
-    }),
-    signal,
-  });
-  if (!res.ok) {
-    const raw = await res.text().catch(() => "");
-    let msg = `send → ${res.status} ${raw}`;
-    try {
-      const j = JSON.parse(raw) as { error?: unknown };
-      if (typeof j.error === "string" && j.error.trim()) msg = j.error;
-    } catch {
-      /* keep raw */
-    }
-    throw new ApiError(msg, res.status);
-  }
-  await consumeSSE(res, onEvent, signal);
-}
-
-/** Reattach to an in-flight turn's live stream (replays the recent tail). */
-export async function attach(sessionId: string, onEvent: (e: AgentEvent) => void, signal?: AbortSignal): Promise<void> {
-  const res = await fetch(`${BASE}/sessions/${sessionId}/stream`, { signal });
-  if (!res.ok) throw new ApiError(`attach → ${res.status}`, res.status);
-  await consumeSSE(res, onEvent, signal);
-}

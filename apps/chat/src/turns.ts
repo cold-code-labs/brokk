@@ -67,15 +67,28 @@ export class TurnManager {
    * returns false or the turn ends. Returns an unsubscribe fn. If no turn is
    * active, replays the recent tail (if any) and signals completion.
    */
-  subscribe(sessionId: string, onEvent: (e: AgentEvent) => void): () => void {
+  /**
+   * @param opts.replay — when false, skip ring-buffer catch-up (UIMessage clients
+   *   hydrate from chat_messages and only want live deltas — avoids duplicate parts).
+   */
+  subscribe(
+    sessionId: string,
+    onEvent: (e: AgentEvent) => void,
+    opts?: { replay?: boolean },
+  ): () => void {
+    const replay = opts?.replay !== false;
     const turn = this.active.get(sessionId);
     if (!turn) {
-      const r = this.recent.get(sessionId);
-      if (r) for (const e of r.buffer) onEvent(e);
-      else onEvent({ type: "done" });
+      if (replay) {
+        const r = this.recent.get(sessionId);
+        if (r) for (const e of r.buffer) onEvent(e);
+        else onEvent({ type: "done" });
+      } else {
+        onEvent({ type: "done" });
+      }
       return () => {};
     }
-    for (const e of turn.buffer) onEvent(e);
+    if (replay) for (const e of turn.buffer) onEvent(e);
     const handler = (e: AgentEvent) => onEvent(e);
     turn.emitter.on("event", handler);
     return () => turn.emitter.off("event", handler);
