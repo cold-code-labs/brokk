@@ -22,15 +22,19 @@ skill = add a folder under `skills/` and ship; the chat image copies the tree
 
 ## Full QA (Discovery → Execution)
 
+**Padrão de frota:** [ADR 0066](https://edda.coldcodelabs.com/decisoes/0066-brokk-full-qa-discovery-execution/)
+(Edda). Usar em todo app conectado ao Brokk — não só quando “der vontade”.
+
 - **Capability `qa-discover`** — scout builds a versioned scenario catalog
   (`qa_catalogs` + `.brokk/qa/scenarios.json`) with a **fingerprint** of
-  routes/features/e2e. Fleet default engine is **Cursor CLI** (same OAuth path
+  routes/features/e2e. Fleet default engine is **Cursor CLI** (same path
   as Brokkr forge). When those sources change, `GET /qa/:projectId` returns
   `stale: true` — re-run Discovery before trusting Full QA instructions.
 - **Instruction `full-qa`** — Execution playbook for the live preview
-  (Playwright MCP). Sindri cockpit chips: **Discover**, **Full QA**, **Targeted**.
-  Project home: `/projects/:id/qa`. Persist results via **`submit_qa_report`**;
-  live progress via **`qa-progress`** + Preview → **Assistir o agente**.
+  (Playwright MCP). Prefer engine **`cursor-cli`**. Sindri chips: **Discover**,
+  **Full QA**, **Targeted**. Project home: `/projects/:id/qa`. Persist via
+  **`submit_qa_report`**; progress via **`qa-progress`** + Preview →
+  **Assistir o agente**.
 - Huginn `discovery` stays product brief (`built`/`missing`); QA Discovery is
   user journeys only.
 
