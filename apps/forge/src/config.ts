@@ -38,11 +38,10 @@ export interface RunnerConfig {
    *  name. Empty = every app keeps the PR flow (safe default); pilot = "logcheck".
    *  Plans/revise always stay on the PR path. BROKK_DEVLANE_APPS (comma-separated). */
   devLaneApps: Set<string>;
-  /** When true, attach the Playwright MCP server to the forge agent so it can
-   *  drive a real headless browser while forging (e.g. to check a running app
-   *  against the card's acceptance criteria). Default OFF — when unset the agent
-   *  behaves exactly as today (file/bash/git tools only, no browser). Toggled by
-   *  BROKK_BROWSER ("1"/"true"). See engine.ts for the wiring. */
+  /** When true, the forge agent prompt advertises a headless Chromium available
+   *  via the bash hand (acceptance receipts / chrome-headless scripts) — not the
+   *  Playwright MCP. The MCP is a separate surface: ensurePlaywrightMcp() in
+   *  driver.ts, registered per driver turn. Default OFF. BROKK_BROWSER ("1"/"true"). */
   browser: boolean;
   /** Headless Chromium binary the acceptance receipt (and browser checks) drive.
    *  Default /usr/bin/chromium (present on the surtr runner). BROKK_CHROMIUM. */
@@ -60,9 +59,10 @@ export interface RunnerConfig {
   /** the SCOPED agent token. Deliberately not a data-plane key: it reaches only
    *  <app>_dev lanes of registered apps, never a client's prod project. */
   heimdallAgentToken: string;
+  /** Hauldr control-plane base URL (e.g. https://api.hauldr.io). A URL, not a
+   *  credential — the preview applies its own migrations with the per-project
+   *  migrate token Heimdall hands back. Empty = no migrate endpoint. */
   hauldrControlUrl: string;
-  /** Bearer token for the Hauldr API. */
-  hauldrToken: string;
   /** Shell command used to boot a preview app. `$PORT` is substituted with the
    *  allocated port number. Per-project override: BROKK_PREVIEW_CMD env var.
    *  Default: `next build && next start -p $PORT` (Next.js apps). */
@@ -70,7 +70,10 @@ export interface RunnerConfig {
   /** Shell command used to boot a `mode='dev'` preview (a Sindri session's live
    *  checkout) — `next dev` with HMR so the agent's edits hot-reload. `$PORT` is
    *  substituted. Override: BROKK_PREVIEW_DEV_CMD. `pnpm exec next dev` resolves
-   *  the local binary; `-H 0.0.0.0` is load-bearing (gateway proxies 127.0.0.1). */
+   *  the local binary; `-H 0.0.0.0` is load-bearing (gateway proxies 127.0.0.1).
+   *  BROKK-37: leave Turbopack off — for Next ≥16 prefer `next dev --webpack`
+   *  (~1–1.5GB vs ~4GB Turbopack). Sleipnir densifies this automatically when the
+   *  override is unset; a manual override must opt into `--webpack` itself. */
   previewDevCmd: string;
   /** How long (ms) the supervisor waits for a freshly-spawned preview to answer
    *  its health path before flipping it 'live' anyway (degraded). Covers the
@@ -125,13 +128,14 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     heimdallAgentUrl: (env.HEIMDALL_AGENT_URL ?? "").replace(/\/$/, ""),
     heimdallAgentToken: env.HEIMDALL_AGENT_TOKEN ?? "",
     hauldrControlUrl: (env.HAULDR_CONTROL_URL ?? "").replace(/\/$/, ""),
-    hauldrToken: env.HAULDR_TOKEN ?? "",
     previewCmd: env.BROKK_PREVIEW_CMD ?? "next build && next start -p $PORT",
     previewDevCmd:
       env.BROKK_PREVIEW_DEV_CMD ??
       // `pnpm exec` resolves the local `next` from node_modules/.bin and forwards
       // args cleanly (bare `next` isn't on PATH under `sh -c`; `pnpm run dev --`
       // leaks the `--` into next's argv). Verified e2e on the dev lane.
+      // BROKK-37: no `--turbo`. Next ≥16 webpack is injected by densifyNextPreview
+      // when this fallback is unused (Sleipnir path); keep the string Next-15-safe.
       "pnpm install --no-frozen-lockfile --prod=false && pnpm exec next dev -p $PORT -H 0.0.0.0",
     previewHealthTimeoutMs: Number(env.BROKK_PREVIEW_HEALTH_TIMEOUT_MS ?? 2 * 60 * 1000),
     previewPortMin: Number(env.BROKK_PREVIEW_PORT_MIN ?? 4100),

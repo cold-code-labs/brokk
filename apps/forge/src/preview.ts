@@ -37,6 +37,7 @@ import { buildDetectCtx, composeCommand, PACKAGE_MANAGERS, resolveRuntime } from
 import type { RunnerConfig } from "./config.js";
 import type { GhProvider } from "./git.js";
 import type { DataProvider } from "./data-provider.js";
+import { previewSpawnEnv } from "./preview-env.js";
 import { ensureNativeNextSwc } from "./next-swc.js";
 
 interface LivePreview {
@@ -96,9 +97,11 @@ const TAIL_LINES = 12;
 /** Porcelain paths that Next (etc.) rewrites on boot — not human live-edits (BROKK-2). */
 const GENERATED_DIRTY_RE = /(?:^|\s)(?:\.\/)?next-env\.d\.ts$/;
 
-/** Keys whose VALUE is a secret and must never be shown in the Env inspector. */
+/** Keys whose VALUE is a secret and must never be shown in the Env inspector.
+ *  `(^|_)pat$` catches Coolify/GitHub-style PATs (COOLIFY_PAT) without matching
+ *  PATH / COMPATIBLE / PATTERN. */
 const SECRET_KEY_RE =
-  /(secret|token|password|passwd|jwt|service_role|_key$|apikey|api_key|credential)/i;
+  /(secret|token|password|passwd|jwt|service_role|_key$|apikey|api_key|credential|(^|_)pat$)/i;
 
 /** Redact an env map for display: mask secret-keyed values (keep a 4-char tail
  *  for identification) and strip the password out of any connection string, but
@@ -307,13 +310,11 @@ export class PreviewSupervisor {
       console.log(
         `[preview-supervisor] ${hauldrProject}: lockfile changed → ${pm.install}`,
       );
-      // Same HOME/corepack pinning as boot(): the runner's env can arrive without a
-      // writable HOME and corepack dies provisioning the repo-pinned pnpm.
-      const home =
-        process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
+      // Same HOME/corepack pinning as boot() — inherits the compose-pinned pnpm
+      // store (`work/.pnpm-store`); see previewSpawnEnv / BROKK-21.
       await run("sh", ["-c", pm.install], {
         cwd: path,
-        env: { ...process.env, HOME: home, COREPACK_HOME: `${home}/.cache/corepack` },
+        env: previewSpawnEnv(process.env),
         timeout: 5 * 60_000,
         maxBuffer: 16 * 1024 * 1024,
       });
@@ -744,13 +745,6 @@ export class PreviewSupervisor {
       );
     }
 
-    // pnpm shells out to corepack to provision the repo-pinned pnpm, and corepack
-    // needs a WRITABLE HOME for its download cache. The forge's runtime env can
-    // arrive without HOME (Coolify injects a curated env), so corepack falls back
-    // to `/.cache` → `EACCES: mkdir '/.cache/node/corepack'` and the build dies
-    // "before serving". Pin HOME (and the corepack cache) to a writable dir so
-    // `pnpm install` can always provision its package manager.
-    const home = process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
     // Runtime-declared env (spec.env — e.g. Expo's EXPO_PACKAGER_PROXY_URL). The
     // `$PUBLIC_URL` placeholder expands to the preview's public URL here, so the
     // provider stays generic and the supervisor stays framework-blind.
@@ -773,11 +767,15 @@ export class PreviewSupervisor {
       // across the board (ADR 0017 — the production build lives in the dev-build).
       NODE_ENV: "development",
     };
+    // pnpm shells out to corepack to provision the repo-pinned pnpm, and corepack
+    // needs a WRITABLE HOME for its download cache. The forge's runtime env can
+    // arrive without HOME (Coolify injects a curated env), so corepack falls back
+    // to `/.cache` → `EACCES: mkdir '/.cache/node/corepack'` and the build dies
+    // "before serving". Pin HOME/corepack via previewSpawnEnv, which also inherits
+    // the compose-pinned pnpm store (`work/.pnpm-store`) — do not override
+    // npm_config_store_dir here (BROKK-21).
     const env: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...appEnv,
-      HOME: home,
-      COREPACK_HOME: `${home}/.cache/corepack`,
+      ...previewSpawnEnv(process.env, appEnv),
       // A preview boots headless (no TTY). When a leftover node_modules is
       // incompatible with the current pnpm/store, `pnpm install` wants to purge
       // it and PROMPT — which aborts non-interactively with

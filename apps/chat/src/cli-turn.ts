@@ -10,12 +10,17 @@ import {
   type AgentEvent,
   type CliTurnInput,
   type ContentBlock,
+  SCOPE_RULES,
   attachmentContextBlock,
   loadInstructionSkills,
   resolveModel,
   runClaudeCliTurn,
   runCursorCliTurn,
 } from "@brokk/chat";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 /** Cross-session cap on concurrent CLI turns — the one real cost on the shared
  *  seat is concurrency (NORTH-STAR §9), and this lane bypasses Ratatoskr's gate. */
@@ -122,13 +127,15 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
     previews.find((p) => p.status === "live" && p.port != null && p.branch === session.branch) ??
     previews.find((p) => p.status === "live" && p.port != null);
   const previewNote = live
-    ? `\n## Live preview — visual / GUI / QA\nThis app runs at http://forge.localhost:${live.port} (reachable from here). You have Playwright browser tools (mcp__playwright-chat__*). When the user asks to SEE, test, or QA-review the running app (visual check, GUI review, "does X work", exercise a flow), DRIVE that URL: browser_navigate there, browser_snapshot to read the page, click/type to exercise flows, screenshot findings — then report what you observed (what works, what's broken, with specifics). If a login screen appears, click "Entrar como demo". For a pure QA/visual request, do NOT edit files — just drive and report.`
+    ? `\n## Live preview — visual / GUI / QA\nThis app runs at http://forge.localhost:${live.port} (reachable from here). You have Playwright browser tools (mcp__playwright-chat__*). When the user asks to SEE, test, or QA-review the running app (visual check, GUI review, "does X work", exercise a flow), DRIVE that URL: browser_navigate there, browser_snapshot to read the page, click/type to exercise flows, screenshot findings — then report what you observed (what works, what's broken, with specifics). If a login screen appears, click "Entrar como demo". For a pure QA/visual request, do NOT edit files — just drive and report.\nAfter a label/copy rename, drive once to confirm the named surface still exists and only the wording changed — do not redesign chrome.`
     : "";
 
   const appendSystem = [
     `You are Sindri, the session agent inside Brokk (CCL's coding pillar), working on repo ${input.repoFullName}.`,
     `Your checkout is a dedicated git worktree on branch \`${session.branch}\`. Do NOT switch branches or reset history — stay here.`,
     `COMMIT POLICY: Do NOT git commit or git push unless the user explicitly asks. Live preview / HMR already shows file edits — leave the tree dirty for the Commit button in the preview toolbar. If they ask you to commit, typecheck when available, then commit + push origin HEAD:dev (never force-push).`,
+    "",
+    SCOPE_RULES,
     previewNote,
     attachBlock,
     pinned?.instructions
@@ -192,6 +199,25 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
     }
     emit({ type: "usage", usage: outcome.usage });
 
+    // Fallback: if the CLI finished with text but hooks never landed an assistant
+    // row (partial stream / missing `result` event), persist it so the card isn't
+    // a lone user bubble.
+    const persisted = await store.listChatMessages(session.id).catch(() => []);
+    const hasAssistant = persisted.some((m) => m.role === "assistant");
+    const fallbackText = (outcome.resultText || "").trim();
+    if (!hasAssistant && fallbackText) {
+      const msg = await store.appendChatMessage(session.id, {
+        role: "assistant",
+        blocks: [{ type: "text", text: fallbackText }],
+        meta: { model, engine: engineLabel, recovered: true },
+      });
+      emit({ type: "message", seq: msg.seq, role: "assistant", blocks: msg.blocks as ContentBlock[] });
+    }
+
+    // Diff summary on the card — so "1 string" vs "layout rewrite" is visible
+    // without opening the worktree.
+    await emitDirtySummary({ store, sessionId: session.id, cwd: input.cwd, emit, meta: { model, engine: engineLabel } });
+
     switch (outcome.stop) {
       case "aborted":
         emit({ type: "status", phase: "aborted" });
@@ -213,4 +239,57 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
   } finally {
     inFlight--;
   }
+}
+
+/** Persist + stream a compact dirty-tree note onto the session card. */
+export async function emitDirtySummary(input: {
+  store: Store;
+  sessionId: string;
+  cwd: string;
+  emit: (e: AgentEvent) => void;
+  meta?: Record<string, unknown>;
+}): Promise<void> {
+  const dirty = await dirtyTreeSummary(input.cwd).catch(() => null);
+  if (!dirty) return;
+  input.emit({ type: "status", phase: "diff_summary", detail: dirty });
+  const note = `Working tree: ${dirty.shortstat || dirty.files || "dirty"}${
+    dirty.layoutHint ? " · layout/CSS touched — review before Commit" : ""
+  }`;
+  const msg = await input.store.appendChatMessage(input.sessionId, {
+    role: "assistant",
+    blocks: [{ type: "text", text: note }],
+    meta: { kind: "diff_summary", ...dirty, ...(input.meta ?? {}) },
+  });
+  input.emit({ type: "message", seq: msg.seq, role: "assistant", blocks: msg.blocks as ContentBlock[] });
+}
+
+/** Compact `git status` + `--shortstat` for the session card. layoutHint when
+ *  CSS/layout/nav files appear — the ispetro failure mode. */
+export async function dirtyTreeSummary(cwd: string): Promise<{
+  files: string;
+  shortstat: string;
+  layoutHint: boolean;
+} | null> {
+  const [{ stdout: status }, { stdout: shortstat }] = await Promise.all([
+    execFileAsync("git", ["status", "--short"], { cwd, timeout: 8_000, maxBuffer: 256_000 }),
+    execFileAsync("git", ["diff", "HEAD", "--shortstat"], {
+      cwd,
+      timeout: 8_000,
+      maxBuffer: 64_000,
+    }).catch(() => ({ stdout: "" })),
+  ]);
+  const lines = status
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return null;
+  const paths = lines.map((l) => l.replace(/^[MADRCU?!]+\s+/, "").replace(/^.* -> /, ""));
+  const layoutHint = paths.some((p) =>
+    /\.(css|scss|sass)$|layout|sidebar|nav|styles?\./i.test(p),
+  );
+  const files =
+    paths.length <= 6
+      ? paths.join(", ")
+      : `${paths.slice(0, 5).join(", ")} (+${paths.length - 5})`;
+  return { files, shortstat: shortstat.trim(), layoutHint };
 }

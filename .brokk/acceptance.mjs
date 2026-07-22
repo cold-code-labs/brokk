@@ -1,233 +1,469 @@
-#!/usr/bin/env node
 /**
- * Combined acceptance after merging BROKK-38 + BROKK-39.
+ * BROKK-45 acceptance — Review→Done close loop is reachable on the API.
  *
- * 1) BROKK-38: fixture under `.brokk/inbox/` appears in turn-context block;
- *    public /attach-smoke serves the Attach affordance.
- * 2) BROKK-39: /brokk/observer floor row opens drawer with Live run log,
- *    thinking + tool rows; writes BROKK_ACCEPTANCE_SHOT.
+ * Checks:
+ *   1. /health is up
+ *   2. POST /webhooks/github accepts pull_request closed+merged (unsigned when
+ *      BROKK_GITHUB_WEBHOOK_SECRET is empty) and returns JSON with ok:true
+ *   3. closed-without-merge does NOT claim a done status (status closed_unmerged)
  *
- * Env: BROKK_ACCEPTANCE_URL, BROKK_CHROMIUM, BROKK_ACCEPTANCE_SHOT
+ * BROKK-29 acceptance — configs that lied + Coolify PAT in clear.
+ *
+ * 4. Source contracts: forge Dockerfile must not advertise the phantom
+ *    BROKK_PLAYWRIGHT_MCP env; must name ensurePlaywrightMcp + playwright-mcp.
+ * 5. Dogfood: same SECRET_KEY_RE / redact contract as apps/forge/src/preview.ts
+ *    — COOLIFY_PAT is masked, PATH is not.
+ *
+ * BROKK-14 acceptance — MCP/Hauldr auth must fail loud; forge migrate token
+ * path must not use the retired HAULDR_TOKEN.
+ *
+ * 6. Source contracts: forge runDevLane resolves migrateToken via Heimdall;
+ *    config no longer reads HAULDR_TOKEN; MCP auth helpers exist.
+ * 7. Dogfood: expandEnv + isAuthFailure + authFailureMessage (same contracts
+ *    as packages/mcp) — empty Bearer is rejected; 401 copy says AUTH FAILED.
+ *
+ * BROKK-24 acceptance — prove the post-remediation isolation stack is effective.
+ *
+ * Typecheck alone cannot catch a brokk-sandbox that warns-and-continues without
+ * Landlock, or a setuid bit that silently fails to drop the bash uid. This
+ * receipt FAIL-CLOSES when the binary is present but the jail/uid-split is not
+ * actually enforcing.
+ *
+ * 8. Source contracts (Dockerfile setuid sandbox, ExecEnclave seam, egress entrypoint)
+ * 9. Runtime: Landlock denies a sibling write; uid-split drops when setuid
+ * 10. Screenshot of the booted app (receipt)
+ *
+ * Env (injected by Brokk verify):
+ *   BROKK_ACCEPTANCE_URL, BROKK_CHROMIUM, BROKK_ACCEPTANCE_SHOT
  */
-import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { writeFileSync, readFileSync, chmodSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const BASE = process.env.BROKK_ACCEPTANCE_URL;
-const CHROME = process.env.BROKK_CHROMIUM;
-const SHOT = process.env.BROKK_ACCEPTANCE_SHOT;
+const base = (process.env.BROKK_ACCEPTANCE_URL || "http://127.0.0.1:8789").replace(/\/$/, "");
+const chromium = process.env.BROKK_CHROMIUM || "chromium";
+const shot = process.env.BROKK_ACCEPTANCE_SHOT || "/tmp/brokk-acceptance.png";
 
-if (!BASE || !CHROME || !SHOT) {
-  console.error("missing BROKK_ACCEPTANCE_URL / BROKK_CHROMIUM / BROKK_ACCEPTANCE_SHOT");
-  process.exit(2);
+const ROOT = dirname(fileURLToPath(import.meta.url));
+const REPO = join(ROOT, "..");
+
+function fail(msg) {
+  console.error("ACCEPTANCE FAIL:", msg);
+  process.exit(1);
 }
 
-const ROOT = BASE.replace(/\/$/, "");
-const OBSERVER = `${ROOT}/brokk/observer`;
-const INBOX_DIR = ".brokk/inbox";
+/** Mirror of apps/forge/src/preview.ts SECRET_KEY_RE + redactEnv (dogfood). */
+const SECRET_KEY_RE =
+  /(secret|token|password|passwd|jwt|service_role|_key$|apikey|api_key|credential|(^|_)pat$)/i;
 
-function die(code, msg) {
-  console.error(msg);
-  process.exit(code);
-}
-
-function attachmentContextBlock(paths) {
-  const clean = [];
-  const seen = new Set();
-  for (const raw of paths) {
-    const p = String(raw ?? "")
-      .replace(/\\/g, "/")
-      .replace(/^\/+/, "")
-      .trim();
-    if (!p.startsWith(`${INBOX_DIR}/`) || p.includes("..") || p.includes("\0")) continue;
-    const rest = p.slice(INBOX_DIR.length + 1);
-    if (!rest || rest.includes("/")) continue;
-    if (seen.has(p)) continue;
-    seen.add(p);
-    clean.push(p);
+function redactEnv(env) {
+  const mask = (v) => (v ? `••••${v.length > 4 ? v.slice(-4) : ""}` : v);
+  const out = {};
+  for (const [k, v] of Object.entries(env)) {
+    out[k] = SECRET_KEY_RE.test(k)
+      ? mask(v)
+      : v.replace(/:\/\/([^:@/]+):[^@/]+@/, (_m, user) => `://${user}:••••@`);
   }
-  if (!clean.length) return "";
-  return [
-    "## Attachments (this turn)",
-    "Client files were saved into this checkout under `.brokk/inbox/`. Read them with your FS tools (`read_file` / `bash`); do not ask the user to re-upload or paste their contents.",
-    ...clean.map((p) => `- \`${p}\``),
-  ].join("\n");
+  return out;
 }
 
-async function dogfoodInboxContext() {
-  const root = join(tmpdir(), `brokk-38-accept-${process.pid}`);
-  const rel = `${INBOX_DIR}/fixture-costs.txt`;
-  const abs = join(root, rel);
-  await mkdir(join(root, INBOX_DIR), { recursive: true });
-  await writeFile(abs, "sku,qty\nA,1\n", "utf8");
-  const block = attachmentContextBlock([rel]);
-  await rm(root, { recursive: true, force: true }).catch(() => {});
-  if (!block.includes(rel)) {
-    throw new Error(`dogfood failed: turn context missing ${rel}\n---\n${block}`);
+function assertSourceContracts() {
+  const dockerfile = readFileSync(join(REPO, "apps/forge/Dockerfile"), "utf8");
+  if (/BROKK_PLAYWRIGHT_MCP/.test(dockerfile)) {
+    fail("forge Dockerfile still mentions phantom BROKK_PLAYWRIGHT_MCP");
   }
-  if (!block.includes("## Attachments (this turn)")) {
-    throw new Error("dogfood failed: missing attachments heading");
+  if (!/ensurePlaywrightMcp/.test(dockerfile)) {
+    fail("forge Dockerfile must document ensurePlaywrightMcp as the real surface");
   }
-  console.log(`[ok] BROKK-38 dogfood: wrote ${rel} and found it in turn context`);
+  if (!/playwright-mcp/.test(dockerfile)) {
+    fail("forge Dockerfile must name the real bin playwright-mcp");
+  }
+
+  const driver = readFileSync(join(REPO, "apps/forge/src/driver.ts"), "utf8");
+  if (!/export function ensurePlaywrightMcp/.test(driver)) {
+    fail("driver.ts missing ensurePlaywrightMcp export");
+  }
+
+  const preview = readFileSync(join(REPO, "apps/forge/src/preview.ts"), "utf8");
+  if (!/\(\^\|_\)pat\$/.test(preview)) {
+    fail("preview.ts SECRET_KEY_RE must mask *_PAT keys (Coolify PAT)");
+  }
+
+  const apiSecrets = readFileSync(join(REPO, "apps/api/src/secrets.ts"), "utf8");
+  if (!/\(\^\|_\)pat\$/.test(apiSecrets) || !/export function redactEnv/.test(apiSecrets)) {
+    fail("api secrets.ts must redact *_PAT on the API boundary");
+  }
+
+  console.log(
+    "[ok] source contracts: no phantom BROKK_PLAYWRIGHT_MCP; ensurePlaywrightMcp + PAT mask present",
+  );
 }
 
-async function assertAttachSmoke() {
-  const url = `${ROOT}/attach-smoke`;
-  const res = await fetch(url);
-  const html = await res.text();
-  if (!res.ok) throw new Error(`GET ${url} → ${res.status}`);
-  if (!html.includes('data-testid="sindri-attach"') && !html.includes("data-sindri-attach")) {
-    throw new Error(`attach-smoke HTML missing attach markers\n${html.slice(0, 400)}`);
-  }
-  console.log(`[ok] BROKK-38 HTTP: ${url} serves attach affordance`);
-}
-
-/** Minimal CDP over WebSocket — dependency-free. */
-async function withCdp(wsUrl, fn) {
-  const ws = new WebSocket(wsUrl);
-  await new Promise((resolve, reject) => {
-    ws.addEventListener("open", resolve);
-    ws.addEventListener("error", reject);
+function assertRedactDogfood() {
+  const out = redactEnv({
+    COOLIFY_PAT: "super-secret-coolify-pat-value",
+    PATH: "/usr/bin",
+    VITE_HAULDR_URL: "https://hauldr.example",
   });
-  let nextId = 1;
-  const pending = new Map();
-  ws.addEventListener("message", (ev) => {
-    const msg = JSON.parse(String(ev.data));
-    if (msg.id != null && pending.has(msg.id)) {
-      const { resolve, reject } = pending.get(msg.id);
-      pending.delete(msg.id);
-      if (msg.error) reject(new Error(JSON.stringify(msg.error)));
-      else resolve(msg.result);
+  if (!out.COOLIFY_PAT.startsWith("••••") || out.COOLIFY_PAT.includes("super-secret")) {
+    fail(`COOLIFY_PAT not masked: ${out.COOLIFY_PAT}`);
+  }
+  if (out.PATH !== "/usr/bin") fail(`PATH should stay clear, got ${out.PATH}`);
+  if (out.VITE_HAULDR_URL !== "https://hauldr.example") {
+    fail(`non-secret URL should stay clear, got ${out.VITE_HAULDR_URL}`);
+  }
+  console.log("[ok] redactEnv dogfood: COOLIFY_PAT masked, PATH/URLs clear");
+}
+
+/** Mirror of packages/mcp/src/config.ts expandEnv. */
+function expandEnv(value, env) {
+  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_m, braced, bare) => {
+    const key = braced ?? bare;
+    return env[key] ?? "";
+  });
+}
+
+/** Mirror of packages/mcp/src/provider.ts isAuthFailure. */
+function isAuthFailure(message) {
+  const m = String(message).toLowerCase();
+  return (
+    /\b401\b/.test(m) ||
+    /\b403\b/.test(m) ||
+    m.includes("unauthorized") ||
+    m.includes("forbidden") ||
+    m.includes("authentication") ||
+    m.includes("invalid token") ||
+    m.includes("invalid api key")
+  );
+}
+
+/** Mirror of packages/mcp/src/provider.ts authFailureMessage. */
+function authFailureMessage(server, detail) {
+  const d = String(detail).trim() || "401/403";
+  return (
+    `mcp ${server}: AUTH FAILED (${d}). Credential rejected — fix BROKK_MCP_SERVERS ` +
+    `headers (do not embed a retired HAULDR_TOKEN; expand \${ENV} from a live secret) ` +
+    `or remove the server. Do not retry the same call.`
+  );
+}
+
+function assertMcpSourceContracts() {
+  const forgeIndex = readFileSync(join(REPO, "apps/forge/src/index.ts"), "utf8");
+  if (!/lanes\.getProject\(project\)/.test(forgeIndex)) {
+    fail("forge index must resolve migrate token via lanes.getProject");
+  }
+  if (!/hp\.migrateToken/.test(forgeIndex)) {
+    fail("forge index must use hp.migrateToken for apply_migration");
+  }
+  if (/cfg\.hauldrToken/.test(forgeIndex)) {
+    fail("forge index must not still gate migration on cfg.hauldrToken");
+  }
+  if (!/refusing to fall back to HAULDR_TOKEN/.test(forgeIndex)) {
+    fail("forge must refuse HAULDR_TOKEN fallback in loud error copy");
+  }
+
+  const forgeCfg = readFileSync(join(REPO, "apps/forge/src/config.ts"), "utf8");
+  if (/hauldrToken:\s*env\.HAULDR_TOKEN/.test(forgeCfg)) {
+    fail("forge config must not read HAULDR_TOKEN anymore");
+  }
+
+  const mcpProvider = readFileSync(join(REPO, "packages/mcp/src/provider.ts"), "utf8");
+  if (!/export function isAuthFailure/.test(mcpProvider) || !/export function authFailureMessage/.test(mcpProvider)) {
+    fail("packages/mcp must export isAuthFailure + authFailureMessage");
+  }
+  if (!/AUTH FAILED/.test(mcpProvider)) {
+    fail("mcp provider must spell AUTH FAILED for credential rejection");
+  }
+
+  const mcpConfig = readFileSync(join(REPO, "packages/mcp/src/config.ts"), "utf8");
+  if (!/export function expandEnv/.test(mcpConfig)) {
+    fail("packages/mcp must expand ${ENV} in BROKK_MCP_SERVERS fields");
+  }
+  if (!/empty Bearer/.test(mcpConfig)) {
+    fail("parseMcpServers must reject empty Bearer after expansion");
+  }
+
+  const tools = readFileSync(join(REPO, "packages/agents/forge/src/tools.ts"), "utf8");
+  if (!/AUTH FAILED/.test(tools) || !/HAULDR_TOKEN/.test(tools)) {
+    fail("apply_migration must loud-fail 401 mentioning HAULDR_TOKEN");
+  }
+
+  const compose = readFileSync(join(REPO, "docker-compose.coolify.yml"), "utf8");
+  if (!/BROKK_MCP_SERVERS:\s*\$\{BROKK_MCP_SERVERS/.test(compose)) {
+    fail("coolify worker-env must pass BROKK_MCP_SERVERS (Coolify does not auto-inject)");
+  }
+
+  console.log(
+    "[ok] source contracts: Heimdall migrateToken path, no HAULDR_TOKEN, loud MCP/apply_migration auth",
+  );
+}
+
+function assertAuthDogfood() {
+  const expanded = expandEnv("Bearer ${HAULDR_MCP_TOKEN}", { HAULDR_MCP_TOKEN: "live" });
+  if (expanded !== "Bearer live") fail(`expandEnv failed: ${expanded}`);
+
+  const empty = expandEnv("Bearer ${HAULDR_TOKEN}", {});
+  if (empty !== "Bearer ") fail(`empty expand expected 'Bearer ', got ${JSON.stringify(empty)}`);
+
+  if (!isAuthFailure("HTTP 401 Unauthorized")) fail("isAuthFailure should catch 401");
+  if (isAuthFailure("conn reset")) fail("isAuthFailure should ignore non-auth errors");
+
+  const msg = authFailureMessage("hauldr", "401 Unauthorized");
+  if (!/AUTH FAILED/.test(msg) || !/hauldr/.test(msg) || !/Do not retry/.test(msg)) {
+    fail(`authFailureMessage too quiet: ${msg}`);
+  }
+  console.log("[ok] auth dogfood: expandEnv + loud AUTH FAILED copy");
+}
+
+function findSandboxBin() {
+  for (const dir of (process.env.PATH ?? "").split(":")) {
+    if (!dir) continue;
+    const p = join(dir, "brokk-sandbox");
+    try {
+      if (statSync(p).isFile()) return p;
+    } catch {
+      /* keep looking */
     }
-  });
-  const send = (method, params = {}) => {
-    const id = nextId++;
-    ws.send(JSON.stringify({ id, method, params }));
-    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
-  };
-  try {
-    return await fn(send);
-  } finally {
-    ws.close();
-  }
-}
-
-async function waitForDevtools(stderrBuf) {
-  for (let i = 0; i < 50; i++) {
-    await sleep(100);
-    const m = stderrBuf.text.match(/DevTools listening on (ws:\/\/\S+)/);
-    if (m) return m[1];
   }
   return null;
 }
 
-async function assertObserverDrillIn() {
-  const chrome = spawn(
-    CHROME,
-    [
-      "--headless=new",
-      "--disable-gpu",
-      "--no-sandbox",
-      "--remote-debugging-port=0",
-      "--window-size=1280,800",
-      "about:blank",
-    ],
-    { stdio: ["ignore", "pipe", "pipe"] },
-  );
-
-  const stderrBuf = { text: "" };
-  chrome.stderr.setEncoding("utf8");
-  chrome.stderr.on("data", (c) => {
-    stderrBuf.text += c;
-  });
-
-  const browserWs = await waitForDevtools(stderrBuf);
-  if (!browserWs) {
-    chrome.kill("SIGKILL");
-    die(1, `chromium did not expose DevTools:\n${stderrBuf.text.slice(-800)}`);
+function assertIsolationSourceContracts() {
+  const forgeDocker = readFileSync(join(REPO, "apps/forge/Dockerfile"), "utf8");
+  if (!/brokk-sandbox/.test(forgeDocker)) {
+    fail("forge Dockerfile must ship brokk-sandbox");
+  }
+  if (!/chmod 4750 \/usr\/local\/bin\/brokk-sandbox/.test(forgeDocker)) {
+    fail("forge Dockerfile must setuid brokk-sandbox (chmod 4750)");
+  }
+  if (!/adduser .*1002.*brokk-bash/.test(forgeDocker)) {
+    fail("forge Dockerfile must create egress uid 1002 (brokk-bash)");
   }
 
-  const host = new URL(browserWs).host;
+  const entry = readFileSync(join(REPO, "tools/brokk-egress/entrypoint.sh"), "utf8");
+  if (!/BROKK_EGRESS/.test(entry) || !/egress\.nft/.test(entry)) {
+    fail("brokk-egress entrypoint must install the nft egress jail");
+  }
+
+  const enclave = readFileSync(join(REPO, "packages/afl/src/enclave.ts"), "utf8");
+  for (const needle of [
+    "export function shellEnv",
+    "export class LocalEnclave",
+    "export class SplitEnclave",
+    "export function resolveEnclave",
+    "export function needsCreds",
+    "landlock",
+    "BROKK_BASH_UID",
+  ]) {
+    if (!enclave.toLowerCase().includes(needle.toLowerCase())) {
+      fail(`enclave.ts missing isolation surface: ${needle}`);
+    }
+  }
+
+  const sandboxGo = readFileSync(join(REPO, "tools/brokk-sandbox/main.go"), "utf8");
+  if (!/landlock\.V4/.test(sandboxGo) || !/Setresuid/.test(sandboxGo)) {
+    fail("brokk-sandbox must apply Landlock V4 + Setresuid uid-drop");
+  }
+
+  console.log(
+    "[ok] source contracts: setuid sandbox, egress entrypoint, ExecEnclave seam, Landlock+Setresuid",
+  );
+}
+
+/** Prove Landlock denies a sibling write the unsandboxed shell can make; prove
+ *  uid-split when the binary is setuid. */
+function assertIsolationEffective() {
+  const bin = findSandboxBin();
+  if (!bin) {
+    fail(
+      "brokk-sandbox not on PATH — isolation cannot be proven (post-remediation verify requires it)",
+    );
+  }
+
+  const st = statSync(bin);
+  const isSetuid = (st.mode & 0o4000) !== 0;
+  const bashUid = Number(process.env.BROKK_BASH_UID ?? 1002);
+  const bashGid = Number(process.env.BROKK_BASH_GID ?? 1001);
+
+  const parent = join(homedir(), `brokk-iso-accept-${process.pid}`);
+  const cwd = join(parent, "checkout");
+  const sibling = join(parent, "sibling");
+  mkdirSync(cwd, { recursive: true });
+  mkdirSync(sibling, { recursive: true });
+  chmodSync(parent, 0o2775);
+  chmodSync(cwd, 0o2775);
+  chmodSync(sibling, 0o2775);
 
   try {
-    const created = await fetch(`http://${host}/json/new?${encodeURIComponent(OBSERVER)}`, {
-      method: "PUT",
-    }).then((r) => r.json());
-    const pageWs = created.webSocketDebuggerUrl;
-    if (!pageWs) die(1, `no page websocket: ${JSON.stringify(created)}`);
+    // Control: without the jail both writes succeed.
+    const ctrl = spawnSync(
+      "/bin/sh",
+      ["-c", "touch ok-ctrl.txt; touch ../sibling/pwn-ctrl.txt"],
+      { cwd, encoding: "utf8" },
+    );
+    if (ctrl.status !== 0) {
+      fail(`unsandboxed control probe failed (dirs not writable?): ${ctrl.stderr}`);
+    }
 
-    await withCdp(pageWs, async (send) => {
-      await send("Page.enable");
-      await send("Runtime.enable");
-      await send("Page.navigate", { url: OBSERVER });
+    const args = [
+      "--verbose",
+      ...(isSetuid ? ["--uid", String(bashUid), "--gid", String(bashGid)] : []),
+      "--rw",
+      cwd,
+      "--rw",
+      "/tmp",
+      "--rw",
+      "/dev",
+      "--ro",
+      "/usr",
+      "--ro",
+      "/bin",
+      "--ro",
+      "/lib",
+      "--ro",
+      "/lib64",
+      "--ro",
+      "/etc",
+      "--ro",
+      "/proc",
+      "--ro",
+      "/sys",
+      "--ro",
+      "/run",
+      "--",
+      "/bin/sh",
+      "-c",
+      [
+        "id -u",
+        "touch ok.txt; echo IN=$?",
+        "touch ../sibling/pwn.txt; echo OUT=$?",
+        "test -f ../sibling/pwn.txt && echo SIBLING_EXISTS || echo SIBLING_ABSENT",
+      ].join("; "),
+    ];
 
-      let ready = false;
-      for (let i = 0; i < 40; i++) {
-        await sleep(250);
-        const { result } = await send("Runtime.evaluate", {
-          expression: `!!document.querySelector('[data-testid="forge-floor-row"]')`,
-          returnByValue: true,
-        });
-        if (result?.value) {
-          ready = true;
-          break;
-        }
+    const r = spawnSync(bin, args, { cwd, encoding: "utf8" });
+    const combined = `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
+    if (r.error) fail(`failed to spawn ${bin}: ${r.error.message}`);
+
+    if (/landlock not applied/i.test(combined)) {
+      fail(`Landlock not applied (sandbox warned):\n${combined}`);
+    }
+    if (!/IN=0/.test(combined)) {
+      fail(`checkout write must succeed under jail:\n${combined}`);
+    }
+    if (!/OUT=[1-9]/.test(combined) || !/SIBLING_ABSENT/.test(combined)) {
+      fail(`Landlock not effective — sibling write leaked:\n${combined}`);
+    }
+
+    if (isSetuid) {
+      const uid = Number((combined.match(/^(\d+)/m) ?? [])[1]);
+      if (uid !== bashUid) {
+        fail(`uid-split not effective (got uid=${uid}, want ${bashUid}):\n${combined}`);
       }
-      if (!ready) die(1, "floor row never appeared on /brokk/observer");
-      console.log("[ok] BROKK-39: forge floor row is present and clickable");
+      console.log(`[ok] uid-split effective: bash uid=${uid} (setuid ${bin})`);
+    } else {
+      console.log(`[ok] sandbox present but not setuid — uid-split skipped (${bin})`);
+    }
 
-      await send("Runtime.evaluate", {
-        expression: `document.querySelector('[data-testid="forge-floor-row"]').click()`,
-      });
-      await sleep(500);
-
-      const { result: drawer } = await send("Runtime.evaluate", {
-        expression: `!!document.querySelector('[data-testid="observer-drawer"]')`,
-        returnByValue: true,
-      });
-      if (!drawer?.value) die(1, "drawer did not open after floor row click");
-      console.log("[ok] BROKK-39: click opens observer drawer");
-
-      const { result: log } = await send("Runtime.evaluate", {
-        expression: `!!document.querySelector('[data-testid="run-log"]')`,
-        returnByValue: true,
-      });
-      if (!log?.value) die(1, "Live run log missing in drawer");
-      console.log("[ok] BROKK-39: Live run log mounted");
-
-      const { result: thinking } = await send("Runtime.evaluate", {
-        expression: `!!document.querySelector('[data-testid="run-log-thinking"]')`,
-        returnByValue: true,
-      });
-      if (!thinking?.value) die(1, "thinking/reasoning block missing in RunLog");
-      console.log("[ok] BROKK-39: thinking rendered in RunLog");
-
-      const { result: shell } = await send("Runtime.evaluate", {
-        expression: `document.body.innerText.includes("Shell")`,
-        returnByValue: true,
-      });
-      if (!shell?.value) die(1, "tool row (Shell) missing in RunLog");
-      console.log("[ok] BROKK-39: tool use rendered in RunLog");
-
-      const { data } = await send("Page.captureScreenshot", { format: "png" });
-      writeFileSync(SHOT, Buffer.from(data, "base64"));
-      console.log(`screenshot → ${SHOT}`);
-    });
+    console.log("[ok] Landlock effective: checkout RW, sibling denied");
   } finally {
-    chrome.kill("SIGKILL");
+    rmSync(parent, { recursive: true, force: true });
   }
 }
 
 async function main() {
-  console.log("acceptance — BROKK-38 attachments + BROKK-39 forge observer");
-  await dogfoodInboxContext();
-  await assertAttachSmoke();
-  await assertObserverDrillIn();
-  console.log("acceptance met");
+  const health = await fetch(`${base}/health`);
+  if (!health.ok) fail(`/health → ${health.status}`);
+  const healthBody = await health.json();
+  console.log("checked /health", healthBody);
+
+  const mergedPayload = {
+    action: "closed",
+    repository: { full_name: "acme/acceptance" },
+    pull_request: {
+      number: 42,
+      merged: true,
+      html_url: "https://github.com/acme/acceptance/pull/42",
+      body: "acceptance probe — no matching card expected",
+    },
+  };
+  const mergedRes = await fetch(`${base}/webhooks/github`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-github-event": "pull_request",
+    },
+    body: JSON.stringify(mergedPayload),
+  });
+  if (mergedRes.status === 401) {
+    fail(
+      "webhook rejected signature — acceptance expects empty BROKK_GITHUB_WEBHOOK_SECRET in verify",
+    );
+  }
+  if (!mergedRes.ok) fail(`/webhooks/github merged → ${mergedRes.status}`);
+  const mergedJson = await mergedRes.json();
+  if (!mergedJson.ok) fail(`merged response not ok: ${JSON.stringify(mergedJson)}`);
+  if (mergedJson.status !== "not_found" && mergedJson.status !== "done") {
+    fail(`unexpected merged status: ${JSON.stringify(mergedJson)}`);
+  }
+  console.log("checked merged webhook →", mergedJson.status);
+
+  const closedPayload = {
+    action: "closed",
+    repository: { full_name: "acme/acceptance" },
+    pull_request: {
+      number: 43,
+      merged: false,
+      html_url: "https://github.com/acme/acceptance/pull/43",
+      body: "closed without merge",
+    },
+  };
+  const closedRes = await fetch(`${base}/webhooks/github`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-github-event": "pull_request",
+    },
+    body: JSON.stringify(closedPayload),
+  });
+  if (!closedRes.ok) fail(`/webhooks/github closed → ${closedRes.status}`);
+  const closedJson = await closedRes.json();
+  if (closedJson.status !== "closed_unmerged" && closedJson.status !== "ignored") {
+    // applyMergedPr returns ignored when !merged; webhook maps to closed_unmerged
+    fail(`closed-unmerged should not close a card: ${JSON.stringify(closedJson)}`);
+  }
+  console.log("checked closed-unmerged webhook →", closedJson.status);
+
+  assertSourceContracts();
+  assertRedactDogfood();
+  assertMcpSourceContracts();
+  assertAuthDogfood();
+  assertIsolationSourceContracts();
+  assertIsolationEffective();
+
+  // Receipt screenshot of /health (API has no HTML UI).
+  await new Promise((resolve, reject) => {
+    const child = spawn(
+      chromium,
+      [
+        "--headless=new",
+        "--disable-gpu",
+        "--no-sandbox",
+        `--screenshot=${shot}`,
+        "--window-size=800,600",
+        `${base}/health`,
+      ],
+      { stdio: "inherit" },
+    );
+    child.on("error", reject);
+    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`chromium exit ${code}`))));
+  });
+  writeFileSync(shot.replace(/\.png$/, ".txt"), "brokk-45 webhook close loop ok\n");
+  console.log("screenshot →", shot);
+  console.log("ACCEPTANCE OK");
   process.exit(0);
 }
 
-main().catch((e) => die(1, String(e?.stack || e)));
+main().catch((err) => fail(String(err?.stack || err)));

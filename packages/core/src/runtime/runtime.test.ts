@@ -9,8 +9,10 @@ import { test } from "node:test";
 import type { DetectCtx, RuntimeSpec } from "../index.js";
 import {
   composeCommand,
+  densifyNextPreview,
   fastPath,
   matchesAllowlist,
+  parseNextMajor,
   workspaceDirs,
   resolveRuntime,
   unsupported,
@@ -390,4 +392,91 @@ test("workspaceDirs ignores ** and .. patterns", () => {
     "panel/": "",
   });
   assert.deepEqual(workspaceDirs(ctx), ["panel"]);
+});
+
+
+// ── densifyNextPreview (BROKK-37 — Turbopack RAM ceiling) ───────────────────────
+
+const NEXT15_PKG = JSON.stringify({
+  name: "app",
+  dependencies: { next: "^15.5.0", react: "19.0.0" },
+  scripts: { dev: "next dev --turbo" },
+});
+const NEXT16_PKG = JSON.stringify({
+  name: "app",
+  dependencies: { next: "^16.2.0", react: "19.0.0" },
+  scripts: { dev: "next dev" },
+});
+
+test("parseNextMajor reads the first digit of a next range", () => {
+  assert.equal(parseNextMajor(JSON.parse(NEXT15_PKG)), 15);
+  assert.equal(parseNextMajor(JSON.parse(NEXT16_PKG)), 16);
+  assert.equal(parseNextMajor({ dependencies: { next: "catalog:" } }), null);
+  assert.equal(parseNextMajor(undefined), null);
+});
+
+test("densifyNextPreview strips --turbo on Next 15 and does not inject --webpack", () => {
+  const out = densifyNextPreview(
+    nextSpec({ dev: "pnpm exec next dev --turbo -p $PORT -H 0.0.0.0" }),
+    ctxOf({ "package.json": NEXT15_PKG }),
+  );
+  assert.equal(out.dev, "pnpm exec next dev -p $PORT -H 0.0.0.0");
+  assert.equal(out.dev.includes("--webpack"), false);
+});
+
+test("densifyNextPreview injects --webpack on Next 16 (Turbopack is the default)", () => {
+  const out = densifyNextPreview(
+    nextSpec({ dev: "pnpm exec next dev -p $PORT -H 0.0.0.0" }),
+    ctxOf({ "package.json": NEXT16_PKG }),
+  );
+  assert.equal(out.dev, "pnpm exec next dev --webpack -p $PORT -H 0.0.0.0");
+});
+
+test("densifyNextPreview strips --turbopack and is idempotent with --webpack", () => {
+  const once = densifyNextPreview(
+    nextSpec({ dev: "pnpm exec next dev --turbopack --webpack -p $PORT -H 0.0.0.0" }),
+    ctxOf({ "package.json": NEXT16_PKG }),
+  );
+  assert.equal(once.dev, "pnpm exec next dev --webpack -p $PORT -H 0.0.0.0");
+  assert.equal(densifyNextPreview(once, ctxOf({ "package.json": NEXT16_PKG })).dev, once.dev);
+});
+
+test("resolveRuntime densifies a pinned Next 16 spec (fleet upgrade path)", async () => {
+  const pinned = nextSpec({ source: "override" });
+  const out = await resolveRuntime(pinned, ctxOf({ "package.json": NEXT16_PKG }), async () => {
+    throw new Error("detector must not run when pinned");
+  });
+  assert.equal(out.source, "override");
+  assert.match(out.dev, /next dev --webpack/);
+});
+
+test("resolveRuntime fast-path densifies Next 16 without burning the detector", async () => {
+  const out = await resolveRuntime(
+    null,
+    ctxOf({ "package.json": NEXT16_PKG, "next.config.js": "module.exports={}" }),
+  );
+  assert.equal(out.source, "preset");
+  assert.match(out.dev, /next dev --webpack/);
+  assert.equal(matchesAllowlist(out.dev), true);
+});
+
+test("vite prepareFiles injects forge-veil overlay for HMR blank-flash", async () => {
+  const out = await resolveRuntime(
+    null,
+    ctxOf({
+      "package.json": JSON.stringify({
+        name: "v",
+        dependencies: { vite: "6.0.0", react: "19.0.0" },
+      }),
+      "vite.config.ts": "export default {}",
+    }),
+  );
+  assert.equal(out.supported, true);
+  assert.match(out.dev, /vite --port/);
+  const veil = out.prepareFiles?.find((f) => f.path.endsWith("vite.preview.config.mjs"));
+  assert.ok(veil, "expected .brokk/vite.preview.config.mjs");
+  assert.match(veil!.contents, /brokk-forge-veil/);
+  assert.match(veil!.contents, /vite:beforeUpdate/);
+  assert.match(veil!.contents, /vite:beforeFullReload/);
+  assert.match(veil!.contents, /Forging/);
 });

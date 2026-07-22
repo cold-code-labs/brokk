@@ -18,7 +18,7 @@ export {
   cursorCliAvailable,
   runCursorCliTurn,
 } from "@brokk/afl";
-export { buildSystemPrompt, type ContextInput } from "./context.js";
+export { buildSystemPrompt, SCOPE_RULES, type ContextInput } from "./context.js";
 export {
   INBOX_DIR,
   attachmentContextBlock,

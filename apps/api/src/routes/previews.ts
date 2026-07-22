@@ -3,7 +3,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { actorFrom, canSeeProject } from "../actor.js";
 import type { AppDeps } from "../app.js";
-import { secretEquals } from "../secrets.js";
+import { redactEnv, redactPreviewEnv, secretEquals } from "../secrets.js";
 
 const CreatePreviewBody = z.object({
   projectId: z.string().uuid(),
@@ -109,7 +109,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
       status: "starting",
     });
 
-    return c.json(preview, created ? 201 : 200);
+    return c.json(redactPreviewEnv(preview), created ? 201 : 200);
   });
 
   /** GET /previews?projectId= — list all previews, optionally filtered by project. */
@@ -121,10 +121,12 @@ export function previewsRoutes(deps: AppDeps): Hono {
       if (!isRunnerCall(c, deps) && !canSeeProject(actorFrom(c), project.logtoOrgId)) {
         return c.json({ error: "not found" }, 404);
       }
-      return c.json(await deps.store.listPreviews({ projectId }));
+      const rows = await deps.store.listPreviews({ projectId });
+      return c.json(rows.map(redactPreviewEnv));
     }
     if (isRunnerCall(c, deps) || canSeeProject(actorFrom(c), null)) {
-      return c.json(await deps.store.listPreviews({}));
+      const rows = await deps.store.listPreviews({});
+      return c.json(rows.map(redactPreviewEnv));
     }
     // Client: union of previews for their org projects.
     const actor = actorFrom(c);
@@ -133,7 +135,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
     for (const proj of projects) {
       out.push(...(await deps.store.listPreviews({ projectId: proj.id })));
     }
-    return c.json(out);
+    return c.json(out.map(redactPreviewEnv));
   });
 
   /** GET /previews/by-subdomain/:sub — used by the web preview-gate (ADR 0064). */
@@ -143,7 +145,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
       return c.json({ error: "not found" }, 404);
     }
     const project = await deps.store.getProject(preview!.projectId);
-    return c.json({ preview, project });
+    return c.json({ preview: redactPreviewEnv(preview!), project });
   });
 
   /** GET /previews/:id — fetch a single preview by id. */
@@ -152,7 +154,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
     if (!(await previewVisible(deps, c, preview))) {
       return c.json({ error: "not found" }, 404);
     }
-    return c.json(preview);
+    return c.json(redactPreviewEnv(preview!));
   });
 
   /** POST /previews/:id/ping — the idle-reaper heartbeat. The Brokk screen calls
@@ -165,7 +167,7 @@ export function previewsRoutes(deps: AppDeps): Hono {
     }
     const preview = await deps.store.touchPreview(c.req.param("id"));
     if (!preview) return c.json({ error: "not found" }, 404);
-    return c.json(preview);
+    return c.json(redactPreviewEnv(preview));
   });
 
   /** PATCH /previews/:id — runner updates status, pid, port.
@@ -193,13 +195,13 @@ export function previewsRoutes(deps: AppDeps): Hono {
       ...(builtAt !== undefined ? { builtAt: builtAt ? new Date(builtAt) : null } : {}),
       ...(pid !== undefined ? { pid } : {}),
       ...(port !== undefined ? { port } : {}),
-      ...(loadedEnv !== undefined ? { loadedEnv } : {}),
+      ...(loadedEnv !== undefined ? { loadedEnv: loadedEnv ? redactEnv(loadedEnv) : null } : {}),
       ...(rssMb !== undefined ? { rssMb } : {}),
     };
 
     try {
       const updated = await deps.store.patchPreview(c.req.param("id"), patch);
-      return c.json(updated);
+      return c.json(redactPreviewEnv(updated));
     } catch (err) {
       if (err instanceof Error && err.message.includes("not found")) {
         return c.json({ error: "not found" }, 404);

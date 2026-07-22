@@ -38,11 +38,12 @@ volumes:
 x-restart: &restart
   restart: unless-stopped
 
-# Resource ceilings (fleet-deploy-isolation, 2026-07-11): caps, not reservations —
-# a runaway service gets contained instead of squeezing the shared surtr host
-# (founding incident: swap exhaustion killed a deploy exec). Workers that run
-# coding agents + preview dev servers get generous headroom so a cap never kills
-# legitimate forge work; sum of caps may exceed host RAM on purpose.
+# Resource ceilings (fleet-deploy-isolation, 2026-07-11; tightened 2026-07-21):
+# caps, not reservations — a runaway service gets contained instead of squeezing
+# the shared surtr host (founding incident: swap exhaustion killed a deploy exec;
+# 2026-07-20: BROKK_AUTO overnight + sum of caps ≈10.5 vCPU on an 8-vCPU box →
+# Hostinger throttle). Keep the Brokk stack under ~6 vCPU so the rest of the
+# fleet still breathes when forge is busy.
 
 # Full runtime env for the worker tier (forge/chat/reviewer). Coolify interpolates
 # ${VAR} from its env store; infra-fixed values are inlined as defaults. Extra vars
@@ -52,6 +53,8 @@ x-worker-env: &worker-env
   # Fresh preview installs (new app, ADR 0038) run as a dropped uid; the image's
   # default pnpm store (/pnpm) is root-owned → EPERM chmod'ing hardlinked bins.
   # Point store + caches at the 1001-owned work volume.
+  # BROKK-21: this is the ONE shared store — do not re-pin from preview.ts
+  # (pinning ~/.pnpm-store caused EPERM; reverted). See docs/DEV-PREVIEW.md.
   COREPACK_HOME: /home/brokk/work/.cache/corepack
   XDG_CACHE_HOME: /home/brokk/work/.cache
   XDG_DATA_HOME: /home/brokk/work/.local
@@ -67,7 +70,7 @@ x-worker-env: &worker-env
   BROKK_GIT_NAME: ${BROKK_GIT_NAME:-Brokk}
   BROKK_GIT_EMAIL: ${BROKK_GIT_EMAIL:-brokk@coldcodelabs.com}
   BROKK_DEFAULT_REPO: ${BROKK_DEFAULT_REPO:-}
-  BROKK_DEFAULT_BRANCH: ${BROKK_DEFAULT_BRANCH:-}
+  BROKK_DEFAULT_BRANCH: ${BROKK_DEFAULT_BRANCH:-main}
   BROKK_BROWSER: ${BROKK_BROWSER:-}
   ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
   ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
@@ -101,6 +104,11 @@ x-worker-env: &worker-env
   # HAULDR_CONTROL_URL stays: it is a URL, not a credential — the preview needs
   # it to apply its OWN migrations with its per-project migrate token.
   HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
+  # MCP tool servers (Hauldr/Heimdall etc). Coolify does not auto-inject
+  # worker env into the container beyond what is listed here — a server
+  # config that relies on this var being implicitly present goes silently
+  # dead (401 / tool morta).
+  BROKK_MCP_SERVERS: ${BROKK_MCP_SERVERS:-}
 
 services:
   brokk-api:
@@ -111,7 +119,7 @@ services:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-api:coolify
     mem_limit: 1g
-    cpus: 1.0
+    cpus: 0.5
     environment:
       BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:?set in Coolify}
       BROKK_API_PORT: "8789"
@@ -121,7 +129,12 @@ services:
       BROKK_GITHUB_WEBHOOK_SECRET: ${BROKK_GITHUB_WEBHOOK_SECRET:-}
       BROKK_SINDRI_URL: ${BROKK_SINDRI_URL:-http://chat:8795}
       BROKK_DEFAULT_REPO: ${BROKK_DEFAULT_REPO:-}
-      BROKK_DEFAULT_BRANCH: ${BROKK_DEFAULT_BRANCH:-}
+      BROKK_DEFAULT_BRANCH: ${BROKK_DEFAULT_BRANCH:-main}
+      # BROKK-44: overnight Regin intake of orphaned failed cards. "1" = on.
+      # Pair with BROKK_AUTO_MAX_LIVE (default 1) + auto pause on Mímir 429.
+      BROKK_AUTO: ${BROKK_AUTO:-0}
+      BROKK_AUTO_MAX_LIVE: ${BROKK_AUTO_MAX_LIVE:-1}
+      BROKK_AUTO_PAUSE_MS: ${BROKK_AUTO_PAUSE_MS:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       MIMIR_MODEL: ${MIMIR_MODEL:-gpt-4.1-mini}
       MIMIR_BASE_URL: ${MIMIR_BASE_URL:-}
@@ -162,7 +175,7 @@ services:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-web:coolify
     mem_limit: 1g
-    cpus: 1.0
+    cpus: 0.5
     environment:
       BROKK_API_INTERNAL_URL: ${BROKK_API_INTERNAL_URL:-http://brokk-api:8789}
       # The proxy (apps/web/app/api/[...path]) injects this bearer server-side so
@@ -204,8 +217,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-forge:coolify
-    mem_limit: 6g
-    cpus: 3.0
+    mem_limit: 4g
+    cpus: 2.0
     # No `user:` — the entrypoint starts as root to install the Nível 3 egress jail
     # (needs CAP_NET_ADMIN) then drops to 1001:1001 before exec. cap dropped with it.
     cap_add: [NET_ADMIN]
@@ -249,8 +262,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-forge:coolify
-    mem_limit: 4g
-    cpus: 2.0
+    mem_limit: 2g
+    cpus: 1.0
     # No `user:` — the entrypoint starts as root to install the Nível 3 egress jail
     # (needs CAP_NET_ADMIN) then drops to 1001:1001 before exec. cap dropped with it.
     cap_add: [NET_ADMIN]
@@ -281,8 +294,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-reviewer:coolify
-    mem_limit: 2g
-    cpus: 1.5
+    mem_limit: 1.5g
+    cpus: 1.0
     # No `user:` — entrypoint boots as root for the egress jail, then drops to 1001.
     cap_add: [NET_ADMIN]
     environment:
@@ -359,8 +372,8 @@ services:
       args:
         NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
     image: brokk-chat:coolify
-    mem_limit: 4g
-    cpus: 2.0
+    mem_limit: 2g
+    cpus: 1.0
     # No `user:` — entrypoint boots as root for the egress jail, then drops to 1001.
     cap_add: [NET_ADMIN]
     environment:
