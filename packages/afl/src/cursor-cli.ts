@@ -94,6 +94,7 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
     "--stream-partial-output",
     "--trust",
     "--force",
+    "--approve-mcps",
   ];
   if (input.model) args.push("--model", input.model);
   if (input.resume) args.push("--resume", input.resume);
