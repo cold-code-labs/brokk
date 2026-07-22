@@ -442,6 +442,8 @@ body:has(.sindri) {
   gap: 0;
   max-width: none;
   min-width: 0;
+  /* Reading column for thread + composer (solo or split). Caps ultrawide stretch. */
+  --sindri-measure: 44rem;
 }
 
 /* ── the room: session rail | (chat | preview) ─────────────────────────────── */
@@ -828,7 +830,7 @@ body:has(.sindri) {
 .sindri-blank-bar {
   display: flex;
   align-items: stretch;
-  width: min(40rem, 86vw);
+  width: min(var(--sindri-measure), 86vw);
   border: 1px solid var(--line);
   border-radius: calc(var(--radius) + 0.3rem);
   background: color-mix(in srgb, var(--panel) 72%, transparent);
@@ -1002,10 +1004,14 @@ body:has(.sindri) {
 }
 .sindri-thread-content {
   /* top pad clears the floating head, so the FIRST turn never opens underneath it */
-  padding: 2.9rem 1rem 0.9rem;
+  padding: 2.9rem 1.25rem 0.9rem;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+  width: 100%;
+  max-width: var(--sindri-measure);
+  margin-inline: auto;
+  box-sizing: border-box;
 }
 .sindri-msg {
   display: flex;
@@ -1354,21 +1360,22 @@ body:has(.sindri) {
 /* composer = cockpit: textarea on top, controls + send share the footer row */
 /* composer = one rounded input bar (v0 shape): textarea on top, a slim toolbar
    row underneath (effort + model on the left, send on the right) sharing the
-   same bordered card. */
+   same bordered card. Shares --sindri-measure with the thread so ultrawide
+   doesn't stretch the prompt bar edge-to-edge. */
 .sindri-composer {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   position: relative;
-  /* The input is a recessed tray at the foot of the chat panel — NOT a second
-     boxed card floating inside it (crit: "composer cheio de overlays"). Flush to
-     the panel edges, parted from the thread by a single hairline; its darker
-     --bg well already reads as inset, so it carries no border/radius of its own.
-     One frame (the panel), not two. */
-  margin: 0;
-  padding: 0.6rem 0.7rem;
-  /* No seam between thread and composer: the box below already stands on its own,
-     and a hairline here only drew a border nobody needed. Same paper, one room. */
+  width: 100%;
+  max-width: var(--sindri-measure);
+  margin-inline: auto;
+  box-sizing: border-box;
+  /* Tray stays frameless; the stack below is the only bordered surface.
+     Side/bottom pad lifts it off the pane edge so it reads as a command bar,
+     not a full-bleed footer. */
+  margin-block: 0;
+  padding: 0.35rem 0.35rem 0.95rem;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1446,9 +1453,9 @@ body:has(.sindri) {
   position: relative;
   display: flex;
   align-items: flex-end;
-  padding: 0.4rem 0.5rem;
+  padding: 0.55rem 0.65rem;
   border: 1px solid var(--border);
-  border-radius: 0.85rem;
+  border-radius: 1rem;
   background: var(--card, var(--bg));
   transition: border-color 0.14s ease, box-shadow 0.14s ease;
 }
@@ -3735,7 +3742,8 @@ html.dark .fv-hl .shiki span {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px 16px 24px;
+  /* Shares --sindri-measure with .sindri-thread-content (class is on both). */
+  padding: 2.9rem 1.25rem 1.5rem;
   scroll-behavior: smooth;
 }
 .sindri-aui-thread .sindri-msg {
@@ -3746,13 +3754,13 @@ html.dark .fv-hl .shiki span {
   justify-content: flex-end;
 }
 .sindri-aui-thread .sindri-msg.is-user .sindri-bubble {
-  max-width: min(640px, 92%);
+  max-width: min(36rem, 92%);
   background: var(--sindri-user-bg, #e8f0ec);
   border-radius: 14px 14px 4px 14px;
   padding: 10px 14px;
 }
 .sindri-aui-thread .sindri-msg.is-assistant .sindri-bubble {
-  max-width: min(720px, 100%);
+  max-width: 100%;
   padding: 4px 2px;
 }
 .sindri-diff-card {
