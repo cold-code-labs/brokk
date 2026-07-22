@@ -1,9 +1,9 @@
-# Brokk — tenancy por organization Logto (bloqueio do portal B2B)
+# Brokk — tenancy por organization Logto (serviço de builder da Asgard)
 
-**Status:** em implementação · **bloqueia** login de IT externo até T2 + `BROKK_ORG_TENANCY=1`  
-**ADR:** [0064](https://edda.coldcodelabs.com/decisoes/0064-brokk-org-scoped-builder-b2b/) (Edda)  
+**Status:** T0–T2 live (`BROKK_ORG_TENANCY=1` em prod) · T3/T4 abertos  
+**ADRs:** [0065](https://edda.coldcodelabs.com/decisoes/0065-asgard-cloud-porta-do-cliente/) (porta = Asgard) · [0064](https://edda.coldcodelabs.com/decisoes/0064-brokk-org-scoped-builder-b2b/) (tenancy)  
 **Urðr:** `BROKK-47`  
-**Relaciona:** ADR 0045 (CCL ID org-scoped), ADR 0041 (Lofn = portal comercial), ADR 0061 (Midgard executor), Asgard B2B (`~/ccl/asgard/docs/b2b/`), Midgard `docs/asgard-b2b-onboarding.md`
+**Relaciona:** ADR 0045, ADR 0041 (Lofn ≠ porta da cloud), ADR 0061, Asgard `docs/b2b/`, Midgard `docs/asgard-b2b-onboarding.md`
 
 ## Progresso (código)
 
@@ -16,18 +16,19 @@
 | T2 studio / previews / Publicar | feito (runner bypass; humano escopado) |
 | T2b forge GET projects/repos | feito (`requestActor` eleva `BROKK_RUNNER_SECRET` a staff — evita 404 em legado null) |
 | Flag | `BROKK_ORG_TENANCY=1` liga filtro; sem flag, layout bloqueia só-cliente |
+| Smoke Maglink | feito (client vs staff vs no-org) |
 
-**Ainda aberto:** smoke E2E com user de org de teste; convite IT (T4); UI “Novo projeto” self-serve (T3).
+**Ainda aberto:** UI “Novo projeto” self-serve (T3); convite IT no Brokk (T4) — convite de *empresa* nasce na Asgard (ADR 0065 A0).
 
 ## Por que
 
-Hoje o Brokk isola **chat por dono**; board, `repositories` e `projects` são **globais**. Qualquer usuário Logto autenticado no Brokk vê a fábrica CCL. Abrir isso para empresa-cliente = vazamento operacional.
+O Brokk isola **chat por dono**; sem tenancy, board/`repositories`/`projects` são globais. Qualquer user Logto veria a fábrica CCL.
 
-Alvo do segmento “empresa builder na Asgard”: Brokk = porta (projetos, brief, preview, pedir/Publicar prod, Studio). Isso **só** depois de filtrar por org.
+**Porta do cliente = Asgard** (conta, org, uso, atalho Brokk). **Brokk = serviço de builder** dentro da cloud — só libera com filtro por org.
 
 ## Regra dura
 
-Até os itens **T0–T2** abaixo estarem done em produção: **nenhum convite de cliente no Brokk**.
+Sem T0–T2 + flag em produção: **nenhum convite de cliente no Brokk**. Com tenancy live: entrada pelo deep-link da Asgard, não URL solta como primeiro contato.
 
 ## Backlog ordenado
 
