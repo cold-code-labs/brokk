@@ -261,7 +261,17 @@ export async function sendMessage(
     }),
     signal,
   });
-  if (!res.ok) throw new ApiError(`send → ${res.status} ${await res.text().catch(() => "")}`, res.status);
+  if (!res.ok) {
+    const raw = await res.text().catch(() => "");
+    let msg = `send → ${res.status} ${raw}`;
+    try {
+      const j = JSON.parse(raw) as { error?: unknown };
+      if (typeof j.error === "string" && j.error.trim()) msg = j.error;
+    } catch {
+      /* keep raw */
+    }
+    throw new ApiError(msg, res.status);
+  }
   await consumeSSE(res, onEvent, signal);
 }
 
