@@ -41,6 +41,7 @@ import { useProject } from "../lib/project-context";
 import { STATUS_COLOR, STATUS_LABEL, t } from "../lib/theme";
 import { AgentAvatar } from "./AgentAvatar";
 import { PreviewChip } from "./PreviewChip";
+import { LightMarkdown } from "./LightMarkdown";
 
 const COLUMNS = ["backlog", "analysis", "queued", "running", "review", "done", "failed"] as const;
 
@@ -48,6 +49,27 @@ const COLUMNS = ["backlog", "analysis", "queued", "running", "review", "done", "
  *  warm thing on the board; accent flags review/PR; everything else stays cold. */
 const chipClass = (s: string) =>
   `forge-chip${s === "running" ? " is-ember" : s === "review" ? " is-accent" : ""}`;
+
+/** QA card origin from Huginn (ADR 0067) — labels `qa-scenario` / `qa-fail`. */
+function qaOrigin(task: Task): "scenario" | "fail" | "blocked" | null {
+  const labels = task.labels ?? [];
+  if (labels.includes("qa-scenario") || labels.some((l) => l.startsWith("qa-scenario:"))) {
+    return "scenario";
+  }
+  const isFail =
+    labels.includes("qa-fail") || labels.some((l) => l.startsWith("qa-fail:"));
+  if (!isFail) return null;
+  if (/\[QA\s+blocked\]/i.test(task.title) || /\bverdict\s+\*?\*?blocked\*?\*?/i.test(task.body ?? "")) {
+    return "blocked";
+  }
+  return "fail";
+}
+
+const QA_ORIGIN_CHIP: Record<"scenario" | "fail" | "blocked", { label: string; color: string }> = {
+  scenario: { label: "scenario", color: "var(--fg-dim)" },
+  fail: { label: "fail", color: STATUS_COLOR.failed },
+  blocked: { label: "blocked", color: STATUS_COLOR.queued },
+};
 
 /** Board for a single project. `projectId` selects the repo's board; when omitted
  *  it falls back to the first project (legacy single-project entry). */
@@ -700,6 +722,8 @@ export function TaskDetail({ task, onClose, onChanged }: { task: Task; onClose: 
   }, [events]);
 
   const latest = runs[0];
+  const origin = qaOrigin(task);
+  const isQaScenario = origin === "scenario";
 
   return (
     <div style={overlay} onClick={onClose}>
@@ -710,6 +734,14 @@ export function TaskDetail({ task, onClose, onChanged }: { task: Task; onClose: 
         </div>
         <div style={{ display: "flex", gap: 8, margin: "8px 0 14px", alignItems: "center", flexWrap: "wrap" }}>
           <span className={chipClass(task.status)}>{task.status}</span>
+          {origin && (
+            <span
+              className="forge-chip"
+              style={{ color: QA_ORIGIN_CHIP[origin].color, borderColor: `color-mix(in srgb, ${QA_ORIGIN_CHIP[origin].color} 35%, var(--line-soft))` }}
+            >
+              {QA_ORIGIN_CHIP[origin].label}
+            </span>
+          )}
           {latest && <span className={chipClass(latest.status)}>run {latest.status}</span>}
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--fg-dim)" }}>
             by <AgentAvatar createdBy={task.createdBy} size={18} showLabel />
@@ -720,56 +752,58 @@ export function TaskDetail({ task, onClose, onChanged }: { task: Task; onClose: 
             </a>
           )}
         </div>
-        {task.body && <p className="ygg-muted" style={{ fontSize: 13, whiteSpace: "pre-wrap" }}>{task.body}</p>}
+        {task.body && <LightMarkdown text={task.body} />}
         {latest?.error && <pre style={{ ...logBox, color: STATUS_COLOR.failed, maxHeight: 120 }}>{latest.error}</pre>}
 
         {/* Handoff: pull the card out of the forge, hand it back, or mark it
-            resolved by hand. The "resolver independente do Brokk" surface. */}
-        <div style={handoffBar}>
-          {task.owner === "brokk" ? (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={handoffBusy}
-              onClick={() => handoff(() => brokk.setTaskOwner(task.id, "human", "pego pelo humano"))}
-            >
-              <Hand size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
-              Take it
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={handoffBusy}
-              onClick={() => handoff(() => brokk.setTaskOwner(task.id, "brokk", "devolvido ao forge"))}
-            >
-              <Undo2 size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
-              Return to Brokk
-            </Button>
-          )}
-          {!isTerminal && (
-            <Button
-              size="sm"
-              disabled={handoffBusy}
-              onClick={() => handoff(() => brokk.resolveTask(task.id, "resolvido fora do forge"))}
-            >
-              <CheckCircle2 size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
-              Resolve by hand
-            </Button>
-          )}
-        </div>
+            resolved by hand. Hidden for QA scenario checklists (not forge work). */}
+        {!isQaScenario && (
+          <div style={handoffBar}>
+            {task.owner === "brokk" ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={handoffBusy}
+                onClick={() => handoff(() => brokk.setTaskOwner(task.id, "human", "pego pelo humano"))}
+              >
+                <Hand size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
+                Take it
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={handoffBusy}
+                onClick={() => handoff(() => brokk.setTaskOwner(task.id, "brokk", "devolvido ao forge"))}
+              >
+                <Undo2 size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
+                Return to Brokk
+              </Button>
+            )}
+            {!isTerminal && (
+              <Button
+                size="sm"
+                disabled={handoffBusy}
+                onClick={() => handoff(() => brokk.resolveTask(task.id, "resolvido fora do forge"))}
+              >
+                <CheckCircle2 size={13} style={{ marginRight: 5, verticalAlign: "-2px" }} />
+                Resolve by hand
+              </Button>
+            )}
+          </div>
+        )}
         {handoffErr && <Banner tone="err">{handoffErr}</Banner>}
 
         {isAnalysis ? (
           <AnalysisPanel task={task} onChanged={onChanged} onClose={onClose} />
-        ) : (
+        ) : !isQaScenario ? (
           <>
             <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "16px 0 8px" }}>
               Live run log{latest && <> · <span className="forge-row-mono">{latest.id.slice(0, 8)}</span></>}
             </h3>
             <RunLog events={events} logRef={logRef} />
           </>
-        )}
+        ) : null}
 
         <Timeline taskId={task.id} status={task.status} owner={task.owner} />
       </aside>
