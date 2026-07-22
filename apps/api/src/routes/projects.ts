@@ -1,4 +1,4 @@
-import { AUTH_MODES, featureBranch, taskSlug } from "@brokk/core";
+import { AUTH_MODES, featureBranch, taskSlug, type Task } from "@brokk/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requestActor, canSeeProject, listScope, resolveLogtoOrgId } from "../actor.js";
@@ -229,7 +229,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
     }
 
     const catalog = await deps.store.getQaCatalog(id);
-    const created = [];
+    const created: Task[] = [];
     let skipped = 0;
 
     const makeCard = async (input: {
