@@ -136,7 +136,18 @@ export interface BrokkClient {
   /** Huginn Phase 2: create proposed backlog cards from a project's discovery
    *  brief (one per "missing" item). Idempotent — re-running skips carded items. */
   backlogFromBrief(projectId: string): Promise<{ created: Task[]; skipped: number }>;
-  /** Huginn Phase 3: enqueue every proposed (discovery/plan) backlog card at once. */
+  /** Full QA → proposed backlog cards (catalog scenarios and/or fail|blocked findings). */
+  backlogFromQa(
+    projectId: string,
+    input?: { source?: "findings" | "catalog" | "both"; runId?: string },
+  ): Promise<{
+    created: Task[];
+    skipped: number;
+    source: "findings" | "catalog" | "both";
+    runId: string | null;
+    catalogCount: number;
+  }>;
+  /** Huginn Phase 3: enqueue every proposed (discovery/plan/qa-fail) backlog card at once. */
   approveProposed(projectId: string): Promise<{ enqueued: number }>;
   listTaskRuns(id: string): Promise<Run[]>;
   getRun(id: string): Promise<Run>;
@@ -300,6 +311,15 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
         "POST",
         `/projects/${encodeURIComponent(projectId)}/backlog-from-brief`,
       );
+    },
+    backlogFromQa(projectId, input) {
+      return req<{
+        created: Task[];
+        skipped: number;
+        source: "findings" | "catalog" | "both";
+        runId: string | null;
+        catalogCount: number;
+      }>("POST", `/projects/${encodeURIComponent(projectId)}/backlog-from-qa`, input ?? {});
     },
     approveProposed(projectId) {
       return req<{ enqueued: number }>(

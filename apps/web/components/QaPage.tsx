@@ -14,6 +14,7 @@ import {
   type QaVerdict,
 } from "../lib/chat";
 import { useProject } from "../lib/project-context";
+import { useToast } from "./Toaster";
 
 function tally(results: { verdict: QaVerdict }[]) {
   let pass = 0;
@@ -38,6 +39,8 @@ export default function QaPage({ projectId }: { projectId?: string }) {
   const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [cardBusy, setCardBusy] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     if (projectId) setCurrentId(projectId);
@@ -96,6 +99,35 @@ export default function QaPage({ projectId }: { projectId?: string }) {
     }
   }
 
+  /** Materialize Discovery scenarios + fail/blocked findings as proposed backlog cards. */
+  async function createCards(runId?: string) {
+    if (!projectId) return;
+    setCardBusy(true);
+    try {
+      const { created, skipped } = await brokk.backlogFromQa(projectId, {
+        source: "both",
+        runId,
+      });
+      if (created.length) {
+        toast(
+          `${created.length} card${created.length === 1 ? "" : "s"} no backlog.`,
+          {
+            meta: skipped ? `${skipped} já existiam` : "Approve all enfileira só os qa-fail.",
+            tone: "ok",
+          },
+        );
+      } else {
+        toast(skipped ? `Tudo já cardado (${skipped}).` : "Nada pra criar.", {
+          tone: "info",
+        });
+      }
+    } catch (e) {
+      toast("Não deu pra criar cards.", { meta: String(e), tone: "err" });
+    } finally {
+      setCardBusy(false);
+    }
+  }
+
   const scenarios: QaScenario[] =
     catalog?.status === "ready" ? catalog.scenarios : [];
   const q = filter.trim().toLowerCase();
@@ -147,6 +179,16 @@ export default function QaPage({ projectId }: { projectId?: string }) {
             <Button asChild variant="outline" size="sm">
               <Link href={chatHref}>Open in Sindri</Link>
             </Button>
+            {catalog?.status === "ready" && (
+              <Button
+                size="sm"
+                type="button"
+                onClick={() => void createCards(lastReady?.id)}
+                disabled={cardBusy || !projectId}
+              >
+                {cardBusy ? "Criando…" : "Criar cards no Quadro"}
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -294,6 +336,19 @@ export default function QaPage({ projectId }: { projectId?: string }) {
                             <Link href={`/chat?session=${run.sessionId}`} className="forge-crumb">
                               Open session →
                             </Link>
+                          )}
+                          {(run.status === "ready" || run.results.length > 0) && (
+                            <div style={{ marginTop: 8 }}>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={cardBusy}
+                                onClick={() => void createCards(run.id)}
+                              >
+                                {cardBusy ? "Criando…" : "Cards desta run"}
+                              </Button>
+                            </div>
                           )}
                         </div>
                       )}
