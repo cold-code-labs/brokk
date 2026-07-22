@@ -53,8 +53,9 @@ export interface TurnUsage {
   cacheCreationTokens: number;
 }
 
-/** Live events Sindri emits during a turn — fed to the SSE stream and (for the
- *  completed-message ones) mirrored from the persisted transcript on reconnect. */
+/** Canonical turn wire for EVERY engine (claude-api, claude-cli, cursor-cli).
+ *  Adapters MUST emit these shapes — UI + chat_messages speak only this dialect.
+ *  Fed to the SSE stream; completed `message` rows also replay on reconnect. */
 export type AgentEvent =
   | { type: "status"; phase: string; detail?: unknown }
   | { type: "text_delta"; text: string }

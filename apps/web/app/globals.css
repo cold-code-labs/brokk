@@ -1312,6 +1312,25 @@ body:has(.sindri) {
 }
 
 /* status + composer */
+
+.sindri-live-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 2px 8px;
+}
+.sindri-live-tool {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line, #d8e0dc);
+  color: var(--muted, #6b7c78);
+  background: var(--paper, #f7faf8);
+}
+.sindri-live-tool.is-ok { border-color: #9bc4b0; color: #2f6b52; }
+.sindri-live-tool.is-error { border-color: #e4a59a; color: #a84e40; }
+
 .sindri-status {
   display: flex;
   align-items: center;
