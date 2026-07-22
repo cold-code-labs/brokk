@@ -1,9 +1,23 @@
 import assert from "node:assert/strict";
 import { describe, it, afterEach } from "node:test";
-import { canSeeProject, listScope, resolveLogtoOrgId, type Actor } from "./actor.js";
+import {
+  canSeeProject,
+  listScope,
+  requestActor,
+  resolveLogtoOrgId,
+  type Actor,
+} from "./actor.js";
 
 const staff: Actor = { email: "v@ccl", orgIds: ["d5qacs8kwh79"], isStaff: true };
 const client: Actor = { email: "ti@acme", orgIds: ["org-acme"], isStaff: false };
+
+function fakeCtx(headers: Record<string, string>) {
+  return {
+    req: {
+      header: (name: string) => headers[name.toLowerCase()] ?? headers[name] ?? undefined,
+    },
+  } as never;
+}
 
 describe("actor tenancy (ADR 0064)", () => {
   afterEach(() => {
@@ -38,5 +52,20 @@ describe("actor tenancy (ADR 0064)", () => {
     if (ok.ok) assert.equal(ok.logtoOrgId, "org-acme");
     const denied = resolveLogtoOrgId({ ...client, orgIds: [] }, null);
     assert.equal(denied.ok, false);
+  });
+
+  it("requestActor elevates forge runner bearer to staff", () => {
+    process.env.BROKK_ORG_TENANCY = "1";
+    const secret = "runner-secret-for-test-32chars!!";
+    const elevated = requestActor(
+      fakeCtx({ authorization: `Bearer ${secret}` }),
+      secret,
+    );
+    assert.equal(elevated.isStaff, true);
+    assert.equal(canSeeProject(elevated, null), true);
+
+    const plain = requestActor(fakeCtx({ authorization: "Bearer wrong" }), secret);
+    assert.equal(plain.isStaff, false);
+    assert.equal(canSeeProject(plain, null), false);
   });
 });

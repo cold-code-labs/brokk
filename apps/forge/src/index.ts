@@ -704,6 +704,7 @@ async function resolveRepository(task: Task): Promise<Repository> {
     installationId: null,
     repoMap: null,
     repoMapAt: null,
+    logtoOrgId: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

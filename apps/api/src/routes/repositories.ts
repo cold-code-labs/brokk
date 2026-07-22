@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Hono } from "hono";
 import { z } from "zod";
-import { actorFrom, canSeeProject, listScope, orgTenancyEnabled } from "../actor.js";
+import { requestActor, canSeeProject, listScope, orgTenancyEnabled } from "../actor.js";
 import type { AppDeps } from "../app.js";
 
 const run = promisify(execFile);
@@ -80,7 +80,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
   r.get("/", async (c) => {
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     return c.json(await deps.store.listRepositories(listScope(actor)));
   });
 
@@ -88,7 +88,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
   // "auto-import via gh" picker in the UI. Staff-only when tenancy is on —
   // the GH org is the CCL fleet surface (ADR 0064).
   r.get("/import/candidates", async (c) => {
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     if (orgTenancyEnabled() && !actor.isStaff) {
       return c.json({ error: "forbidden" }, 403);
     }
@@ -117,7 +117,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
   // Single repo by id — the preview supervisor resolves a project's repo here.
   // Registered after the static "/import/candidates" route so it doesn't shadow it.
   r.get("/:id", async (c) => {
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     const repo = await deps.store.getRepository(c.req.param("id"));
     if (!repo || !canSeeProject(actor, repo.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -127,7 +127,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
 
   // Bulk-connect selected repos (and, by default, a project each).
   r.post("/import", async (c) => {
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     if (orgTenancyEnabled() && !actor.isStaff) {
       return c.json({ error: "forbidden" }, 403);
     }
@@ -143,7 +143,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
 
   // Connect a single repo by full name (manual fallback to the importer).
   r.post("/", async (c) => {
-    const actor = actorFrom(c);
+    const actor = requestActor(c, deps.runnerSecret);
     const parsed = ConnectBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     let logtoOrgId = parsed.data.logtoOrgId ?? null;
