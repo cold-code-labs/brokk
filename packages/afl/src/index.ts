@@ -86,3 +86,6 @@ export type {
   ToolUseBlock,
   TurnUsage,
 } from "./types.js";
+
+export { UiMessageBridge, agentEventToChunks, type SindriMessageMetadata } from "./ui-message-bridge.js";
+export { chatRowsToUIMessages, blocksToParts, type ChatRow } from "./blocks-to-ui-message.js";

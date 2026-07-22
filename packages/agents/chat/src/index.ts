@@ -48,3 +48,12 @@ export type {
   ToolUseBlock,
   TurnUsage,
 } from "@brokk/afl";
+
+export {
+  UiMessageBridge,
+  agentEventToChunks,
+  chatRowsToUIMessages,
+  blocksToParts,
+  type SindriMessageMetadata,
+  type ChatRow,
+} from "@brokk/afl";

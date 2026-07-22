@@ -14,8 +14,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
-import { Streamdown } from "streamdown";
-import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+import { SindriThread, type SindriThreadApi } from "./SindriThread";
+import { sessionMessagesToUIMessages } from "../lib/ui-messages";
 import { Banner, Button } from "@cold-code-labs/yggdrasil-react";
 import {
   Plus,
@@ -23,18 +23,9 @@ import {
   Square,
   Hammer,
   Trash2,
-  Check,
   Zap,
-  Copy,
-  Brain,
   ArrowDown,
-  ChevronDown,
-  Wrench,
-  FileEdit,
   FileText,
-  TerminalSquare,
-  ListTodo,
-  GitPullRequest,
   Monitor,
   MonitorPlay,
   Smartphone,
@@ -58,14 +49,10 @@ import CommitControls from "./CommitControls";
 import { brokk } from "../lib/api";
 import {
   ApiError,
-  attach,
   chat,
-  sendMessage,
-  type Block,
   type ChatMessage,
   type ChatSessionWithStats,
   type Preview,
-  type AgentEvent,
 } from "../lib/chat";
 import { files, inboxRelPath } from "../lib/files";
 import { STATUS_COLOR, t as theme } from "../lib/theme";
@@ -421,10 +408,12 @@ export default function Chat() {
   const [sessions, setSessions] = useState<ChatSessionWithStats[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [liveText, setLiveText] = useState("");
-  const [liveThinking, setLiveThinking] = useState("");
-  const [liveTools, setLiveTools] = useState<{ id: string; name: string; ok?: boolean }[]>([]);
+  const threadApiRef = useRef<SindriThreadApi | null>(null);
+  const [threadHydrate, setThreadHydrate] = useState<{ sessionId: string; messages: ReturnType<typeof sessionMessagesToUIMessages>; resume: boolean } | null>(null);
+  const extrasRef = useRef({ skill: null as string | null, attachments: [] as string[], attachmentUploads: [] as { name: string; dataBase64: string }[] });
   const [phase, setPhase] = useState("");
+  /** Bump to remount SindriThread (reattach / open). */
+  const [threadEpoch, setThreadEpoch] = useState(0);
   const [running, setRunning] = useState(false);
   const [input, setInput] = useState("");
   const [blankDraft, setBlankDraft] = useState("");
@@ -506,7 +495,6 @@ export default function Chat() {
   // pipe apart from the turn: `link` is ours to repair, `error` is the turn's.
   const [link, setLink] = useState<"ok" | "reconnecting">("ok");
   const terminalRef = useRef(false); // did this stream reach done/error?
-  const lastFrameRef = useRef(0); // when the stream last showed proof of life
   const dropsRef = useRef(0); // consecutive drops → backoff
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resyncRef = useRef<(sid: string) => void>(() => {});
@@ -564,84 +552,6 @@ export default function Chat() {
     }
   }, []);
 
-  const upsert = useCallback((m: { seq: number; role: ChatMessage["role"]; blocks: Block[] }) => {
-    if (m.seq > liveSeqRef.current) liveSeqRef.current = m.seq;
-    setMessages((prev) => {
-      const i = prev.findIndex((x) => x.seq === m.seq);
-      const row = { id: `seq-${m.seq}`, sessionId, seq: m.seq, role: m.role, blocks: m.blocks, meta: null, createdAt: "" };
-      if (i >= 0) {
-        const c = [...prev];
-        c[i] = row;
-        return c;
-      }
-      return [...prev, row].sort((a, b) => a.seq - b.seq);
-    });
-  }, [sessionId]);
-
-  const handleEvent = useCallback(
-    (e: AgentEvent) => {
-      // A frame — any frame, ping included — is proof of life on both counts:
-      // the POST landed (the server owns the prompt now) and the pipe carries.
-      pendingRef.current = "";
-      lastFrameRef.current = Date.now();
-      setLink((l) => (l === "ok" ? l : "ok"));
-      switch (e.type) {
-        case "text_delta":
-          setLiveText((t) => t + e.text);
-          break;
-        case "thinking_delta":
-          setLiveThinking((t) => t + e.text);
-          break;
-        case "message":
-          upsert(e);
-          // An assistant message has landed in the transcript — the live
-          // scratchpad (streaming text + reasoning) is now redundant.
-          if (e.role === "assistant") {
-            setLiveText("");
-            setLiveThinking("");
-            // Keep liveTools until done — MessageView picks up persisted tools.
-          }
-          break;
-        case "status":
-          setPhase(e.phase === "round" ? "thinking" : e.phase);
-          break;
-        case "tool_use":
-          setPhase(`tool: ${e.name}`);
-          setLiveTools((prev) =>
-            prev.some((x) => x.id === e.id) ? prev : [...prev, { id: e.id, name: e.name }],
-          );
-          break;
-        case "tool_result":
-          setPhase("thinking");
-          setLiveTools((prev) =>
-            prev.map((x) => (x.id === e.toolUseId ? { ...x, ok: e.ok } : x)),
-          );
-          break;
-        case "title":
-          setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, title: e.title } : s)));
-          break;
-        case "done":
-        case "error":
-          // The turn spoke for itself: whatever happens to the pipe now, there
-          // is nothing left to reattach to.
-          terminalRef.current = true;
-          pendingRef.current = "";
-          if (e.type === "error") setError(e.message);
-          setRunning(false);
-          setPhase("");
-          setLiveText("");
-          setLiveThinking("");
-          setLiveTools([]);
-          // refresh stats for the session that just finished a turn
-          if (projectId) chat.listSessions(projectId).then(setSessions).catch(() => {});
-          break;
-        default:
-          break;
-      }
-    },
-    [upsert, sessionId, projectId],
-  );
-
   /** Back off after a drop; a wake (tab/network) jumps this queue. */
   const scheduleRetry = useCallback((sid: string) => {
     setLink("reconnecting");
@@ -668,37 +578,23 @@ export default function Chat() {
         liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
         setLink("ok");
         dropsRef.current = 0;
-        // A prompt whose POST never landed left no turn and no transcript row:
-        // hand the text back to the composer instead of eating it.
         const orphan = pendingRef.current;
         if (orphan && !live) {
           pendingRef.current = "";
           setInput((cur) => cur || orphan);
           requestAnimationFrame(() => resizeComposer());
         }
-        if (!live) {
-          setRunning(false);
-          setPhase("");
-          setLiveText("");
-          setLiveThinking("");
-          setLiveTools([]);
-          return;
-        }
-        setRunning(true);
-        // The replay starts at the head of the ring buffer, so the scratchpad
-        // has to start empty or every delta lands twice.
-        setLiveText("");
-        setLiveThinking("");
-        setLiveTools([]);
-        terminalRef.current = false;
-        lastFrameRef.current = Date.now();
-        await attach(sid, handleEvent, ac.signal);
-        if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(sid);
+        setRunning(live);
+        setPhase(live ? "forging" : "");
+        setThreadEpoch((n) => n + 1);
+        setThreadHydrate({
+          sessionId: sid,
+          messages: sessionMessagesToUIMessages(msgs),
+          resume: live,
+        });
+        if (projectId) chat.listSessions(projectId).then(setSessions).catch(() => {});
       } catch (e) {
         if (ac.signal.aborted) return;
-        // A verdict ends the loop: retrying a session the server says is gone
-        // would leave "reconnecting…" on screen forever — a second lie in the
-        // shape of the first one.
         if (isVerdict(e)) {
           setError(String(e));
           setRunning(false);
@@ -709,7 +605,7 @@ export default function Chat() {
         scheduleRetry(sid);
       }
     },
-    [handleEvent, scheduleRetry],
+    [scheduleRetry, projectId],
   );
 
   useEffect(() => {
@@ -734,27 +630,7 @@ export default function Chat() {
     };
   }, [link, sessionId, resync]);
 
-  // A closed laptop doesn't hang up — it goes quiet. The socket dies with no
-  // error to catch, so the drop path above never fires and the spinner would
-  // spin on stale text forever. But an idle stream pings every 15s, so silence
-  // is a measurement: three missed beats and the pipe is gone. Checked on a
-  // timer and on return, because coming back is when it matters.
-  useEffect(() => {
-    if (!running || link !== "ok" || !sessionId) return;
-    const check = () => {
-      // Hidden: nothing to repair yet — the turn is safe server-side and we
-      // resync on the way back in.
-      if (document.visibilityState !== "visible") return;
-      if (Date.now() - lastFrameRef.current < 45_000) return;
-      void resync(sessionId);
-    };
-    const iv = setInterval(check, 10_000);
-    document.addEventListener("visibilitychange", check);
-    return () => {
-      clearInterval(iv);
-      document.removeEventListener("visibilitychange", check);
-    };
-  }, [running, link, sessionId, resync]);
+
 
   useEffect(() => () => void (retryRef.current && clearTimeout(retryRef.current)), []);
 
@@ -766,9 +642,6 @@ export default function Chat() {
     setLink("ok");
     setSessionId(id);
     setMessages([]);
-    setLiveText("");
-    setLiveThinking("");
-    setLiveTools([]);
     setError("");
     setPendingFiles([]);
     liveSeqRef.current = -1;
@@ -785,21 +658,14 @@ export default function Chat() {
     setEngine(normalizeEngineUi(session.engine));
     setMessages(msgs);
     liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
-    if (live) {
-      setRunning(true);
-      const ac = new AbortController();
-      abortRef.current = ac;
-      terminalRef.current = false;
-      lastFrameRef.current = Date.now();
-      attach(id, handleEvent, ac.signal)
-        .then(() => {
-          // Ended without a terminal frame: the pipe gave out, not the turn.
-          if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(id);
-        })
-        .catch(() => {
-          if (!ac.signal.aborted) scheduleRetry(id);
-        });
-    }
+    setThreadEpoch((n) => n + 1);
+    setThreadHydrate({
+      sessionId: id,
+      messages: sessionMessagesToUIMessages(msgs),
+      resume: live,
+    });
+    setRunning(live);
+    setPhase(live ? "forging" : "");
   }
 
   async function newChat(engineOverride?: string) {
@@ -839,9 +705,6 @@ export default function Chat() {
     setSlashOpen(false);
     requestAnimationFrame(() => resizeComposer());
     setError("");
-    setLiveText("");
-    setLiveThinking("");
-    setLiveTools([]);
     setRunning(true);
     setPhase(staged.length ? "uploading" : "starting");
     if (slashSkill) {
@@ -868,17 +731,7 @@ export default function Chat() {
         }
       }
     }
-    // optimistic user bubble at the next seq
-    const bubble =
-      staged.length > 0
-        ? `${raw || text}${raw || text ? "\n\n" : ""}📎 ${staged.map((f) => f.name).join(", ")}`
-        : raw;
-    upsert({ seq: liveSeqRef.current + 1, role: "user", blocks: [{ type: "text", text: bubble }] });
-    const ac = new AbortController();
-    abortRef.current = ac;
     pendingRef.current = raw;
-    terminalRef.current = false;
-    lastFrameRef.current = Date.now();
     try {
       let attachments: string[] | undefined;
       let attachmentUploads: { name: string; dataBase64: string }[] | undefined;
@@ -893,7 +746,6 @@ export default function Chat() {
             uploaded.push(rel);
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            // No checkout yet → land bytes with the turn after ensure().
             if (/\b409\b/.test(msg) || /no checkout/i.test(msg)) {
               inline.push({ name: f.name, dataBase64: await fileToBase64(f) });
             } else {
@@ -906,21 +758,24 @@ export default function Chat() {
         setAttachBusy(false);
         setPhase("starting");
       }
-      await sendMessage(sid, text, handleEvent, ac.signal, slashSkill, {
-        attachments,
-        attachmentUploads,
-      });
-      if (!ac.signal.aborted && !terminalRef.current) scheduleRetry(sid);
+      extrasRef.current = {
+        skill: slashSkill ?? null,
+        attachments: attachments ?? [],
+        attachmentUploads: attachmentUploads ?? [],
+      };
+      const api = threadApiRef.current;
+      if (!api) throw new Error("thread not ready");
+      await api.send(text);
+      pendingRef.current = "";
     } catch (e) {
-      if (ac.signal.aborted) return;
       setAttachBusy(false);
-      // A 5xx here is ambiguous — the POST may have started a turn whose
-      // response we never got. Don't guess: resync asks the server what's
-      // actually running.
       if (isVerdict(e)) {
         setError(String(e));
         setRunning(false);
-      } else scheduleRetry(sid);
+      } else {
+        setError(String(e));
+        setRunning(false);
+      }
     }
   }
 
@@ -961,6 +816,7 @@ export default function Chat() {
 
   async function stop() {
     if (!sessionId) return;
+    threadApiRef.current?.stop();
     await chat.stop(sessionId).catch(() => {});
     setRunning(false);
     setPhase("");
@@ -1111,13 +967,6 @@ export default function Chat() {
     }
   }
 
-  // tool_use_id → result, for inline rendering.
-  const results = useMemo(() => {
-    const m = new Map<string, Block & { type: "tool_result" }>();
-    for (const msg of messages)
-      for (const b of msg.blocks) if (b.type === "tool_result") m.set(b.tool_use_id, b);
-    return m;
-  }, [messages]);
 
   const currentProject = projects.find((p) => p.id === projectId);
   const currentSession = sessions.find((s) => s.id === sessionId);
@@ -1326,39 +1175,49 @@ export default function Chat() {
           {!chatCollapsed ? (
           <section className="sindri-chat">
             <>
-              <StickToBottom className="sindri-thread" resize="smooth" initial="smooth">
-                <StickToBottom.Content className="sindri-thread-content">
-                  {messages.map((m) => (
-                    <MessageView key={m.seq} message={m} results={results} />
-                  ))}
-                  {liveTools.length > 0 ? (
-                    <div className="sindri-live-tools" aria-label="Tools in this turn">
-                      {liveTools.map((t) => (
-                        <span
-                          key={t.id}
-                          className={`sindri-live-tool${t.ok === false ? " is-error" : t.ok ? " is-ok" : ""}`}
-                        >
-                          {t.name}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                  {liveThinking ? <Reasoning text={liveThinking} live /> : null}
-                  {liveText ? (
-                    <div className="sindri-msg is-assistant">
-                      <div className="sindri-bubble">
-                        <Response text={liveText} />
-                      </div>
-                    </div>
-                  ) : null}
-                  {running ? (
-                    <div className="sindri-status">
-                      <span className="sindri-spinner" /> {phase || "forging"}…
-                    </div>
-                  ) : null}
-                  <ScrollToBottom />
-                </StickToBottom.Content>
-              </StickToBottom>
+              <div className="sindri-thread">
+                {threadHydrate && threadHydrate.sessionId === sessionId ? (
+                  <SindriThread
+                    key={`${threadHydrate.sessionId}:${threadEpoch}`}
+                    sessionId={threadHydrate.sessionId}
+                    initialMessages={threadHydrate.messages}
+                    resume={threadHydrate.resume}
+                    getExtras={() => extrasRef.current}
+                    onApi={(api) => {
+                      threadApiRef.current = api;
+                    }}
+                    onStatus={(s) => {
+                      const busy = s === "submitted" || s === "streaming";
+                      setRunning(busy);
+                      if (busy) setPhase((p) => (p && p !== "starting" && p !== "uploading" ? p : "forging"));
+                      else {
+                        setPhase("");
+                        // Durable transcript for sawEdit / token ring (Thread owns live UI).
+                        if (sessionId) {
+                          void chat.getSession(sessionId).then(({ messages: msgs }) => {
+                            setMessages(msgs);
+                            if (projectId) chat.listSessions(projectId).then(setSessions).catch(() => {});
+                          }).catch(() => {});
+                        }
+                      }
+                    }}
+                    onPhase={(ph) => setPhase(ph)}
+                    onError={(msg) => setError(msg)}
+                    onTitle={(title) =>
+                      setSessions((prev) =>
+                        prev.map((s) => (s.id === sessionId ? { ...s, title } : s)),
+                      )
+                    }
+                  />
+                ) : (
+                  <div className="sindri-empty">Abrindo sessão…</div>
+                )}
+                {running ? (
+                  <div className="sindri-status">
+                    <span className="sindri-spinner" /> {phase || "forging"}…
+                  </div>
+                ) : null}
+              </div>
 
               {/* composer = cockpit: the controls live where the hand acts */}
               <div
@@ -2181,214 +2040,3 @@ function SindriPreview({
   );
 }
 
-// ── one transcript message ──────────────────────────────────────────────────
-function MessageView({
-  message,
-  results,
-}: {
-  message: ChatMessage;
-  results: Map<string, Block & { type: "tool_result" }>;
-}) {
-  // A user message that's ONLY tool results is rendered as part of the tools, not
-  // as a user bubble — skip it here (the tool_use blocks render their results).
-  const onlyResults = message.role === "user" && message.blocks.every((b) => b.type === "tool_result");
-  if (onlyResults) return null;
-
-  const isUser = message.role === "user";
-  const text = message.blocks
-    .filter((b): b is Block & { type: "text" } => b.type === "text")
-    .map((b) => b.text)
-    .join("\n")
-    .trim();
-  const thinking = message.blocks
-    .filter((b): b is Block & { type: "thinking" } => b.type === "thinking")
-    .map((b) => b.thinking)
-    .join("\n")
-    .trim();
-  const tools = message.blocks.filter((b): b is Block & { type: "tool_use" } => b.type === "tool_use");
-
-  return (
-    <div className={`sindri-msg ${isUser ? "is-user" : "is-assistant"}`}>
-      <div className="sindri-bubble">
-        {thinking && !isUser ? <Reasoning text={thinking} /> : null}
-        {text ? isUser ? <pre className="sindri-text">{text}</pre> : <Response text={text} /> : null}
-        {tools.map((t) => (
-          <ToolCall key={t.id} tool={t} result={results.get(t.id)} />
-        ))}
-        {!isUser ? <TurnSummary tools={tools} /> : null}
-        {!isUser && text ? <MessageActions text={text} /> : null}
-      </div>
-    </div>
-  );
-}
-
-// ── turn summary ──────────────────────────────────────────────────────────────
-// A one-glance recap of what a turn actually changed, derived from the message's
-// own tool blocks (no extra data): how many actions, and which files were touched.
-// Renders only when files were edited — a pure read/run turn stays clean.
-function TurnSummary({ tools }: { tools: (Block & { type: "tool_use" })[] }) {
-  const files = useMemo(() => {
-    const set = new Set<string>();
-    for (const t of tools) {
-      if (!EDIT_TOOL.test(t.name)) continue;
-      const p = (t.input.file_path as string) || (t.input.path as string);
-      if (p) set.add(p.split("/").pop() || p);
-    }
-    return [...set];
-  }, [tools]);
-  if (!files.length) return null;
-  return (
-    <div className="sindri-turn-meta">
-      <span className="sindri-turn-stat">
-        <Wrench size={11} /> {tools.length} {tools.length === 1 ? "action" : "actions"}
-      </span>
-      <span className="sindri-head-sep">·</span>
-      <span className="sindri-turn-stat">
-        <FileEdit size={11} /> {files.length} {files.length === 1 ? "file" : "files"}
-      </span>
-      <span className="sindri-turn-files" title={files.join(", ")}>
-        {files.slice(0, 4).join(", ")}
-        {files.length > 4 ? ` +${files.length - 4}` : ""}
-      </span>
-    </div>
-  );
-}
-
-// Map raw tool names to a friendly verb + icon, so a turn reads like a story of
-// what Sindri did rather than a list of API calls.
-const TOOL_META: { match: RegExp; label: string; Icon: typeof Wrench }[] = [
-  { match: /read|cat|view|get_file/i, label: "Reading", Icon: FileText },
-  { match: /write|edit|str_replace|create|apply|patch/i, label: "Editing", Icon: FileEdit },
-  { match: /bash|shell|run|exec|command|terminal/i, label: "Running", Icon: TerminalSquare },
-  { match: /card|task|plan|todo/i, label: "Planning", Icon: ListTodo },
-  { match: /pr|pull|merge|commit|push|branch/i, label: "Git", Icon: GitPullRequest },
-];
-
-function toolMeta(name: string) {
-  return TOOL_META.find((t) => t.match.test(name)) ?? { label: "Tool", Icon: Wrench };
-}
-
-function ToolCall({
-  tool,
-  result,
-}: {
-  tool: Block & { type: "tool_use" };
-  result?: Block & { type: "tool_result" };
-}) {
-  const [open, setOpen] = useState(false);
-  const { label, Icon } = toolMeta(tool.name);
-  const arg =
-    (tool.input.command as string) ||
-    (tool.input.path as string) ||
-    (tool.input.title as string) ||
-    (tool.input.file_path as string) ||
-    JSON.stringify(tool.input);
-  const status = !result ? "running" : result.is_error ? "error" : "ok";
-  return (
-    <div className={`sindri-tool ${result?.is_error ? "is-error" : ""}`}>
-      <button className="sindri-tool-head" onClick={() => setOpen((o) => !o)}>
-        <Icon size={13} className="sindri-tool-icon" />
-        <span className="sindri-tool-name">{label}</span>
-        <span className="sindri-tool-arg">{String(arg).slice(0, 90)}</span>
-        <span className={`sindri-tool-pill is-${status}`}>
-          {status === "running" ? <span className="sindri-spinner" /> : status === "error" ? "error" : "ok"}
-        </span>
-        <ChevronDown size={13} className={`sindri-tool-caret ${open ? "is-open" : ""}`} />
-      </button>
-      {open ? (
-        <div className="sindri-tool-body">
-          <div className="sindri-tool-label">
-            {tool.name} · input
-          </div>
-          <pre className="sindri-pre">{JSON.stringify(tool.input, null, 2)}</pre>
-          {result ? (
-            <>
-              <div className="sindri-tool-label">result</div>
-              <pre className="sindri-pre">{result.content.slice(0, 4000)}</pre>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-// ── streaming markdown ────────────────────────────────────────────────────────
-// Streamdown renders partial/unterminated markdown safely mid-stream (unclosed
-// code fences, half-typed links) and ships GFM tables, Shiki syntax highlighting,
-// HTML sanitization and a built-in copy button on code blocks. We only restyle it
-// with our design tokens — light/dark shiki themes track the forge theme.
-const SHIKI_THEME: NonNullable<React.ComponentProps<typeof Streamdown>["shikiTheme"]> = [
-  "github-light",
-  "github-dark",
-];
-
-function Response({ text }: { text: string }) {
-  return (
-    <Streamdown className="sindri-md" parseIncompleteMarkdown shikiTheme={SHIKI_THEME}>
-      {text}
-    </Streamdown>
-  );
-}
-
-// ── reasoning (extended thinking) ─────────────────────────────────────────────
-// The backend streams `thinking_delta` and persists `thinking` blocks; before,
-// the UI dropped both. Surface them in a quiet, collapsible panel — open while
-// live so you can watch Sindri reason, collapsible once the answer lands.
-function Reasoning({ text, live }: { text: string; live?: boolean }) {
-  const [open, setOpen] = useState(!!live);
-  if (!text.trim()) return null;
-  return (
-    <div className={`sindri-reasoning ${live ? "is-live" : ""}`}>
-      <button className="sindri-reasoning-head" onClick={() => setOpen((o) => !o)}>
-        <Brain size={13} className={live ? "sindri-reasoning-pulse" : ""} />
-        <span>{live ? "Thinking…" : "Reasoning"}</span>
-        <ChevronDown size={13} className={`sindri-reasoning-caret ${open ? "is-open" : ""}`} />
-      </button>
-      {open ? (
-        <div className="sindri-reasoning-body">
-          <Streamdown className="sindri-md" parseIncompleteMarkdown>
-            {text}
-          </Streamdown>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-// ── per-message actions ───────────────────────────────────────────────────────
-function MessageActions({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div className="sindri-msg-actions">
-      <button
-        title="Copy reply"
-        onClick={() => {
-          navigator.clipboard?.writeText(text).then(
-            () => {
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1200);
-            },
-            () => {},
-          );
-        }}
-      >
-        {copied ? <Check size={12} /> : <Copy size={12} />}
-        {copied ? "copied" : "copy"}
-      </button>
-    </div>
-  );
-}
-
-// ── scroll-to-bottom affordance ───────────────────────────────────────────────
-// use-stick-to-bottom keeps the thread pinned during streaming but releases the
-// moment the operator scrolls up to read back; this button re-pins on demand.
-function ScrollToBottom() {
-  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
-  if (isAtBottom) return null;
-  return (
-    <button className="sindri-scroll-btn" onClick={() => scrollToBottom()} title="Jump to latest">
-      <ArrowDown size={15} />
-    </button>
-  );
-}
