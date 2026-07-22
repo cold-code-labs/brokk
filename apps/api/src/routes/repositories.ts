@@ -196,20 +196,19 @@ export async function connectOne(
       heimdallAppId: opts?.heimdallAppId ?? null,
       logtoOrgId: opts?.logtoOrgId ?? repo.logtoOrgId ?? null,
     });
-    // Huginn scouts the freshly-connected project (async, best-effort) so a
-    // brief is waiting by the time the user opens it. Never blocks the import.
-    fireDiscovery(deps, project.id);
+    // Huginn Discovery (ADR 0067): brief + QA scenario catalog — async, best-effort.
+    // Never blocks the import. Forge cards land when each scout finishes.
+    fireHuginnDiscovery(deps, project.id);
   }
   return { repo, project };
 }
 
-/** Fire-and-forget: ask Sindri to scout a project. Failures are swallowed (the
- *  brief just stays absent; the user can re-scout from the UI). */
-function fireDiscovery(deps: AppDeps, projectId: string): void {
+/** Fire-and-forget: product brief + QA catalog. Failures swallowed (UI can re-run). */
+function fireHuginnDiscovery(deps: AppDeps, projectId: string): void {
   const base = (deps.sindriUrl ?? "").replace(/\/$/, "");
   if (!base) return;
-  void fetch(`${base}/discover/${projectId}`, {
-    method: "POST",
-    headers: deps.runnerSecret ? { authorization: `Bearer ${deps.runnerSecret}` } : {},
-  }).catch(() => {});
+  const headers: Record<string, string> = {};
+  if (deps.runnerSecret) headers.authorization = `Bearer ${deps.runnerSecret}`;
+  void fetch(`${base}/discover/${projectId}`, { method: "POST", headers }).catch(() => {});
+  void fetch(`${base}/qa/${projectId}/discover`, { method: "POST", headers }).catch(() => {});
 }

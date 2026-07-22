@@ -150,19 +150,19 @@ export default function Discovery({ projectId }: { projectId?: string }) {
 
   return (
     <Main className="forge-room">
-      {/* ── masthead: the scout ── */}
+      {/* ── masthead: Discovery (Huginn) ── */}
       <header className="forge-head">
         <div className="forge-head-top">
           <div className="forge-head-copy">
-            <span className="forge-eyebrow">Brokk · the scout</span>
+            <span className="forge-eyebrow">Huginn · Discovery</span>
             <h1 className="forge-title">{project ? project.name : "Discovery"}</h1>
             <p className="forge-sub">
-              Huginn reads the repo and returns the brief — mission, built, missing, stack.
+              Discovery → QA → Forge. Huginn lê o repo e devolve o brief — mission, built, missing, stack.
             </p>
             {status === "pending" && (
               <span className="forge-pulse" style={{ marginTop: "0.8rem" }}>
                 <span className="forge-ember" />
-                Scouting…
+                Discovering…
               </span>
             )}
           </div>
@@ -173,7 +173,7 @@ export default function Discovery({ projectId }: { projectId?: string }) {
               </Button>
             )}
             <Button variant="outline" size="sm" type="button" onClick={rescout} disabled={status === "pending"}>
-              {status === "pending" ? "Scouting…" : brief ? "Scout again" : "Scout"}
+              {status === "pending" ? "Discovering…" : brief ? "Discover again" : "Discover"}
             </Button>
           </div>
         </div>
@@ -185,18 +185,18 @@ export default function Discovery({ projectId }: { projectId?: string }) {
       {loaded && !brief && status !== "pending" && (
         <div className="forge-empty is-panel">
           <span className="forge-empty-mark"><Bird /></span>
-          <span className="forge-empty-title">Not yet scouted</span>
+          <span className="forge-empty-title">No Discovery yet</span>
           <p className="forge-empty-sub">
-            One pass writes the brief and proposes backlog cards from what is missing.
+            One pass writes the brief and proposes Forge backlog cards from what is missing.
           </p>
           <span className="forge-empty-action">
-            <Button type="button" onClick={rescout}>Scout</Button>
+            <Button type="button" onClick={rescout}>Discover</Button>
           </span>
         </div>
       )}
 
       {status === "failed" && brief?.error && (
-        <Banner tone="err">Scout failed — {brief.error}. Scout again to retry.</Banner>
+        <Banner tone="err">Discovery failed — {brief.error}. Discover again to retry.</Banner>
       )}
 
       {brief?.status === "ready" && (

@@ -16,6 +16,7 @@
     "@brokk/mcp": "workspace:*",
     "@brokk/mimir": "workspace:*",
     "@brokk/scout": "workspace:*",
+    "@brokk/huginn": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "ai": "7.0.34",
     "hono": "^4.6.14",
