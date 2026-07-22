@@ -27,3 +27,12 @@ export {
   runMeetingScout,
   type RunMeetingScoutInput,
 } from "./meeting.js";
+// QA Discovery — user-journey catalog for Full / Targeted GUI QA (fingerprint → stale).
+export {
+  computeQaFingerprint,
+  type QaDiscoveryResult,
+  type QaScenario,
+  type QaScenarioPriority,
+  runQaDiscovery,
+  type RunQaDiscoveryInput,
+} from "./qa-discovery.js";

@@ -12,11 +12,24 @@ composer **Skill** chip (pinned for the whole session).
 skills/
   litr/SKILL.md
   litr-frontend-design/SKILL.md
+  qa-review/SKILL.md
+  full-qa/SKILL.md
 ```
 
 Yggdrasil keeps **tokens / UI packages** — not craft playbooks. New instruction
 skill = add a folder under `skills/` and ship; the chat image copies the tree
 (`BROKK_SKILLS_DIR=/app/skills`).
+
+## Full QA (Discovery → Execution)
+
+- **Capability `qa-discover`** — scout builds a versioned scenario catalog
+  (`qa_catalogs` + `.brokk/qa/scenarios.json`) with a **fingerprint** of
+  routes/features/e2e. When those sources change, `GET /qa/:projectId` returns
+  `stale: true` — re-run Discovery before trusting Full QA instructions.
+- **Instruction `full-qa`** — Execution playbook for the live preview
+  (Playwright MCP). Sindri cockpit chips: **Discover**, **Full QA**, **Targeted**.
+- Huginn `discovery` stays product brief (`built`/`missing`); QA Discovery is
+  user journeys only.
 
 ## Shape
 

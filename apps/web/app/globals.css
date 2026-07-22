@@ -1420,6 +1420,8 @@ body:has(.sindri) {
   gap: 0.35rem;
   flex-shrink: 0;
   margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 /* The context gauge: how full the model's head is. Cold — filling a context is
    not forging, so no ember here. */
@@ -1696,6 +1698,37 @@ body:has(.sindri) {
   letter-spacing: 0.05em;
   font-size: 0.62rem;
 }
+
+/* Full QA cockpit — Discovery / Full / Targeted */
+.sindri-qa-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  margin-right: 0.15rem;
+}
+.sindri-qa-stale {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, #c45c26 85%, var(--fg));
+  border: 1px solid color-mix(in srgb, #c45c26 40%, var(--line-soft));
+  background: color-mix(in srgb, #c45c26 12%, transparent);
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+}
+.sindri-qa-count {
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  padding: 0 0.15rem;
+}
+.sindri-qa-btn.is-stale {
+  border-color: color-mix(in srgb, #c45c26 45%, var(--line-soft));
+  color: color-mix(in srgb, #c45c26 90%, var(--fg));
+}
+.sindri-qa-btn.is-busy {
+  opacity: 0.75;
+}
+
 /* Composer attachments → .brokk/inbox/ */
 .sindri-composer.is-drop {
   background: color-mix(in srgb, var(--ember, var(--accent)) 8%, var(--bg));
