@@ -781,7 +781,9 @@ export function buildSindri(deps: SindriDeps): Hono {
           cfg: deps.cfg,
           cwd: path,
           repoFullName: repo.fullName,
-          model: "haiku",
+          // Sonnet: haiku fleet seat often rejects oauth for org; Discovery is
+          // one-shot so the cost delta is small vs a failed catalog.
+          model: "sonnet",
           onProgress: (n) => console.log(`[qa-discovery] ${repo.fullName}: ${n}`),
         });
         const discoveredAt = new Date().toISOString();
@@ -790,7 +792,7 @@ export function buildSindri(deps: SindriDeps): Hono {
           summary: result.summary,
           fingerprint: result.fingerprint,
           scenarios: result.scenarios,
-          model: "haiku",
+          model: "sonnet",
           error: null,
         });
         await writeQaCatalogFile(path, {
@@ -1426,7 +1428,7 @@ function buildSkills(
           cfg: deps.cfg,
           cwd,
           repoFullName,
-          model: "haiku",
+          model: "sonnet",
         });
         const discoveredAt = new Date().toISOString();
         await deps.store
@@ -1435,7 +1437,7 @@ function buildSkills(
             summary: result.summary,
             fingerprint: result.fingerprint,
             scenarios: result.scenarios,
-            model: "haiku",
+            model: "sonnet",
             error: null,
           })
           .catch(() => {});
