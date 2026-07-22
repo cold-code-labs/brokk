@@ -199,6 +199,141 @@ export function projectsRoutes(deps: AppDeps): Hono {
     );
   });
 
+  // Sindri Full QA → proposed backlog cards (ADR 0066).
+  // - findings: every fail/blocked result from a qa_run (forge-ready fixes)
+  // - catalog: every Discovery scenario (coverage checklist; not auto-enqueued)
+  // Idempotent via labels `qa-fail:<id>` / `qa-scenario:<id>`.
+  r.post("/:id/backlog-from-qa", async (c) => {
+    const id = c.req.param("id");
+    const actor = requestActor(c, deps.runnerSecret);
+    const project = await deps.store.getProject(id);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const parsed = BacklogFromQaBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+    const existing = await deps.store.listTasks({ projectId: id });
+    const seenLabels = new Set((existing.flatMap((t) => t.labels ?? [])).map((l) => l.toLowerCase()));
+
+    let run = parsed.data.runId ? await deps.store.getQaRun(parsed.data.runId) : null;
+    if (parsed.data.runId && (!run || run.projectId !== id)) {
+      return c.json({ error: "qa run not found" }, 404);
+    }
+    if (!run && (parsed.data.source === "findings" || parsed.data.source === "both")) {
+      const runs = await deps.store.listQaRuns(id, 20);
+      run =
+        runs.find((r) => r.status === "ready" && r.results.length > 0) ??
+        runs.find((r) => r.results.length > 0) ??
+        null;
+    }
+
+    const catalog = await deps.store.getQaCatalog(id);
+    const created = [];
+    let skipped = 0;
+
+    const makeCard = async (input: {
+      title: string;
+      body: string;
+      labels: string[];
+      dedupeLabel: string;
+    }) => {
+      if (seenLabels.has(input.dedupeLabel.toLowerCase())) {
+        skipped++;
+        return;
+      }
+      seenLabels.add(input.dedupeLabel.toLowerCase());
+      const task = await deps.store.insertTask({
+        projectId: id,
+        title: toCardTitle(input.title),
+        body: input.body,
+        status: "backlog",
+        baseBranch: project.baseBranch,
+        createdBy: "sindri-qa",
+        labels: input.labels,
+        planId: null,
+        planKey: null,
+        dependsOn: [],
+      });
+      created.push(task);
+    };
+
+    if (parsed.data.source === "catalog" || parsed.data.source === "both") {
+      const scenarios = catalog?.status === "ready" ? catalog.scenarios : [];
+      for (const s of scenarios) {
+        const dedupe = `qa-scenario:${s.id}`;
+        await makeCard({
+          dedupeLabel: dedupe,
+          title: `[QA] ${s.title}`,
+          body: [
+            `Cenário Discovery \`${s.id}\` · módulo=${s.module} · prioridade=${s.priority}`,
+            s.tags?.length ? `tags: ${s.tags.join(", ")}` : null,
+            "",
+            "**Preconditions**",
+            ...(s.preconditions?.length ? s.preconditions.map((x) => `- ${x}`) : ["- —"]),
+            "",
+            "**Steps**",
+            ...(s.steps?.length ? s.steps.map((x, i) => `${i + 1}. ${x}`) : ["- —"]),
+            "",
+            "**Expects**",
+            ...(s.expects?.length ? s.expects.map((x) => `- ${x}`) : ["- —"]),
+            "",
+            "— proposto pelo Full QA Discovery (Sindri). Checklist de jornada; não vai pra forge no Approve all.",
+          ]
+            .filter((line) => line !== null)
+            .join("\n"),
+          labels: [QA_LABEL, QA_SCENARIO_LABEL, dedupe],
+        });
+      }
+    }
+
+    if (parsed.data.source === "findings" || parsed.data.source === "both") {
+      if (parsed.data.source === "findings" && !run) {
+        return c.json({ error: "no qa run with results — run Full/Targeted first" }, 409);
+      }
+      const results = (run?.results ?? []).filter(
+        (row) => row.verdict === "fail" || row.verdict === "blocked",
+      );
+      const byId = new Map((catalog?.scenarios ?? []).map((s) => [s.id, s]));
+      for (const row of results) {
+        const scen = byId.get(row.id);
+        const dedupe = `qa-fail:${row.id}`;
+        await makeCard({
+          dedupeLabel: dedupe,
+          title: `[QA ${row.verdict}] ${scen?.title ?? row.id}`,
+          body: [
+            `Falha Full/Targeted QA · cenário \`${row.id}\` · verdict **${row.verdict}**`,
+            run ? `run \`${run.id}\` · mode=${run.mode}` : null,
+            scen ? `módulo=${scen.module} · prioridade=${scen.priority}` : null,
+            "",
+            "**Nota do agente**",
+            row.note || "—",
+            "",
+            scen?.steps?.length
+              ? ["**Steps do catálogo**", ...scen.steps.map((x, i) => `${i + 1}. ${x}`)].join("\n")
+              : null,
+            "",
+            "— proposto pelo Full QA Execution (Sindri). Approve all enfileira no forge.",
+          ]
+            .filter((line) => line !== null)
+            .join("\n"),
+          labels: [QA_LABEL, QA_FAIL_LABEL, dedupe],
+        });
+      }
+    }
+
+    return c.json(
+      {
+        created,
+        skipped,
+        source: parsed.data.source,
+        runId: run?.id ?? null,
+        catalogCount: catalog?.scenarios?.length ?? 0,
+      },
+      201,
+    );
+  });
+
   // Huginn Phase 3: "Aprovar todos" — enqueue every PROPOSED backlog card at once
   // (those Huginn discovery or the Sindri planner staged). backlog→queued is the
   // gate, so this flips the whole proposed set into the forge in one click.
@@ -211,7 +346,9 @@ export function projectsRoutes(deps: AppDeps): Hono {
     }
     const backlog = await deps.store.listTasks({ projectId: id, status: "backlog" });
     const proposed = backlog.filter((t) =>
-      (t.labels ?? []).some((l) => l === DISCOVERY_LABEL || l === PLAN_LABEL),
+      (t.labels ?? []).some(
+        (l) => l === DISCOVERY_LABEL || l === PLAN_LABEL || l === QA_FAIL_LABEL,
+      ),
     );
     // Route through transitionTask so each move lands on the lifecycle trail and
     // gets the queued⇒owner=brokk guard (a raw updateTask would bypass both).
@@ -227,6 +364,12 @@ export function projectsRoutes(deps: AppDeps): Hono {
 
 const DISCOVERY_LABEL = "discovery";
 const PLAN_LABEL = "plan";
+/** Full QA (ADR 0066) — any QA-origin card. */
+const QA_LABEL = "qa";
+/** Scenario checklist from Discovery — proposed, not forge-ready via Approve all. */
+const QA_SCENARIO_LABEL = "qa-scenario";
+/** Fail/blocked from Execution — forge-ready via Approve all. */
+const QA_FAIL_LABEL = "qa-fail";
 // Muninn ajustes flagged vira_plano — proposed but NOT forge-ready (await the
 // planner). approve-proposed deliberately ignores this label.
 const MUNINN_PLAN_LABEL = "muninn-plan";
@@ -249,6 +392,11 @@ const AjusteSchema = z.object({
 const AjustesFromMeetingBody = z.object({
   meetingTitle: z.string().min(1).default("Reunião"),
   ajustes: z.array(AjusteSchema).default([]),
+});
+const BacklogFromQaBody = z.object({
+  /** findings = fail/blocked from a run; catalog = Discovery scenarios; both = union. */
+  source: z.enum(["findings", "catalog", "both"]).default("both"),
+  runId: z.string().uuid().optional(),
 });
 const normItem = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 200);
 /** A concise card title from a (possibly long) missing-item sentence. */
