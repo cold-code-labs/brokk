@@ -423,6 +423,7 @@ export default function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [liveText, setLiveText] = useState("");
   const [liveThinking, setLiveThinking] = useState("");
+  const [liveTools, setLiveTools] = useState<{ id: string; name: string; ok?: boolean }[]>([]);
   const [phase, setPhase] = useState("");
   const [running, setRunning] = useState(false);
   const [input, setInput] = useState("");
@@ -598,6 +599,7 @@ export default function Chat() {
           if (e.role === "assistant") {
             setLiveText("");
             setLiveThinking("");
+            // Keep liveTools until done — MessageView picks up persisted tools.
           }
           break;
         case "status":
@@ -605,9 +607,15 @@ export default function Chat() {
           break;
         case "tool_use":
           setPhase(`tool: ${e.name}`);
+          setLiveTools((prev) =>
+            prev.some((x) => x.id === e.id) ? prev : [...prev, { id: e.id, name: e.name }],
+          );
           break;
         case "tool_result":
           setPhase("thinking");
+          setLiveTools((prev) =>
+            prev.map((x) => (x.id === e.toolUseId ? { ...x, ok: e.ok } : x)),
+          );
           break;
         case "title":
           setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, title: e.title } : s)));
@@ -623,6 +631,7 @@ export default function Chat() {
           setPhase("");
           setLiveText("");
           setLiveThinking("");
+          setLiveTools([]);
           // refresh stats for the session that just finished a turn
           if (projectId) chat.listSessions(projectId).then(setSessions).catch(() => {});
           break;
@@ -672,6 +681,7 @@ export default function Chat() {
           setPhase("");
           setLiveText("");
           setLiveThinking("");
+          setLiveTools([]);
           return;
         }
         setRunning(true);
@@ -679,6 +689,7 @@ export default function Chat() {
         // has to start empty or every delta lands twice.
         setLiveText("");
         setLiveThinking("");
+        setLiveTools([]);
         terminalRef.current = false;
         lastFrameRef.current = Date.now();
         await attach(sid, handleEvent, ac.signal);
@@ -757,6 +768,7 @@ export default function Chat() {
     setMessages([]);
     setLiveText("");
     setLiveThinking("");
+    setLiveTools([]);
     setError("");
     setPendingFiles([]);
     liveSeqRef.current = -1;
@@ -829,6 +841,7 @@ export default function Chat() {
     setError("");
     setLiveText("");
     setLiveThinking("");
+    setLiveTools([]);
     setRunning(true);
     setPhase(staged.length ? "uploading" : "starting");
     if (slashSkill) {
@@ -1318,6 +1331,18 @@ export default function Chat() {
                   {messages.map((m) => (
                     <MessageView key={m.seq} message={m} results={results} />
                   ))}
+                  {liveTools.length > 0 ? (
+                    <div className="sindri-live-tools" aria-label="Tools in this turn">
+                      {liveTools.map((t) => (
+                        <span
+                          key={t.id}
+                          className={`sindri-live-tool${t.ok === false ? " is-error" : t.ok ? " is-ok" : ""}`}
+                        >
+                          {t.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                   {liveThinking ? <Reasoning text={liveThinking} live /> : null}
                   {liveText ? (
                     <div className="sindri-msg is-assistant">

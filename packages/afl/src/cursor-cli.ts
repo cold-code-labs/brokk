@@ -1,12 +1,16 @@
 // Cursor Agent CLI turn driver — mirror of claude-cli.ts for `agent` binary.
-// Stream-json shape is close to Claude Code but deltas live under type=thinking
-// and assistant messages are often whole turns (use --stream-partial-output for
-// text_delta). Continuity: --resume <session_id>.
+// Same AgentEvent wire as the native AFL loop + claude-cli: text_delta,
+// thinking_delta, tool_use, tool_result, usage. Continuity: --resume <session_id>.
 
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import type { AgentEvent, ContentBlock, TurnUsage } from "./types.js";
-import type { CliTurnHooks, CliTurnInput, CliTurnOutcome } from "./claude-cli.js";
+import type { AgentEvent, ContentBlock, ToolResultBlock, TurnUsage } from "./types.js";
+import {
+  resultContentToString,
+  type CliTurnHooks,
+  type CliTurnInput,
+  type CliTurnOutcome,
+} from "./claude-cli.js";
 
 const ZERO_USAGE: TurnUsage = {
   inputTokens: 0,
@@ -67,6 +71,20 @@ function mapUsage(u: Record<string, unknown> | undefined | null): TurnUsage {
   };
 }
 
+/** Cursor may send partial deltas OR full assistant text frames. Emit only the
+ *  new suffix so the live scratchpad (and any fallback concat) stays readable. */
+export function textDeltaFromFrame(streamed: string, frame: string): { delta: string; next: string } {
+  if (!frame) return { delta: "", next: streamed };
+  if (frame.startsWith(streamed)) {
+    return { delta: frame.slice(streamed.length), next: frame };
+  }
+  if (streamed.includes(frame)) {
+    return { delta: "", next: streamed };
+  }
+  const sep = streamed && !streamed.endsWith("\n") ? "\n" : "";
+  return { delta: sep + frame, next: streamed + sep + frame };
+}
+
 export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutcome> {
   const emit = input.emit ?? (() => {});
   const args = [
@@ -79,7 +97,6 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
   ];
   if (input.model) args.push("--model", input.model);
   if (input.resume) args.push("--resume", input.resume);
-  // Cursor has no --append-system-prompt; fold into the user prompt below.
 
   const prompt =
     input.appendSystem && !input.resume
@@ -98,6 +115,7 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
   let usage: TurnUsage = { ...ZERO_USAGE };
   let resultText = "";
   let streamedText = "";
+  let sawAssistantPersist = false;
   let stop: CliTurnOutcome["stop"] = "error";
   let ok = false;
   let aborted = false;
@@ -132,6 +150,8 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
       return;
     }
 
+    const parented = Boolean((ev as { parent_tool_use_id?: unknown }).parent_tool_use_id);
+
     switch (ev.type) {
       case "system": {
         if (ev.subtype === "init" && typeof ev.session_id === "string") {
@@ -147,19 +167,72 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
         break;
       }
       case "assistant": {
-        const msg = (ev as { message?: { content?: unknown[] } }).message;
+        const msg = (ev as { message?: { content?: unknown[]; usage?: Record<string, unknown>; stop_reason?: string } })
+          .message;
         const content = Array.isArray(msg?.content) ? msg!.content! : [];
+        const blocks: ContentBlock[] = [];
         for (const part of content) {
           if (!part || typeof part !== "object") continue;
-          const p = part as { type?: string; text?: string };
+          const p = part as {
+            type?: string;
+            text?: string;
+            id?: string;
+            name?: string;
+            input?: Record<string, unknown>;
+            thinking?: string;
+          };
           if (p.type === "text" && p.text) {
-            // Partial assistant frames (--stream-partial-output). Stream to the
-            // live scratchpad only — persisting each chunk as its own
-            // chat_messages row made the transcript look like one word per bubble
-            // (BROKK-36). The durable row lands once on `result`.
-            emit({ type: "text_delta", text: p.text });
-            streamedText += p.text;
+            const { delta, next } = textDeltaFromFrame(streamedText, p.text);
+            streamedText = next;
+            if (delta) emit({ type: "text_delta", text: delta });
+            blocks.push({ type: "text", text: p.text });
+          } else if (p.type === "thinking" && p.thinking) {
+            emit({ type: "thinking_delta", text: p.thinking });
+            blocks.push({ type: "thinking", thinking: p.thinking });
+          } else if (p.type === "tool_use" && p.id && p.name) {
+            const inputObj = p.input ?? {};
+            emit({ type: "tool_use", id: p.id, name: p.name, input: inputObj });
+            blocks.push({ type: "tool_use", id: p.id, name: p.name, input: inputObj });
           }
+        }
+        // Live: always text_delta / tool_use above. Persist only rounds that
+        // include tool_use — partial text frames must NOT become chat_messages
+        // rows (BROKK-36). Final prose lands once on `result`.
+        if (!parented && blocks.some((b) => b.type === "tool_use")) {
+          const meta = { usage: mapUsage(msg?.usage), stopReason: msg?.stop_reason };
+          if (msg?.usage) {
+            usage = meta.usage;
+            emit({ type: "usage", usage });
+          }
+          if (input.hooks?.onAssistant) {
+            sawAssistantPersist = true;
+            enqueue(() => input.hooks!.onAssistant!(blocks, meta));
+          }
+        }
+        break;
+      }
+      case "user": {
+        const msg = (ev as { message?: { content?: unknown } }).message;
+        const parts = Array.isArray(msg?.content) ? (msg!.content as Record<string, unknown>[]) : [];
+        const results: ToolResultBlock[] = [];
+        for (const p of parts) {
+          if (p?.type !== "tool_result") continue;
+          const block: ToolResultBlock = {
+            type: "tool_result",
+            tool_use_id: String(p.tool_use_id ?? ""),
+            content: resultContentToString(p.content),
+            ...(p.is_error ? { is_error: true } : {}),
+          };
+          results.push(block);
+          emit({
+            type: "tool_result",
+            toolUseId: block.tool_use_id,
+            ok: !block.is_error,
+            preview: block.content.slice(0, 600),
+          });
+        }
+        if (!parented && results.length && input.hooks?.onToolResults) {
+          enqueue(() => input.hooks!.onToolResults!(results));
         }
         break;
       }
@@ -169,14 +242,18 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
         usage = mapUsage(ev.usage as Record<string, unknown>);
         ok = ev.subtype === "success" || ev.is_error === false;
         stop = aborted ? "aborted" : ok ? "done" : "error";
-        const text = (resultText || streamedText).trim();
-        if (text && input.hooks?.onAssistant) {
-          enqueue(() =>
-            input.hooks!.onAssistant!([{ type: "text", text }], {
-              usage,
-              stopReason: undefined,
-            }),
-          );
+        // Final prose once. Prefer `result` (not streamed concat) so the card
+        // is not a wall of every narration chunk glued together.
+        if (input.hooks?.onAssistant) {
+          const text = (resultText || (!sawAssistantPersist ? streamedText : "")).trim();
+          if (text) {
+            enqueue(() =>
+              input.hooks!.onAssistant!([{ type: "text", text }], {
+                usage,
+                stopReason: undefined,
+              }),
+            );
+          }
         }
         break;
       }
@@ -201,10 +278,6 @@ export async function runCursorCliTurn(input: CliTurnInput): Promise<CliTurnOutc
     emit({ type: "status", phase: "cli_error", detail: { stderrTail: stderrTail.slice(-800) } });
   }
 
-  // Mirror claude-cli: on a failure that produced no result event, the stderr IS
-  // the result. Without this the engine throws "cursor-agent CLI pass failed:"
-  // with an EMPTY message and the card carries no cause — which is exactly how
-  // the first cursor-cli run failed, hiding a one-line EACCES behind silence.
   if (!ok && !resultText) {
     resultText = stderrTail.trim() || `cursor-agent exited ${exitCode} without a result event`;
   }

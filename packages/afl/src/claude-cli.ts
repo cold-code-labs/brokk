@@ -140,7 +140,7 @@ function mapUsage(u: Record<string, unknown> | undefined | null): TurnUsage {
 
 /** tool_result content arrives as a string or an array of content parts —
  *  normalize to the plain string our ToolResultBlock carries. */
-function resultContentToString(content: unknown): string {
+export function resultContentToString(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
