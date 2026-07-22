@@ -24,7 +24,8 @@ skill = add a folder under `skills/` and ship; the chat image copies the tree
 
 - **Capability `qa-discover`** — scout builds a versioned scenario catalog
   (`qa_catalogs` + `.brokk/qa/scenarios.json`) with a **fingerprint** of
-  routes/features/e2e. When those sources change, `GET /qa/:projectId` returns
+  routes/features/e2e. Fleet default engine is **Cursor CLI** (same OAuth path
+  as Brokkr forge). When those sources change, `GET /qa/:projectId` returns
   `stale: true` — re-run Discovery before trusting Full QA instructions.
 - **Instruction `full-qa`** — Execution playbook for the live preview
   (Playwright MCP). Sindri cockpit chips: **Discover**, **Full QA**, **Targeted**.
