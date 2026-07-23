@@ -72,7 +72,7 @@ Antes de qualquer forge de produto, uma passada (LLM + schema) produz o **Pack**
 
 - `mission` — uma frase do que o protótipo prova  
 - `context` — quem usa, em que momento, que decisão (estilo v0)  
-- `constraints` — só frontend, mock, `template-vite`, sem BaaS  
+- `constraints` — só frontend, mock, Next (`template-web-coolify-light` / Heimdall `client`), sem BaaS  
 - `design_read` — vibe + dials Taste; semente Litr  
 - `hero_set[]` — **≤ 4 salas** que vendem na demo (rota, job, dados fake, prioridade)  
 - `deferred[]` — pedidos/áreas que existem mas **não** entram no Hero (não somem)  
@@ -87,8 +87,8 @@ Antes de qualquer forge de produto, uma passada (LLM + schema) produz o **Pack**
 
 ### 4. Hero forge, depois profundidade
 
-1. **Ensure** preview no template-vite (dev-first, 0038).  
-2. **Hero run (1):** Litr (`litr-frontend-design` / soul + DESIGN) **e** as salas do `hero_set` num app **navegável e coerente** — o “primeiro paint” que vende. Skills de anti-slop (Taste / frontend-design) entram aqui, não em cada card.  
+1. **Ensure** preview no Next client (Heimdall `template: client` → `template-web-coolify-light`, dev-first, 0038).  
+2. **Hero run (1):** Litr (`litr-frontend-design` / soul + DESIGN) **e** as salas do `hero_set` num app **navegável e coerente** — o “primeiro paint” que vende. Skills de anti-slop (Taste / frontend-design) entram aqui, não em cada card. Tipografia: manter Geist do template (não puxar famílias novas via `next/font/google` — acceptance GET `/` 500).  
 3. **Profundidade:** restante/`deferred` → cards PROPOSED (formato Muninn / `backlog-from-brief`); approve → forge.  
 4. **Publicar** (0038) só após fechar com o cliente — fora do bootstrap.
 

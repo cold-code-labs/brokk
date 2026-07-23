@@ -25,9 +25,10 @@ export type PrototypePackEnhanceResult = {
 };
 
 const DEFAULT_CONSTRAINTS = [
-  "Somente frontend (template-vite)",
-  "Dados mock — sem BaaS / Hauldr / auth real",
+  "Somente frontend (Next · template-web-coolify-light / Heimdall client)",
+  "Dados mock — sem BaaS / Hauldr / auth real nas telas Hero",
   "Um app navegável coerente (Hero), não 12 tickets soltos",
+  "Tipografia: manter Geist do template — não trocar por next/font/google novas (acceptance 500)",
 ];
 
 const SYSTEM = `Você é o Enhance do Brokk (ADR 0070): transforma insumos de discovery num Prototype Pack que vende o protótipo.
@@ -37,7 +38,7 @@ Missão: sweet spot entre criatividade, spec limpo e vetor de negócio — como 
 Regras:
 1. mission = 1 frase do que o protótipo PROVA na demo.
 2. context = quem usa, em que momento, que decisão toma (estilo v0).
-3. constraints = rails duras; inclua frontend-only, mock, template-vite, sem BaaS (pode enriquecer, não contradizer).
+3. constraints = rails duras; inclua frontend-only, mock, Next (template-web-coolify-light), sem BaaS (pode enriquecer, não contradizer).
 4. design_read = 1 linha Taste/Litr (page kind, audience, vibe) — sem inventar assinatura de outro produto CCL.
 5. hero_set = NO MÁXIMO ${PROTOTYPE_PACK_MAX_HERO} salas que VENDEM na demo (landing + shells do core). Agrupe pedidos relacionados numa sala. Cada sala: title, route, job, fake_data, prioridade.
 6. deferred = o que existe nos insumos mas NÃO entra no Hero (não some — profundidade depois).
