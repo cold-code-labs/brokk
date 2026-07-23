@@ -84,6 +84,19 @@ export function SindriThread({
   getExtrasRef.current = getExtras;
   const sessionRef = useRef(sessionId);
   sessionRef.current = sessionId;
+  // Stable callback slots — parent often passes inline fns; depending on them
+  // in effects re-fires forever (setState → render → new fn → effect → …).
+  const onApiRef = useRef(onApi);
+  onApiRef.current = onApi;
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  const onPhaseRef = useRef(onPhase);
+  onPhaseRef.current = onPhase;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
+  const onTitleRef = useRef(onTitle);
+  onTitleRef.current = onTitle;
+  const lastTitleRef = useRef("");
 
   const transport = useMemo(
     () =>
@@ -102,19 +115,22 @@ export function SindriThread({
     onData: (part) => {
       if (part.type === "data-sindri-status") {
         const data = part.data as { phase?: string };
-        if (data?.phase) onPhase?.(String(data.phase));
+        if (data?.phase) onPhaseRef.current?.(String(data.phase));
       }
     },
-    onError: (err) => onError?.(err.message || String(err)),
+    onError: (err) => onErrorRef.current?.(err.message || String(err)),
   });
 
   // Title arrives as message-metadata on the stream — watch chat messages meta lightly.
   useEffect(() => {
     for (const m of chat.messages) {
       const title = (m.metadata as { title?: string } | undefined)?.title;
-      if (title) onTitle?.(title);
+      if (title && title !== lastTitleRef.current) {
+        lastTitleRef.current = title;
+        onTitleRef.current?.(title);
+      }
     }
-  }, [chat.messages, onTitle]);
+  }, [chat.messages]);
 
   const runtime = useAISDKRuntime(chat, {
     joinStrategy: "none",
@@ -124,8 +140,8 @@ export function SindriThread({
   });
 
   useEffect(() => {
-    onStatus?.(chat.status);
-  }, [chat.status, onStatus]);
+    onStatusRef.current?.(chat.status);
+  }, [chat.status]);
 
   const send = useCallback(
     async (text: string) => {
@@ -135,19 +151,19 @@ export function SindriThread({
   );
 
   useEffect(() => {
-    onApi?.({
+    onApiRef.current?.({
       send,
       stop: () => chat.stop(),
       status: chat.status,
     });
-  }, [onApi, send, chat]);
+  }, [send, chat]);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ThreadPrimitive.Root className="sindri-aui-thread">
         <ThreadPrimitive.Viewport className="sindri-aui-viewport sindri-thread-content">
           <ThreadPrimitive.Empty>
-            <div className="sindri-empty">Diga o que quer mudar no app.</div>
+            <div className="sindri-empty" aria-hidden="true" />
           </ThreadPrimitive.Empty>
           <ThreadPrimitive.Messages
             components={{

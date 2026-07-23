@@ -21,7 +21,6 @@ import {
   Plus,
   CornerDownLeft,
   Square,
-  Hammer,
   Trash2,
   Zap,
   ArrowDown,
@@ -207,43 +206,73 @@ const EDIT_TOOL = /write|edit|str_replace|create|apply|patch/i;
 
 /**
  * How full the model's head is right now — the one number a ring can honestly
- * carry. The exact figures (and what the session has spent) live in the title,
- * because a gauge is for glancing, not for reading.
+ * carry. Click opens the exact figures (context + session spend).
  */
 function ContextRing({
   context,
   spent,
+  open,
+  onToggle,
 }: {
   context: { used: number; window: number };
   spent: { tin: number; tout: number };
+  open: boolean;
+  onToggle: () => void;
 }) {
   const pct = Math.min(1, context.used / context.window);
   const r = 6;
   const circ = 2 * Math.PI * r;
+  const summary =
+    `Context: ${fmtTokens(context.used)} of ${fmtTokens(context.window)} (${Math.round(pct * 100)}%)` +
+    `\nSession spend: ${fmtTokens(spent.tin)} in · ${fmtTokens(spent.tout)} out`;
   return (
-    <span
-      className="sindri-ring"
-      title={
-        `Context: ${fmtTokens(context.used)} of ${fmtTokens(context.window)} (${Math.round(pct * 100)}%)` +
-        `\nSession spend: ${fmtTokens(spent.tin)} in · ${fmtTokens(spent.tout)} out`
-      }
-      aria-label={`Context ${Math.round(pct * 100)} percent full`}
-    >
-      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-        <circle className="sindri-ring-track" cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" />
-        <circle
-          className="sindri-ring-fill"
-          cx="8"
-          cy="8"
-          r={r}
-          fill="none"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeDasharray={`${circ * pct} ${circ}`}
-          transform="rotate(-90 8 8)"
-        />
-      </svg>
-    </span>
+    <div className={`sindri-chip-wrap${open ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className="sindri-ring"
+        title={summary}
+        aria-label={`Context ${Math.round(pct * 100)} percent full — show usage`}
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <circle className="sindri-ring-track" cx="8" cy="8" r={r} fill="none" strokeWidth="2.5" />
+          <circle
+            className="sindri-ring-fill"
+            cx="8"
+            cy="8"
+            r={r}
+            fill="none"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeDasharray={`${circ * pct} ${circ}`}
+            transform="rotate(-90 8 8)"
+          />
+        </svg>
+      </button>
+      {open ? (
+        <div className="sindri-ring-pop" role="dialog" aria-label="Session usage">
+          <div className="sindri-ring-pop-row">
+            <span>Context</span>
+            <strong>
+              {fmtTokens(context.used)} / {fmtTokens(context.window)}
+            </strong>
+          </div>
+          <div className="sindri-ring-pop-row">
+            <span>Filled</span>
+            <strong>{Math.round(pct * 100)}%</strong>
+          </div>
+          <div className="sindri-ring-pop-row">
+            <span>Session in</span>
+            <strong>{fmtTokens(spent.tin)}</strong>
+          </div>
+          <div className="sindri-ring-pop-row">
+            <span>Session out</span>
+            <strong>{fmtTokens(spent.tout)}</strong>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -425,6 +454,10 @@ export default function Chat() {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [attachBusy, setAttachBusy] = useState(false);
   const [composerDrag, setComposerDrag] = useState(false);
+  const [plusOpen, setPlusOpen] = useState(false);
+  const [ringOpen, setRingOpen] = useState(false);
+  const plusRef = useRef<HTMLButtonElement | null>(null);
+  const threadBusyRef = useRef(false);
   // The rail can be folded away; the choice sticks per browser, like the split.
   const [railOpen, setRailOpen] = useState(true);
   useEffect(() => {
@@ -480,6 +513,8 @@ export default function Chat() {
   /** Grow the tray with the prompt; thread keeps scroll for long chats. */
   function resizeComposer(el: HTMLTextAreaElement | null = inputRef.current) {
     if (!el) return;
+    // Native field-sizing already grows the box — JS height fights it and jitters.
+    if (typeof CSS !== "undefined" && CSS.supports?.("field-sizing", "content")) return;
     el.style.height = "0px";
     const cs = getComputedStyle(el);
     const max =
@@ -921,6 +956,48 @@ export default function Chat() {
     });
   }
 
+  /** Insert a skill from the + menu (no slash caret required). */
+  function pickSkillFromPlus(name: string) {
+    if (slashOpen) {
+      applySlashSkill(name);
+    } else {
+      const el = inputRef.current;
+      const base = input.trimEnd();
+      const next = base ? `${base} /${name} ` : `/${name} `;
+      setInput(next);
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(next.length, next.length);
+        resizeComposer(el);
+      });
+    }
+    setPlusOpen(false);
+  }
+
+  // Close + / ring pops on outside click or Escape.
+  useEffect(() => {
+    if (!plusOpen && !ringOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (plusRef.current?.contains(t)) return;
+      if (t?.closest?.(".sindri-plus-panel, .sindri-ring-pop, .sindri-menu")) return;
+      setPlusOpen(false);
+      setRingOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPlusOpen(false);
+        setRingOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [plusOpen, ringOpen]);
+
   // Drag the gutter between chat and preview to re-balance the split. Clamped so
   // neither pane ever collapses by accident (use the zen/hide toggles for that),
   // snapped to the 42/50/60 marks, and persisted on release.
@@ -1034,6 +1111,8 @@ export default function Chat() {
     return { tin, tout };
   }, [messages, currentSession]);
 
+  const isWelcome = messages.length === 0 && !running;
+
   return (
     <main className="sindri">
       {error ? (
@@ -1076,8 +1155,12 @@ export default function Chat() {
       {!sessionId ? (
         <div className="sindri-body is-blank">
           <div className="sindri-blank">
-            <Hammer className="sindri-blank-mark" size={56} strokeWidth={1.25} aria-hidden="true" />
-            <h3>{currentProject ? `At the anvil with ${currentProject.name}` : "Pick an environment"}</h3>
+            <h3>{currentProject ? "O que vamos forjar hoje?" : "Pick an environment"}</h3>
+            <p className="sindri-blank-sub">
+              {currentProject
+                ? `Uma frase basta — Brokk começa em ${currentProject.name}.`
+                : "Escolha um projeto na verga para acender a bigorna."}
+            </p>
             <form
               className="sindri-blank-bar"
               onSubmit={(e) => {
@@ -1099,7 +1182,7 @@ export default function Chat() {
               <input
                 value={blankDraft}
                 onChange={(e) => setBlankDraft(e.target.value)}
-                placeholder={currentProject ? `What should Brokk forge in ${currentProject.name}?` : "Pick a project first"}
+                placeholder={currentProject ? "Ask anything…" : "Pick a project first"}
                 disabled={!projectId || blankBusy}
                 aria-label="First task"
               />
@@ -1175,7 +1258,7 @@ export default function Chat() {
 
           {/* ── chat column ── */}
           {!chatCollapsed ? (
-          <section className="sindri-chat">
+          <section className={`sindri-chat${isWelcome ? " is-welcome" : ""}`}>
             <>
               <div className="sindri-thread">
                 {threadHydrate && threadHydrate.sessionId === sessionId ? (
@@ -1191,24 +1274,29 @@ export default function Chat() {
                     onStatus={(s) => {
                       const busy = s === "submitted" || s === "streaming";
                       setRunning(busy);
-                      if (busy) setPhase((p) => (p && p !== "starting" && p !== "uploading" ? p : "forging"));
-                      else {
-                        setPhase("");
-                        // Durable transcript for sawEdit / token ring (Thread owns live UI).
-                        if (sessionId) {
-                          void chat.getSession(sessionId).then(({ messages: msgs }) => {
-                            setMessages(msgs);
-                            if (projectId) chat.listSessions(projectId).then(setSessions).catch(() => {});
-                          }).catch(() => {});
-                        }
+                      if (busy) {
+                        threadBusyRef.current = true;
+                        setPhase((p) => (p && p !== "starting" && p !== "uploading" ? p : "forging"));
+                        return;
                       }
+                      setPhase("");
+                      // Only resync when a turn just finished — not on every idle paint.
+                      const finished = threadBusyRef.current;
+                      threadBusyRef.current = false;
+                      if (!finished || !sessionId) return;
+                      void chat.getSession(sessionId).then(({ messages: msgs }) => {
+                        setMessages(msgs);
+                        if (projectId) chat.listSessions(projectId).then(setSessions).catch(() => {});
+                      }).catch(() => {});
                     }}
                     onPhase={(ph) => setPhase(ph)}
                     onError={(msg) => setError(msg)}
                     onTitle={(title) =>
-                      setSessions((prev) =>
-                        prev.map((s) => (s.id === sessionId ? { ...s, title } : s)),
-                      )
+                      setSessions((prev) => {
+                        const cur = prev.find((s) => s.id === sessionId);
+                        if (!cur || cur.title === title) return prev;
+                        return prev.map((s) => (s.id === sessionId ? { ...s, title } : s));
+                      })
                     }
                   />
                 ) : (
@@ -1220,6 +1308,9 @@ export default function Chat() {
                   </div>
                 ) : null}
               </div>
+              {isWelcome ? (
+                <p className="sindri-welcome-phrase">O que vamos forjar hoje?</p>
+              ) : null}
 
               {/* composer = cockpit: the controls live where the hand acts */}
               <div
@@ -1269,7 +1360,7 @@ export default function Chat() {
                   <textarea
                     ref={inputRef}
                     className="sindri-input"
-                    placeholder="Describe the work…  (/ for skills · attach files · Enter sends)"
+                    placeholder="Ask anything…  (/ for skills · Enter sends)"
                     value={input}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -1277,7 +1368,6 @@ export default function Chat() {
                       syncSlashFromInput(v, e.target.selectionStart ?? v.length);
                       resizeComposer(e.target);
                     }}
-                    onInput={(e) => resizeComposer(e.currentTarget)}
                     onKeyDown={onKey}
                     onClick={(e) =>
                       syncSlashFromInput(input, (e.target as HTMLTextAreaElement).selectionStart)
@@ -1318,59 +1408,104 @@ export default function Chat() {
                   </div>
                 ) : null}
                 <div className="sindri-cockpit">
-                  {/* One row, right-aligned: what the session costs, and who runs it.
-                      The anvil lives in the lintel and the branch in the session —
-                      neither needs restating under every prompt. */}
-                  <div className="sindri-cockpit-controls">
-                    <QaControls
-                      projectId={projectId}
-                      disabled={running || attachBusy}
-                      engine={engine}
-                      onRun={async (opts) => {
-                        let sid = sessionId;
-                        if (!sid) {
-                          sid = (await newChat("cursor-cli")) ?? "";
-                          if (!sid) return;
-                        }
-                        // Prefer Cursor CLI (API key) so Playwright MCP is available
-                        // without Claude Code org OAuth.
-                        if (engine !== "cursor-cli" && engine !== "claude-cli" && messages.length === 0) {
-                          setEngine("cursor-cli");
-                          try {
-                            await chat.patchSession(sid, { engine: "cursor-cli" });
-                          } catch {
-                            /* send still goes; skill warns if MCP missing */
-                          }
-                        }
-                        let runId = opts.runId;
-                        if (!runId && projectId) {
-                          try {
-                            const { run } = await qa.startRun(projectId, {
-                              mode: opts.mode,
-                              scenarioIds: opts.scenarios.map((s) => s.id),
-                              sessionId: sid,
-                            });
-                            runId = run.id;
-                          } catch {
-                            /* prompt still runs; submit_qa_report can create a run */
-                          }
-                        }
-                        const text = buildQaRunPrompt({ ...opts, runId: runId || "pending" });
-                        await send(sid, text);
-                      }}
-                    />
+                  <div className={`sindri-chip-wrap sindri-plus-wrap${plusOpen ? " is-open" : ""}`}>
                     <button
+                      ref={plusRef}
                       type="button"
-                      className="sindri-chip sindri-attach-btn"
-                      title="Attach file (xlsx / pdf / txt) → .brokk/inbox/"
-                      aria-label="Attach file"
-                      data-testid="sindri-attach"
+                      className="sindri-plus-btn"
+                      title="Attach or Skills"
+                      aria-label="Attach or Skills"
+                      aria-expanded={plusOpen}
+                      aria-haspopup="menu"
                       disabled={running || attachBusy}
-                      onClick={() => attachInputRef.current?.click()}
+                      onClick={() => {
+                        setRingOpen(false);
+                        setPlusOpen((o) => !o);
+                      }}
                     >
-                      <Paperclip size={13} />
-                      <span className="sindri-chip-label">Attach</span>
+                      <Plus size={16} />
                     </button>
+                    {plusOpen ? (
+                      <div className="sindri-plus-panel" role="menu" aria-label="Attach or Skills">
+                        <button
+                          type="button"
+                          className="sindri-plus-item"
+                          role="menuitem"
+                          data-testid="sindri-attach"
+                          disabled={running || attachBusy}
+                          onClick={() => {
+                            setPlusOpen(false);
+                            attachInputRef.current?.click();
+                          }}
+                        >
+                          <Paperclip size={14} aria-hidden />
+                          <span>
+                            Attach
+                            <small>xlsx / pdf / txt → .brokk/inbox/</small>
+                          </span>
+                        </button>
+                        <div className="sindri-plus-section">QA</div>
+                        <QaControls
+                          projectId={projectId}
+                          disabled={running || attachBusy}
+                          engine={engine}
+                          onRun={async (opts) => {
+                            setPlusOpen(false);
+                            let sid = sessionId;
+                            if (!sid) {
+                              sid = (await newChat("cursor-cli")) ?? "";
+                              if (!sid) return;
+                            }
+                            if (engine !== "cursor-cli" && engine !== "claude-cli" && messages.length === 0) {
+                              setEngine("cursor-cli");
+                              try {
+                                await chat.patchSession(sid, { engine: "cursor-cli" });
+                              } catch {
+                                /* send still goes; skill warns if MCP missing */
+                              }
+                            }
+                            let runId = opts.runId;
+                            if (!runId && projectId) {
+                              try {
+                                const { run } = await qa.startRun(projectId, {
+                                  mode: opts.mode,
+                                  scenarioIds: opts.scenarios.map((s) => s.id),
+                                  sessionId: sid,
+                                });
+                                runId = run.id;
+                              } catch {
+                                /* prompt still runs; submit_qa_report can create a run */
+                              }
+                            }
+                            const text = buildQaRunPrompt({ ...opts, runId: runId || "pending" });
+                            await send(sid, text);
+                          }}
+                        />
+                        {skillOptions.length > 0 ? (
+                          <>
+                            <div className="sindri-plus-section">Skills</div>
+                            <ul className="sindri-plus-skills">
+                              {skillOptions.map((s) => (
+                                <li key={s.name}>
+                                  <button
+                                    type="button"
+                                    className="sindri-plus-item"
+                                    role="menuitem"
+                                    disabled={running}
+                                    onClick={() => pickSkillFromPlus(s.name)}
+                                  >
+                                    <span>
+                                      /{s.name}
+                                      <small>{s.description}</small>
+                                    </span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <input
                       ref={attachInputRef}
                       type="file"
@@ -1382,7 +1517,19 @@ export default function Chat() {
                         e.target.value = "";
                       }}
                     />
-                    {context ? <ContextRing context={context} spent={tokens} /> : null}
+                  </div>
+                  <div className="sindri-cockpit-controls">
+                    {context ? (
+                      <ContextRing
+                        context={context}
+                        spent={tokens}
+                        open={ringOpen}
+                        onToggle={() => {
+                          setPlusOpen(false);
+                          setRingOpen((o) => !o);
+                        }}
+                      />
+                    ) : null}
                     {engine !== "claude-cli" && engine !== "cursor-cli" && (
                       <ComposerChip
                         title="Reasoning effort"

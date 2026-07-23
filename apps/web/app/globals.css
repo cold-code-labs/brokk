@@ -799,6 +799,45 @@ body:has(.sindri) {
   /* edge-to-edge: no frame, the gutter hairline is the only seam */
   overflow: hidden;
 }
+/* Empty session: phrase + composer sit mid-pane (ChatGPT shape). Thread stays
+   mounted for the runtime but takes no space until the first turn lands. */
+.sindri-chat.is-welcome {
+  justify-content: center;
+}
+.sindri-chat.is-welcome .sindri-thread {
+  flex: 0 0 0;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+.sindri-welcome-phrase {
+  margin: 0 auto 1.1rem;
+  padding: 0 1.25rem;
+  max-width: var(--sindri-measure);
+  text-align: center;
+  color: var(--fg);
+  font-family: var(--font-display, inherit);
+  font-size: clamp(1.25rem, 2.4vw, 1.65rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.sindri-chat.is-welcome .sindri-composer {
+  flex-shrink: 0;
+  width: 100%;
+  padding-block: 0 1.5rem;
+}
+.sindri-blank-sub {
+  margin: -0.2rem 0 0.4rem;
+  max-width: 28rem;
+  color: var(--fg-dim);
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
 .sindri-blank {
   margin: auto;
   text-align: center;
@@ -1419,8 +1458,7 @@ body:has(.sindri) {
   gap: 0.5rem;
   min-width: 0;
 }
-/* One right-aligned row: gauge, then who runs it. No mic, no attach, no
-   permission mode — Brokk has none of those, and no anvil/branch restatement. */
+/* One right-aligned row: gauge, then who runs it. Attach/QA/skills live under +. */
 .sindri-cockpit-controls {
   display: flex;
   align-items: center;
@@ -1431,14 +1469,22 @@ body:has(.sindri) {
   justify-content: flex-end;
 }
 /* The context gauge: how full the model's head is. Cold — filling a context is
-   not forging, so no ember here. */
+   not forging, so no ember here. Click opens the spend sheet. */
 .sindri-ring {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  padding: 0 0.15rem;
-  cursor: default;
+  padding: 0.15rem;
+  margin: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.sindri-ring:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
 .sindri-ring-track {
   stroke: color-mix(in srgb, var(--fg) 12%, transparent);
@@ -1446,6 +1492,143 @@ body:has(.sindri) {
 .sindri-ring-fill {
   stroke: var(--accent);
   transition: stroke-dasharray 0.3s ease;
+}
+.sindri-ring-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 12.5rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card, var(--bg));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--fg) 12%, transparent);
+  display: grid;
+  gap: 0.35rem;
+}
+.sindri-ring-pop-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--fg-soft, var(--fg));
+}
+.sindri-ring-pop-row strong {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  font-weight: 650;
+}
+.sindri-plus-wrap {
+  flex-shrink: 0;
+}
+.sindri-plus-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card, var(--bg));
+  color: var(--fg-soft, var(--fg));
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+.sindri-plus-btn:hover:not(:disabled),
+.sindri-plus-wrap.is-open > .sindri-plus-btn {
+  border-color: color-mix(in srgb, var(--ember, var(--accent)) 45%, var(--border));
+  color: var(--fg);
+  background: color-mix(in srgb, var(--ember, var(--accent)) 8%, var(--card));
+}
+.sindri-plus-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.sindri-plus-panel {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 45;
+  width: min(22rem, calc(100vw - 2rem));
+  max-height: min(22rem, calc(100vh - 6rem));
+  overflow: auto;
+  padding: 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--card, var(--bg));
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--fg) 14%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  scrollbar-width: thin;
+}
+.sindri-plus-section {
+  margin: 0.25rem 0.35rem 0;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.sindri-plus-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  width: 100%;
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sindri-plus-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.sindri-plus-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.sindri-plus-item > svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: var(--ember, var(--accent));
+}
+.sindri-plus-item span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  font-size: 0.86rem;
+  font-weight: 550;
+}
+.sindri-plus-item small {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--fg-dim);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sindri-plus-skills {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.sindri-plus-panel .sindri-qa-controls {
+  flex-wrap: wrap;
+  padding: 0 0.2rem 0.15rem;
 }
 /* The prompt is ONE box — the only bordered thing down here. The tray it sits in
    is a band, not a panel, so this stays a single frame, not box-in-box. */
@@ -3331,11 +3514,13 @@ html.dark .fv-hl .shiki span {
 }
 .sindri-blank h3 {
   font-family: var(--font-display, inherit);
-  font-size: 1.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  line-height: 1;
+  font-size: clamp(1.35rem, 2.6vw, 1.75rem);
+  font-weight: 650;
+  text-transform: none;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--fg);
+  margin: 0;
 }
 
 /* Forged primary buttons — the default shadcn flat block reads plastic against
