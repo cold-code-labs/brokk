@@ -1,9 +1,18 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { ThemeProvider } from "next-themes";
+import type { ComponentType, ReactNode } from "react";
+import { ThemeProvider as NextThemesProvider } from "next-themes";
 import { ProjectProvider } from "../lib/project-context";
 import { Toaster } from "../components/Toaster";
+
+/** next-themes typings lag React 19 (`children` missing on ThemeProviderProps). */
+const ThemeProvider = NextThemesProvider as ComponentType<{
+  children?: ReactNode;
+  attribute?: string;
+  defaultTheme?: string;
+  enableSystem?: boolean;
+  disableTransitionOnChange?: boolean;
+}>;
 
 /**
  * Brokk is dark-native, so it defaults to dark — but the Yggdrasil tokens are
