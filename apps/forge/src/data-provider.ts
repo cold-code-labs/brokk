@@ -85,6 +85,11 @@ export function makeHauldrDataProvider(client: Hauldr, controlUrl: string): Data
         // secret, and the public https namespace. Both VITE_HAULDR_* (fleet
         // rebrand) and VITE_SUPABASE_* (pre-rebrand apps) so either wires up
         // automatically — no per-app preview-secret needed.
+        //
+        // Hero / one-shot (ADR 0070): SPA stays on stub auth even though Hauldr
+        // `_dev` is provisioned underneath. Opt-in later with VITE_AUTH_MODE=hauldr
+        // (template-vite / dekaprint authMode ignore URL presence alone).
+        VITE_AUTH_MODE: "stub",
         VITE_HAULDR_URL: publicUrl,
         VITE_HAULDR_PUBLISHABLE_KEY: anonKey,
         VITE_HAULDR_PROJECT_ID: project,
@@ -92,9 +97,7 @@ export function makeHauldrDataProvider(client: Hauldr, controlUrl: string): Data
         VITE_SUPABASE_PUBLISHABLE_KEY: anonKey,
         VITE_SUPABASE_ANON_KEY: anonKey,
         VITE_SUPABASE_PROJECT_ID: project,
-        // Dev previews are throwaway demo environments — turn on the template's
-        // one-click "Entrar como demo" login (the app gates it DEV/DEMO-only via
-        // DEMO_LOGIN). We seed the matching user below so the click logs in.
+        // Kept for Next template-light + optional hauldr opt-in demos.
         DEMO_LOGIN: "true",
         DEMO_LOGIN_EMAIL: DEMO_EMAIL,
         DEMO_LOGIN_PASSWORD: DEMO_PASSWORD,
