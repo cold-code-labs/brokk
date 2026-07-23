@@ -139,16 +139,17 @@ function mapUsage(u: Record<string, unknown> | undefined | null): TurnUsage {
 
 /** Best-effort map of OpenHands JSONL events → AgentEvent. */
 function emitOhEvent(raw: Record<string, unknown>, emit: (e: AgentEvent) => void, toolIds: Map<string, string>): void {
-  const type = String(raw.type ?? raw.event_type ?? "");
+  const type = String(raw.type ?? raw.event_type ?? raw.kind ?? "");
   const action = raw.action as Record<string, unknown> | string | undefined;
   const observation = raw.observation as Record<string, unknown> | string | undefined;
 
-  if (type === "action" || raw.action) {
+  if (/Action|action/i.test(type) || raw.action) {
     const act = typeof action === "object" && action ? action : raw;
     const name = String(
       (act as { action?: string }).action ??
         (act as { name?: string }).name ??
-        (typeof action === "string" ? action : "action"),
+        (act as { tool_name?: string }).tool_name ??
+        (typeof action === "string" ? action : type || "action"),
     );
     const id = String((act as { id?: string }).id ?? raw.id ?? `oh-${toolIds.size + 1}`);
     toolIds.set(id, name);
@@ -157,11 +158,11 @@ function emitOhEvent(raw: Record<string, unknown>, emit: (e: AgentEvent) => void
       (act as { inputs?: unknown }).inputs ??
       (act as { path?: unknown }).path ??
       {};
-    emit({ type: "tool_use", id, name, input: typeof input === "object" && input ? input : { value: input } });
+    emit({ type: "tool_use", id, name, input: typeof input === "object" && input ? (input as Record<string, unknown>) : { value: input } });
     return;
   }
 
-  if (type === "observation" || raw.observation) {
+  if (/Observation|observation/i.test(type) || raw.observation) {
     const obs = typeof observation === "object" && observation ? observation : raw;
     const cause = String((obs as { cause?: string }).cause ?? (obs as { action_id?: string }).action_id ?? "");
     const toolUseId = cause || [...toolIds.keys()].at(-1) || "oh-unknown";
@@ -180,7 +181,7 @@ function emitOhEvent(raw: Record<string, unknown>, emit: (e: AgentEvent) => void
     return;
   }
 
-  if (type === "message" || type === "agent_state_changed" || raw.message || raw.content) {
+  if (/Message|message|agent_state/i.test(type) || raw.message || raw.content) {
     const text = String(
       (raw as { message?: string }).message ??
         (raw as { content?: string }).content ??
@@ -231,6 +232,9 @@ export async function runOpenHandsCliTurn(input: CliTurnInput): Promise<CliTurnO
       let jsonEvents = 0;
       let stderrTail = "";
       let settled = false;
+      // OpenHands 1.14 often prints pretty multi-line JSON after a `--JSON Event--`
+      // marker instead of strict JSONL — accumulate until parse succeeds.
+      let prettyBuf: string | null = null;
 
       const finish = (outcome: CliTurnOutcome) => {
         if (settled) return;
@@ -238,27 +242,45 @@ export async function runOpenHandsCliTurn(input: CliTurnInput): Promise<CliTurnO
         resolve(outcome);
       };
 
+      const handleJson = (raw: Record<string, unknown>) => {
+        jsonEvents += 1;
+        if (typeof raw.conversation_id === "string") cliSessionId = raw.conversation_id;
+        if (typeof raw.id === "string" && (raw.type === "conversation" || raw.conversation_id)) {
+          cliSessionId = String(raw.conversation_id ?? raw.id);
+        }
+        if (raw.usage || raw.token_usage) {
+          usage = mapUsage((raw.usage ?? raw.token_usage) as Record<string, unknown>);
+          emit({ type: "usage", usage });
+        }
+        const msg = raw.message ?? raw.content;
+        if (typeof msg === "string" && msg && (raw.type === "message" || raw.role === "assistant")) {
+          resultText = msg;
+        }
+        emitOhEvent(raw, emit, toolIds);
+      };
+
       const onLine = (line: string) => {
         const trimmed = line.trim();
         if (!trimmed) return;
+        if (trimmed === "--JSON Event--" || trimmed === "JSON Event") {
+          prettyBuf = "";
+          return;
+        }
+        if (prettyBuf !== null) {
+          prettyBuf += (prettyBuf ? "\n" : "") + line;
+          try {
+            handleJson(JSON.parse(prettyBuf) as Record<string, unknown>);
+            prettyBuf = null;
+          } catch {
+            // keep buffering until the object closes
+            if (prettyBuf.length > 2_000_000) prettyBuf = null;
+          }
+          return;
+        }
         try {
-          const raw = JSON.parse(trimmed) as Record<string, unknown>;
-          jsonEvents += 1;
-          if (typeof raw.conversation_id === "string") cliSessionId = raw.conversation_id;
-          if (typeof raw.id === "string" && (raw.type === "conversation" || raw.conversation_id)) {
-            cliSessionId = String(raw.conversation_id ?? raw.id);
-          }
-          if (raw.usage || raw.token_usage) {
-            usage = mapUsage((raw.usage ?? raw.token_usage) as Record<string, unknown>);
-            emit({ type: "usage", usage });
-          }
-          const msg = raw.message ?? raw.content;
-          if (typeof msg === "string" && msg && (raw.type === "message" || raw.role === "assistant")) {
-            resultText = msg;
-          }
-          emitOhEvent(raw, emit, toolIds);
+          handleJson(JSON.parse(trimmed) as Record<string, unknown>);
         } catch {
-          // Banner / TUI noise — never overwrite a real assistant result.
+          // Banner / TUI noise
         }
       };
 
