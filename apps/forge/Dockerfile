@@ -103,9 +103,14 @@ RUN curl -fsSL https://cursor.com/install | HOME=/opt/cursor-home bash \
  && chmod -R a+rX /opt/cursor-home \
  && cursor-agent --version
 
-# OpenHands CLI (ADR 0072) — NOT baked into the default image yet (heavy Python
-# stack). Shadow workers mount/install `openhands` and set BROKK_FORGE_ENGINE +
-# LLM_*. openHandsCliAvailable() falls back loudly to afl when missing.
+# OpenHands CLI (ADR 0072) — binary only (not the Python stack). Fuel is LLM_*
+# at runtime; RUNTIME=process so the agent edits the Brokk worktree in-place
+# (forge has no Docker sock). Pin via BROKK_OPENHANDS_VERSION build-arg.
+ARG BROKK_OPENHANDS_VERSION=1.14.0
+RUN curl -fsSL "https://github.com/OpenHands/OpenHands-CLI/releases/download/${BROKK_OPENHANDS_VERSION}/openhands-linux-x86_64" \
+      -o /usr/local/bin/openhands \
+ && chmod +x /usr/local/bin/openhands \
+ && openhands --version
 
 # Playwright MCP — browser hands for driver sessions (ADR 0054). Bin
 # `playwright-mcp` (@playwright/mcp); drives the system chromium above

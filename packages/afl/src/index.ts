@@ -18,7 +18,11 @@ export {
   runClaudeCliTurn,
 } from "./claude-cli.js";
 export { cursorCliAvailable, runCursorCliTurn } from "./cursor-cli.js";
-export { openHandsCliAvailable, runOpenHandsCliTurn } from "./openhands-cli.js";
+export {
+  buildOpenHandsCliEnv,
+  openHandsCliAvailable,
+  runOpenHandsCliTurn,
+} from "./openhands-cli.js";
 export { type CompactionResult, type CompactOptions, compactTranscript } from "./compact.js";
 export {
   type AflConfig,

@@ -42,8 +42,11 @@ export function openHandsCliAvailable(): boolean {
   return available;
 }
 
-function cliEnv(input: CliTurnInput): Record<string, string> {
-  const src = process.env;
+/** Env for the OpenHands child. Exported for unit tests. */
+export function buildOpenHandsCliEnv(
+  input: Pick<CliTurnInput, "model" | "gh" | "env">,
+  src: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
   const out: Record<string, string> = {};
   for (const k of ["PATH", "TMPDIR", "LANG", "TZ", "HOME", "USER", "SHELL"]) {
     if (src[k]) out[k] = src[k]!;
@@ -58,7 +61,11 @@ function cliEnv(input: CliTurnInput): Record<string, string> {
     "",
   );
   // OpenHands expects …/v1; Brokk often stores LiteLLM root without suffix.
-  const withV1 = baseUrl.endsWith("/v1") ? baseUrl : `${baseUrl}/v1`;
+  const withV1 = !baseUrl
+    ? ""
+    : baseUrl.endsWith("/v1")
+      ? baseUrl
+      : `${baseUrl}/v1`;
   out.LLM_API_KEY = apiKey;
   out.LLM_BASE_URL = withV1;
   out.LLM_MODEL =
@@ -67,6 +74,8 @@ function cliEnv(input: CliTurnInput): Record<string, string> {
     src.BROKK_OPENHANDS_MODEL ||
     "openai/cursor/auto";
   out.OPENHANDS_SUPPRESS_BANNER = "1";
+  // Brokk worktree IS the workspace — no nested Docker sandbox (forge has no sock).
+  out.RUNTIME = src.BROKK_OPENHANDS_RUNTIME || "process";
 
   out.GIT_AUTHOR_NAME = src.BROKK_GIT_NAME || "Brokk";
   out.GIT_AUTHOR_EMAIL = src.BROKK_GIT_EMAIL || "brokk@coldcodelabs.com";
@@ -159,7 +168,7 @@ export async function runOpenHandsCliTurn(input: CliTurnInput): Promise<CliTurnO
     args.push("--resume", input.resume);
   }
 
-  const env = cliEnv(input);
+  const env = buildOpenHandsCliEnv(input);
   emit({ type: "status", phase: "openhands_start", detail: { model: env.LLM_MODEL } });
 
   return new Promise((resolve) => {
