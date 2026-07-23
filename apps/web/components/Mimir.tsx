@@ -256,7 +256,7 @@ export default function Mimir() {
           <span className="forge-h-rule" />
           <Input
             value={query}
-            onChange={(e) => {
+            onChange={(e: ChangeEvent<HTMLInputElement>) => {
               setQuery(e.target.value);
               refreshBank(e.target.value).catch((er) => setErr(String(er)));
             }}
