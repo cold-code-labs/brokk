@@ -950,7 +950,7 @@ export const PROTOTYPE_PACK_MAX_HERO = 4;
 export interface PrototypeHeroRoom {
   /** Short label (e.g. "Landing", "Cotação"). */
   title: string;
-  /** Route hint for the Next client template (e.g. "/", "/estoque"). */
+  /** Route hint for template-vite (e.g. "/", "/estoque"). */
   route: string;
   /** Job the screen proves in the demo. */
   job: string;
@@ -979,7 +979,7 @@ export interface PrototypePack {
   mission: string;
   /** Who uses it, in what moment, what decision (v0-style context). */
   context: string;
-  /** Hard rails — e.g. frontend-only, mock, Next client template, no BaaS. */
+  /** Hard rails — e.g. frontend-only, mock, template-vite, no BaaS. */
   constraints: string[];
   /** Taste / Litr seed one-liner. */
   design_read: string;

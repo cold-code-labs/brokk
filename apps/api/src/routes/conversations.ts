@@ -50,8 +50,8 @@ const NewConversationBody = z.object({
   /** Optional display/friendly name. Absent → chat-first birth (ADR 0070 H5):
    *  technical slug `p-<hex>` sent to Heimdall; UI shows "Novo projeto". */
   name: z.string().min(1).max(64).optional(),
-  /** template tier — "client" (light) or "internal". Defaults to client. */
-  template: z.enum(["client", "internal"]).optional(),
+  /** template tier — agent birth defaults to Vite. "client" = legacy Next light. */
+  template: z.enum(["client-vite", "client", "internal"]).optional(),
 });
 
 const ClaimBody = z.object({
@@ -135,7 +135,7 @@ export function conversationsRoutes(deps: AppDeps): Hono {
         },
         body: JSON.stringify({
           name: heimdallName,
-          template: template ?? "client",
+          template: template ?? "client-vite",
           ...(org.logtoOrgId ? { organizationId: org.logtoOrgId } : {}),
         }),
         signal: AbortSignal.timeout(120_000),
