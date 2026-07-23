@@ -19,6 +19,11 @@ const nextConfig = {
     "@cold-code-labs/yggdrasil-brand",
     "@cold-code-labs/yggdrasil-react",
   ],
+  // Next's build-time typecheck also walks transpilePackages sources. Yggdrasil
+  // ships .tsx without its own @types/react resolution under pnpm+Docker, which
+  // flakes Coolify images while `pnpm typecheck` (app-only) stays green. Rely on
+  // CI typecheck for app correctness.
+  typescript: { ignoreBuildErrors: true },
   // webpack's wasm xxhash64 (WasmHash) flakily dies with "Cannot read properties
   // of undefined (reading 'length')" under parallel load on ymir (dev + build).
   // Known webpack bug class; the JS sha256 hasher sidesteps it at negligible cost.
