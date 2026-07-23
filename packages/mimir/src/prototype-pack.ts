@@ -124,21 +124,33 @@ export async function enhancePrototypePack(
   config: MimirConfig,
 ): Promise<PrototypePackEnhanceResult> {
   const user = formatInsumos(insumos);
-  const { text } = await mimirComplete(config, {
-    system: SYSTEM,
-    user,
-    model: config.plannerModel,
-    json: true,
-    maxTokens: 6000,
-  });
-  const parsed = extractJson<unknown>(text);
-  if (!parsed || typeof parsed !== "object") {
-    console.error("[mimir] prototype-pack: bad JSON", text.slice(0, 300));
-    throw new MimirError("Resposta inesperada do modelo (Pack).", 502);
+  const models = [config.plannerModel, config.triageModel, config.enhanceModel].filter(
+    (m, i, a) => Boolean(m) && a.indexOf(m) === i,
+  );
+  let lastErr: unknown;
+  for (const model of models) {
+    try {
+      const { text } = await mimirComplete(config, {
+        system: SYSTEM,
+        user,
+        model,
+        json: true,
+        maxTokens: 6000,
+      });
+      const parsed = extractJson<unknown>(text);
+      if (!parsed || typeof parsed !== "object") {
+        throw new MimirError("Resposta inesperada do modelo (Pack).", 502);
+      }
+      const pack = coercePrototypePack(parsed);
+      if (!pack.hero_set.length) {
+        throw new MimirError("Pack sem hero_set — Enhance falhou em ranquear salas.", 502);
+      }
+      return { pack, model, enhanced: true };
+    } catch (err) {
+      lastErr = err;
+      console.warn("[mimir] prototype-pack model failed", model, err instanceof Error ? err.message : err);
+    }
   }
-  const pack = coercePrototypePack(parsed);
-  if (!pack.hero_set.length) {
-    throw new MimirError("Pack sem hero_set — Enhance falhou em ranquear salas.", 502);
-  }
-  return { pack, model: config.plannerModel, enhanced: true };
+  if (lastErr instanceof MimirError) throw lastErr;
+  throw new MimirError("Enhance Pack falhou em todos os modelos.", 502);
 }
