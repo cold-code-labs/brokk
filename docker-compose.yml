@@ -119,6 +119,11 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       BROKK_GIT_NAME: ${BROKK_GIT_NAME:-Brokk}
       BROKK_GIT_EMAIL: ${BROKK_GIT_EMAIL:-brokk@localhost}
+      BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-cursor-cli}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      BROKK_OPENHANDS_BIN: ${BROKK_OPENHANDS_BIN:-}
     volumes:
       - brokk_work:/work
       # DoD — uncomment (and add `docker-cli` to the runner image) to let the agent

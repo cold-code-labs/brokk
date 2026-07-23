@@ -84,6 +84,13 @@ x-worker-env: &worker-env
   CURSOR_API_KEY: ${CURSOR_API_KEY:-}
   CURSOR_AUTH_TOKEN: ${CURSOR_AUTH_TOKEN:-}
   CURSOR_AGENT_BIN: ${CURSOR_AGENT_BIN:-}
+  # OpenHands lane (ADR 0072) — fuel via LiteLLM→OmniRoute. Default fleet stays
+  # cursor-cli; set BROKK_FORGE_ENGINE=openhands on a shadow worker to cut over.
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_MODEL: ${LLM_MODEL:-}
+  BROKK_OPENHANDS_BIN: ${BROKK_OPENHANDS_BIN:-}
+  BROKK_OPENHANDS_MODEL: ${BROKK_OPENHANDS_MODEL:-}
   LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
   LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
   LANGFUSE_HOST: ${LANGFUSE_HOST:-}
@@ -232,7 +239,7 @@ services:
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
       BROKK_VERIFY_CMD: ${BROKK_VERIFY_CMD:-}
-      # Engine lane: afl (native loop, default) | cli (Claude Code CLI, opt-in).
+      # Engine: cursor-cli | openhands (ADR 0072) | cli | afl. Coolify may override.
       BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-afl}
       # ADR 0017 Fase 3b: apps whose implement cards commit straight to dev (pilot).
       BROKK_DEVLANE_APPS: ${BROKK_DEVLANE_APPS:-}
@@ -278,7 +285,7 @@ services:
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
       BROKK_VERIFY_CMD: ${BROKK_VERIFY_CMD:-}
-      # Engine lane: afl (native loop, default) | cli (Claude Code CLI, opt-in).
+      # Engine: cursor-cli | openhands (ADR 0072) | cli | afl. Coolify may override.
       BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-afl}
       # ADR 0017 Fase 3b: apps whose implement cards commit straight to dev (pilot).
       BROKK_DEVLANE_APPS: ${BROKK_DEVLANE_APPS:-}

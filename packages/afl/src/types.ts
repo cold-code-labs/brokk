@@ -53,7 +53,7 @@ export interface TurnUsage {
   cacheCreationTokens: number;
 }
 
-/** Canonical turn wire for EVERY engine (claude-api, claude-cli, cursor-cli).
+/** Canonical turn wire for EVERY engine (claude-api, claude-cli, cursor-cli, openhands).
  *  Adapters MUST emit these shapes — UI + chat_messages speak only this dialect.
  *  Fed to the SSE stream; completed `message` rows also replay on reconnect. */
 export type AgentEvent =

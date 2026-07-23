@@ -31,6 +31,7 @@ via `BROKK_FORGE_ENGINE`:
 | Lane | What drives the turn |
 |---|---|
 | `cursor-cli` *(default)* | Cursor Agent CLI — needs the `cursor-agent` binary + `CURSOR_API_KEY` |
+| `openhands` | OpenHands CLI → LiteLLM→OmniRoute (`LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`) — [ADR 0072](docs/adr/0072-brokk-openhands-omniroute.md) |
 | `cli` | the genuine Claude Code CLI |
 | `afl` | the native in-process loop, straight to the Messages API |
 

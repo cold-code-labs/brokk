@@ -23,8 +23,8 @@ const execAsync = promisify(exec);
 // seat) — the global kill-switch for per-user billing.
 const SEAT_DIRECT = process.env.BROKK_DIRECT_SEAT !== "0";
 import { GhProvider } from "./git.js";
-import { ClaudeCliEngine, CursorCliEngine, ForgeEngine } from "@brokk/forge";
-import { claudeCliAvailable, cursorCliAvailable } from "@brokk/afl";
+import { ClaudeCliEngine, CursorCliEngine, ForgeEngine, OpenHandsCliEngine } from "@brokk/forge";
+import { claudeCliAvailable, cursorCliAvailable, openHandsCliAvailable } from "@brokk/afl";
 import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
 import { HeimdallLanes } from "./heimdall-lanes.js";
 import { runAcceptanceReceipt } from "./acceptance.js";
@@ -60,7 +60,7 @@ async function main() {
   // BROKK_FORGE_ENGINE=cli swaps in the Claude Code CLI lane (genuine client,
   // seat OAuth direct — no gateway hop). Falls back to the native engine when
   // the binary/token isn't present, so a misconfig can never brick the runner.
-  // Engine lanes: cursor-cli (default) | cli (Claude Code) | afl (native).
+  // Engine lanes: cursor-cli (default) | openhands (ADR 0072) | cli (Claude Code) | afl.
   // Every lane degrades to afl when its binary/credential is missing, so a bad
   // image or a rotated key can never brick the runner — it just gets quieter
   // and slower. The fallback is LOUD on purpose: a silent downgrade would make
@@ -69,12 +69,19 @@ async function main() {
   const lane =
     wantEngine === "cursor-cli" && cursorCliAvailable()
       ? "cursor-cli"
-      : wantEngine === "cli" && claudeCliAvailable()
-        ? "cli"
-        : "afl";
+      : wantEngine === "openhands" && openHandsCliAvailable()
+        ? "openhands"
+        : wantEngine === "cli" && claudeCliAvailable()
+          ? "cli"
+          : "afl";
   if (wantEngine === "cursor-cli" && lane !== "cursor-cli") {
     console.error(
       "[forge] BROKK_FORGE_ENGINE=cursor-cli but cursor-agent binary/CURSOR_API_KEY missing — falling back to the native engine",
+    );
+  }
+  if (wantEngine === "openhands" && lane !== "openhands") {
+    console.error(
+      "[forge] BROKK_FORGE_ENGINE=openhands but openhands binary/LLM_BASE_URL+LLM_API_KEY missing — falling back to the native engine",
     );
   }
   if (wantEngine === "cli" && lane !== "cli") {
@@ -85,16 +92,19 @@ async function main() {
   const engine =
     lane === "cursor-cli"
       ? new CursorCliEngine({ browser: cfg.browser })
-      : lane === "cli"
-        ? new ClaudeCliEngine({ browser: cfg.browser })
-        : new ForgeEngine({
-            gatewayUrl: cfg.anthropicBaseUrl || (cfg.anthropicAuthToken ? "" : "https://api.anthropic.com"),
-            authToken: cfg.anthropicAuthToken || cfg.anthropicApiKey,
-            authKind: cfg.anthropicAuthToken ? "bearer" : cfg.anthropicApiKey ? "apikey" : "bearer",
-            browser: cfg.browser,
-          });
+      : lane === "openhands"
+        ? new OpenHandsCliEngine({ browser: cfg.browser })
+        : lane === "cli"
+          ? new ClaudeCliEngine({ browser: cfg.browser })
+          : new ForgeEngine({
+              gatewayUrl: cfg.anthropicBaseUrl || (cfg.anthropicAuthToken ? "" : "https://api.anthropic.com"),
+              authToken: cfg.anthropicAuthToken || cfg.anthropicApiKey,
+              authKind: cfg.anthropicAuthToken ? "bearer" : cfg.anthropicApiKey ? "apikey" : "bearer",
+              browser: cfg.browser,
+            });
   const LANE_LABEL = {
     "cursor-cli": "cursor-cli (Cursor Agent, --model auto)",
+    openhands: "openhands (LiteLLM→OmniRoute)",
     cli: "cli (Claude Code)",
     afl: "afl (native)",
   } as const;

@@ -1,23 +1,24 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CliEngine — the CLI family behind core's AgentEngine port, in two flavours:
-// ClaudeCliEngine (`claude`) and CursorCliEngine (`cursor-agent`).
+// CliEngine — the CLI family behind core's AgentEngine port:
+// ClaudeCliEngine (`claude`), CursorCliEngine (`cursor-agent`), OpenHandsCliEngine
+// (`openhands` → LiteLLM/OmniRoute, ADR 0072).
 //
 // Instead of driving the afl loop against the gateway (LiteLLM → Ratatoskr),
 // each forge pass runs a genuine vendor CLI headless in the worktree
-// (packages/afl/src/{claude,cursor}-cli.ts). Heal passes RESUME the same CLI
+// (packages/afl/src/{claude,cursor,openhands}-cli.ts). Heal passes RESUME the same CLI
 // session, so the agent keeps its memory of what it already tried — the same
 // continuity property the native engine has, via the CLI's own transcript
 // instead of ours.
 //
-// The two lanes differ ONLY in the turn driver and how a model alias resolves;
+// The lanes differ ONLY in the turn driver and how a model alias resolves;
 // the forge → verify → autofix → heal orchestration below is shared, so a run
 // behaves identically from the outside whichever CLI produced it. Event mapping
 // preserves the SDK-era shapes (`usage`={input_tokens,output_tokens},
 // `message`={role,content}) exactly like ForgeEngine.forgeHooks, so the control
 // plane, Board UI, and Langfuse tracer need no change.
 //
-// ⚠️ maxTurns is a CLAUDE-ONLY guard. `cursor-agent` has no equivalent flag, so
-// runCursorCliTurn silently ignores it: on the cursor lane the only bound on a
+// ⚠️ maxTurns is a CLAUDE-ONLY guard. `cursor-agent` / `openhands` have no
+// equivalent flag, so those drivers silently ignore it: the only bound on a
 // runaway pass is turnTimeoutMs. Kept explicit here because the cap looks
 // engine-agnostic at the call site and is not.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,6 +26,7 @@
 import {
   runClaudeCliTurn,
   runCursorCliTurn,
+  runOpenHandsCliTurn,
   type AgentEvent,
   type CliTurnInput,
   type CliTurnOutcome,
@@ -48,6 +50,12 @@ export interface CursorCliEngineOptions extends Omit<ClaudeCliEngineOptions, "mo
   /** Concrete model handed to `cursor-agent --model`. Default "auto" — Cursor
    *  picks per task, and the CCL aliases (sonnet/opus/haiku) are meaningless to
    *  it, so a project's stored alias must NOT leak through. */
+  model?: string;
+}
+
+/** OpenHands lane (ADR 0072): model is an Omni/LiteLLM slug, not a Brokk alias. */
+export interface OpenHandsCliEngineOptions extends Omit<ClaudeCliEngineOptions, "models"> {
+  /** LiteLLM/Omni model id (e.g. openai/cursor/auto). */
   model?: string;
 }
 
@@ -221,6 +229,22 @@ export class CursorCliEngine extends CliEngine {
         driver: runCursorCliTurn,
         label: "cursor-cli",
         cliName: "cursor-agent",
+        resolveModel: () => model,
+      },
+      opts,
+    );
+  }
+}
+
+/** OpenHands headless CLI → OmniRoute/LiteLLM (ADR 0072). Fuel is LLM_* only. */
+export class OpenHandsCliEngine extends CliEngine {
+  constructor(opts: OpenHandsCliEngineOptions = {}) {
+    const model = opts.model ?? process.env.BROKK_OPENHANDS_MODEL ?? process.env.LLM_MODEL ?? "openai/cursor/auto";
+    super(
+      {
+        driver: runOpenHandsCliTurn,
+        label: "openhands",
+        cliName: "openhands",
         resolveModel: () => model,
       },
       opts,

@@ -12,6 +12,8 @@ export {
   type ClaudeCliEngineOptions,
   CursorCliEngine,
   type CursorCliEngineOptions,
+  OpenHandsCliEngine,
+  type OpenHandsCliEngineOptions,
 } from "./cli-engine.js";
 export { ForgeEngine, type ForgeEngineOptions } from "./engine.js";
 export { buildHealPrompt, buildPrompt, DEFAULT_SYSTEM_PROMPT } from "./prompts.js";

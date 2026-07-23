@@ -103,6 +103,10 @@ RUN curl -fsSL https://cursor.com/install | HOME=/opt/cursor-home bash \
  && chmod -R a+rX /opt/cursor-home \
  && cursor-agent --version
 
+# OpenHands CLI (ADR 0072) — NOT baked into the default image yet (heavy Python
+# stack). Shadow workers mount/install `openhands` and set BROKK_FORGE_ENGINE +
+# LLM_*. openHandsCliAvailable() falls back loudly to afl when missing.
+
 # Playwright MCP — browser hands for driver sessions (ADR 0054). Bin
 # `playwright-mcp` (@playwright/mcp); drives the system chromium above
 # (PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH). No env toggle for this package —
