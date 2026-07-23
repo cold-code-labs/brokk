@@ -40,4 +40,4 @@ Brokk (orquestra) → OpenHands (mãos) ↔ LiteLLM → OmniRoute (modelos)
 - Imagem forge instala o binário `openhands` (pin); sem `LLM_*` → fallback ruidoso.
 - `RUNTIME=process` no child — edita o worktree Brokk in-place.
 - Observabilidade: eventos JSONL OH → `AgentEvent` (board/Langfuse).
-- Próximo: Sindri `ChatEngine=openhands`; agent-server para resume longo; shadow cutover.
+- Próximo: shadow cutover forge; agent-server OH opcional. Chat → OpenCode ([ADR 0073](/decisoes/0073-brokk-chat-opencode-forge-openhands/)), **não** ChatEngine=openhands.
