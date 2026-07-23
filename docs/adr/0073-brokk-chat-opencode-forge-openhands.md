@@ -1,6 +1,6 @@
 ---
-title: "ADR 0073 — Brokk Chat/OpenCode · Forge/OpenHands (dissolve Sindri)"
-description: "Chat = OpenCode; Forge/jobs = OpenHands; harness Brokk absorve lições AWF/AO. Dissolve o termo Sindri como produto."
+title: "ADR 0073 — Brokk = harness AWF-class · Chat/OpenCode · Forge/OpenHands"
+description: "Brokk é o control plane (classe AWF). Chat=OpenCode, Forge/jobs=OpenHands. AO inspira UX de missão. Dissolve Sindri."
 sidebar:
   order: 73
 tags: [adr, decisao, brokk, sindri, opencode, openhands, harness, awf, ao, chat, forge]
@@ -8,100 +8,102 @@ tags: [adr, decisao, brokk, sindri, opencode, openhands, harness, awf, ao, chat,
 
 **Status:** Aceito · **Data:** 2026-07-23 · Depende de [ADR 0072](/decisoes/0072-brokk-openhands-omniroute/) · Fuel: [ADR 0071](/decisoes/0071-omniroute-fuel-line/) · Evolui superfície de chat (ex-Sindri)
 
-# ADR 0073 — Brokk Chat/OpenCode · Forge/OpenHands
+# ADR 0073 — Brokk harness · Chat/OpenCode · Forge/OpenHands
 
 ## Contexto
 
-O Brokk acumulou duas superfícies com engines misturáveis e um nome de produto (**Sindri**) que já não descreve o sistema — parece um terceiro app, não a face de chat do Brokk. Em paralelo, o mercado separou bem:
+O Brokk acumulou duas superfícies com engines misturáveis e um nome (**Sindri**) que parece um terceiro produto. O mercado separou três camadas; nós já somos a do meio e às vezes tentamos reinventar as outras:
 
-- **Interactive agent** (OpenCode, Cline, Claude Code) — Plan/Build, sessão, MCP/skills.
-- **Autonomous worker** (OpenHands, cloud agents) — tarefa → sandbox/worktree → PR.
-- **Harness / control plane** (Brokk, e referências OSS **AWF** / **AO**) — claim, isolation, validate, PR monitor.
+| Camada | Exemplos de mercado | No Brokk |
+|---|---|---|
+| Interactive agent | OpenCode, Cline, Claude Code | Chat (ex-Sindri) — a fortalecer |
+| Autonomous worker | OpenHands, cloud agents | Forge + jobs — OH (ADR 0072) |
+| **Harness / control plane** | **AWF**, AO (parcial) | **Brokk** — board, claim, worktree, verify, PR, preview, Story, Eitri |
 
-Já plugamos OpenHands na forge (ADR 0072). Insistir em chat nativo “estilo Cursor Plan” sem OpenCode é remar contra o mercado. Misturar OpenCode e OpenHands no mesmo processo recria Frankenstein.
+Insistir em chat nativo “estilo Plan” sem OpenCode é remar contra o mercado. Misturar OpenCode e OpenHands no mesmo processo recria Frankenstein. Confundir Brokk com “mais um agent” esconde o valor real: **somos o fabric**.
+
+## Visão completa (onde cada um senta)
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  BROKK = harness / control plane (classe AWF)               │
+│  projects · cards · lease · worktree · verify · acceptance  │
+│  preview · Story · Eitri · jobs (Svalinn/Huginn/…) · Omni   │
+│                                                             │
+│   Brokk Chat              │         Brokk Forge / jobs      │
+│   engine: OpenCode        │         engine: OpenHands       │
+│   Plan ↔ Build            │         headless DoD            │
+│   skills/MCP/preview*     │         claim → PR → monitor*   │
+│           │               │                ▲                │
+│           └──── card / job (só handoff Brokk) ─────────────┘│
+└─────────────────────────────────────────────────────────────┘
+* preview e PR-monitor são do harness Brokk; o agent só consome/dispara.
+```
+
+**Uma frase:** Brokk é o AWF da frota CCL; OpenCode e OpenHands são *contribuidores plugáveis*; AO é referência de UX de missão, não o tipo do produto.
+
+## Brokk ≈ AWF ou AO?
+
+**Brokk ≈ AWF (control plane), não AO (Agent IDE desktop).**
+
+| | **AWF** | **AO** | **Brokk** |
+|---|---|---|---|
+| O que é | Fabric server-side: worktree → validate → PR → **monitor** | Desktop: frota de CLIs + preview + feedback na UI | SaaS multi-tenant + frota Coolify |
+| Agente | Plugável (Codex, CC, OpenCode, Cursor…) | CLI agents em paralelo | Chat=OpenCode · Forge=OH |
+| Isolation | worktree (+ Compose/profile) | worktree local | worktree forge + preview-proxy |
+| Loop pós-PR | CI / review comment → re-agent → merge | devolve falha à sessão certa | Eitri + auto-merge (ainda raso vs AWF) |
+| UX | ops / API | mission + inspector + preview | board + Chat (+ Mission UI a construir) |
+
+- **Já somos AWF-class** no núcleo (claim, worktree, verify, PR, multi-app).  
+- **Não somos AO** (não é IDE desktop de frota local).  
+- **Copiamos de AO** só o que falta na *superfície*: Mission (plano + cards + preview juntos).  
+- **Copiamos de AWF** o que falta no *loop*: validate profiles + PR-monitor contínuo.
+
+Não forkamos AWF/AO. Absorvemos padrões.
 
 ## Decisão
 
 ### 1. Naming — dissolve “Sindri” como produto
 
-| Antes (falar / UI) | Depois |
+| Antes | Depois |
 |---|---|
-| Sindri (app/persona de chat) | **Brokk Chat** (superfície do Brokk) |
+| Sindri (app/produto) | **Brokk Chat** |
 | “Sindri engine” | **Chat engine** = OpenCode |
-| Código/pacotes `sindri` / `apps/chat` | migração gradual de *branding*; paths internos podem permanecer até sweep |
+| paths `sindri` / `apps/chat` | branding agora; rename de código = sweep depois |
 
-Persona mitológica pode continuar no tom de voz; **o termo de produto e de arquitetura é Brokk Chat**. Docs/ADRs novos não introduzem Sindri como sistema separado.
+Persona mitológica ok no tom; **arquitetura e produto falam Brokk Chat / Brokk Forge**.
 
-### 2. Duas lanes, zero mistura in-process
+### 2. Engines — duas lanes, zero mistura in-process
 
-```text
-                    OmniRoute ← LiteLLM (ADR 0071)
-                            │
-         ┌──────────────────┴──────────────────┐
-         ▼                                     ▼
-   Brokk Chat                            Brokk Forge / jobs
-   (OpenCode)                            (OpenHands)
-   Plan ↔ Build                          headless DoD
-   skills / MCP / preview                claim → verify → PR
-         │                                     ▲
-         └──── card / job (handoff Brokk) ─────┘
-```
+1. **Brokk Chat = OpenCode** — Plan → lock → Build leve; skills e preview **em cima** do OpenCode (MCP/bridge Brokk).
+2. **Brokk Forge / jobs = OpenHands** — ADR 0072; DoD assíncrono.
+3. Handoff **só via Brokk** (card/job). Nunca OH dentro do turn OpenCode, nem OpenCode no claim loop.
+4. Sessão persistente no Chat (Asgard) ≠ pipeline DoD (verify/acceptance/Eitri/promote).
+5. **Supersede** “Sindri `ChatEngine=openhands`” do ADR 0072.
 
-1. **Brokk Chat = OpenCode** — Plan (read-only) → lock → Build leve; skills e preview **plugam em cima** do OpenCode (MCP / tools / bridge Brokk), não o contrário.
-2. **Brokk Forge (e jobs de frota) = OpenHands** — ADR 0072; execução assíncrona com DoD.
-3. **Não se misturam no mesmo processo.** Handoff só via **Brokk**: plano no Chat vira card/job → Forge OH (ou job Svalinn/Huginn/Eitri).
-4. **Sessão persistente no Chat ≠ DoD de frota.** Background no Asgard (sessão OpenCode) não substitui claim/verify/acceptance/Eitri.
-5. **Supersede** a consequência “Sindri `ChatEngine=openhands`” do ADR 0072 — chat **não** cutover para OH.
+### 3. Melhorias de harness (backlog explícito)
 
-### 3. Referências de harness: AWF e AO (o que são)
+| Padrão | Fonte | Hoje | Alvo |
+|---|---|---|---|
+| Validate profile por app | AWF | verify/acceptance ad hoc | profiles versionados no projeto |
+| PR-monitor loop | AWF | Eitri one-shot + auto-merge pontual | comment/CI → re-claim OH → merge/close |
+| Adopt PR | AWF | parcial | monitor sem re-forjar |
+| Mission UI | AO + OpenCode Plan | board + chat separados | Plan lock → cards + preview na mesma superfície |
+| Agent pluggable | AWF | `BROKK_FORGE_ENGINE` | manter; Chat e Forge = dois plugs, um fabric |
 
-**AWF — [Agent Workspace Fabric](https://github.com/dimileeh/agent-workspace-fabric)** (Apache-2.0)  
-Control plane que trata agentes de coding (Codex, Claude Code, OpenCode, Cursor, …) como *contribuidores disciplinados*:
-
-- worktree isolado + (opcional) Compose por task  
-- validation por *profile* do projeto  
-- abre PR  
-- **PR-monitor loop**: review comments, CI vermelho, sync de base, auto-merge  
-
-É o OSS mais próximo do **forge Brokk** (lifecycle genérico; o agente é plugável).
-
-**AO — [Agent Orchestrator](https://github.com/AgentWrapper/agent-orchestrator)**  
-“Agent IDE” / meta-harness desktop: frota de CLIs em paralelo, workspaces isolados, estado de PR, loop de CI/review de volta à sessão certa, **preview no inspector**.
-
-É referência de **UX de missão + feedback loop**, não necessariamente de multi-tenant SaaS.
-
-### 4. Como AWF/AO melhoram o harness Brokk (sem fork obrigatório)
-
-Não substituímos Brokk por AWF/AO. **Absorvemos padrões** onde o nosso harness ainda é fraco:
-
-| Padrão (AWF/AO) | Hoje no Brokk | Melhoria alvo |
-|---|---|---|
-| Profile de validate por app | `BROKK_VERIFY_CMD` / acceptance ad hoc | profiles versionados por projeto (como AWF) |
-| PR-monitor loop | Eitri one-shot + auto-merge pontual | loop contínuo: comment/CI → re-claim OH → até merge/close |
-| Agent pluggable no mesmo lifecycle | `BROKK_FORGE_ENGINE` | manter; Chat OpenCode e Forge OH são *dois* plugs, um harness |
-| Preview ao lado da sessão (AO) | preview-proxy / live preview | Mission UI: plano + card + preview na mesma superfície Brokk Chat |
-| Adopt PR existente no monitor (AWF) | parcial | “adotar PR” → monitor sem re-forjar do zero |
-
-**Jobs de frota** (utilidade do OpenHands além do card manual):
-
-| Gatilho | Job | Engine |
-|---|---|---|
-| Card / Story / Plan lock (Chat) | implementar | Forge + OH |
-| Svalinn (sec) | fix + PR | OH |
-| Huginn / Full QA fail | remediar | OH |
-| Eitri request-changes / CI | heal | OH (PR-monitor) |
+**Jobs OH (além do card manual):** Svalinn sec-fix · Huginn/QA remediar · Eitri/CI heal (via PR-monitor).
 
 ## Não-objetivos
 
-- Reescrever Brokk em cima de AWF/AO.
-- OpenHands como UI de chat.
-- OpenCode como worker de claim/Story (salvo experimento explícito).
-- Renomear todos os paths `sindri` neste ADR (sweep de código = follow-up).
+- Reescrever Brokk em AWF/AO.
+- Virar Agent IDE desktop (AO).
+- OpenHands como UI de chat; OpenCode como worker de Story (salvo experimento).
+- Sweep completo de paths `sindri` neste ADR.
 
 ## Consequências
 
-- Branding e docs: **Brokk Chat** / **Brokk Forge**; Sindri = legado verbal.
-- Implementação Chat: lane OpenCode + Omni (`baseURL` LiteLLM); skills/preview como tools/MCP sobre OpenCode.
-- Forge permanece OH (0072); handoff Chat→Forge = card/job, nunca spawn OH dentro do turn OpenCode.
-- Backlog de harness: (1) validate profiles, (2) PR-monitor loop estilo AWF, (3) Mission UI (Plan lock → cards) inspirada em AO/OpenCode Plan.
-- Próximo ADR/implementação: bootstrap OpenCode no `apps/chat` + ponte MCP Brokk (preview, projects, open-pr).
+- Brokk posicionado como **fabric AWF-class**; OpenCode/OH = engines; AO = UX de missão.
+- Docs/UI: Brokk Chat / Brokk Forge; Sindri = legado.
+- Implementação: OpenCode no Chat + Omni; Forge = OH; handoff = card/job.
+- Harness backlog priorizado: (1) validate profiles, (2) PR-monitor, (3) Mission UI.
+- Próximo: bootstrap OpenCode em `apps/chat` + MCP Brokk (preview, projects, enqueue-card).
