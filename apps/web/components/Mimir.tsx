@@ -8,7 +8,7 @@ import type {
   MimirTriageResult,
   RefinoLevel,
 } from "@brokk/sdk";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { Droplets } from "lucide-react";
 import {
   Main,
@@ -165,7 +165,7 @@ export default function Mimir() {
       <div className="forge-panel mimir-intake">
         <Textarea
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value)}
           placeholder="Paste the raw prompt…"
           rows={5}
           style={{ resize: "vertical", border: 0, background: "transparent", boxShadow: "none", padding: "0.35rem 0.2rem", outline: "none" }}
