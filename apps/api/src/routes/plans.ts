@@ -19,6 +19,18 @@ const OpenPrBody = z.object({
   skipEitri: z.boolean().optional().default(false),
 });
 
+const PatchPlanBody = z.object({
+  /** Reset a failed Story so forge can claim cards again. */
+  status: z.enum(["planning", "forging", "review", "done", "failed"]).optional(),
+  validationStatus: z.enum(["pending", "running", "pass", "fail"]).nullable().optional(),
+  validationRunId: z.string().uuid().nullable().optional(),
+});
+
+const RetryBody = z.object({
+  /** Also requeue cards in failed (default true). */
+  enqueueFailed: z.boolean().optional().default(true),
+});
+
 export function plansRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
@@ -53,6 +65,143 @@ export function plansRoutes(deps: AppDeps): Hono {
     }
     const tasks = await deps.store.getPlanTasks(plan.id);
     return c.json({ plan, tasks });
+  });
+
+  /** Story observability: milestones from plan + tasks + runs + reviews (no new tables). */
+  r.get("/:id/timeline", async (c) => {
+    const plan = await deps.store.getPlan(c.req.param("id"));
+    if (!plan) return c.json({ error: "not found" }, 404);
+    const project = await deps.store.getProject(plan.projectId);
+    const actor = requestActor(c, deps.runnerSecret);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const tasks = await deps.store.getPlanTasks(plan.id);
+    const taskRows = await Promise.all(
+      tasks.map(async (task) => {
+        const [events, runs] = await Promise.all([
+          deps.store.listTaskEvents(task.id),
+          deps.store.listRunsByTask(task.id),
+        ]);
+        return { task, events, runs };
+      }),
+    );
+    const validation = plan.validationRunId
+      ? await deps.store.getQaRun(plan.validationRunId).catch(() => null)
+      : null;
+    const repo = await deps.store.getRepository(project.repositoryId).catch(() => null);
+    const reviews =
+      repo && plan.prNumber != null
+        ? (await deps.store.listReviews(repo.fullName)).filter((x) => x.prNumber === plan.prNumber)
+        : [];
+
+    type Milestone = { at: string; kind: string; ref?: string; detail?: string };
+    const milestones: Milestone[] = [];
+    milestones.push({
+      at: plan.createdAt,
+      kind: "story_created",
+      detail: plan.storyModule ? `module=${plan.storyModule}` : undefined,
+    });
+    for (const row of taskRows) {
+      for (const ev of row.events) {
+        milestones.push({
+          at: ev.at,
+          kind: ev.type === "status" ? `task_${ev.to ?? "status"}` : `task_${ev.type}`,
+          ref: row.task.id,
+          detail: (row.task.title || "").slice(0, 120),
+        });
+      }
+      for (const runRow of row.runs) {
+        milestones.push({
+          at: runRow.startedAt ?? runRow.createdAt,
+          kind: `forge_${runRow.status}`,
+          ref: runRow.id,
+          detail: (runRow.error || "").slice(0, 200) || undefined,
+        });
+      }
+    }
+    if (plan.validationStatus) {
+      milestones.push({
+        at: plan.updatedAt,
+        kind: `reqa_${plan.validationStatus}`,
+        ref: plan.validationRunId ?? undefined,
+      });
+    }
+    if (plan.prUrl) {
+      milestones.push({
+        at: plan.updatedAt,
+        kind: "pr_opened",
+        ref: plan.prUrl,
+        detail: plan.prNumber != null ? `#${plan.prNumber}` : undefined,
+      });
+    }
+    for (const rev of reviews) {
+      milestones.push({
+        at: rev.createdAt,
+        kind: `eitri_${rev.verdict}`,
+        ref: String(rev.prNumber),
+      });
+    }
+    if (plan.status === "done") {
+      milestones.push({ at: plan.updatedAt, kind: "merged", ref: plan.prUrl ?? undefined });
+    }
+    milestones.sort((a, b) => a.at.localeCompare(b.at));
+
+    return c.json({ plan, tasks: taskRows, validation, reviews, milestones });
+  });
+
+  /** Staff: patch plan fields (reset failed Story → forging). */
+  r.patch("/:id", async (c) => {
+    const parsed = PatchPlanBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const plan = await deps.store.getPlan(c.req.param("id"));
+    if (!plan) return c.json({ error: "not found" }, 404);
+    const project = await deps.store.getProject(plan.projectId);
+    const actor = requestActor(c, deps.runnerSecret);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const patch: Record<string, unknown> = { ...parsed.data };
+    if (parsed.data.status === "forging") {
+      if (parsed.data.validationStatus === undefined) patch.validationStatus = null;
+      if (parsed.data.validationRunId === undefined) patch.validationRunId = null;
+    }
+    const updated = await deps.store.updatePlan(plan.id, patch as never);
+    return c.json(updated);
+  });
+
+  /** Reset failed Story to forging and requeue failed cards. */
+  r.post("/:id/retry", async (c) => {
+    const parsed = RetryBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const plan = await deps.store.getPlan(c.req.param("id"));
+    if (!plan) return c.json({ error: "not found" }, 404);
+    const project = await deps.store.getProject(plan.projectId);
+    const actor = requestActor(c, deps.runnerSecret);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    if (plan.status === "done" && plan.prUrl) {
+      return c.json({ error: "plan already done with PR — nothing to retry" }, 409);
+    }
+    const updated = await deps.store.updatePlan(plan.id, {
+      status: "forging",
+      validationStatus: null,
+      validationRunId: null,
+    });
+    const tasks = await deps.store.getPlanTasks(plan.id);
+    const enqueued: string[] = [];
+    if (parsed.data.enqueueFailed) {
+      for (const t of tasks) {
+        if (t.status !== "failed" && t.status !== "cancelled") continue;
+        await deps.store.transitionTask(t.id, "queued", {
+          actor: actor.email || "story-retry",
+          reason: "story plan retry",
+        });
+        enqueued.push(t.id);
+      }
+    }
+    return c.json({ plan: updated, enqueued }, 200);
   });
 
   /** Open the Story's single PR (featureBranch → base) and optionally call Eitri. */

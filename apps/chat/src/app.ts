@@ -1651,6 +1651,27 @@ function buildSkills(
           console.log(
             `[qa] story plan ${linkedPlanId.slice(0, 8)} validation → ${validationStatus}`,
           );
+          if (allPass) {
+            const ctrl = (process.env.BROKK_CONTROL_URL || "").replace(/\/$/, "");
+            const secret = process.env.BROKK_RUNNER_SECRET || process.env.BROKK_API_SECRET || "";
+            if (ctrl) {
+              void fetch(`${ctrl}/plans/${linkedPlanId}/open-pr`, {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                  ...(secret ? { authorization: `Bearer ${secret}` } : {}),
+                  "x-brokk-is-staff": "1",
+                },
+                body: "{}",
+              })
+                .then(async (r) =>
+                  console.log(
+                    `[qa] story open-pr ${linkedPlanId.slice(0, 8)} → ${r.status} ${(await r.text()).slice(0, 160)}`,
+                  ),
+                )
+                .catch((e) => console.warn(`[qa] story open-pr failed:`, e));
+            }
+          }
         } else if (!linkedPlanId && status === "ready") {
           const byRun = await deps.store.findPlanByValidationRunId(run.id).catch(() => null);
           if (byRun) {

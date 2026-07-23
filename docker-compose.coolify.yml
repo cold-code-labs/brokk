@@ -109,6 +109,8 @@ x-worker-env: &worker-env
   # config that relies on this var being implicitly present goes silently
   # dead (401 / tool morta).
   BROKK_MCP_SERVERS: ${BROKK_MCP_SERVERS:-}
+  BROKK_ACCEPTANCE_BOOT_MS: ${BROKK_ACCEPTANCE_BOOT_MS:-180000}
+  BROKK_ACCEPTANCE_CHECK_MS: ${BROKK_ACCEPTANCE_CHECK_MS:-120000}
 
 services:
   brokk-api:

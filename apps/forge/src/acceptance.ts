@@ -26,8 +26,9 @@ import { buildDetectCtx, composeCommand, resolveRuntime } from "@brokk/core/runt
 import type { RunnerConfig } from "./config.js";
 
 const CHECK_REL = ".brokk/acceptance.mjs";
-const BOOT_TIMEOUT_MS = 90_000;
-const CHECK_TIMEOUT_MS = 90_000;
+/** Next cold-boot on busy Surtr often exceeds 90s; override via env. */
+const BOOT_TIMEOUT_MS = Number(process.env.BROKK_ACCEPTANCE_BOOT_MS ?? 180_000);
+const CHECK_TIMEOUT_MS = Number(process.env.BROKK_ACCEPTANCE_CHECK_MS ?? 120_000);
 /** Cap the receipt screenshot so a base64 data URL stays reasonable in the event
  *  stream (jsonb + SSE). Chromium honours these as the viewport. */
 const SHOT_W = 1000;
