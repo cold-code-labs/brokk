@@ -8,7 +8,11 @@
 // Optional resume: --resume <id>
 
 import { spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { createInterface } from "node:readline";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AgentEvent, TurnUsage } from "./types.js";
 import { type CliTurnInput, type CliTurnOutcome } from "./claude-cli.js";
 
@@ -156,13 +160,21 @@ function emitOhEvent(raw: Record<string, unknown>, emit: (e: AgentEvent) => void
 
 export async function runOpenHandsCliTurn(input: CliTurnInput): Promise<CliTurnOutcome> {
   const emit = input.emit ?? (() => {});
+  // Prompt via file (`-f`) — forge prompts are large; `-t` blows argv / truncates.
+  const promptBody = input.appendSystem
+    ? `${input.appendSystem}\n\n---\n\n${input.prompt}`
+    : input.prompt;
+  const promptDir = await mkdtemp(join(tmpdir(), "brokk-oh-"));
+  const promptFile = join(promptDir, `task-${randomBytes(4).toString("hex")}.md`);
+  await writeFile(promptFile, promptBody, "utf8");
+
   const args = [
     "--headless",
     "--json",
     "--override-with-envs",
     "--exit-without-confirmation",
-    "-t",
-    input.prompt,
+    "-f",
+    promptFile,
   ];
   if (input.resume) {
     args.push("--resume", input.resume);
@@ -171,107 +183,122 @@ export async function runOpenHandsCliTurn(input: CliTurnInput): Promise<CliTurnO
   const env = buildOpenHandsCliEnv(input);
   emit({ type: "status", phase: "openhands_start", detail: { model: env.LLM_MODEL } });
 
-  return new Promise((resolve) => {
-    const child = spawn(openhandsBin(), args, {
-      cwd: input.cwd,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let resultText = "";
-    let usage: TurnUsage = { ...ZERO_USAGE };
-    let cliSessionId: string | null = input.resume ?? null;
-    const toolIds = new Map<string, string>();
-    let settled = false;
-
-    const finish = (outcome: CliTurnOutcome) => {
-      if (settled) return;
-      settled = true;
-      resolve(outcome);
-    };
-
-    const onLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      try {
-        const raw = JSON.parse(trimmed) as Record<string, unknown>;
-        if (typeof raw.conversation_id === "string") cliSessionId = raw.conversation_id;
-        if (typeof raw.id === "string" && (raw.type === "conversation" || raw.conversation_id)) {
-          cliSessionId = String(raw.conversation_id ?? raw.id);
-        }
-        if (raw.usage || raw.token_usage) {
-          usage = mapUsage((raw.usage ?? raw.token_usage) as Record<string, unknown>);
-          emit({
-            type: "usage",
-            usage,
-          });
-        }
-        const msg = raw.message ?? raw.content;
-        if (typeof msg === "string" && msg && (raw.type === "message" || raw.role === "assistant")) {
-          resultText = msg;
-        }
-        emitOhEvent(raw, emit, toolIds);
-      } catch {
-        // Non-JSON noise (banners) — keep a short tail for errors.
-        if (trimmed.length < 500) resultText = trimmed;
-      }
-    };
-
-    const rlOut = createInterface({ input: child.stdout! });
-    const rlErr = createInterface({ input: child.stderr! });
-    rlOut.on("line", onLine);
-    rlErr.on("line", (line) => {
-      if (/error|fail|traceback/i.test(line)) resultText = line.slice(0, 2000);
-    });
-
-    const timeoutMs = input.timeoutMs ?? 3_600_000;
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      finish({
-        ok: false,
-        cliSessionId,
-        resultText: resultText || "openhands turn timed out",
-        usage,
-        stop: "error",
-        exitCode: null,
+  try {
+    return await new Promise((resolve) => {
+      const child = spawn(openhandsBin(), args, {
+        cwd: input.cwd,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
       });
-    }, timeoutMs);
 
-    if (input.signal) {
-      const onAbort = () => {
-        child.kill("SIGTERM");
+      let resultText = "";
+      let usage: TurnUsage = { ...ZERO_USAGE };
+      let cliSessionId: string | null = input.resume ?? null;
+      const toolIds = new Map<string, string>();
+      let jsonEvents = 0;
+      let stderrTail = "";
+      let settled = false;
+
+      const finish = (outcome: CliTurnOutcome) => {
+        if (settled) return;
+        settled = true;
+        resolve(outcome);
       };
-      if (input.signal.aborted) onAbort();
-      else input.signal.addEventListener("abort", onAbort, { once: true });
-    }
 
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      finish({
-        ok: false,
-        cliSessionId,
-        resultText: String(err),
-        usage,
-        stop: "error",
-        exitCode: null,
+      const onLine = (line: string) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        try {
+          const raw = JSON.parse(trimmed) as Record<string, unknown>;
+          jsonEvents += 1;
+          if (typeof raw.conversation_id === "string") cliSessionId = raw.conversation_id;
+          if (typeof raw.id === "string" && (raw.type === "conversation" || raw.conversation_id)) {
+            cliSessionId = String(raw.conversation_id ?? raw.id);
+          }
+          if (raw.usage || raw.token_usage) {
+            usage = mapUsage((raw.usage ?? raw.token_usage) as Record<string, unknown>);
+            emit({ type: "usage", usage });
+          }
+          const msg = raw.message ?? raw.content;
+          if (typeof msg === "string" && msg && (raw.type === "message" || raw.role === "assistant")) {
+            resultText = msg;
+          }
+          emitOhEvent(raw, emit, toolIds);
+        } catch {
+          // Banner / TUI noise — never overwrite a real assistant result.
+        }
+      };
+
+      const rlOut = createInterface({ input: child.stdout! });
+      const rlErr = createInterface({ input: child.stderr! });
+      rlOut.on("line", onLine);
+      rlErr.on("line", (line) => {
+        stderrTail = (stderrTail + "\n" + line).slice(-4000);
+        if (/error|fail|traceback/i.test(line) && !resultText) {
+          resultText = line.slice(0, 2000);
+        }
+      });
+
+      const timeoutMs = input.timeoutMs ?? 3_600_000;
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        finish({
+          ok: false,
+          cliSessionId,
+          resultText: resultText || "openhands turn timed out",
+          usage,
+          stop: "error",
+          exitCode: null,
+        });
+      }, timeoutMs);
+
+      if (input.signal) {
+        const onAbort = () => {
+          child.kill("SIGTERM");
+        };
+        if (input.signal.aborted) onAbort();
+        else input.signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      child.on("error", (err) => {
+        clearTimeout(timer);
+        finish({
+          ok: false,
+          cliSessionId,
+          resultText: String(err),
+          usage,
+          stop: "error",
+          exitCode: null,
+        });
+      });
+
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        // Exit 0 with zero JSONL events = CLI bailed (settings/banner) without a turn.
+        const worked = jsonEvents > 0 || toolIds.size > 0;
+        const ok = code === 0 && worked;
+        if (!resultText && !ok) {
+          resultText =
+            stderrTail.trim().slice(-1500) ||
+            (code === 0
+              ? "openhands exited 0 without JSONL agent events (no real turn)"
+              : `openhands exited ${code}`);
+        }
+        input.hooks?.onAssistant?.(
+          [{ type: "text", text: resultText || `(openhands json events=${jsonEvents})` }],
+          { usage },
+        );
+        finish({
+          ok,
+          cliSessionId,
+          resultText,
+          usage,
+          stop: input.signal?.aborted ? "aborted" : ok ? "done" : "error",
+          exitCode: code,
+        });
       });
     });
-
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      const ok = code === 0;
-      input.hooks?.onAssistant?.(
-        [{ type: "text", text: resultText }],
-        { usage },
-      );
-      finish({
-        ok,
-        cliSessionId,
-        resultText,
-        usage,
-        stop: input.signal?.aborted ? "aborted" : ok ? "done" : "error",
-        exitCode: code,
-      });
-    });
-  });
+  } finally {
+    await rm(promptDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
