@@ -52,11 +52,40 @@ export function buildOpenHandsCliEnv(
   src: NodeJS.ProcessEnv = process.env,
 ): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const k of ["PATH", "TMPDIR", "LANG", "TZ", "HOME", "USER", "SHELL"]) {
+  // Broader than cursor-cli: the OH binary is a Python/uv stack and needs XDG,
+  // SSL, and locale or it exits "ok" with only a Rich banner (no JSONL).
+  for (const k of [
+    "PATH",
+    "TMPDIR",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TZ",
+    "HOME",
+    "USER",
+    "SHELL",
+    "TERM",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "LD_LIBRARY_PATH",
+  ]) {
     if (src[k]) out[k] = src[k]!;
   }
   out.HOME =
     src.BROKK_CLI_HOME || (src.HOME && src.HOME !== "/" ? src.HOME : "/home/brokk");
+  out.TERM = out.TERM || "dumb";
 
   // Fuel — LiteLLM vkey or Omni fleet key. Prefer LLM_*; fall back to gateway envs.
   const apiKey = src.LLM_API_KEY || src.OPENAI_API_KEY || src.ANTHROPIC_AUTH_TOKEN || "";
@@ -80,6 +109,10 @@ export function buildOpenHandsCliEnv(
   out.OPENHANDS_SUPPRESS_BANNER = "1";
   // Brokk worktree IS the workspace — no nested Docker sandbox (forge has no sock).
   out.RUNTIME = src.BROKK_OPENHANDS_RUNTIME || "process";
+  // Persist under a Brokk-owned dir — ad-hoc root smokes can leave ~/.openhands
+  // root-owned and the dropped forge uid then crashes on first write.
+  out.OH_PERSISTENCE_DIR =
+    src.OH_PERSISTENCE_DIR || `${out.HOME.replace(/\/$/, "")}/.openhands-brokk`;
 
   out.GIT_AUTHOR_NAME = src.BROKK_GIT_NAME || "Brokk";
   out.GIT_AUTHOR_EMAIL = src.BROKK_GIT_EMAIL || "brokk@coldcodelabs.com";
@@ -232,11 +265,10 @@ export async function runOpenHandsCliTurn(input: CliTurnInput): Promise<CliTurnO
       const rlOut = createInterface({ input: child.stdout! });
       const rlErr = createInterface({ input: child.stderr! });
       rlOut.on("line", onLine);
+      // OH sometimes emits JSONL on stderr when Rich owns stdout.
       rlErr.on("line", (line) => {
+        onLine(line);
         stderrTail = (stderrTail + "\n" + line).slice(-4000);
-        if (/error|fail|traceback/i.test(line) && !resultText) {
-          resultText = line.slice(0, 2000);
-        }
       });
 
       const timeoutMs = input.timeoutMs ?? 3_600_000;
