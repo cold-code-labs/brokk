@@ -210,6 +210,8 @@ services:
       EITRI_APP_ID: ${EITRI_APP_ID:-}
       EITRI_APP_PRIVATE_KEY_FILE: ${EITRI_APP_PRIVATE_KEY_FILE:-/home/brokk/eitri-app.pem}
       EITRI_PROMOTE: ${EITRI_PROMOTE:-}
+      # APPROVE|COMMENT → squash-merge (not REQUEST_CHANGES). Default on unless "false".
+      EITRI_AUTO_MERGE: ${EITRI_AUTO_MERGE:-true}
       BROKK_DEFAULT_MODEL: ${BROKK_DEFAULT_MODEL:-}
     volumes:
     - brokk_home:/home/brokk

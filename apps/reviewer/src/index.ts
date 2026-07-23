@@ -338,7 +338,12 @@ async function reviewOne(
   }
 }
 
-/** After a gate-passing review, squash-merge forge PRs into their base (dev). */
+/** Branches Brokk owns end-to-end: classic forge cards + Story QA (ADR 0069). */
+function isBrokkManagedBranch(headRefName: string): boolean {
+  return headRefName.startsWith("brokk/") || headRefName.startsWith("story/");
+}
+
+/** After a gate-passing review, squash-merge Brokk PRs into their base (dev). */
 async function tryAutoMerge(
   cfg: ReturnType<typeof loadEitriConfig>,
   store: ReturnType<typeof createStore>,
@@ -347,7 +352,7 @@ async function tryAutoMerge(
   repo: string,
   pr: OpenPr,
 ): Promise<void> {
-  if (!pr.headRefName.startsWith("brokk/")) return;
+  if (!isBrokkManagedBranch(pr.headRefName)) return;
   const reviews = await store.listReviews(repo);
   const review = reviews.find((r) => r.prNumber === pr.number && r.sha === pr.headRefOid);
   if (!review || review.verdict === "request_changes") return;
@@ -365,8 +370,8 @@ async function handleForgeVerdict(
   verdict: "APPROVE" | "COMMENT" | "REQUEST_CHANGES",
   body: string,
 ): Promise<void> {
-  // Only manage forge PRs (brokk/*). Others get a review but no loop/merge.
-  if (!pr.headRefName.startsWith("brokk/")) return;
+  // Only manage Brokk-owned PRs (brokk/* + story/*). Others get review, no loop/merge.
+  if (!isBrokkManagedBranch(pr.headRefName)) return;
 
   if (verdict === "REQUEST_CHANGES") {
     // Learn from the rejection (#2): persist the lesson so the planner + the next
