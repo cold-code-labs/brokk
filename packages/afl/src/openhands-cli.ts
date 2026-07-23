@@ -273,7 +273,7 @@ export async function runOpenHandsCliTurn(input: CliTurnInput): Promise<CliTurnO
             prettyBuf = null;
           } catch {
             // keep buffering until the object closes
-            if (prettyBuf.length > 2_000_000) prettyBuf = null;
+            if (prettyBuf !== null && prettyBuf.length > 2_000_000) prettyBuf = null;
           }
           return;
         }

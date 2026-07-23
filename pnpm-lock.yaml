@@ -67,6 +67,9 @@ importers:
       '@brokk/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@brokk/huginn':
+        specifier: workspace:*
+        version: link:../../packages/agents/huginn
       '@brokk/mcp':
         specifier: workspace:*
         version: link:../../packages/mcp
@@ -337,6 +340,19 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.22.4
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/agents/huginn:
+    dependencies:
+      '@brokk/scout':
+        specifier: workspace:*
+        version: link:../scout
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
