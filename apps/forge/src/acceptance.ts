@@ -17,10 +17,10 @@
  * the check script itself rides the PR (so verify re-runs it forever).
  */
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { AcceptanceReceipt } from "@brokk/core";
 import { buildDetectCtx, composeCommand, resolveRuntime } from "@brokk/core/runtime";
 import type { RunnerConfig } from "./config.js";
@@ -94,6 +94,17 @@ export async function runAcceptanceReceipt(opts: {
   const url = `http://127.0.0.1:${port}`;
   const shot = join(cfg.workDir || "/tmp", `brokk-receipt-${port}.png`);
   const cmd = composeCommand(spec, "dev").replace(/\$PORT|\$\{PORT\}/g, String(port));
+
+  // Same as preview-supervisor: Vite (etc.) declare prepareFiles the boot command
+  // opts into (e.g. `.brokk/vite.preview.config.mjs`). Without writing them here,
+  // acceptance fails to boot with "Could not resolve … vite.preview.config.mjs".
+  const appDir = spec.appRoot ? join(wtPath, spec.appRoot) : wtPath;
+  for (const f of spec.prepareFiles ?? []) {
+    const dest = join(appDir, f.path);
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, f.contents);
+    log(`[acceptance] wrote prepare file ${f.path}`);
+  }
 
   log(`[acceptance] booting: ${cmd} (:${port})`);
   const proc = spawn("sh", ["-c", cmd], {
