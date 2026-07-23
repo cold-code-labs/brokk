@@ -148,6 +148,11 @@ export interface BrokkClient {
     model?: string;
     projectId: string;
   }>;
+  /** ADR 0070 / H4: Pack.deferred → proposed discovery cards. */
+  depthFromPack(
+    projectId: string,
+    deferred: Array<{ title: string; why?: string }>,
+  ): Promise<{ created: Task[]; skipped: number }>;
   /** Full QA → proposed backlog cards (catalog scenarios and/or fail|blocked findings). */
   backlogFromQa(
     projectId: string,
@@ -350,6 +355,13 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
         model?: string;
         projectId: string;
       }>("POST", `/projects/${encodeURIComponent(projectId)}/prototype-pack`, body);
+    },
+    depthFromPack(projectId, deferred) {
+      return req<{ created: Task[]; skipped: number }>(
+        "POST",
+        `/projects/${encodeURIComponent(projectId)}/depth-from-pack`,
+        { deferred },
+      );
     },
     backlogFromQa(projectId, input) {
       return req<{

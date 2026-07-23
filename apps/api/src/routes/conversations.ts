@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { promisify } from "node:util";
 import { Hono } from "hono";
 import type { Context } from "hono";
@@ -46,11 +47,16 @@ async function ensurePromotionPr(
 }
 
 const NewConversationBody = z.object({
-  /** the app name the user typed, e.g. "MarkupLab". Heimdall slugifies it into
-   *  the repo + subdomain. */
-  name: z.string().min(1).max(64),
+  /** Optional display/friendly name. Absent → chat-first birth (ADR 0070 H5):
+   *  technical slug `p-<hex>` sent to Heimdall; UI shows "Novo projeto". */
+  name: z.string().min(1).max(64).optional(),
   /** template tier — "client" (light) or "internal". Defaults to client. */
   template: z.enum(["client", "internal"]).optional(),
+});
+
+const ClaimBody = z.object({
+  /** Friendly prod slug (DNS). Technical slug / repo stay immutable. */
+  slug: z.string().min(2).max(48),
 });
 
 /** Heimdall's AppRecord (the fields Nova Conversa needs). */
@@ -108,9 +114,15 @@ export function conversationsRoutes(deps: AppDeps): Hono {
     const actor = actorFrom(c);
     const parsed = NewConversationBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const { name, template } = parsed.data;
+    const { template } = parsed.data;
     const org = resolveLogtoOrgId(actor, null);
     if (!org.ok) return c.json({ error: org.error }, org.status);
+
+    // ADR 0070 H5: named birth keeps slugify(name); chat-first uses provisional p-<hex>.
+    const typed = parsed.data.name?.trim() ?? "";
+    const provisional = !typed;
+    const heimdallName = typed || `p-${randomBytes(5).toString("hex")}`;
+    const displayName = typed || "Novo projeto";
 
     // 1. Heimdall births the dev side (repo + <slug>_dev Hauldr + dev branch).
     let app: HeimdallApp;
@@ -121,11 +133,8 @@ export function conversationsRoutes(deps: AppDeps): Hono {
           "content-type": "application/json",
           authorization: `Bearer ${deps.heimdallToken}`,
         },
-        // No `mode` — the agent proxy forces dev-first and ignores what we ask
-        // for. Sending it would imply this side chooses the birth lane.
-        // organizationId (ADR 0064) ties the Heimdall app to the Logto org when set.
         body: JSON.stringify({
-          name,
+          name: heimdallName,
           template: template ?? "client",
           ...(org.logtoOrgId ? { organizationId: org.logtoOrgId } : {}),
         }),
@@ -177,7 +186,7 @@ export function conversationsRoutes(deps: AppDeps): Hono {
     // 4. Open a Sindri session so the conversation is ready to enter.
     const session = await deps.store.insertChatSession({
       projectId: project.id,
-      title: "New chat",
+      title: displayName,
       model: project.model,
       engine: "claude-api",
     });
@@ -186,9 +195,34 @@ export function conversationsRoutes(deps: AppDeps): Hono {
     });
 
     return c.json(
-      { app, repository: repo, project, preview, session: withBranch ?? session },
+      {
+        app,
+        repository: repo,
+        project,
+        preview,
+        session: withBranch ?? session,
+        provisional,
+        displayName,
+      },
       201,
     );
+  });
+
+  /** ADR 0070 / H6 — claim friendly prod slug (Heimdall). Technical slug untouched. */
+  r.post("/:projectId/claim", async (c) => {
+    const resolved = await resolveApp(c);
+    if (resolved instanceof Response) return resolved;
+    const parsed = ClaimBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const out = await heimdall(deps, "POST", `/api/agent/apps/${resolved.appId}/claim`, {
+      slug: parsed.data.slug,
+    });
+    if (!out.ok) {
+      const message =
+        typeof out.body?.error === "string" ? out.body.error : JSON.stringify(out.body?.error ?? out.body);
+      return c.json({ error: `heimdall: ${message}` }, out.status === 409 ? 409 : 502);
+    }
+    return c.json({ ok: true, app: out.body, claimedSlug: out.body?.friendlySlug ?? parsed.data.slug });
   });
 
   /** Resolve a Brokk project to its Heimdall app id (or a JSON error response). */

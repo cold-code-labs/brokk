@@ -179,6 +179,54 @@ export function projectsRoutes(deps: AppDeps): Hono {
     }
   });
 
+  // ADR 0070 / H4 — deferred do Pack → cards PROPOSED (Muninn-shaped, label discovery).
+  r.post("/:id/depth-from-pack", async (c) => {
+    const id = c.req.param("id");
+    const actor = requestActor(c, deps.runnerSecret);
+    const project = await deps.store.getProject(id);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const parsed = DepthFromPackBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const deferred = parsed.data.deferred;
+    if (!deferred.length) return c.json({ created: [], skipped: 0 }, 200);
+
+    const existing = await deps.store.listTasks({ projectId: id });
+    const seen = new Set(
+      existing
+        .filter((t) => (t.labels ?? []).some((l) => l === DISCOVERY_LABEL || l === MUNINN_PLAN_LABEL))
+        .map((t) => normItem(t.title ?? "")),
+    );
+
+    const created = [];
+    let skipped = 0;
+    for (const d of deferred) {
+      const titulo = d.title.trim();
+      if (!titulo) continue;
+      if (seen.has(normItem(titulo))) {
+        skipped++;
+        continue;
+      }
+      seen.add(normItem(titulo));
+      const task = await deps.store.insertTask({
+        projectId: id,
+        title: toCardTitle(titulo),
+        body: `${d.why?.trim() || titulo}\n\n— Pack deferred · profundidade (ADR 0070 H4)`,
+        status: "backlog",
+        baseBranch: project.baseBranch,
+        createdBy: "pack-depth",
+        labels: [DISCOVERY_LABEL],
+        planId: null,
+        planKey: null,
+        dependsOn: [],
+        evidence: [],
+      });
+      created.push(task);
+    }
+    return c.json({ created, skipped }, 201);
+  });
+
   // Muninn: turn a meeting's classified `ajustes` into PROPOSED cards — the
   // meeting-fed sibling of backlog-from-brief. Two differences from Huginn's brief:
   //  1. A meeting's ajustes are INDEPENDENT (each its own story → its own PR), so
@@ -583,6 +631,12 @@ const PrototypePackBody = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("pack"), pack: PrototypePackSchema }),
   z.object({ mode: z.literal("enhance"), insumos: PrototypePackInsumosSchema }),
 ]);
+
+const DepthFromPackBody = z.object({
+  deferred: z
+    .array(z.object({ title: z.string().min(1), why: z.string().default("") }))
+    .default([]),
+});
 
 const BacklogFromQaBody = z.object({
   /** findings = fail/blocked from a run; catalog = Discovery scenarios; both = union. */
