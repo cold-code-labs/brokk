@@ -1,4 +1,12 @@
-import { AUTH_MODES, featureBranch, storyFeatureBranch, taskSlug, type Task } from "@brokk/core";
+import {
+  AUTH_MODES,
+  PROTOTYPE_PACK_MAX_HERO,
+  featureBranch,
+  storyFeatureBranch,
+  taskSlug,
+  type Task,
+} from "@brokk/core";
+import { MimirError, coercePrototypePack, enhancePrototypePack } from "@brokk/mimir";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requestActor, canSeeProject, listScope, resolveLogtoOrgId } from "../actor.js";
@@ -128,6 +136,47 @@ export function projectsRoutes(deps: AppDeps): Hono {
       created.push(task);
     }
     return c.json({ created, skipped, planId: plan.id }, 201);
+  });
+
+  // ADR 0070 / H1 — Prototype Pack: accept a gated pack OR Enhance insumos → Pack.
+  // Does NOT enqueue forge (that's H3 hero-forge). hero_set hard-capped at 4.
+  r.post("/:id/prototype-pack", async (c) => {
+    const id = c.req.param("id");
+    const actor = requestActor(c, deps.runnerSecret);
+    const project = await deps.store.getProject(id);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const parsed = PrototypePackBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+
+    if (parsed.data.mode === "pack") {
+      const pack = coercePrototypePack(parsed.data.pack);
+      if (!pack.hero_set.length) {
+        return c.json({ error: "pack.hero_set must have at least one room" }, 400);
+      }
+      return c.json({ pack, enhanced: false, projectId: id });
+    }
+
+    if (!deps.mimir) {
+      return c.json({ error: "prototype-pack enhance unavailable (no Mímir config)" }, 503);
+    }
+    const insumos = {
+      projectName: parsed.data.insumos.projectName ?? project.name,
+      description: parsed.data.insumos.description,
+      prompt: parsed.data.insumos.prompt,
+      pedidos: parsed.data.insumos.pedidos,
+    };
+    try {
+      const result = await enhancePrototypePack(insumos, deps.mimir);
+      return c.json({ pack: result.pack, enhanced: true, model: result.model, projectId: id });
+    } catch (err) {
+      if (err instanceof MimirError) {
+        const status = err.status === 400 || err.status === 503 ? err.status : 502;
+        return c.json({ error: err.message }, status);
+      }
+      throw err;
+    }
   });
 
   // Muninn: turn a meeting's classified `ajustes` into PROPOSED cards — the
@@ -492,6 +541,49 @@ const AjustesFromMeetingBody = z.object({
   meetingTitle: z.string().min(1).default("Reunião"),
   ajustes: z.array(AjusteSchema).default([]),
 });
+
+const HeroRoomSchema = z.object({
+  title: z.string().min(1),
+  route: z.string().min(1).default("/"),
+  job: z.string().default(""),
+  fake_data: z.string().default(""),
+  prioridade: z.enum(["alta", "media", "baixa"]).default("media"),
+});
+const PrototypePackSchema = z.object({
+  mission: z.string().min(1),
+  context: z.string().default(""),
+  constraints: z.array(z.string()).default([]),
+  design_read: z.string().default(""),
+  hero_set: z.array(HeroRoomSchema).min(1).max(PROTOTYPE_PACK_MAX_HERO),
+  deferred: z
+    .array(z.object({ title: z.string().min(1), why: z.string().default("") }))
+    .default([]),
+  evidence: z
+    .array(z.object({ quote: z.string().min(1), source: z.string().optional() }))
+    .default([]),
+});
+const PrototypePackInsumosSchema = z.object({
+  projectName: z.string().optional(),
+  description: z.string().optional(),
+  prompt: z.string().optional(),
+  pedidos: z
+    .array(
+      z.object({
+        titulo: z.string().min(1),
+        oQuePediram: z.string().optional(),
+        area: z.string().optional(),
+        tipo: z.string().optional(),
+        prioridade: z.string().optional(),
+        evidencia: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+const PrototypePackBody = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("pack"), pack: PrototypePackSchema }),
+  z.object({ mode: z.literal("enhance"), insumos: PrototypePackInsumosSchema }),
+]);
+
 const BacklogFromQaBody = z.object({
   /** findings = fail/blocked from a run; catalog = Discovery scenarios; both = union. */
   source: z.enum(["findings", "catalog", "both"]).default("both"),

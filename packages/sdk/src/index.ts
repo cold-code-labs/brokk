@@ -136,6 +136,18 @@ export interface BrokkClient {
   /** Huginn Phase 2: create proposed backlog cards from a project's discovery
    *  brief (one per "missing" item). Idempotent — re-running skips carded items. */
   backlogFromBrief(projectId: string): Promise<{ created: Task[]; skipped: number }>;
+  /** ADR 0070 / H1: Enhance insumos → Prototype Pack, or validate a gated pack. */
+  prototypePack(
+    projectId: string,
+    body:
+      | { mode: "enhance"; insumos: import("@brokk/core").PrototypePackInsumos }
+      | { mode: "pack"; pack: import("@brokk/core").PrototypePack },
+  ): Promise<{
+    pack: import("@brokk/core").PrototypePack;
+    enhanced: boolean;
+    model?: string;
+    projectId: string;
+  }>;
   /** Full QA → proposed backlog cards (catalog scenarios and/or fail|blocked findings). */
   backlogFromQa(
     projectId: string,
@@ -330,6 +342,14 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
         "POST",
         `/projects/${encodeURIComponent(projectId)}/backlog-from-brief`,
       );
+    },
+    prototypePack(projectId, body) {
+      return req<{
+        pack: import("@brokk/core").PrototypePack;
+        enhanced: boolean;
+        model?: string;
+        projectId: string;
+      }>("POST", `/projects/${encodeURIComponent(projectId)}/prototype-pack`, body);
     },
     backlogFromQa(projectId, input) {
       return req<{

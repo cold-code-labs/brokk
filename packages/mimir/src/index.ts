@@ -13,6 +13,11 @@ export { loadMimirConfig, type MimirConfig, type MimirProvider } from "./config.
 export { enhancePrompt, type EnhanceResult } from "./enhance.js";
 export { MimirError } from "./errors.js";
 export { planJob } from "./planner.js";
+export {
+  coercePrototypePack,
+  enhancePrototypePack,
+  type PrototypePackEnhanceResult,
+} from "./prototype-pack.js";
 export { triagePrompt, type TriageResult } from "./triage.js";
 export { DEFAULT_MODE, isMimirMode, MIMIR_MODES, MODE_META } from "./types.js";
 export type { ForcaLevel, MimirMode, RefinoLevel } from "./types.js";

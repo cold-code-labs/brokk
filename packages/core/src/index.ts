@@ -941,6 +941,69 @@ export interface ProjectBrief {
   updatedAt: string;
 }
 
+// ── ADR 0070: Prototype Pack (Enhance → Rank → Hero) ─────────────────────────
+
+/** Hard cap on hero rooms — first paint that sells, not full backlog coverage. */
+export const PROTOTYPE_PACK_MAX_HERO = 4;
+
+/** One sellable surface in the Hero set (frontend-only prototype). */
+export interface PrototypeHeroRoom {
+  /** Short label (e.g. "Landing", "Cotação"). */
+  title: string;
+  /** Route hint for template-vite (e.g. "/", "/estoque"). */
+  route: string;
+  /** Job the screen proves in the demo. */
+  job: string;
+  /** Fake data / copy seed the forge should use. */
+  fake_data: string;
+  prioridade: "alta" | "media" | "baixa";
+}
+
+/** Pedido/area parked outside the Hero — survives for Muninn/Huginn depth. */
+export interface PrototypeDeferredItem {
+  title: string;
+  why: string;
+}
+
+/** Grounding quote from Saga / pedido / prompt. */
+export interface PrototypeEvidence {
+  quote: string;
+  source?: string;
+}
+
+/**
+ * Structured brief that drives the Hero forge (ADR 0070). Produced by Enhance
+ * from Var pedidos / a chat prompt, or accepted ready-made after a human gate.
+ */
+export interface PrototypePack {
+  mission: string;
+  /** Who uses it, in what moment, what decision (v0-style context). */
+  context: string;
+  /** Hard rails — e.g. frontend-only, mock, template-vite, no BaaS. */
+  constraints: string[];
+  /** Taste / Litr seed one-liner. */
+  design_read: string;
+  /** ≤ {@link PROTOTYPE_PACK_MAX_HERO} rooms that sell the demo. */
+  hero_set: PrototypeHeroRoom[];
+  deferred: PrototypeDeferredItem[];
+  evidence: PrototypeEvidence[];
+}
+
+/** Raw insumos for Enhance (Var pedidos and/or a free-form prompt). */
+export interface PrototypePackInsumos {
+  projectName?: string;
+  description?: string;
+  prompt?: string;
+  pedidos?: Array<{
+    titulo: string;
+    oQuePediram?: string;
+    area?: string;
+    tipo?: string;
+    prioridade?: string;
+    evidencia?: string;
+  }>;
+}
+
 // ── Full QA: scenario catalog ────────────────────────────────────────────────
 
 /** Lifecycle of a project's QA scenario catalog (Discovery phase). */
