@@ -72,6 +72,7 @@ export async function fireStoryReQa(deps: StoryReQaDeps, plan: Plan): Promise<vo
         title: id,
         module: plan.storyModule ?? "qa",
         priority: "p1" as const,
+        role: "user",
         tags: [],
         preconditions: [],
         steps: [],
