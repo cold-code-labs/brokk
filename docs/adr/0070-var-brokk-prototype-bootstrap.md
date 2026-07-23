@@ -126,12 +126,12 @@ Idempotência: Pack versionado por projeto; re-Enhance não duplica Hero se já 
 
 | Id | Fatia | Aceite |
 |---|---|---|
-| H1 | Schema Pack + Enhance (insumos → Pack) | JSON validado; hero_set ≤ 4 |
-| H2 | Var: UI gate Pack → envia ao Brokk | Operador edita salas; POST idempotente |
-| H3 | Brokk: Hero forge (Litr + salas) no preview | Preview navegável cobrindo hero_set |
-| H4 | Profundidade via Muninn/Huginn a partir de deferred | Cards PROPOSED; approve funciona |
-| H5 | Chat-first birth + slug provisório | Novo Projeto → chat sem nome DNS; provision async |
-| H6 | Claim de slug amigável pré-Publicar | Claim sem recriar Hauldr; 409 tratado |
+| H1 | Schema Pack + Enhance (insumos → Pack) | JSON validado; hero_set ≤ 4 | ✅ |
+| H2 | Var: UI gate Pack → envia ao Brokk | Operador edita salas; POST idempotente | ✅ |
+| H3 | Brokk: Hero forge (Litr + salas) no preview | Preview navegável cobrindo hero_set | ✅ (from-brief Hero) |
+| H4 | Profundidade via Muninn/Huginn a partir de deferred | Cards PROPOSED; approve funciona | ⬜ |
+| H5 | Chat-first birth + slug provisório | Novo Projeto → chat sem nome DNS; provision async | ⬜ |
+| H6 | Claim de slug amigável pré-Publicar | Claim sem recriar Hauldr; 409 tratado | ⬜ |
 
 Citar commits: `ADR 0070 / Hn`.
 
