@@ -4,8 +4,8 @@
  * hands (read_file + list_dir + bash, no write/edit, no gh creds), feeds it the
  * diff, and captures its verdict + markdown review (the final assistant message).
  *
- * Auth is gateway-only (LiteLLM → Ratatoskr) via afl's loadAflConfig — the same
- * ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN the eitri container already carries.
+ * Auth: prefer Ratatoskr Cursor seat (`CURSOR_SEAT_URL`) when set — same as
+ * Sindri cursor-api. Else LiteLLM → Ratatoskr Claude via ANTHROPIC_*.
  * Read-only by construction (§9 #6): the model is never shown a mutating tool, so
  * "do NOT modify anything" is enforced by the tool surface, not just the prompt.
  */
@@ -76,6 +76,23 @@ function parseVerdict(text: string): Verdict {
       : "COMMENT";
 }
 
+/**
+ * Prefer Ratatoskr Cursor seat (:8791) when configured — fleet default after
+ * Claude Max OAuth org blocks. Same pattern as Sindri `cursor-api`.
+ */
+export function loadEitriAflConfig(env = process.env): AflConfig {
+  const base = loadAflConfig(env);
+  const seat = (env.CURSOR_SEAT_URL || env.CURSOR_BRIDGE_URL || "").replace(/\/$/, "");
+  if (!seat) return base;
+  const token =
+    env.CURSOR_SEAT_INGRESS ||
+    env.CURSOR_INGRESS_KEYS?.split(",")[0]?.trim() ||
+    env.CURSOR_API_KEY ||
+    env.CURSOR_AUTH_TOKEN ||
+    base.authToken;
+  return { ...base, authKind: "bearer", authToken: token, gatewayUrl: seat };
+}
+
 export async function reviewPr(opts: {
   cwd: string;
   model: string;
@@ -83,11 +100,11 @@ export async function reviewPr(opts: {
   diff: string;
   /** Pre-computed security-scan context, injected so the LLM weighs it. */
   scanBlock?: string;
-  /** Gateway config; defaults to loadAflConfig() (the eitri container's env). */
+  /** Gateway config; defaults to Cursor seat when set, else LiteLLM/Claude. */
   cfg?: AflConfig;
   signal?: AbortSignal;
 }): Promise<ReviewResult> {
-  const cfg = opts.cfg ?? loadAflConfig();
+  const cfg = opts.cfg ?? loadEitriAflConfig();
   const model = resolveModel(cfg, opts.model);
   // Read-only hands, no gh creds — the reviewer inspects, never pushes.
   const exec = composeExecutors(

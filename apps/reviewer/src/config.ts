@@ -66,7 +66,11 @@ export function loadEitriConfig(env = process.env): EitriConfig {
     postToken: env.EITRI_GITHUB_TOKEN || env.GITHUB_TOKEN || "",
     hasOwnIdentity: Boolean(env.EITRI_GITHUB_TOKEN),
     workDir: env.EITRI_WORKDIR ?? "/tmp/eitri",
-    model: env.EITRI_MODEL ?? env.BROKK_DEFAULT_MODEL ?? "sonnet",
+    // Cursor seat speaks `auto` / `sonnet`; keep alias when Claude LiteLLM is used.
+    model:
+      env.EITRI_MODEL ??
+      env.BROKK_DEFAULT_MODEL ??
+      (env.CURSOR_SEAT_URL || env.CURSOR_BRIDGE_URL ? "auto" : "sonnet"),
     pollIntervalMs: Number(env.EITRI_POLL_MS ?? 30_000),
     mode,
     httpPort: Number(env.EITRI_PORT ?? 8796),

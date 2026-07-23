@@ -6,4 +6,4 @@
  * See docs/NORTH-STAR.md §7, §9, §10.
  */
 
-export { type ReviewResult, reviewPr, SYSTEM_PROMPT, type Verdict } from "./review.js";
+export { type ReviewResult, reviewPr, loadEitriAflConfig, SYSTEM_PROMPT, type Verdict } from "./review.js";
