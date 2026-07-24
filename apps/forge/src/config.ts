@@ -22,6 +22,9 @@ export interface RunnerConfig {
   /** Shell command run in the worktree to verify the agent's work before the PR
    *  (e.g. "pnpm install --silent && pnpm -r typecheck"). Empty = skip. */
   verifyCmd: string;
+  /** Named verify profile to use (BROKK_VERIFY_PROFILE). Falls back to the
+   *  worktree's default profile if not set. Empty = use default. */
+  verifyProfile: string;
   /** Max self-heal rounds (#1): on a red verify, re-prompt the agent with the
    *  failure and forge a fix, up to this many times. 0 = verify once, no heal. */
   healAttempts: number;
@@ -109,6 +112,7 @@ export function loadRunnerConfig(env = process.env): RunnerConfig {
     anthropicAuthToken: env.ANTHROPIC_AUTH_TOKEN ?? "",
     githubToken: env.GITHUB_TOKEN ?? "",
     verifyCmd: env.BROKK_VERIFY_CMD ?? "",
+    verifyProfile: env.BROKK_VERIFY_PROFILE ?? "",
     healAttempts: Number(env.BROKK_HEAL_ATTEMPTS ?? 2),
     // Deterministic pre-heal (#2). On by default (safe: re-verified, compiler-
     // authored edits only); BROKK_AUTOFIX=0 disables. BROKK_AUTOFIX_CMD adds an

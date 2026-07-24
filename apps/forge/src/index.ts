@@ -257,7 +257,10 @@ async function handleRun(
 
     // Forge → verify → self-heal (#1). Prefer `.brokk/profile.json` (ADR 0074);
     // fall back to BROKK_VERIFY_CMD on the worker.
-    const verifyResolved = await resolveVerifyCmd(wt.path, cfg.verifyCmd);
+    const verifyResolved = await resolveVerifyCmd(wt.path, cfg.verifyCmd, {
+      cardLabels: task.labels,
+      envProfileName: cfg.verifyProfile || undefined,
+    });
     if (verifyResolved.source === "profile") {
       console.log(
         `[forge] verify profile="${verifyResolved.profileName}" → ${verifyResolved.cmd.slice(0, 120)}`,
@@ -567,7 +570,10 @@ async function runDevLane(
       );
     }
 
-    const verifyResolved = await resolveVerifyCmd(wt.path, cfg.verifyCmd);
+    const verifyResolved = await resolveVerifyCmd(wt.path, cfg.verifyCmd, {
+      cardLabels: task.labels,
+      envProfileName: cfg.verifyProfile || undefined,
+    });
     if (verifyResolved.source === "profile") {
       console.log(
         `[forge] verify profile="${verifyResolved.profileName}" → ${verifyResolved.cmd.slice(0, 120)}`,
