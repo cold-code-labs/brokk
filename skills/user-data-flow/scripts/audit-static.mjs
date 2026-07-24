@@ -131,25 +131,35 @@ function auditRoom(room) {
     };
   }
   const missing = [];
+  const deferredHit = [];
   const present = [];
+  const deferredSet = new Set(room.deferred || []);
   for (const verb of required) {
     const pat = VERB_PATTERNS[verb];
     if (!pat) continue;
     if (pat.test(src)) present.push(verb);
+    else if (deferredSet.has(verb)) deferredHit.push(verb);
     else missing.push(verb);
   }
-  // study special: if kind study and study badge present → pass even without CRUD
   let verdict = "pass";
   if (missing.length) verdict = "fail";
-  if (room.kind === "study" && present.includes("study")) verdict = "pass";
+  else if (deferredHit.length) verdict = "deferred";
+  if (room.kind === "study" && present.includes("study") && !missing.length) {
+    verdict = deferredHit.length ? "deferred" : "pass";
+  }
   return {
     id: room.id,
     kind: room.kind,
     route: room.route,
     verdict,
     missing,
+    deferred: deferredHit,
     present,
-    note: missing.length ? `missing: ${missing.join(", ")}` : "ok",
+    note: missing.length
+      ? `missing: ${missing.join(", ")}`
+      : deferredHit.length
+        ? `deferred: ${deferredHit.join(", ")}`
+        : "ok",
     file: rel,
   };
 }
