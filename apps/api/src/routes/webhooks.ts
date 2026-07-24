@@ -2,11 +2,12 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import type { AppDeps } from "../app.js";
 import { applyMergedPr } from "../apply-merged-pr.js";
+import { handlePrMonitorWebhook } from "../pr-monitor.js";
 
 /**
  * GitHub webhooks (ARCHITECTURE.md §10). Closes the loop:
  *  - pull_request `closed` + merged → plan `done` (shared PR) or task `done`
- *  - pull_request_review_comment → optional follow-up run (P3)
+ *  - pull_request_review / review_comment / issue_comment / check_* → PR-monitor revise
  *
  * BROKK-45: matching prefers the forge stamp in the PR body, then URL / repo-scoped
  * pr_number — so a re-forge (#5→#6) still closes the card when #6 merges. Missed
@@ -65,6 +66,26 @@ export function webhooksRoutes(deps: AppDeps): Hono {
           status: pr.merged ? result.status : "closed_unmerged",
         });
       }
+    }
+
+    // ADR 0074: PR-monitor — review / CI → revise card for OpenHands.
+    const monitored = await handlePrMonitorWebhook(
+      deps.store,
+      event,
+      payload as unknown as Record<string, unknown>,
+    ).catch((err) => {
+      console.error(`[webhook] pr-monitor error on ${event}:`, err);
+      return null;
+    });
+    if (monitored) {
+      console.log(
+        `[webhook] pr-monitor ${event} → ${monitored.ok ? monitored.action : "error"}` +
+          (monitored.ok && "taskId" in monitored && monitored.taskId
+            ? ` ${monitored.taskId.slice(0, 8)}`
+            : "") +
+          (monitored.ok && monitored.action === "skipped" ? ` (${monitored.reason})` : ""),
+      );
+      return c.json({ ok: true, event, prMonitor: monitored });
     }
 
     return c.json({ ok: true, received: event });

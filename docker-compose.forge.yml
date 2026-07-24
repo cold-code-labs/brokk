@@ -69,7 +69,7 @@ services:
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
       BROKK_VERIFY_CMD: ${BROKK_VERIFY_CMD:-}
-      BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-afl}
+      BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-openhands}
       BROKK_DEVLANE_APPS: ${BROKK_DEVLANE_APPS:-}
     volumes:
     - brokk_home:/home/brokk
@@ -143,7 +143,7 @@ services:
       BROKK_PREVIEW_CMD: ${BROKK_PREVIEW_CMD:-}
       BROKK_PREVIEW_HOST: ${BROKK_PREVIEW_HOST:-forge}
       BROKK_VERIFY_CMD: ${BROKK_VERIFY_CMD:-}
-      BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-afl}
+      BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-openhands}
       BROKK_DEVLANE_APPS: ${BROKK_DEVLANE_APPS:-}
     volumes:
     - brokk_home:/home/brokk

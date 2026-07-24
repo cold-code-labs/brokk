@@ -1,0 +1,7 @@
+{
+  "name": "brokk",
+  "commands": {
+    "typecheck": "pnpm -r --filter=!@brokk/web typecheck",
+    "test": "pnpm --filter @brokk/afl test"
+  }
+}

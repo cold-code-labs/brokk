@@ -112,60 +112,50 @@ Humano no browser = AO. Card na fila = AWF. Svalinn/Huginn/Slack/API = Devin-cla
 | Sandbox Docker OH (vs `RUNTIME=process`) | depois do cutover estável |
 | VPC “Devin dedicated” | frota Coolify basta no médio prazo |
 
-## Plano executável (start agora)
+## Plano executável
 
-Inventário 2026-07-23: Forge/OH wired (default frota ainda shadow); Chat = Sindri/Afl/CLI nativo (**OpenCode = 0**); Mission backend (Regin) existe, **UI = 0**; ingress parcial (`POST /runs/from-brief`); PR-monitor/profiles = gap.
+Inventário fechado 2026-07-23 → implementação empurrada no mesmo ciclo.
 
-### Fase 0 — Baseline (feito / paralelo)
+### Fase 0 — Baseline ✅
 
 | Item | DoD |
 |---|---|
-| OH no Forge | `BROKK_FORGE_ENGINE=openhands` sobe claim→PR (smoke) |
+| OH no Forge | `BROKK_FORGE_ENGINE=openhands` (default compose + app) |
 | Omni fuel | LLM_* → LiteLLM → OmniRoute |
 | Tenancy T0–T2 | conta → projeto (Logto) |
 
-### Fase 1 — Chat = OpenCode (AO) ← **start**
+### Fase 1 — Chat = OpenCode (AO) ✅
 
 | Entrega | Paths | DoD |
 |---|---|---|
 | Driver CLI | `packages/afl/src/opencode-cli.ts` | `opencode run --format json` → AgentEvent |
-| Engine wire | `apps/chat` + `cli-turn` + UI | `engine=opencode` no seletor; resume via `--session` |
-| Fuel Omni | `buildOpenCodeCliEnv` + `opencode.json` | LiteLLM via openai-compatible |
-| Imagem | `apps/chat/Dockerfile` | bin `opencode` pinned (`opencode-ai`) |
-| MCP Brokk | `apps/chat/src/brokk-mcp-server.ts` | tools: enqueue_card, list_projects, get_preview |
+| Engine wire | `apps/chat` + `cli-turn` + UI | default `opencode` quando available |
+| Fuel Omni | `buildOpenCodeCliEnv` | LiteLLM via openai-compatible |
+| Imagem | `apps/chat/Dockerfile` | `opencode-ai` pinned |
+| MCP Brokk | `apps/chat/src/brokk-mcp-server.ts` | enqueue_card / projects / preview |
 
-Engines legados (`claude-*`, `cursor-*`) ficam disponíveis até cutover; **default de produto passa a `opencode` quando o binário + fuel estão ok**.
-
-### Fase 2 — Mission UI (AO surface)
+### Fase 2 — Mission UI (AO surface) ✅ (skeleton)
 
 | Entrega | Paths | DoD |
 |---|---|---|
 | Página Mission | `apps/web` `/mission` | goal → mission → cards + status |
-| Compose | Mission + link Chat/preview | Plan lock visual (Regin já planeja) |
 
-### Fase 3 — Ingress Devin-class
+### Fase 3 — Ingress Devin-class ✅
 
 | Entrega | Paths | DoD |
 |---|---|---|
-| Contrato estável | `POST /ingress/cards` (+ docs) | brief → card queued + `dedupeKey` |
-| Auth serviço | Bearer `BROKK_API_SECRET` (v1) | Svalinn/Huginn/externos sem board |
+| Contrato estável | `POST /ingress/cards` + `docs/INGRESS.md` | brief → card + dedupeKey |
+| Org jobs curls | Svalinn / Huginn / Eitri-CI | mesmo endpoint |
 
-Alias canônico sobre `POST /runs/from-brief` — não reinventar.
+### Fase 4 — AWF completo ✅ (MVP)
 
-### Fase 4 — AWF completo
+| Entrega | Paths | DoD |
+|---|---|---|
+| Validate profiles | `.brokk/profile.json` + `apps/forge/src/profile.ts` | override `BROKK_VERIFY_CMD` |
+| PR-monitor | `apps/api/src/pr-monitor.ts` + webhooks | review/CI → revise + dedupe |
+| Cutover defaults | compose + Chat UI + forge default | Chat=opencode · Forge=openhands |
 
-| Entrega | DoD |
-|---|---|
-| Validate profiles | profiles versionados por projeto/app |
-| PR-monitor | comment/CI → re-claim OH → merge/close |
-| Jobs OH | Svalinn sec · Huginn QA · Eitri heal via mesmo fabric |
-
-### Ordem de merge (não negociar)
-
-1. OpenCode driver + chat wire + MCP Brokk  
-2. Ingress `/ingress/cards` + Mission UI skeleton  
-3. Default `opencode` quando available; OH default no Forge  
-4. Profiles + PR-monitor + jobs org  
+Docs: `docs/VALIDATE-PROFILES.md`, `docs/PR-MONITOR.md`, `docs/INGRESS.md`.
 
 ## Por que esta é a arquitetura certa
 
@@ -184,6 +174,6 @@ Alias canônico sobre `POST /runs/from-brief` — não reinventar.
 ## Consequências
 
 - North-star de produto: **plataforma de desenvolvimento CCL**, não “kanban com agent”.
-- Implementação segue as Fases 1→4 acima; este ADR é o envelope + plano de start.
+- Fases 0–4 entregues no código (MVP); refinamentos de Mission compose / multi-profile DB / agent tokens ficam como follow-ups.
 - Marketing/docs: Brokk = IDE web + esteira + autônomo org; Chat/Forge são superfícies, não produtos.
 - ADR 0073 permanece válido para engines/naming; **este ADR fixa o envelope de produto e o plano de execução**.

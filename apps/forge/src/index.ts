@@ -33,6 +33,7 @@ import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
 import { runDriverTurn, reapOrphanBrowsers } from "./driver.js";
 import { distillHealLesson } from "./memory.js";
 import { buildRepoMap } from "./repomap.js";
+import { resolveVerifyCmd } from "./profile.js";
 import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
 
 type EventInput = Omit<RunEvent, "id" | "runId" | "seq" | "at">;
@@ -60,12 +61,12 @@ async function main() {
   // BROKK_FORGE_ENGINE=cli swaps in the Claude Code CLI lane (genuine client,
   // seat OAuth direct — no gateway hop). Falls back to the native engine when
   // the binary/token isn't present, so a misconfig can never brick the runner.
-  // Engine lanes: cursor-cli (default) | openhands (ADR 0072) | cli (Claude Code) | afl.
+  // Engine lanes: openhands (ADR 0072/0074 default) | cursor-cli | cli | afl.
   // Every lane degrades to afl when its binary/credential is missing, so a bad
   // image or a rotated key can never brick the runner — it just gets quieter
   // and slower. The fallback is LOUD on purpose: a silent downgrade would make
   // "the default changed" indistinguishable from "the default never took".
-  const wantEngine = (process.env.BROKK_FORGE_ENGINE || "cursor-cli").toLowerCase();
+  const wantEngine = (process.env.BROKK_FORGE_ENGINE || "openhands").toLowerCase();
   const lane =
     wantEngine === "cursor-cli" && cursorCliAvailable()
       ? "cursor-cli"
@@ -254,10 +255,15 @@ async function handleRun(
       },
     });
 
-    // Forge → verify → self-heal (#1). The engine owns the loop: it forges, runs
-    // the verify command we hand it (in the worktree), and on a red verify
-    // re-prompts itself with the failure to fix — up to cfg.healAttempts rounds.
-    // The final verify outcome decides the run's success and rides on the PR.
+    // Forge → verify → self-heal (#1). Prefer `.brokk/profile.json` (ADR 0074);
+    // fall back to BROKK_VERIFY_CMD on the worker.
+    const verifyResolved = await resolveVerifyCmd(wt.path, cfg.verifyCmd);
+    if (verifyResolved.source === "profile") {
+      console.log(
+        `[forge] verify profile="${verifyResolved.profileName}" → ${verifyResolved.cmd.slice(0, 120)}`,
+      );
+    }
+    const verifyCmd = verifyResolved.cmd;
     const result: RunResult = await engine.run({
       task: {
         id: task.id,
@@ -275,10 +281,10 @@ async function handleRun(
       authToken: SEAT_DIRECT ? (auth?.token ?? undefined) : undefined,
       allowedTools: [],
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
-      verify: cfg.verifyCmd ? () => runVerify(cfg.verifyCmd, wt.path) : undefined,
+      verify: verifyCmd ? () => runVerify(verifyCmd, wt.path) : undefined,
       maxHealAttempts: cfg.healAttempts,
       autofix:
-        cfg.verifyCmd && cfg.autofix ? makeAutofix({ cwd: wt.path, cmd: cfg.autofixCmd || undefined }) : undefined,
+        verifyCmd && cfg.autofix ? makeAutofix({ cwd: wt.path, cmd: cfg.autofixCmd || undefined }) : undefined,
       emit: (e) => {
         buffer.emit(e);
         trace?.onEvent(e);
@@ -420,7 +426,7 @@ async function handleRun(
       try {
         const lesson = await distillHealLesson({
           taskTitle: task.title,
-          verifyCmd: cfg.verifyCmd,
+          verifyCmd: verifyCmd || cfg.verifyCmd,
           failure: result.lastHealFailure,
         });
         if (lesson) {
@@ -561,6 +567,13 @@ async function runDevLane(
       );
     }
 
+    const verifyResolved = await resolveVerifyCmd(wt.path, cfg.verifyCmd);
+    if (verifyResolved.source === "profile") {
+      console.log(
+        `[forge] verify profile="${verifyResolved.profileName}" → ${verifyResolved.cmd.slice(0, 120)}`,
+      );
+    }
+    const verifyCmd = verifyResolved.cmd;
     const result: RunResult = await engine.run({
       task: {
         id: task.id,
@@ -578,10 +591,10 @@ async function runDevLane(
       authToken: SEAT_DIRECT ? (auth?.token ?? undefined) : undefined,
       allowedTools: [],
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
-      verify: cfg.verifyCmd ? () => runVerify(cfg.verifyCmd, wt.path) : undefined,
+      verify: verifyCmd ? () => runVerify(verifyCmd, wt.path) : undefined,
       maxHealAttempts: cfg.healAttempts,
       autofix:
-        cfg.verifyCmd && cfg.autofix ? makeAutofix({ cwd: wt.path, cmd: cfg.autofixCmd || undefined }) : undefined,
+        verifyCmd && cfg.autofix ? makeAutofix({ cwd: wt.path, cmd: cfg.autofixCmd || undefined }) : undefined,
       migration,
       emit: (e) => {
         buffer.emit(e);

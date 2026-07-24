@@ -119,7 +119,7 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       BROKK_GIT_NAME: ${BROKK_GIT_NAME:-Brokk}
       BROKK_GIT_EMAIL: ${BROKK_GIT_EMAIL:-brokk@localhost}
-      BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-cursor-cli}
+      BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-openhands}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}

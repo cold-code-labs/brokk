@@ -52,7 +52,7 @@ export type ChatEngine =
   | "opencode";
 
 export function normalizeEngine(raw: string | null | undefined): ChatEngine {
-  switch ((raw ?? "claude-api").toLowerCase()) {
+  switch ((raw ?? "opencode").toLowerCase()) {
     case "cli":
     case "claude-cli":
       return "claude-cli";
@@ -68,8 +68,9 @@ export function normalizeEngine(raw: string | null | undefined): ChatEngine {
     case "afl":
     case "claude-api":
     case "brokk":
-    default:
       return "claude-api";
+    default:
+      return "opencode";
   }
 }
 

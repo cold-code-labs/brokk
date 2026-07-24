@@ -86,7 +86,7 @@ const ENGINES = [
 ];
 
 function normalizeEngineUi(raw: string | undefined): string {
-  switch ((raw ?? "claude-api").toLowerCase()) {
+  switch ((raw ?? "opencode").toLowerCase()) {
     case "cli":
     case "claude-cli":
       return "claude-cli";
@@ -102,8 +102,9 @@ function normalizeEngineUi(raw: string | undefined): string {
     case "afl":
     case "brokk":
     case "claude-api":
-    default:
       return "claude-api";
+    default:
+      return "opencode";
   }
 }
 
@@ -438,7 +439,7 @@ export default function Chat() {
   const mobileOnly = projects.find((p) => p.id === projectId)?.runtime?.id === "expo";
   const [model, setModel] = useState("sonnet");
   const [effort, setEffort] = useState("medium");
-  const [engine, setEngine] = useState("claude-api");
+  const [engine, setEngine] = useState("opencode");
   const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
   const [engineAvail, setEngineAvail] = useState<
     Record<string, { available: boolean; reason?: string }>
@@ -556,7 +557,7 @@ export default function Chat() {
       .catch(() => setSkillOptions([]));
   }, []);
 
-  // Which motors this Sindri deploy can actually run (Cursor CLI needs glibc agent).
+  // Which motors this Brokk Chat deploy can actually run.
   useEffect(() => {
     chat
       .listEngines()
@@ -564,6 +565,13 @@ export default function Chat() {
         const map: Record<string, { available: boolean; reason?: string }> = {};
         for (const e of list) map[e.id] = { available: e.available, reason: e.reason };
         setEngineAvail(map);
+        // Prefer OpenCode when the image has it (ADR 0074 cutover); else keep current.
+        setEngine((prev) => {
+          if (prev !== "opencode" && prev !== "claude-api") return prev;
+          if (map.opencode?.available) return "opencode";
+          if (map["claude-api"]?.available) return "claude-api";
+          return prev;
+        });
       })
       .catch(() => setEngineAvail({}));
   }, []);
