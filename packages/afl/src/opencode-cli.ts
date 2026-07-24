@@ -327,6 +327,7 @@ export async function runOpenCodeCliTurn(input: CliTurnInput): Promise<CliTurnOu
         resultText: err.message,
         usage: state.usage,
         cliSessionId: state.sessionId,
+        exitCode: null,
       });
     });
 
@@ -339,18 +340,20 @@ export async function runOpenCodeCliTurn(input: CliTurnInput): Promise<CliTurnOu
           resultText: state.resultText || "aborted",
           usage: state.usage,
           cliSessionId: state.sessionId,
+          exitCode: code,
         });
         return;
       }
       const ok = code === 0;
       finish({
         ok,
-        stop: ok ? "end_turn" : "error",
+        stop: ok ? "done" : "error",
         resultText:
           state.resultText ||
           (ok ? "" : stderrTail.trim() || `opencode exited ${code ?? "?"}`),
         usage: state.usage,
         cliSessionId: state.sessionId,
+        exitCode: code,
       });
     });
   });

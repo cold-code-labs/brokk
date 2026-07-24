@@ -267,13 +267,13 @@ export async function runOpenHandsCliTurn(input: CliTurnInput): Promise<CliTurnO
           return;
         }
         if (prettyBuf !== null) {
-          prettyBuf += (prettyBuf ? "\n" : "") + line;
+          const buf = prettyBuf + (prettyBuf ? "\n" : "") + line;
           try {
-            handleJson(JSON.parse(prettyBuf) as Record<string, unknown>);
+            handleJson(JSON.parse(buf) as Record<string, unknown>);
             prettyBuf = null;
           } catch {
             // keep buffering until the object closes
-            if (prettyBuf.length > 2_000_000) prettyBuf = null;
+            prettyBuf = buf.length > 2_000_000 ? null : buf;
           }
           return;
         }
