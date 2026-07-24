@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { requestActor, canSeeProject, listScope, orgTenancyEnabled } from "../actor.js";
 import type { AppDeps } from "../app.js";
+import { fireHuginnDiscovery } from "../huginn-fire.js";
 
 const run = promisify(execFile);
 
@@ -196,19 +197,9 @@ export async function connectOne(
       heimdallAppId: opts?.heimdallAppId ?? null,
       logtoOrgId: opts?.logtoOrgId ?? repo.logtoOrgId ?? null,
     });
-    // Huginn Discovery (ADR 0067): brief + QA scenario catalog — async, best-effort.
-    // Never blocks the import. Forge cards land when each scout finishes.
-    fireHuginnDiscovery(deps, project.id);
+    // Huginn Discovery (ADR 0067): brief always; QA only after Hero on prototypes
+    // (devFirst) — cataloguing the empty template wastes the board.
+    fireHuginnDiscovery(deps, project.id, { skipQa: opts?.devFirst ?? false });
   }
   return { repo, project };
-}
-
-/** Fire-and-forget: product brief + QA catalog. Failures swallowed (UI can re-run). */
-function fireHuginnDiscovery(deps: AppDeps, projectId: string): void {
-  const base = (deps.sindriUrl ?? "").replace(/\/$/, "");
-  if (!base) return;
-  const headers: Record<string, string> = {};
-  if (deps.runnerSecret) headers.authorization = `Bearer ${deps.runnerSecret}`;
-  void fetch(`${base}/discover/${projectId}`, { method: "POST", headers }).catch(() => {});
-  void fetch(`${base}/qa/${projectId}/discover`, { method: "POST", headers }).catch(() => {});
 }

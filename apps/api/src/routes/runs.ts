@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
+import { fireQaDiscover, isHeroTask } from "../huginn-fire.js";
 import { connectOne } from "./repositories.js";
 import { requireRunnerSecret } from "./runner.js";
 
@@ -285,6 +286,12 @@ export function runsRoutes(deps: AppDeps): Hono {
           );
         }
       }
+    }
+
+    // Prototype Hero done → now catalog QA against the painted app (not the template).
+    // Fixes land on `dev` preview; no PR required for the improvement loop.
+    if (status === "succeeded" && isHeroTask(task)) {
+      fireQaDiscover(deps, task.projectId);
     }
 
     return c.json(run);

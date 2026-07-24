@@ -42,8 +42,9 @@ Regras:
 5. hero_set = NO MÁXIMO ${PROTOTYPE_PACK_MAX_HERO} salas que VENDEM na demo (landing + shells do core). Agrupe pedidos relacionados numa sala. Cada sala: title, route, job, fake_data, prioridade.
 6. deferred = o que existe nos insumos mas NÃO entra no Hero (não some — profundidade depois).
 7. evidence = trechos reais dos insumos (pedido/prompt), não invente quotes.
-8. Não invente módulos que ninguém pediu. Prefira menos salas melhores.
-9. Responda em português. SOMENTE JSON válido, sem markdown:
+8. Não invente módulos que ninguém pediu. Prefira menos salas melhores — e salas **completas** (job + fake_data concretos), não esboços.
+9. Missão > velocidade: o Pack deve permitir um Hero redondo (~30 min no forge) em vez de um paint rápido com buracos.
+10. Responda em português. SOMENTE JSON válido, sem markdown:
 
 {"mission":"...","context":"...","constraints":["..."],"design_read":"...","hero_set":[{"title":"...","route":"/...","job":"...","fake_data":"...","prioridade":"alta|media|baixa"}],"deferred":[{"title":"...","why":"..."}],"evidence":[{"quote":"...","source":"..."}]}`;
 
