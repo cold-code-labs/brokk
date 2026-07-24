@@ -131,14 +131,17 @@ ou faça o grep manual equivalente.)
 
 ### B2 — Live (quando houver preview + browser tools)
 
+**Obrigatório no aceite de piloto** se o preview existir. Sem `__bk` → 403;
+mint com `scripts/mint-preview-url.mjs` + Ice Vault `BROKK_PREVIEW_KEY`
+(ver runbook Var §9).
+
 Espírito do `qa-review` / `full-qa` Execution:
 
-1. Login demo → abrir cada `route` p0.
+1. Navigate com URL mintada → cookie `__bk` → login demo.
 2. Snapshot: CTA create visível sem scroll hunt?
 3. Happy path mínimo entity: criar → editar → arquivar (se required).
-4. Screenshot só em fail.
-5. Honesty: não achar o botão = `blocked` (agente), não `fail` de produto —
-   confirmar com snapshot.
+4. Screenshot só em fail (e 1 shot de prova no gate).
+5. Honesty: não achar o botão = `blocked` (agente), não `fail` de produto.
 
 ### Veredito por room
 
