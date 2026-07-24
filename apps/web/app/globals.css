@@ -1462,8 +1462,11 @@ body:has(.sindri) {
 .sindri-cockpit-controls {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  margin-left: auto;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .sindri-agent-toggle {
@@ -1481,14 +1484,6 @@ body:has(.sindri) {
 
 .sindri-chip-forge {
   font-weight: 600;
-}
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-shrink: 0;
-  margin-left: auto;
-  flex-wrap: wrap;
-  justify-content: flex-end;
 }
 /* The context gauge: how full the model's head is. Cold — filling a context is
    not forging, so no ember here. Click opens the spend sheet. */
