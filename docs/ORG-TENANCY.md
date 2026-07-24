@@ -18,7 +18,7 @@
 | Flag | `BROKK_ORG_TENANCY=1` liga filtro; sem flag, layout bloqueia só-cliente |
 | Smoke Maglink | feito (client vs staff vs no-org) |
 
-**Ainda aberto:** UI “Novo projeto” self-serve (T3); convite IT no Brokk (T4) — convite de *empresa* nasce na Asgard (ADR 0065 A0).
+**Ainda aberto:** UI “Novo projeto” self-serve (T3); convite IT no Brokk (T4) — convite de *empresa* nasce na Asgard (ADR 0065 A0). Fuel/billing por org: [ADR 0077](https://edda.coldcodelabs.com/decisoes/0077-asgard-pricing-metering/) + [ORG-FUEL-SIM.md](./ORG-FUEL-SIM.md) (piloto seat→Omni).
 
 ## Por que
 
@@ -86,4 +86,4 @@ Em `packages/db` (`schema.ts`):
 ## Notas de implementação
 
 - Não reinventar membership: Logto é a fonte; Brokk só lê claims.
-- Seat Claude / billing por org = fase posterior; throughput compartilhado permanece limite honesto na venda.
+- Seat Claude / billing por org: ver ADR 0077 + `ORG-FUEL-SIM.md`. F2 Omni (seat Mateus) destravou o fuel path; binding por `logto_org_id` no spawn = P3.
