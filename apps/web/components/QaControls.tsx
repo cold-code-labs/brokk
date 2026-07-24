@@ -73,9 +73,8 @@ export function QaControls({ projectId, disabled, engine, onRun }: Props) {
 
   const scenarios = catalog?.status === "ready" ? catalog.scenarios : [];
   const ready = catalog?.status === "ready" && scenarios.length > 0;
-  // Playwright MCP is wired for CLI lanes; prefer Cursor CLI (CURSOR_API_KEY) —
-  // Claude Code OAuth is often org-blocked on the fleet.
-  const cliOk = engine === "cursor-cli" || engine === "claude-cli";
+  // OpenCode Auto is the only Chat mode; Playwright MCP rides the same session.
+  const cliOk = engine === "opencode" || engine === "cursor-cli" || engine === "claude-cli";
   const qaHref = projectId ? `/projects/${projectId}/qa` : null;
   const execRunning = lastRun?.status === "running";
   const progressFromSummary =

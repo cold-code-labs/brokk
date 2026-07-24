@@ -223,22 +223,49 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
 
     // Fallback: if the CLI finished with text but hooks never landed an assistant
     // row (partial stream / missing `result` event), persist it so the card isn't
-    // a lone user bubble.
-    const persisted = await store.listChatMessages(session.id).catch(() => []);
-    const hasAssistant = persisted.some((m) => m.role === "assistant");
+    // a lone user bubble. Never do this on abort — delete/stop races the FK, and
+    // resultText is often the literal "aborted".
     const fallbackText = (outcome.resultText || "").trim();
-    if (!hasAssistant && fallbackText) {
-      const msg = await store.appendChatMessage(session.id, {
-        role: "assistant",
-        blocks: [{ type: "text", text: fallbackText }],
-        meta: { model, engine: engineLabel, recovered: true },
-      });
-      emit({ type: "message", seq: msg.seq, role: "assistant", blocks: msg.blocks as ContentBlock[] });
+    const skipRecover =
+      outcome.stop === "aborted" ||
+      !fallbackText ||
+      /^aborted$/i.test(fallbackText);
+    if (!skipRecover) {
+      const alive = await store.getChatSession(session.id).catch(() => null);
+      if (alive) {
+        const persisted = await store.listChatMessages(session.id).catch(() => []);
+        const hasAssistant = persisted.some((m) => m.role === "assistant");
+        if (!hasAssistant) {
+          try {
+            const msg = await store.appendChatMessage(session.id, {
+              role: "assistant",
+              blocks: [{ type: "text", text: fallbackText }],
+              meta: { model, engine: engineLabel, recovered: true },
+            });
+            emit({
+              type: "message",
+              seq: msg.seq,
+              role: "assistant",
+              blocks: msg.blocks as ContentBlock[],
+            });
+          } catch {
+            /* session deleted mid-turn — ignore */
+          }
+        }
+      }
     }
 
     // Diff summary on the card — so "1 string" vs "layout rewrite" is visible
-    // without opening the worktree.
-    await emitDirtySummary({ store, sessionId: session.id, cwd: input.cwd, emit, meta: { model, engine: engineLabel } });
+    // without opening the worktree. Skip when aborted/deleted.
+    if (outcome.stop !== "aborted") {
+      await emitDirtySummary({
+        store,
+        sessionId: session.id,
+        cwd: input.cwd,
+        emit,
+        meta: { model, engine: engineLabel },
+      }).catch(() => {});
+    }
 
     switch (outcome.stop) {
       case "aborted":
@@ -273,16 +300,22 @@ export async function emitDirtySummary(input: {
 }): Promise<void> {
   const dirty = await dirtyTreeSummary(input.cwd).catch(() => null);
   if (!dirty) return;
+  const alive = await input.store.getChatSession(input.sessionId).catch(() => null);
+  if (!alive) return;
   input.emit({ type: "status", phase: "diff_summary", detail: dirty });
   const note = `Working tree: ${dirty.shortstat || dirty.files || "dirty"}${
     dirty.layoutHint ? " · layout/CSS touched — review before Commit" : ""
   }`;
-  const msg = await input.store.appendChatMessage(input.sessionId, {
-    role: "assistant",
-    blocks: [{ type: "text", text: note }],
-    meta: { kind: "diff_summary", ...dirty, ...(input.meta ?? {}) },
-  });
-  input.emit({ type: "message", seq: msg.seq, role: "assistant", blocks: msg.blocks as ContentBlock[] });
+  try {
+    const msg = await input.store.appendChatMessage(input.sessionId, {
+      role: "assistant",
+      blocks: [{ type: "text", text: note }],
+      meta: { kind: "diff_summary", ...dirty, ...(input.meta ?? {}) },
+    });
+    input.emit({ type: "message", seq: msg.seq, role: "assistant", blocks: msg.blocks as ContentBlock[] });
+  } catch {
+    /* session deleted mid-turn */
+  }
 }
 
 /** Compact `git status` + `--shortstat` for the session card. layoutHint when

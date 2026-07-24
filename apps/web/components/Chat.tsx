@@ -4,8 +4,8 @@
 // SINDRI — the interactive chat agent, as a workbench (Lovable/v0 shape):
 //   • Top = a horizontal strip of session tabs + "Novo chat". Project is set by
 //     the global AMBIENTE switcher (sidebar), not here.
-//   • Left = the conversation: editable title, model/effort, live stats, thread
-//     and composer.
+//   • Left = the conversation: editable title, live stats, thread and composer.
+//     Chat motor is fixed: OpenCode Auto (Omni fuel).
 //   • Right = a LIVE preview sandbox: `next dev` (HMR) running in this session's
 //     own checkout, so Sindri's edits hot-reload in the iframe (and on the public
 //     <app>-sindri-<id8>.preview.coldcodelabs.com) as it works.
@@ -22,7 +22,6 @@ import {
   CornerDownLeft,
   Square,
   Trash2,
-  Zap,
   ArrowDown,
   FileText,
   Monitor,
@@ -58,64 +57,13 @@ import { files, inboxRelPath } from "../lib/files";
 import { STATUS_COLOR, t as theme } from "../lib/theme";
 import { StudioPanel } from "./StudioPanel";
 import { FileViewer } from "./FileViewer";
-import { ComposerChip } from "./ComposerChip";
+import { ContextRing } from "./ComposerChip";
 import { ComposerMenu } from "./ComposerMenu";
 import { QaControls, buildQaRunPrompt } from "./QaControls";
 
-// Full model choice (Claude engines only). Cursor seat is always Auto.
-const MODELS = [
-  { id: "sonnet", label: "Sonnet" },
-  { id: "opus", label: "Opus" },
-  { id: "haiku", label: "Haiku" },
-];
-const EFFORTS = [
-  { id: "low", label: "Low" },
-  { id: "medium", label: "Medium" },
-  { id: "high", label: "Deep" },
-];
-
-// Turn engine — locked on the FIRST message (CLI resume / API transcript continuity).
-// Until then the chips are free to change on an empty session (BROKK-33).
-// IDs: opencode | claude-api | claude-cli | cursor-api | cursor-cli (legacy afl/cli still accepted).
-const ENGINES = [
-  { id: "opencode", label: "OpenCode", hint: "Brokk Chat · Omni · Plan/Build" },
-  { id: "claude-api", label: "Claude API", hint: "LiteLLM → Ratatoskr Max seat" },
-  { id: "claude-cli", label: "Claude CLI", hint: "Official Claude Code headless" },
-  { id: "cursor-api", label: "Cursor API", hint: "Ratatoskr cursor sidecar · always Auto" },
-  { id: "cursor-cli", label: "Cursor CLI", hint: "agent CLI · always Auto" },
-];
-
-function normalizeEngineUi(raw: string | undefined): string {
-  switch ((raw ?? "opencode").toLowerCase()) {
-    case "cli":
-    case "claude-cli":
-      return "claude-cli";
-    case "cursor-cli":
-      return "cursor-cli";
-    case "cursor-api":
-    case "cursor":
-      return "cursor-api";
-    case "opencode":
-    case "oc":
-    case "open-code":
-      return "opencode";
-    case "afl":
-    case "brokk":
-    case "claude-api":
-      return "claude-api";
-    default:
-      return "opencode";
-  }
-}
-
-function isCursorEngine(engine: string): boolean {
-  return engine === "cursor-api" || engine === "cursor-cli";
-}
-
-/** Engines that run with model=auto (no Claude haiku/sonnet/opus picker). */
-function isAutoModelEngine(engine: string): boolean {
-  return isCursorEngine(engine) || engine === "opencode";
-}
+/** Único modo do Chat: OpenCode com model=auto (Omni / LiteLLM). */
+const CHAT_ENGINE = "opencode";
+const CHAT_MODEL = "auto";
 
 type SkillOption = { name: string; description: string; kind: string };
 
@@ -437,13 +385,7 @@ export default function Chat() {
   // Projeto mobile (runtime Expo/Metro): o preview é a app RN-web num viewport
   // de celular — visualização EXCLUSIVA mobile (presets de aparelho, sem drag).
   const mobileOnly = projects.find((p) => p.id === projectId)?.runtime?.id === "expo";
-  const [model, setModel] = useState("sonnet");
-  const [effort, setEffort] = useState("medium");
-  const [engine, setEngine] = useState("opencode");
   const [skillOptions, setSkillOptions] = useState<SkillOption[]>([]);
-  const [engineAvail, setEngineAvail] = useState<
-    Record<string, { available: boolean; reason?: string }>
-  >({});
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashActive, setSlashActive] = useState(0);
   const [slashQuery, setSlashQuery] = useState("");
@@ -555,25 +497,6 @@ export default function Chat() {
     chat.listSkills()
       .then(setSkillOptions)
       .catch(() => setSkillOptions([]));
-  }, []);
-
-  // Which motors this Brokk Chat deploy can actually run.
-  useEffect(() => {
-    chat
-      .listEngines()
-      .then((list) => {
-        const map: Record<string, { available: boolean; reason?: string }> = {};
-        for (const e of list) map[e.id] = { available: e.available, reason: e.reason };
-        setEngineAvail(map);
-        // Prefer OpenCode when the image has it (ADR 0074 cutover); else keep current.
-        setEngine((prev) => {
-          if (prev !== "opencode" && prev !== "claude-api") return prev;
-          if (map.opencode?.available) return "opencode";
-          if (map["claude-api"]?.available) return "claude-api";
-          return prev;
-        });
-      })
-      .catch(() => setEngineAvail({}));
   }, []);
 
   // On environment change: load the project's sessions into the rail — and stop
@@ -700,17 +623,7 @@ export default function Chat() {
     setError("");
     setPendingFiles([]);
     liveSeqRef.current = -1;
-    const { session, messages: msgs, running: live } = await chat.getSession(id);
-    // Reflect the session's saved model + effort (all tiers are selectable now).
-    setModel(
-      isAutoModelEngine(normalizeEngineUi(session.engine))
-        ? "auto"
-        : MODELS.some((m) => m.id === session.model)
-          ? session.model
-          : "sonnet",
-    );
-    setEffort(session.effort && EFFORTS.some((e) => e.id === session.effort) ? session.effort : "medium");
-    setEngine(normalizeEngineUi(session.engine));
+    const { messages: msgs, running: live } = await chat.getSession(id);
     setMessages(msgs);
     liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;
     setThreadEpoch((n) => n + 1);
@@ -723,20 +636,13 @@ export default function Chat() {
     setPhase(live ? "forging" : "");
   }
 
-  async function newChat(engineOverride?: string) {
+  async function newChat() {
     if (!projectId) return;
     setError("");
-    const eng = normalizeEngineUi(engineOverride ?? engine);
-    if (engineOverride) {
-      setEngine(eng);
-      if (isAutoModelEngine(eng)) setModel("auto");
-      else if (model === "auto") setModel("sonnet");
-    }
     const s = await chat.createSession({
       projectId,
-      model: isAutoModelEngine(eng) ? "auto" : model === "auto" ? "sonnet" : model,
-      effort,
-      engine: eng,
+      model: CHAT_MODEL,
+      engine: CHAT_ENGINE,
     });
     const withStats: ChatSessionWithStats = {
       ...s,
@@ -767,15 +673,12 @@ export default function Chat() {
         prev.map((s) => (s.id === sid ? { ...s, skill: slashSkill } : s)),
       );
     }
-    // Lock motor/model/effort on the first shot — empty sessions stay editable
-    // until this moment (BROKK-33).
+    // Lock OpenCode Auto on the first shot (legacy sessions may still carry other engines).
     if (messages.length === 0) {
-      const eng = normalizeEngineUi(engine);
       try {
         const updated = await chat.patchSession(sid, {
-          engine: eng,
-          model: isAutoModelEngine(eng) ? "auto" : model === "auto" ? "sonnet" : model,
-          effort,
+          engine: CHAT_ENGINE,
+          model: CHAT_MODEL,
         });
         setSessions((prev) => prev.map((s) => (s.id === sid ? { ...s, ...updated } : s)));
       } catch (e) {
@@ -881,11 +784,23 @@ export default function Chat() {
     ev?.stopPropagation();
     const name = sessions.find((s) => s.id === id)?.title;
     if (!confirm(`This deletes ${name ? `"${name}"` : "the session"} and its transcript. Delete?`)) return;
+    // Stop the in-flight turn first so preview/lock/UI don't stay "running"
+    // while DELETE races the CLI teardown.
+    if (sessionId === id) {
+      threadApiRef.current?.stop();
+      await chat.stop(id).catch(() => {});
+      setRunning(false);
+      setPhase("");
+      setError("");
+      setLink("ok");
+    }
     await chat.deleteSession(id).catch(() => {});
     setSessions((prev) => prev.filter((s) => s.id !== id));
     if (sessionId === id) {
       setSessionId("");
       setMessages([]);
+      setPreviewOpen(false);
+      setChatCollapsed(false);
     }
   }
 
@@ -1466,21 +1381,13 @@ export default function Chat() {
                         <QaControls
                           projectId={projectId}
                           disabled={running || attachBusy}
-                          engine={engine}
+                          engine={CHAT_ENGINE}
                           onRun={async (opts) => {
                             setPlusOpen(false);
                             let sid = sessionId;
                             if (!sid) {
-                              sid = (await newChat("cursor-cli")) ?? "";
+                              sid = (await newChat()) ?? "";
                               if (!sid) return;
-                            }
-                            if (engine !== "cursor-cli" && engine !== "claude-cli" && messages.length === 0) {
-                              setEngine("cursor-cli");
-                              try {
-                                await chat.patchSession(sid, { engine: "cursor-cli" });
-                              } catch {
-                                /* send still goes; skill warns if MCP missing */
-                              }
                             }
                             let runId = opts.runId;
                             if (!runId && projectId) {
@@ -1548,122 +1455,12 @@ export default function Chat() {
                         }}
                       />
                     ) : null}
-                    {engine !== "claude-cli" && engine !== "cursor-cli" && engine !== "opencode" && (
-                      <ComposerChip
-                        title="Reasoning effort"
-                        className="sindri-effort"
-                        value={effort}
-                        icon={<Zap size={13} />}
-                        trigger={
-                          <span className="sindri-bars" data-level={effort} aria-hidden="true">
-                            <i />
-                            <i />
-                            <i />
-                          </span>
-                        }
-                        items={EFFORTS.map((x) => ({ id: x.id, label: x.label }))}
-                        onChange={(id) => {
-                          setEffort(id);
-                          if (sessionId) chat.patchSession(sessionId, { effort: id }).catch(() => {});
-                        }}
-                      />
-                    )}
-                    {isAutoModelEngine(engine) ? (
-                      <span
-                        className="sindri-chip sindri-chip-static"
-                        title={
-                          engine === "opencode"
-                            ? "OpenCode uses Omni model (auto)"
-                            : "Cursor always uses Auto"
-                        }
-                      >
-                        Auto
-                      </span>
-                    ) : (
-                      <ComposerChip
-                        title="Model"
-                        value={model}
-                        items={MODELS.map((m) => ({ id: m.id, label: m.label }))}
-                        onChange={(id) => {
-                          setModel(id);
-                          if (sessionId) chat.patchSession(sessionId, { model: id }).catch(() => {});
-                        }}
-                      />
-                    )}
-                    <ComposerChip
-                      title={
-                        messages.length === 0
-                          ? "Motor — livre até a 1ª mensagem"
-                          : "Motor — travado nesta sessão (troca abre chat novo)"
-                      }
-                      value={engine}
-                      items={ENGINES.map((m) => {
-                        const avail = engineAvail[m.id];
-                        const disabled = avail ? !avail.available : false;
-                        return {
-                          id: m.id,
-                          label: m.label,
-                          hint: disabled && avail?.reason ? avail.reason : m.hint,
-                          tag:
-                            m.id === "opencode"
-                              ? "opencode"
-                              : m.id.startsWith("cursor")
-                                ? "cursor"
-                                : "claude",
-                          disabled,
-                        };
-                      })}
-                      onChange={(id) => {
-                        const next = normalizeEngineUi(id);
-                        if (engineAvail[next] && !engineAvail[next]!.available) {
-                          setError(
-                            engineAvail[next]!.reason ||
-                              `${next} unavailable on this chat image`,
-                          );
-                          return;
-                        }
-                        const prev = engine;
-                        setEngine(next);
-                        if (isAutoModelEngine(next)) {
-                          setModel("auto");
-                        } else if (isAutoModelEngine(prev) || model === "auto") {
-                          // Leaving Cursor/OpenCode: drop the seat-only "auto" alias so a
-                          // Claude/LiteLLM turn never sees model=auto (BROKK-34).
-                          setModel("sonnet");
-                        }
-                        if (!sessionId) return;
-                        // Empty session: patch in place — don't mint a new chat.
-                        if (messages.length === 0) {
-                          const patchModel = isAutoModelEngine(next)
-                            ? "auto"
-                            : model === "auto" || isAutoModelEngine(prev)
-                              ? "sonnet"
-                              : model;
-                          if (!isAutoModelEngine(next) && patchModel !== model) setModel(patchModel);
-                          void chat
-                            .patchSession(sessionId, {
-                              engine: next,
-                              model: patchModel,
-                            })
-                            .then((s) => {
-                              setSessions((prevS) =>
-                                prevS.map((row) => (row.id === sessionId ? { ...row, ...s } : row)),
-                              );
-                            })
-                            .catch((e) => {
-                              setError(String(e));
-                              // Revert chip to whatever the server still has.
-                              setEngine(normalizeEngineUi(currentSession?.engine ?? prev));
-                            });
-                          return;
-                        }
-                        // After the first message the engine owns continuity —
-                        // switching means a fresh session.
-                        if (normalizeEngineUi(currentSession?.engine) !== next) {
-                          void newChat(next);
-                        }
-                      }}
-                    />
+                    <span
+                      className="sindri-chip sindri-chip-static"
+                      title="OpenCode Auto — único modo do Brokk Chat (Omni fuel)"
+                    >
+                      OpenCode · Auto
+                    </span>
                   </div>
                 </div>
                 {composerDrag ? (

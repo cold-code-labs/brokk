@@ -101,4 +101,18 @@ export class TurnManager {
     turn.abort.abort();
     return true;
   }
+
+  /**
+   * Abort a turn and wait until it leaves `active` (or timeout). Used before
+   * deleting a session so the CLI teardown doesn't race `chat_messages` FK.
+   */
+  async stopAndWait(sessionId: string, timeoutMs = 12_000): Promise<boolean> {
+    const had = this.stop(sessionId);
+    if (!this.active.has(sessionId)) return had;
+    const deadline = Date.now() + Math.max(500, timeoutMs);
+    while (this.active.has(sessionId) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return had;
+  }
 }

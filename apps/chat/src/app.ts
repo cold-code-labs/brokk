@@ -256,16 +256,9 @@ export function buildSindri(deps: SindriDeps): Hono {
   app.onError((err, c) => c.json({ error: err instanceof Error ? err.message : String(err) }, 500));
   app.get("/health", (c) => c.json({ ok: true, service: "sindri" }));
 
-  // Which motors this Sindri image can actually run (BROKK-34: Cursor CLI needs
-  // the glibc `agent` binary — Alpine chat historically advertises the chip but
-  // create/patch then 400s, leaving the UI out of sync with the session).
+  // Chat cutover: only OpenCode Auto is offered (ADR 0074).
   app.get("/engines", (c) => {
-    const cursorCli = cursorCliAvailable();
-    const claudeCli = claudeCliAvailable();
     const openCode = openCodeCliAvailable();
-    const cursorSeat = Boolean(
-      process.env.CURSOR_SEAT_URL || process.env.CURSOR_SEAT_INGRESS,
-    );
     return c.json({
       engines: [
         {
@@ -274,29 +267,6 @@ export function buildSindri(deps: SindriDeps): Hono {
           ...(openCode
             ? {}
             : { reason: "opencode binary or LLM_API_KEY/LLM_BASE_URL missing" }),
-        },
-        { id: "claude-api", available: true },
-        {
-          id: "claude-cli",
-          available: claudeCli,
-          ...(claudeCli
-            ? {}
-            : { reason: "claude binary or CLAUDE_CODE_OAUTH_TOKEN missing" }),
-        },
-        {
-          id: "cursor-api",
-          available: cursorSeat,
-          ...(cursorSeat ? {} : { reason: "CURSOR_SEAT_URL unset" }),
-        },
-        {
-          id: "cursor-cli",
-          available: cursorCli,
-          ...(cursorCli
-            ? {}
-            : {
-                reason:
-                  "agent binary or CURSOR_API_KEY missing on this chat image — use Cursor API",
-              }),
         },
       ],
     });
@@ -454,30 +424,15 @@ export function buildSindri(deps: SindriDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const project = await deps.store.getProject(parsed.data.projectId);
     if (!project) return c.json({ error: "project not found" }, 404);
-    const engine = normalizeEngine(parsed.data.engine);
-    if (engine === "claude-cli" && !claudeCliAvailable()) {
-      return c.json(
-        { error: "Claude CLI unavailable: claude binary or CLAUDE_CODE_OAUTH_TOKEN missing" },
-        400,
-      );
-    }
-    if (engine === "cursor-cli" && !cursorCliAvailable()) {
-      return c.json(
-        { error: "Cursor CLI unavailable: agent binary or CURSOR_API_KEY/CURSOR_AUTH_TOKEN missing" },
-        400,
-      );
-    }
-    if (engine === "opencode" && !openCodeCliAvailable()) {
+    // Chat cutover: only OpenCode Auto (legacy engines remain on old sessions until drained).
+    const engine = "opencode" as const;
+    if (!openCodeCliAvailable()) {
       return c.json(
         { error: "OpenCode unavailable: opencode binary or LLM_API_KEY/LLM_BASE_URL missing" },
         400,
       );
     }
-    // "auto" is Cursor-seat / OpenCode — never persist it on a Claude engine (BROKK-34).
-    let model = parsed.data.model ?? "haiku";
-    if (model === "auto" && engine !== "cursor-api" && engine !== "cursor-cli" && engine !== "opencode") {
-      model = "sonnet";
-    }
+    const model = "auto";
     const skillRaw = parsed.data.skill?.trim() || null;
     if (skillRaw) {
       const known = new Set(skillMetaList([
@@ -612,11 +567,16 @@ export function buildSindri(deps: SindriDeps): Hono {
     const id = c.req.param("id");
     const session = await deps.store.getChatSession(id);
     if (session) {
-      deps.turns.stop(id);
+      // Finish/abort the turn before CASCADE-delete so recovered/aborted inserts
+      // don't race the FK (Failed query on chat_messages after trash).
+      await deps.turns.stopAndWait(id).catch(() => deps.turns.stop(id));
       const project = await deps.store.getProject(session.projectId);
       const repo = project ? await deps.store.getRepository(project.repositoryId) : null;
       if (repo) await deps.checkouts.remove({ sessionId: id, repo }).catch(() => {});
       await deps.store.deleteChatSession(id);
+    } else {
+      // Session already gone — still abort any orphan in-memory turn.
+      await deps.turns.stopAndWait(id).catch(() => deps.turns.stop(id));
     }
     return c.json({ ok: true });
   });
