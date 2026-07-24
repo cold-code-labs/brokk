@@ -64,6 +64,9 @@ importers:
       '@brokk/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@brokk/huginn':
+        specifier: workspace:*
+        version: link:../../packages/agents/huginn
       '@brokk/mcp':
         specifier: workspace:*
         version: link:../../packages/mcp
@@ -73,6 +76,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.14(hono@4.12.27)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
       ai:
         specifier: 7.0.34
         version: 7.0.34(zod@3.25.76)
@@ -335,6 +341,19 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  packages/agents/huginn:
+    dependencies:
+      '@brokk/scout':
+        specifier: workspace:*
+        version: link:../scout
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   packages/agents/reviewer:
     dependencies:
       '@brokk/afl':
@@ -416,7 +435,6 @@ importers:
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
-
 
   packages/repomap:
     dependencies:
@@ -4574,6 +4592,28 @@ snapshots:
     dependencies:
       '@chevrotain/types': 11.1.2
 
+  '@modelcontextprotocol/sdk@1.29.0(zod@3.25.76)':
+    dependencies:
+      '@hono/node-server': 1.19.14(hono@4.12.27)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.0
+      express: 5.2.1
+      express-rate-limit: 8.5.2(express@5.2.1)
+      hono: 4.12.27
+      jose: 6.2.3
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 3.25.76
+      zod-to-json-schema: 3.25.2(zod@3.25.76)
+    transitivePeerDependencies:
+      - supports-color
+
   '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.27)
@@ -8133,6 +8173,10 @@ snapshots:
     optional: true
 
   wrappy@1.0.2: {}
+
+  zod-to-json-schema@3.25.2(zod@3.25.76):
+    dependencies:
+      zod: 3.25.76
 
   zod-to-json-schema@3.25.2(zod@4.4.3):
     dependencies:
