@@ -42,25 +42,27 @@ function openCodeStateEnv(src: NodeJS.ProcessEnv = process.env): Record<string, 
   };
 }
 
-/** True when the OpenCode CLI is on PATH and Omni/LiteLLM fuel env is present. */
+/** True when the OpenCode CLI is on PATH and Omni/LiteLLM fuel env is present.
+ *  Positive results are memoized; failures are not — volume perms may heal after boot. */
 export function openCodeCliAvailable(): boolean {
-  if (available !== null) return available;
+  if (available === true) return true;
   const key = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
   const base = process.env.LLM_BASE_URL || process.env.OPENAI_BASE_URL || process.env.ANTHROPIC_BASE_URL;
-  if (!key || !base) {
-    return (available = false);
-  }
+  if (!key || !base) return false;
   try {
     const r = spawnSync(opencodeBin(), ["--version"], {
       timeout: 15_000,
       stdio: "ignore",
       env: { ...process.env, ...openCodeStateEnv() },
     });
-    available = r.status === 0;
+    if (r.status === 0) {
+      available = true;
+      return true;
+    }
   } catch {
-    available = false;
+    /* retry next call */
   }
-  return available;
+  return false;
 }
 
 /** Env + inline config for the OpenCode child. Exported for unit tests. */
