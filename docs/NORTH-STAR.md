@@ -3,6 +3,9 @@
 > The single document every small decision should trace back to.
 > If a change doesn't serve something written here, question it.
 
+> **2026-07-24:** `@brokk/mimir` (Brokk cortex) **terminated**. Intake = OpenCode Plan → Forge.
+> Mentions of Mímir below are historical archive.
+
 ---
 
 ## TL;DR
