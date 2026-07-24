@@ -35,7 +35,7 @@ import {
   runAgentLoop,
 } from "@brokk/afl";
 import type { AgentEngine, AgentRunContext, RunResult, RunUsage, VerifyOutcome } from "@brokk/core";
-import { buildHealPrompt, buildPrompt, DEFAULT_SYSTEM_PROMPT } from "./prompts.js";
+import { buildHealPrompt, buildPrompt, DEFAULT_SYSTEM_PROMPT, summarizeVerifyFailure } from "./prompts.js";
 import { MIGRATION_TOOL_DEF, makeMigrationExecutor } from "./tools.js";
 
 export interface ForgeEngineOptions {
@@ -184,7 +184,7 @@ export class ForgeEngine implements AgentEngine {
             }
           }
           healAttempts++;
-          lastHealFailure = verify.output.slice(-4000);
+          lastHealFailure = summarizeVerifyFailure(verify.output);
           ctx.emit({ type: "status", payload: { phase: "heal", attempt: healAttempts, of: maxHeal } });
           messages.push({
             role: "user",

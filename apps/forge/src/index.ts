@@ -792,34 +792,75 @@ type VerifyResult = { ok: boolean; output: string };
 /** Run the verify command in the worktree. Never throws — a non-zero exit is a
  *  failed verification, not a runner crash. */
 async function runVerify(cmd: string, cwd: string): Promise<VerifyResult> {
+  // The runner process runs with NODE_ENV=production, but verification needs the
+  // worktree's *dev* toolchain (tsc, eslint, types) — `pnpm install` under
+  // production omits devDependencies, which makes `pnpm typecheck` fail with
+  // "tsc: not found". Force a dev env for the verify subprocess only.
+  // pnpm shells out to corepack, which needs a WRITABLE cache home. The forge's
+  // curated env sets HOME=/home/brokk but NOT COREPACK_HOME, so corepack falls back
+  // to `/.cache/node/corepack` → EACCES on the read-only root (the same failure the
+  // preview spawn fixes in preview.ts). Pin HOME + COREPACK_HOME to a writable dir.
+  const home = process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
+  // Fleet convention (svalinn `.npmrc`): ignored dependency build scripts must
+  // not fail verify. Without this, pnpm 10 exits 1 with ERR_PNPM_IGNORED_BUILDS
+  // after a successful prisma generate and the heal loop burns turns inventing
+  // pnpm-workspace.yaml allowBuilds placeholders.
+  const verifyEnv: NodeJS.ProcessEnv = {
+    ...process.env,
+    NODE_ENV: "development",
+    // CI=true makes pnpm non-interactive: without a TTY it otherwise aborts
+    // (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY) when it wants to purge a
+    // node_modules built with different settings, instead of just doing it.
+    CI: "true",
+    HOME: home,
+    COREPACK_HOME: `${home}/.cache/corepack`,
+    npm_config_strict_dep_builds: "false",
+  };
   try {
-    // The runner process runs with NODE_ENV=production, but verification needs the
-    // worktree's *dev* toolchain (tsc, eslint, types) — `pnpm install` under
-    // production omits devDependencies, which makes `pnpm typecheck` fail with
-    // "tsc: not found". Force a dev env for the verify subprocess only.
-    // pnpm shells out to corepack, which needs a WRITABLE cache home. The forge's
-    // curated env sets HOME=/home/brokk but NOT COREPACK_HOME, so corepack falls back
-    // to `/.cache/node/corepack` → EACCES on the read-only root (the same failure the
-    // preview spawn fixes in preview.ts). Pin HOME + COREPACK_HOME to a writable dir.
-    const home = process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
     const { stdout, stderr } = await execAsync(cmd, {
       cwd,
-      // CI=true makes pnpm non-interactive: without a TTY it otherwise aborts
-      // (ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY) when it wants to purge a
-      // node_modules built with different settings, instead of just doing it.
-      env: {
-        ...process.env,
-        NODE_ENV: "development",
-        CI: "true",
-        HOME: home,
-        COREPACK_HOME: `${home}/.cache/corepack`,
-      },
+      env: verifyEnv,
       maxBuffer: 1024 * 1024 * 64,
       timeout: 8 * 60 * 1000,
     });
     return { ok: true, output: `${stdout}\n${stderr}`.trim() };
   } catch (err: any) {
     const out = `${err?.stdout ?? ""}\n${err?.stderr ?? ""}\n${err?.message ?? err}`.trim();
+    // Last-resort: if the only hard failure is ignored builds and the env pin
+    // didn't take (older pnpm / project .npmrc override), rewrite a local
+    // `.npmrc` line and retry once — never invent workspace allowBuilds.
+    if (/ERR_PNPM_IGNORED_BUILDS/i.test(out)) {
+      try {
+        const { appendFile, readFile } = await import("node:fs/promises");
+        const npmrc = `${cwd}/.npmrc`;
+        let existing = "";
+        try {
+          existing = await readFile(npmrc, "utf8");
+        } catch {
+          existing = "";
+        }
+        if (!/^\s*strict-dep-builds\s*=\s*false\s*$/m.test(existing)) {
+          await appendFile(
+            npmrc,
+            `${existing && !existing.endsWith("\n") ? "\n" : ""}# brokk-forge: verify must not fail on ignored dep builds\nstrict-dep-builds=false\n`,
+            "utf8",
+          );
+          const retry = await execAsync(cmd, {
+            cwd,
+            env: verifyEnv,
+            maxBuffer: 1024 * 1024 * 64,
+            timeout: 8 * 60 * 1000,
+          });
+          return {
+            ok: true,
+            output: `${out}\n\n[brokk-forge] retried verify after writing strict-dep-builds=false to .npmrc\n${retry.stdout}\n${retry.stderr}`.trim(),
+          };
+        }
+      } catch (retryErr: any) {
+        const retryOut = `${retryErr?.stdout ?? ""}\n${retryErr?.stderr ?? ""}\n${retryErr?.message ?? retryErr}`.trim();
+        return { ok: false, output: `${out}\n\n[brokk-forge] .npmrc retry also failed:\n${retryOut}`.trim() };
+      }
+    }
     return { ok: false, output: out };
   }
 }

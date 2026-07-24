@@ -108,6 +108,62 @@ export function buildPrompt(ctx: AgentRunContext, browser?: boolean): string {
   ].join("\n");
 }
 
+/**
+ * Compress a verify failure for the heal prompt.
+ * Full `pnpm install` dumps divert the agent into chasing env noise (e.g.
+ * ERR_PNPM_IGNORED_BUILDS → inventing pnpm-workspace.yaml). Prefer the root
+ * error code + a short tail of meaningful lines.
+ */
+export function summarizeVerifyFailure(output: string, opts?: { maxLines?: number; maxChars?: number }): string {
+  const maxLines = opts?.maxLines ?? 30;
+  const maxChars = opts?.maxChars ?? 3500;
+  const text = output.replace(/\r\n/g, "\n").trim();
+  if (!text) return "(no verify output)";
+
+  const hints: string[] = [];
+  if (/ERR_PNPM_IGNORED_BUILDS/i.test(text)) {
+    hints.push(
+      "Harness note: ERR_PNPM_IGNORED_BUILDS is a pnpm policy/env issue. Prefer `.npmrc` with `strict-dep-builds=false` (fleet convention). Do NOT invent `pnpm-workspace.yaml` allowBuilds placeholders. If the real code fix is already done, leave package manager config alone unless verify still fails after that.",
+    );
+  }
+  if (/Missing script:\s*["']?typecheck/i.test(text)) {
+    hints.push(
+      "Harness note: this repo has no `typecheck` script. Prefer `pnpm exec tsc --noEmit` (if tsconfig exists) or the repo's existing `build`/`lint` — do not add a new test framework.",
+    );
+  }
+  if (/ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY/i.test(text)) {
+    hints.push("Harness note: pnpm wanted a TTY to purge node_modules — usually fixed by CI=true in verify; re-run / avoid manual rm of node_modules.");
+  }
+
+  const lines = text.split("\n").map((l) => l.trimEnd());
+  const noise = (l: string) =>
+    /^\s*\+\s+\S+@?\S*\s+\d/.test(l) || // pnpm "+ pkg version" install dump
+    /^Progress:\s/i.test(l) ||
+    /^Packages:\s*\+/i.test(l) ||
+    /^\? Verifying lockfile/i.test(l) ||
+    /^Lockfile is up to date/i.test(l) ||
+    /^\++$/.test(l.trim());
+  const interesting = lines.filter(
+    (l) =>
+      !noise(l) &&
+      /error|fail|ERR_|ELIFECYCLE|TS\d{4}|ENOENT|EACCES|not found|Cannot find|Missing script|Command failed/i.test(l),
+  );
+  const tail = lines.filter((l) => !noise(l)).slice(-maxLines);
+  const pick: string[] = [];
+  const seen = new Set<string>();
+  const push = (l: string) => {
+    const key = l.trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    pick.push(l);
+  };
+  for (const l of interesting.slice(-Math.min(15, maxLines))) push(l);
+  for (const l of tail) push(l);
+
+  const body = [...hints, hints.length ? "" : null, ...pick].filter((x): x is string => x != null).join("\n");
+  return body.length > maxChars ? body.slice(-maxChars) : body;
+}
+
 /** Re-prompt for a heal pass: the agent's previous changes are already in the
  *  worktree (and, on the native loop, in this same conversation); the verify
  *  command failed — fix it so verification passes. */
@@ -124,7 +180,7 @@ export function buildHealPrompt(ctx: AgentRunContext, verifyOutput: string): str
     "",
     "## Verify failure output",
     "```",
-    verifyOutput.slice(-12_000),
+    summarizeVerifyFailure(verifyOutput),
     "```",
   ].join("\n");
 }

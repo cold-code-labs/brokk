@@ -20,6 +20,8 @@ export {
 export { cursorCliAvailable, runCursorCliTurn } from "./cursor-cli.js";
 export {
   buildOpenHandsCliEnv,
+  mapOpenHandsEvent,
+  ohText,
   openHandsCliAvailable,
   runOpenHandsCliTurn,
 } from "./openhands-cli.js";

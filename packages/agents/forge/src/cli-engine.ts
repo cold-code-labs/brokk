@@ -32,7 +32,7 @@ import {
   type CliTurnOutcome,
 } from "@brokk/afl";
 import type { AgentEngine, AgentRunContext, RunResult, RunUsage, VerifyOutcome } from "@brokk/core";
-import { buildHealPrompt, buildPrompt, DEFAULT_SYSTEM_PROMPT } from "./prompts.js";
+import { buildHealPrompt, buildPrompt, DEFAULT_SYSTEM_PROMPT, summarizeVerifyFailure } from "./prompts.js";
 
 export interface ClaudeCliEngineOptions {
   /** alias → concrete model id. Defaults to the current CCL model ids. */
@@ -185,7 +185,7 @@ class CliEngine implements AgentEngine {
             }
           }
           healAttempts++;
-          lastHealFailure = verify.output.slice(-4000);
+          lastHealFailure = summarizeVerifyFailure(verify.output);
           ctx.emit({ type: "status", payload: { phase: "heal", attempt: healAttempts, of: maxHeal } });
           await forgePass(buildHealPrompt(ctx, verify.output));
         }

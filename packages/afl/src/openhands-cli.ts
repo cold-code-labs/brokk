@@ -137,59 +137,156 @@ function mapUsage(u: Record<string, unknown> | undefined | null): TurnUsage {
   };
 }
 
-/** Best-effort map of OpenHands JSONL events → AgentEvent. */
-function emitOhEvent(raw: Record<string, unknown>, emit: (e: AgentEvent) => void, toolIds: Map<string, string>): void {
-  const type = String(raw.type ?? raw.event_type ?? raw.kind ?? "");
-  const action = raw.action as Record<string, unknown> | string | undefined;
-  const observation = raw.observation as Record<string, unknown> | string | undefined;
+/** Flatten OH content blocks / nested text into a readable string. */
+export function ohText(value: unknown, max = 2000): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value.slice(0, max);
+  if (typeof value === "number" || typeof value === "boolean") return String(value).slice(0, max);
+  if (Array.isArray(value)) {
+    const parts: string[] = [];
+    for (const item of value) {
+      if (typeof item === "string") parts.push(item);
+      else if (item && typeof item === "object") {
+        const o = item as Record<string, unknown>;
+        if (typeof o.text === "string") parts.push(o.text);
+        else if (typeof o.content === "string") parts.push(o.content);
+        else if (typeof o.message === "string") parts.push(o.message);
+      }
+    }
+    return parts.join("\n").slice(0, max);
+  }
+  if (typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    const nested = ohText(o.text ?? o.content ?? o.message ?? o.preview, max);
+    if (nested) return nested;
+    try {
+      return JSON.stringify(value).slice(0, max);
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
 
-  if (/Action|action/i.test(type) || raw.action) {
-    const act = typeof action === "object" && action ? action : raw;
-    const name = String(
-      (act as { action?: string }).action ??
-        (act as { name?: string }).name ??
-        (act as { tool_name?: string }).tool_name ??
-        (typeof action === "string" ? action : type || "action"),
-    );
-    const id = String((act as { id?: string }).id ?? raw.id ?? `oh-${toolIds.size + 1}`);
-    toolIds.set(id, name);
-    const input =
-      (act as { args?: unknown }).args ??
-      (act as { inputs?: unknown }).inputs ??
-      (act as { path?: unknown }).path ??
-      {};
-    emit({ type: "tool_use", id, name, input: typeof input === "object" && input ? (input as Record<string, unknown>) : { value: input } });
+function ohToolName(raw: Record<string, unknown>, action?: Record<string, unknown> | null): string {
+  const from =
+    raw.tool_name ??
+    action?.tool_name ??
+    action?.name ??
+    action?.action ??
+    (typeof action?.kind === "string" && !/Event$/i.test(action.kind) ? action.kind : null) ??
+    raw.name;
+  if (typeof from === "string" && from && !/^ActionEvent$/i.test(from) && !/^ObservationEvent$/i.test(from)) {
+    return from;
+  }
+  // FinishAction → finish, TerminalObservation stays last-resort
+  const kind = String(action?.kind ?? raw.kind ?? "");
+  const m = kind.match(/^(.*)(Action|Observation)$/i);
+  if (m?.[1]) return m[1].replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+  return from ? String(from) : "action";
+}
+
+function ohToolInput(raw: Record<string, unknown>, action?: Record<string, unknown> | null): Record<string, unknown> {
+  const src = action ?? raw;
+  const args = src.args ?? src.inputs ?? src.arguments;
+  if (args && typeof args === "object" && !Array.isArray(args)) return args as Record<string, unknown>;
+  if (typeof args === "string") {
+    try {
+      const parsed = JSON.parse(args) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    } catch {
+      /* keep falling through */
+    }
+    return { value: args };
+  }
+  const out: Record<string, unknown> = {};
+  for (const k of ["command", "path", "kind", "security_risk", "summary"] as const) {
+    if (src[k] != null) out[k] = src[k];
+  }
+  if (Object.keys(out).length) return out;
+  return {};
+}
+
+/**
+ * Map one OpenHands 1.14+ event (JSONL / conversation event) → AgentEvent(s).
+ * Exported for unit tests — OH uses `kind: ActionEvent` + `tool_name`, not
+ * Anthropic-shaped tool_use blocks.
+ */
+export function mapOpenHandsEvent(
+  raw: Record<string, unknown>,
+  emit: (e: AgentEvent) => void,
+  toolIds: Map<string, string>,
+): void {
+  const kind = String(raw.kind ?? raw.type ?? raw.event_type ?? "");
+  const action = raw.action && typeof raw.action === "object" ? (raw.action as Record<string, unknown>) : null;
+  const observation =
+    raw.observation && typeof raw.observation === "object" ? (raw.observation as Record<string, unknown>) : null;
+
+  // Agent errors (bad tool args, etc.)
+  if (/AgentError|error_event/i.test(kind) || raw.error) {
+    const text = ohText(raw.error ?? raw.message ?? raw.content) || kind || "openhands error";
+    emit({ type: "error", message: text.slice(0, 2000) });
     return;
   }
 
-  if (/Observation|observation/i.test(type) || raw.observation) {
-    const obs = typeof observation === "object" && observation ? observation : raw;
-    const cause = String((obs as { cause?: string }).cause ?? (obs as { action_id?: string }).action_id ?? "");
-    const toolUseId = cause || [...toolIds.keys()].at(-1) || "oh-unknown";
-    const content = String(
-      (obs as { content?: string }).content ??
-        (obs as { message?: string }).message ??
-        JSON.stringify(obs).slice(0, 2000),
+  const isAction =
+    /ActionEvent/i.test(kind) ||
+    (!!raw.tool_name && !!action && !observation) ||
+    (!!action && !observation && /Action/i.test(String(action.kind ?? kind)));
+  if (isAction && !observation) {
+    const name = ohToolName(raw, action);
+    const id = String(raw.tool_call_id ?? action?.id ?? raw.id ?? `oh-${toolIds.size + 1}`);
+    toolIds.set(id, name);
+    emit({ type: "tool_use", id, name, input: ohToolInput(raw, action) });
+    const thought = ohText(raw.thought ?? raw.reasoning_content ?? raw.summary);
+    if (thought) emit({ type: "text_delta", text: thought });
+    return;
+  }
+
+  const isObservation =
+    /ObservationEvent/i.test(kind) ||
+    !!observation ||
+    (!!raw.tool_name && !!raw.action_id && !action);
+  if (isObservation) {
+    const obs = observation ?? raw;
+    const toolUseId = String(
+      raw.action_id ?? raw.tool_call_id ?? (obs as { cause?: string }).cause ?? [...toolIds.keys()].at(-1) ?? "oh-unknown",
     );
-    const ok = !/error|fail/i.test(String((obs as { extras?: { exit_code?: number } }).extras?.exit_code ?? ""));
+    const name = ohToolName(raw, null);
+    if (!toolIds.has(toolUseId)) toolIds.set(toolUseId, name);
+    const content =
+      ohText((obs as { content?: unknown }).content) ||
+      ohText((obs as { message?: unknown }).message) ||
+      ohText(obs).slice(0, 2000);
+    const exit = (obs as { extras?: { exit_code?: number } }).extras?.exit_code;
+    const ok =
+      exit === undefined
+        ? !((obs as { is_error?: boolean }).is_error === true)
+        : Number(exit) === 0;
     emit({
       type: "tool_result",
       toolUseId,
       ok,
-      preview: content.slice(0, 2000),
+      preview: content.slice(0, 2000) || `(${name})`,
     });
     return;
   }
 
-  if (/Message|message|agent_state/i.test(type) || raw.message || raw.content) {
-    const text = String(
-      (raw as { message?: string }).message ??
-        (raw as { content?: string }).content ??
-        (raw as { thought?: string }).thought ??
-        "",
-    );
-    if (text) emit({ type: "text_delta", text });
-  }
+  // Skip system/bootstrap noise
+  if (/System|Console|Conditional/i.test(kind) && !raw.message) return;
+
+  const text =
+    ohText(raw.message) ||
+    ohText(raw.content) ||
+    ohText(raw.thought) ||
+    ohText(raw.reasoning_content) ||
+    ohText((raw.llm_message as { content?: unknown } | undefined)?.content);
+  if (text) emit({ type: "text_delta", text });
+}
+
+/** @deprecated use mapOpenHandsEvent — kept as the internal name in the turn loop. */
+function emitOhEvent(raw: Record<string, unknown>, emit: (e: AgentEvent) => void, toolIds: Map<string, string>): void {
+  mapOpenHandsEvent(raw, emit, toolIds);
 }
 
 export async function runOpenHandsCliTurn(input: CliTurnInput): Promise<CliTurnOutcome> {
