@@ -1,6 +1,5 @@
 import { serve } from "@hono/node-server";
 import { createDb, createStore, ensureSchema } from "@brokk/db";
-import { loadMimirConfig } from "@brokk/mimir";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { startMissionReconciler } from "./missions.js";
@@ -13,14 +12,7 @@ async function main() {
   await ensureSchema(db);
   const store = createStore(db);
 
-  // Mímir is optional at boot: without a usable provider (Max seat or OpenAI
-  // key) the bank still works, only enhance/triage/plan return 503.
-  const mimir = loadMimirConfig();
-  if (!mimir) {
-    console.warn("[mimir] no provider (CLAUDE_CODE_OAUTH_TOKEN / MIMIR_API_KEY) — enhance/triage/plan disabled");
-  } else {
-    console.log(`[mimir] provider=${mimir.provider} planner=${mimir.plannerModel}`);
-  }
+  console.log("[mimir] Brokk cortex terminated — use Chat Plan → Forge");
 
   const app = buildApp({
     store,
@@ -29,7 +21,6 @@ async function main() {
     githubWebhookSecret: cfg.BROKK_GITHUB_WEBHOOK_SECRET,
     githubToken: cfg.GITHUB_TOKEN,
     eitriUrl: cfg.EITRI_URL || "http://reviewer:8796",
-    mimir,
     sindriUrl: cfg.BROKK_SINDRI_URL,
     heimdallAgentUrl: cfg.HEIMDALL_AGENT_URL,
     heimdallAgentToken: cfg.HEIMDALL_AGENT_TOKEN,
@@ -37,12 +28,9 @@ async function main() {
     heimdallToken: cfg.HEIMDALL_AGENT_TOKEN,
   });
 
-  // Regin (ADR 0027 §5.4): the mission reconciler rides the API process — one
-  // singleton tick loop; without Mímir, missions block at planning (never crash).
-  startMissionReconciler({ store, mimir });
+  // Regin still ticks for in-flight missions; new planning is blocked (no Mímir).
+  startMissionReconciler({ store });
 
-  // BROKK-45: heal Review→Done when the GitHub merge webhook is missed, and when
-  // the forge opened a successor PR (#5 closed unmerged → #6 merged).
   startReviewReconciler({ store, githubToken: cfg.GITHUB_TOKEN });
 
   serve({ fetch: app.fetch, port: cfg.BROKK_API_PORT }, ({ port }) => {

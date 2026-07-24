@@ -13,52 +13,45 @@
 ## Layout
 
 **Packages = capabilities (libraries). Apps = processes (trigger-adapters).**
-Dependency direction is one-way: `afl + mimir ← agents ← apps` (NORTH-STAR §10).
+Dependency direction is one-way: `afl ← agents ← apps` (NORTH-STAR §10).
 
 | Package | Role |
 |---|---|
-| `packages/afl` | **Afl** — the agent kernel: native Messages-API streaming tool loop (`runAgentLoop`), gateway client with retry/backoff, the generic hands (`read_file/write_file/edit_file/list_dir/bash`), and the execution enclave (`ExecEnclave`: env allowlist → Landlock jail → egress uid-split → optional gVisor). Zero runtime dependencies. |
+| `packages/afl` | **Afl** — agent kernel + CLI turn drivers (OpenCode · Claude · Cursor · OpenHands). |
 | `packages/core` | Shared domain types (tasks, runs, previews, plans) + the runtime spec/allowlist. |
 | `packages/db` | Drizzle models + the Store over Postgres. Schema changes ship via **boot-time self-heal DDL** (see below). |
-| `packages/mimir` | **Mímir** — the cortex: enhance → triage (`força`) → plan. Pure library, HTTP-only client (Messages API via the gateway, or an OpenAI-compatible endpoint). |
 | `packages/sdk` | Typed client for the control-plane API. |
 | `packages/mcp` | **MCP bridge** (ADR 0027 §4.1): `BROKK_MCP_SERVERS` → connected servers → namespaced ToolDefs + a PartialExecutor mounted into Sindri turns. Fail-closed gating (read-only by default). |
 | `packages/repomap` | **Ranked symbol map** (ADR 0027 §4.2): exported symbols per file + PageRank over the import graph (TS compiler as parser). Feeds the forge's warm index. |
 | `packages/agents/forge` | **Brokkr** — autonomous card→worktree→verify→heal→PR engine. |
-| `packages/agents/chat` | **Sindri** — conversational coding over a live checkout, domain tools (cards, planning, infra intents). |
+| `packages/agents/chat` | **Chat** — conversational coding over a live checkout (OpenCode). |
 | `packages/agents/scout` | **Huginn/Muninn** — read-only discovery: repo brief, card resolution, meeting intake, runtime detection. |
 | `packages/agents/reviewer` | **Eitri** — PR review on read-only hands, no gh creds. |
 
 | App | Role |
 |---|---|
-| `apps/api` | Control plane (Hono): projects/tasks/runs/previews/chat/mimir routes, SSE logs. |
+| `apps/api` | Control plane (Hono): projects/tasks/runs/previews/chat/ingress routes, SSE logs. |
 | `apps/web` | Next.js workbench: kanban board + chat + live preview. |
-| `apps/chat` | Sindri daemon (detached turns, checkout manager) — also hosts the scout. |
+| `apps/chat` | Chat daemon (detached turns, checkout manager) — also hosts the scout. |
 | `apps/forge` | Runner: claims cards, runs the forge engine, supervises live previews. |
 | `apps/reviewer` | Eitri daemon: polls PRs, semgrep+trivy scan, LLM review, verdict comment. |
-| `apps/preview-proxy` | `*.preview` reverse proxy (subdomain → live preview port). Not the AI gateway (that's LiteLLM/Ratatoskr). |
+| `apps/preview-proxy` | `*.preview` reverse proxy (subdomain → live preview port). Not the AI gateway (that's LiteLLM/OmniRoute). |
 | `apps/enclave-manager` | Broker that owns the Docker socket for gVisor enclaves. |
 
 ## Convention 1 — one loop, hooks for effects
 
-Every agent rides `runAgentLoop` (afl). Side effects — persisting messages,
+Every agent rides `runAgentLoop` (afl) or a CLI turn driver. Side effects — persisting messages,
 emitting events, tracing — are **hooks**, never kernel code. Domain tools are
 composed onto the generic hands via `composeExecutors`; mutation is gated
 (read-only tool defs, `shellEnv()` env allowlist, gh creds opt-in).
 
 ### Missions (Regin)
 
-**Regin** is the mission coordinator (ADR 0027 §5.4, MultiDevin-lite) — a
-*reconciler*, not an app: goal → plan (Mímir, the same plan/DAG recipe as
-Sindri's `plan_work`) → dispatch (auto-approve or board approval) → watch/react
-(per card: retry ≤2 → one-shot replan ≤1 → escalate/blocked) → synthesize the
-outcome → done. State lives in `missions` + append-only `mission_events`
-(self-heal DDL, reaction counters in `missions.state`); the tick loop rides
-`apps/api` (`src/missions.ts`, every 30s, crash-safe — recomputed from db rows).
-Every LLM use is a one-shot structured decision, at most one per mission per
-tick. Entry points: `POST /missions` and Sindri's `start_mission`/`list_missions`
-tools. A second claim-only runner (`forge-b`, `BROKK_SUPERVISOR=0`) gives
-missions real fan-out.
+**Regin** is the mission coordinator (ADR 0027 §5.4) — a *reconciler*, not an app.
+**Planning via Mímir is terminated** (2026-07-24): use Brokk Chat **OpenCode Plan → Forge**.
+Regin still watches in-flight missions (retry → escalate → synthesize); new goals that need
+decomposition go through Chat. State lives in `missions` + `mission_events`; the tick loop
+rides `apps/api` (`src/missions.ts`, every 30s).
 
 Operational note: after a human resolves an escalation, `POST
 /missions/:id/resume` unblocks the mission but does NOT re-dispatch — re-queue

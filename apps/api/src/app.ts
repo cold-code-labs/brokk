@@ -1,12 +1,10 @@
 import type { Store } from "@brokk/db";
-import type { MimirConfig } from "@brokk/mimir";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { version } from "../package.json";
 import { chatRoutes } from "./routes/chat.js";
 import { conversationsRoutes } from "./routes/conversations.js";
 import { driverRunsRoutes } from "./routes/driver-runs.js";
-import { mimirRoutes } from "./routes/mimir.js";
 import { missionsRoutes } from "./routes/missions.js";
 import { plansRoutes } from "./routes/plans.js";
 import { previewsRoutes } from "./routes/previews.js";
@@ -35,8 +33,6 @@ export interface AppDeps {
   githubToken?: string;
   /** Base URL of Eitri HTTP trigger (e.g. http://reviewer:8796). Empty = skip. */
   eitriUrl?: string;
-  /** Mímir model config (triador + enhancer). Undefined = enhance/triage → 503. */
-  mimir?: MimirConfig;
   /** Base URL of the Sindri chat runtime (e.g. http://127.0.0.1:8795). Empty =
    *  /chat returns 503. */
   sindriUrl?: string;
@@ -114,7 +110,6 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/plans", plansRoutes(deps));
   app.route("/previews", previewsRoutes(deps));
   app.route("/driver-runs", driverRunsRoutes(deps));
-  app.route("/mimir", mimirRoutes(deps));
   app.route("/chat", chatRoutes(deps));
   app.route("/users", usersRoutes(deps));
   app.route("/subscriptions", subscriptionsRoutes(deps));

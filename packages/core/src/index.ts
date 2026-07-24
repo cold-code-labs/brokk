@@ -1004,6 +1004,75 @@ export interface PrototypePackInsumos {
   }>;
 }
 
+const DEFAULT_PACK_CONSTRAINTS = [
+  "Somente frontend (Vite · template-vite / Heimdall client-vite)",
+  "Dados mock — sem BaaS / Hauldr / auth real nas telas Hero",
+  "Um app navegável coerente (Hero), não 12 tickets soltos",
+];
+
+function packStr(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function packPrio(v: unknown): PrototypeHeroRoom["prioridade"] {
+  const s = packStr(v);
+  if (s === "alta" || s === "media" || s === "baixa") return s;
+  return "media";
+}
+
+/** Coerce + enforce hero_set ≤ MAX. Safe for pass-through packs (ADR 0070).
+ *  AI Enhance lived in terminated `@brokk/mimir` — use Chat Plan instead. */
+export function coercePrototypePack(raw: unknown): PrototypePack {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const heroRaw = Array.isArray(o.hero_set) ? o.hero_set : Array.isArray(o.heroSet) ? o.heroSet : [];
+  const hero_set: PrototypeHeroRoom[] = (heroRaw as Record<string, unknown>[])
+    .map((r) => ({
+      title: packStr(r.title) || packStr(r.titulo),
+      route: packStr(r.route) || "/",
+      job: packStr(r.job) || packStr(r.o_que) || packStr(r.oQuePediram),
+      fake_data: packStr(r.fake_data) || packStr(r.fakeData) || "Dados de exemplo",
+      prioridade: packPrio(r.prioridade ?? r.priority),
+    }))
+    .filter((r) => r.title)
+    .slice(0, PROTOTYPE_PACK_MAX_HERO);
+
+  const deferred: PrototypeDeferredItem[] = (
+    Array.isArray(o.deferred) ? (o.deferred as Record<string, unknown>[]) : []
+  )
+    .map((d) => ({
+      title: packStr(d.title) || packStr(d.titulo),
+      why: packStr(d.why) || packStr(d.nota) || "fora do Hero",
+    }))
+    .filter((d) => d.title);
+
+  const evidence: PrototypeEvidence[] = (
+    Array.isArray(o.evidence)
+      ? (o.evidence as Record<string, unknown>[])
+      : Array.isArray(o.evidencia)
+        ? (o.evidencia as Record<string, unknown>[])
+        : []
+  )
+    .map((e) => ({
+      quote: packStr(e.quote),
+      source: packStr(e.source) || packStr(e.speaker) || undefined,
+    }))
+    .filter((e) => e.quote)
+    .slice(0, 12);
+
+  const constraints = (
+    Array.isArray(o.constraints) ? (o.constraints as unknown[]).map(packStr).filter(Boolean) : []
+  );
+  return {
+    mission: packStr(o.mission) || "Protótipo frontend navegável para validar a discovery.",
+    context: packStr(o.context) || packStr(o.contexto),
+    constraints: constraints.length ? constraints : [...DEFAULT_PACK_CONSTRAINTS],
+    design_read: packStr(o.design_read) || packStr(o.designRead),
+    hero_set,
+    deferred,
+    evidence,
+  };
+}
+
 // ── Full QA: scenario catalog ────────────────────────────────────────────────
 
 /** Lifecycle of a project's QA scenario catalog (Discovery phase). */

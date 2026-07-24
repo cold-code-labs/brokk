@@ -1,12 +1,12 @@
 import {
   AUTH_MODES,
   PROTOTYPE_PACK_MAX_HERO,
+  coercePrototypePack,
   featureBranch,
   storyFeatureBranch,
   taskSlug,
   type Task,
 } from "@brokk/core";
-import { MimirError, coercePrototypePack, enhancePrototypePack } from "@brokk/mimir";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requestActor, canSeeProject, listScope, resolveLogtoOrgId } from "../actor.js";
@@ -158,25 +158,17 @@ export function projectsRoutes(deps: AppDeps): Hono {
       return c.json({ pack, enhanced: false, projectId: id });
     }
 
-    if (!deps.mimir) {
-      return c.json({ error: "prototype-pack enhance unavailable (no Mímir config)" }, 503);
-    }
-    const insumos = {
-      projectName: parsed.data.insumos.projectName ?? project.name,
-      description: parsed.data.insumos.description,
-      prompt: parsed.data.insumos.prompt,
-      pedidos: parsed.data.insumos.pedidos,
-    };
-    try {
-      const result = await enhancePrototypePack(insumos, deps.mimir);
-      return c.json({ pack: result.pack, enhanced: true, model: result.model, projectId: id });
-    } catch (err) {
-      if (err instanceof MimirError) {
-        const status = err.status === 400 || err.status === 503 ? err.status : 502;
-        return c.json({ error: err.message }, status);
-      }
-      throw err;
-    }
+    // Mímir cortex terminated (2026-07-24): Enhance AI lived in @brokk/mimir.
+    // Pass a gated pack, or use Brokk Chat Plan → Forge.
+    return c.json(
+      {
+        error:
+          "prototype-pack enhance terminated — send mode=pack with a ready Pack, or use Chat Plan → Forge",
+        terminated: "mimir",
+        substitute: "chat-plan",
+      },
+      410,
+    );
   });
 
   // ADR 0070 / H4 — deferred do Pack → cards PROPOSED (Muninn-shaped, label discovery).

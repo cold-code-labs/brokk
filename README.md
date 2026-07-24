@@ -35,10 +35,9 @@ via `BROKK_FORGE_ENGINE`:
 | `cli` | the genuine Claude Code CLI |
 | `afl` | the native in-process loop, straight to the Messages API |
 
-The forge is a trio: **Mímir advises** (qualifies the prompt, fans it into a DAG of
-cards) → **Brokkr forges** (one worktree per card) → **Eitri reviews** (semgrep + trivy
-+ LLM, on every PR). **Sindri** is the conversational face — chat that builds, with a
-live preview it can drive itself through a Playwright MCP.
+The forge is **OpenHands** on the worker lane; Chat is **OpenCode** (Plan → Forge).
+**Mímir cortex** was dissolved 2026-07-24 (Edda ledger — use Chat Plan, not `/mimir`).
+**Eitri** still reviews PRs. Chat drives a live preview via Playwright MCP.
 
 ## Stack
 
@@ -48,7 +47,7 @@ pnpm monorepo · **Hono** API · **Next 15** web · **Drizzle + Postgres** · No
 ```
 # apps = processes (trigger-adapters)
 apps/api              @brokk/api               Hono control plane — projects, tasks, runs,
-                                               previews, chat, mimir routes, SSE logs
+                                               previews, chat, ingress, SSE logs
 apps/web              @brokk/web               Next 15 workbench — kanban + chat + live preview
 apps/forge            @brokk/forge-app         the runner — claim loop, worktrees, gh,
                                                preview supervisor
@@ -60,13 +59,12 @@ apps/enclave-manager  @brokk/enclave-manager-app  the one privileged process tha
                                                Docker socket, so workers never do
 
 # packages = capabilities (libraries)
-packages/afl              @brokk/afl       the kernel — native agent loop + shared hands
-packages/mimir            @brokk/mimir     the counselor — triage + enhancer + planner (card → DAG)
+packages/afl              @brokk/afl       kernel + turn drivers (OpenCode · Claude · Cursor · OpenHands)
 packages/mcp              @brokk/mcp       MCP bridge — operator-configured servers surface as
                                            tools, namespaced and read-only by default
 packages/repomap          @brokk/repomap   ranked repo map (tree-sitter symbols + PageRank)
 packages/agents/forge     @brokk/forge     Brokkr — worktree → build → verify → PR
-packages/agents/chat      @brokk/chat      Sindri — conversational build persona
+packages/agents/chat      @brokk/chat      Chat — conversational build (OpenCode)
 packages/agents/scout     @brokk/scout     Huginn — read-only repo → structured brief
 packages/agents/reviewer  @brokk/reviewer  Eitri — diff → verdict + markdown review
 packages/core             @brokk/core      domain types + ports (AgentEngine, GitProvider) — no deps

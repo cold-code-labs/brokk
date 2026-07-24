@@ -13,7 +13,6 @@
   "dependencies": {
     "@brokk/core": "workspace:*",
     "@brokk/db": "workspace:*",
-    "@brokk/mimir": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "hono": "^4.6.14",
     "postgres": "^3.4.5",

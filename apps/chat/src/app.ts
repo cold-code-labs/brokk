@@ -29,8 +29,7 @@ import { runMeetingScout, runResolve } from "@brokk/scout";
 import { proposeFromBrief, proposeFromQaCatalog, proposeFromQaFindings } from "./forge-from-huginn.js";
 import { buildDetectCtx, resolveRuntime } from "@brokk/core/runtime";
 import type { Store } from "@brokk/db";
-import { featureBranch, type Repository } from "@brokk/core";
-import { enhancePrompt, planJob, type MimirConfig, type MimirMode } from "@brokk/mimir";
+import { type Repository } from "@brokk/core";
 import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
@@ -377,11 +376,6 @@ export function buildSindri(deps: SindriDeps): Hono {
         kind: "capability",
       },
       {
-        name: "enhance",
-        description: "Rewrite a rough prompt/spec into a sharper one via Mímir.",
-        kind: "capability",
-      },
-      {
         name: "qa-discover",
         description:
           "Build / refresh the Full QA scenario catalog (user journeys) for this project.",
@@ -439,7 +433,6 @@ export function buildSindri(deps: SindriDeps): Hono {
     if (skillRaw) {
       const known = new Set(skillMetaList([
         { name: "discovery", description: "", kind: "capability" },
-        { name: "enhance", description: "", kind: "capability" },
         { name: "qa-discover", description: "", kind: "capability" },
         { name: "submit_qa_report", description: "", kind: "capability" },
         { name: "qa-progress", description: "", kind: "capability" },
@@ -1192,7 +1185,6 @@ async function runSessionTurn(
     const known = new Set(
       skillMetaList([
         { name: "discovery", description: "", kind: "capability" },
-        { name: "enhance", description: "", kind: "capability" },
         { name: "qa-discover", description: "", kind: "capability" },
         { name: "submit_qa_report", description: "", kind: "capability" },
         { name: "qa-progress", description: "", kind: "capability" },
@@ -1323,13 +1315,12 @@ async function runSessionTurn(
     extraExec: deps.mcp?.executor,
     skills,
     onDomainEvent: (e) => emit({ type: "status", phase: e.kind, detail: e.detail }),
-    // The plan_work tool bridges to Mímir — Haiku decides to plan, the strong
-    // planner decomposes, the cards land in the backlog (proposed) for approval.
-    // Surface a status: the strong planner call takes a while (chat shows it).
-    planWork: (intent) => {
-      emit({ type: "status", phase: "planejando" });
-      return runPlan(deps, project, intent);
-    },
+    // Mímir plan_work terminated — OpenCode Plan + → Forge is the path.
+    planWork: async () => ({
+      ok: false,
+      content:
+        "Mímir dissolvido. Use o Chat em modo Plan, depois o botão → Forge para criar o card.",
+    }),
     // The generate_image tool bridges to the Cursor seat's image lane (Ratatoskr
     // cursor-img). Generation is slow (~1–2 min) — surface a status; the PNG is
     // persisted and returned as a markdown tag served via the /api/chat/* proxy.
@@ -1472,31 +1463,6 @@ function cursorApiCfg(deps: SindriDeps): AflConfig {
   };
 }
 
-/** Mímir config for Sindri's plan_work — openai-mode against the CCL gateway
- *  (LiteLLM → Ratatoskr), the same proven path the /plan page uses in prod. We
- *  force this transport because Sindri's image has no `claude` CLI (the planner's
- *  default). Planning runs on the STRONG model; SINDRI_PLAN_MODEL can override
- *  (e.g. to haiku) when the shared seat is tight. */
-function plannerConfig(): MimirConfig | null {
-  const apiKey = process.env.MIMIR_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || "";
-  if (!apiKey) return null;
-  const gw = (process.env.ANTHROPIC_BASE_URL || "http://127.0.0.1:4000").replace(/\/$/, "");
-  const baseUrl = process.env.MIMIR_BASE_URL || `${gw}/v1`;
-  const model = process.env.SINDRI_PLAN_MODEL || process.env.MIMIR_PLANNER_MODEL || "claude-sonnet-4-6";
-  return {
-    provider: "openai",
-    enhanceModel: model,
-    triageModel: model,
-    plannerModel: model,
-    baseUrl,
-    apiKey,
-    authToken: "",
-    anthropicBaseUrl: "",
-  };
-}
-
-/** Brokk Skills for a chat turn (ADR 0039). Capability skills are bound here;
- *  instruction skills load from skills/<id>/SKILL.md (BROKK_SKILLS_DIR). */
 function buildSkills(
   deps: SindriDeps,
   projectId: string,
@@ -1538,27 +1504,6 @@ function buildSkills(
           `**Stack:** ${brief.stack.join(", ")}`,
         ].join("\n");
         return { ok: true, content: out };
-      },
-    },
-    {
-      name: "enhance",
-      description:
-        "Rewrite a rough prompt/spec into a sharper one via Mímir. Pass { input: <prompt to refine>, mode?: 'polish' | 'structure' | 'engineer' }. Use when the user hands you a vague or messy request and wants it tightened before acting.",
-      run: async (input) => {
-        const text = String(input.input ?? input.prompt ?? "").trim();
-        if (!text) return { ok: false, content: "enhance needs an 'input' prompt to refine" };
-        const cfg = plannerConfig();
-        if (!cfg) return { ok: false, content: "enhance unavailable (no gateway credentials)" };
-        const modeRaw = String(input.mode ?? "structure");
-        const mode: MimirMode = (["polish", "structure", "engineer"].includes(modeRaw)
-          ? modeRaw
-          : "structure") as MimirMode;
-        emit({ type: "status", phase: "enhance" });
-        const res = await enhancePrompt(text, mode, cfg);
-        return {
-          ok: true,
-          content: `Enhanced (${res.mode}):\n\n${res.enhanced}\n\n— rationale: ${res.rationale}`,
-        };
       },
     },
     {
@@ -1821,7 +1766,7 @@ function buildSkills(
 /** Build Sindri's infra-intent bridge over Heimdall's SCOPED Agent API. Returns
  *  undefined when HEIMDALL_AGENT_URL/_TOKEN are unset, which disables the infra
  *  tools for the session (they report "not available"). Reads process.env
- *  directly, the same idiom as plannerConfig above. Emits a status per call so
+ *  directly. Emits a status per call so
  *  the chat surfaces the mutation as it runs. */
 function heimdallInfra(emit: (e: AgentEvent) => void): ToolContext["infra"] {
   const baseUrl = (process.env.HEIMDALL_AGENT_URL || "").replace(/\/$/, "");
@@ -1854,99 +1799,6 @@ function heimdallInfra(emit: (e: AgentEvent) => void): ToolContext["infra"] {
       status("infra: register_job");
       return client.registerJob(input);
     },
-  };
-}
-
-/** The plan_work bridge: decompose an intent via the Mímir planner and drop the
- *  result into the project as PROPOSED work. Backlog is the approval gate —
- *  nothing runs until a human queues it from the Quadro (then the forge builds it).
- *
- *  A FEATURE (a 2+ card DAG) becomes a proper Plan: one row + cards linked by
- *  planId/planKey/dependsOn, so the forge composes them into ONE shared-branch PR
- *  (this ports the retired Planejador's apply path into the chat). The plan rests
- *  at status "planning" until its first card pushes a PR (which flips it to
- *  "forging"). An ATOMIC result stays a single loose backlog card. */
-async function runPlan(
-  deps: SindriDeps,
-  project: { id: string; baseBranch: string },
-  intent: string,
-): Promise<{ ok: boolean; content: string }> {
-  const cfg = plannerConfig();
-  if (!cfg) return { ok: false, content: "planner unavailable (no gateway credentials)" };
-  let draft;
-  try {
-    draft = await planJob(intent, cfg);
-  } catch (e) {
-    return { ok: false, content: `planner failed: ${(e as Error).message}` };
-  }
-  const forcas = draft.cards.map((c) => c.forca).join(", ");
-  const questions =
-    draft.questions.length > 0
-      ? ` Dúvidas do planejador (relaie ao usuário antes que ele aprove): ${draft.questions
-          .map((q) => q.question)
-          .join(" | ")}`
-      : "";
-  const base = draft.targetBranch || project.baseBranch;
-
-  // FEATURE → a real Plan/DAG: one shared feature branch, cards linked by planKey.
-  if (draft.mode === "feature" && draft.cards.length > 1) {
-    const created = await deps.store.insertPlan({
-      projectId: project.id,
-      prompt: intent,
-      summary: draft.summary,
-      rationale: draft.rationale || null,
-      mode: "feature",
-      status: "planning",
-      featureBranch: "pending",
-      baseBranch: base,
-      model: draft.model ?? null,
-      createdBy: "sindri-plan",
-    });
-    const plan = await deps.store.updatePlan(created.id, {
-      featureBranch: featureBranch(draft.summary, created.id),
-    });
-    for (const card of draft.cards) {
-      await deps.store.insertTask({
-        projectId: project.id,
-        title: card.title || intent.slice(0, 60),
-        body: `${card.body}\n\n— planejado pelo Sindri (Mímir)`,
-        status: "backlog",
-        kind: "implement",
-        planId: plan.id,
-        planKey: card.key,
-        dependsOn: card.dependsOn,
-        baseBranch: base,
-        createdBy: "sindri-plan",
-        labels: ["plan"],
-        acceptance: card.acceptance || null,
-        forca: card.forca,
-        touches: card.touches,
-      });
-    }
-    return {
-      ok: true,
-      content: `Propus a feature "${draft.summary}" — ${draft.cards.length} cards encadeados (DAG) no backlog [forças: ${forcas}]. Revise no Quadro e aprove: a forja compõe todos em UM PR na branch \`${plan.featureBranch}\`.${questions}`,
-    };
-  }
-
-  // ATOMIC → a single loose proposed card.
-  for (const card of draft.cards) {
-    await deps.store.insertTask({
-      projectId: project.id,
-      title: card.title || intent.slice(0, 60),
-      body: `${card.body}\n\n— planejado pelo Sindri (Mímir)`,
-      status: "backlog",
-      baseBranch: base,
-      createdBy: "sindri-plan",
-      labels: ["plan"],
-      acceptance: card.acceptance || null,
-      forca: card.forca,
-      touches: card.touches,
-    });
-  }
-  return {
-    ok: true,
-    content: `Plano "${draft.summary}" (${draft.mode}): ${draft.cards.length} card(s) no backlog [forças: ${forcas}]. Aguardam aprovação no Quadro — não rodam até serem enfileirados.${questions}`,
   };
 }
 
