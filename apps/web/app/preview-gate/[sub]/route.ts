@@ -27,7 +27,7 @@ const API_SECRET = process.env.BROKK_API_SECRET ?? "";
  * key for an org the caller cannot see (when BROKK_ORG_TENANCY=1).
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ sub: string }> },
 ) {
   const session = await getSession();
@@ -77,7 +77,13 @@ export async function GET(
   }
 
   const key = mintPreviewKey(PREVIEW_KEY, subdomain);
-  const url = `https://${subdomain}.${PREVIEW_DOMAIN}/?${PREVIEW_KEY_PARAM}=${encodeURIComponent(key)}`;
+  // Optional `?v=` from the iframe Reload / tip-change remount — forwarded as
+  // `_=` so the proxy 303 (cookie handoff) and the final `/` hit are unique URLs
+  // and cannot reuse a cached document from a previous tip.
+  const bust = new URL(req.url).searchParams.get("v");
+  const qs = new URLSearchParams({ [PREVIEW_KEY_PARAM]: key });
+  if (bust) qs.set("_", bust);
+  const url = `https://${subdomain}.${PREVIEW_DOMAIN}/?${qs.toString()}`;
   // 303 + no-store: the key is single-use-ish and short-lived; a cached redirect
   // would hand a stale one to the next visitor.
   return new NextResponse(null, {

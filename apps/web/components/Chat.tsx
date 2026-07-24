@@ -1693,7 +1693,8 @@ function SindriPreview({
   const phone = PHONE_PRESETS.find((p) => p.id === phoneId) ?? PHONE_PRESETS[1];
   const autoTried = useRef(""); // projectId we've already auto-booted for
   const wokeFor = useRef(""); // projectId we've already auto-woken a stopped singleton for
-
+  const lastCommitSha = useRef<string | null>(null);
+  const wasStarting = useRef(false);
   // Ensure (or reuse) the project's `<app>-dev` singleton preview.
   const ensure = useCallback(async () => {
     if (!projectId) return;
@@ -1804,6 +1805,26 @@ function SindriPreview({
     return () => clearInterval(iv);
   }, [preview?.status, preview?.id]);
 
+  // Soft-respin cutover (Vite tip refresh): remount when starting→live so the
+  // iframe hits the new process, not the retained stale one. Also remount on
+  // tip change while already live (Next HMR path stamps commitSha without respin).
+  useEffect(() => {
+    const status = preview?.status ?? null;
+    const sha = preview?.commitSha ?? null;
+    if (wasStarting.current && status === "live") {
+      setIframeKey((k) => k + 1);
+    } else if (
+      status === "live" &&
+      sha &&
+      lastCommitSha.current &&
+      sha !== lastCommitSha.current
+    ) {
+      setIframeKey((k) => k + 1);
+    }
+    wasStarting.current = status === "starting";
+    if (sha) lastCommitSha.current = sha;
+  }, [preview?.status, preview?.commitSha]);
+
   // Measure the actual rendered viewport so the toolbar shows a real px readout
   // (like devtools) — it updates live as the gutter re-balances the panes.
   useEffect(() => {
@@ -1823,9 +1844,9 @@ function SindriPreview({
   // session and would 403. /preview-gate checks the Logto session here, mints a
   // key bound to this one subdomain, and redirects — the proxy trades it for a
   // cookie. Keeping the key out of this component is the point: it never touches
-  // the bundle or the DOM.
+  // the bundle or the DOM. `?v=` busts a cached redirect/document on Reload.
   const previewHref = preview?.subdomain
-    ? `/preview-gate/${encodeURIComponent(preview.subdomain)}`
+    ? `/preview-gate/${encodeURIComponent(preview.subdomain)}?v=${iframeKey}`
     : undefined;
   const dimLabel = mobileOnly
     ? `${phone.w}×${phone.h}`

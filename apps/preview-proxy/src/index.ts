@@ -518,6 +518,30 @@ function stripFramingGuards(
   return headers;
 }
 
+/**
+ * Previews must never stick in a browser/CDN cache. Vite/Next serve unhashed
+ * `/src/*.css` and HTML that pins a module graph; a cached document after a
+ * Surtr tip refresh leaves the Brokk iframe on pre-push chrome (the classic
+ * "Reload did nothing" report). Force no-store on document + stylesheets +
+ * scripts — assets are tiny on a single-tenant preview and freshness wins.
+ */
+function applyPreviewCachePolicy(
+  headers: http.IncomingHttpHeaders,
+): http.IncomingHttpHeaders {
+  const ct = String(headers["content-type"] ?? "").toLowerCase();
+  if (
+    ct.includes("text/html") ||
+    ct.includes("text/css") ||
+    ct.includes("javascript") ||
+    ct.includes("ecmascript")
+  ) {
+    headers["cache-control"] = "no-store, must-revalidate";
+    delete headers["etag"];
+    delete headers["last-modified"];
+  }
+  return headers;
+}
+
 /** Next.js dev (15+/Turbopack) 403s requests to its dev resources — notably the
  *  `/_next/webpack-hmr` WebSocket — when the request's Origin is neither
  *  same-origin nor in the app's `allowedDevOrigins`. A preview is served from a
@@ -687,7 +711,10 @@ async function handleRequest(
     },
     (proxyRes) => {
       if (res.headersSent) return;
-      res.writeHead(proxyRes.statusCode ?? 502, stripFramingGuards(proxyRes.headers));
+      res.writeHead(
+        proxyRes.statusCode ?? 502,
+        applyPreviewCachePolicy(stripFramingGuards(proxyRes.headers)),
+      );
       proxyRes.pipe(res, { end: true });
       proxyRes.on("error", () => res.destroy());
     },

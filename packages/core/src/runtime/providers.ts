@@ -173,7 +173,10 @@ export default async (env) => {
       // flaps (disconnect → invalidate → removeStyle) and leaves the app
       // unstyled after a brief good first paint. Prefer stable inject-once.
       hmr: false,
-      watch: null,
+      // Keep FS watch ON: with hmr:false the client won't hot-patch, but the
+      // server still invalidates its transform cache on disk change — so a
+      // Reload / soft-respin after \`git push\` serves fresh CSS/JS. \`watch:
+      // null\` pinned stale transforms in memory forever (the iframe-cache bug).
     },
     preview: { allowedHosts: PREVIEW_HOSTS },
     plugins: [brokkForgeVeil()],

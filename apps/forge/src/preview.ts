@@ -52,7 +52,15 @@ interface LivePreview {
   wtPath: string;
   hauldrProject: string;
   branch: string;
+  /** Runtime id at boot (vite/nextjs/…) — decides whether a tip refresh needs
+   *  soft-respin (no-HMR stacks keep a stale transform cache otherwise). */
+  runtimeId: string;
 }
+
+/** Stacks whose Brokk preview config disables HMR (or has no reliable FS→browser
+ *  path). After `refreshCheckout` lands a new tip, soft-respin so the process
+ *  cannot keep serving a pre-push transform cache. */
+const RESPIN_ON_TIP_REFRESH = new Set(["vite", "astro"]);
 
 /**
  * Per-app preview secrets. A preview process inherits only the runner's
@@ -210,11 +218,39 @@ export class PreviewSupervisor {
     // node_modules out from under it. Late callers just join the in-flight refresh.
     const inflight = this.refreshing.get(hauldrProject);
     if (inflight) return inflight;
-    const p = this.doRefreshCheckout(hauldrProject, branch).finally(() => {
-      this.refreshing.delete(hauldrProject);
-    });
+    const p = this.doRefreshCheckout(hauldrProject, branch)
+      .then(async (sha) => {
+        // Tip moved on disk: stamp commitSha and soft-respin no-HMR stacks so the
+        // iframe cannot keep a Vite transform cache from before the push.
+        if (sha) await this.afterWorktreeRefresh(hauldrProject, sha);
+        return sha;
+      })
+      .finally(() => {
+        this.refreshing.delete(hauldrProject);
+      });
     this.refreshing.set(hauldrProject, p);
     return p;
+  }
+
+  /** After a successful tip reset: update every live preview on this worktree and
+   *  soft-respin stacks that cannot HMR through the preview-proxy (Vite/Astro). */
+  private async afterWorktreeRefresh(hauldrProject: string, sha: string): Promise<void> {
+    const builtAt = new Date().toISOString();
+    for (const [id, lp] of this.live) {
+      if (lp.hauldrProject !== hauldrProject) continue;
+      const patch: Record<string, unknown> = { commitSha: sha, builtAt };
+      if (RESPIN_ON_TIP_REFRESH.has(lp.runtimeId)) {
+        console.log(
+          `[preview-supervisor] tip ${sha.slice(0, 8)} on ${hauldrProject} — soft-respin (${lp.runtimeId}, no HMR)`,
+        );
+        patch.status = "starting";
+        patch.detail = "Atualizando preview…";
+        // Keep port/pid so the gateway keeps routing the outgoing process.
+        patch.port = lp.port;
+        patch.pid = lp.proc.pid ?? null;
+      }
+      await this.controlPatch(`/previews/${id}`, patch).catch(() => {});
+    }
   }
 
   private readonly refreshing = new Map<string, Promise<string | null>>();
@@ -272,7 +308,10 @@ export class PreviewSupervisor {
         );
         return null;
       }
-      await run("git", ["reset", "--hard", "FETCH_HEAD"], { cwd: path });
+      // Reset onto the resolved tip SHA (same as origin/<branch>). Never FETCH_HEAD:
+      // a multi-ref fetch writes one FETCH_HEAD line per branch and reset would
+      // land on whichever sorted first — not necessarily <branch>.
+      await run("git", ["reset", "--hard", fetched], { cwd: path });
       console.log(
         `[preview-supervisor] refreshed ${hauldrProject} worktree → ${branch} tip (${fetched.slice(0, 8)})`,
       );
@@ -465,13 +504,8 @@ export class PreviewSupervisor {
           const last = this.lastDriftRefresh.get(p.id) ?? 0;
           if (Date.now() - last >= 60_000) {
             this.lastDriftRefresh.set(p.id, Date.now());
-            void this.refreshCheckout(p.hauldrProject, p.branch).then((sha) => {
-              if (!sha) return;
-              return this.controlPatch(`/previews/${p.id}`, {
-                commitSha: sha,
-                builtAt: new Date().toISOString(),
-              }).catch(() => {});
-            });
+            // refreshCheckout stamps commitSha + soft-respins no-HMR stacks.
+            void this.refreshCheckout(p.hauldrProject, p.branch);
           }
 
           // Bundle self-heal: for stacks that declare a bundleProbe (Expo/Metro),
@@ -929,6 +963,7 @@ export class PreviewSupervisor {
       wtPath,
       hauldrProject: preview.hauldrProject,
       branch: preview.branch,
+      runtimeId: spec.id,
     };
     if (retain) {
       this.pending.set(preview.id, entry);
