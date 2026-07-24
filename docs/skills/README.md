@@ -12,6 +12,7 @@ composer **Skill** chip (pinned for the whole session).
 skills/
   litr/SKILL.md
   litr-frontend-design/SKILL.md
+  user-data-flow/SKILL.md
   qa-review/SKILL.md
   full-qa/SKILL.md
 ```
@@ -35,6 +36,16 @@ Pipeline: **Discovery → QA (LLM | Automated) → Forge**.
 - **Forge** — fail|blocked (e missing do brief) viram cards propostos automaticamente;
   Approve all enfileira `discovery` / `qa-fail` (não `qa-scenario`).
 - Pacote face: `@brokk/huginn`.
+
+## User Data Flow (Discover → Audit → Fix)
+
+Espelho do Full QA para **ciclo de vida** (Novo / Editar / Arquivar), não GUI genérica.
+
+- **Instruction `user-data-flow`** — Discover catálogo (`.brokk/data-flow/catalog.json`) ·
+  Full / Targeted Audit · Fix só se pedido.
+- Helper estático: `skills/user-data-flow/scripts/audit-static.mjs`.
+- Artefato humano: `docs/litr/data-flow.md`.
+- No Hero forge: depois do room map Litr, Discover + Audit nas salas `entity`.
 
 ## Shape
 

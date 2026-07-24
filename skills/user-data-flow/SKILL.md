@@ -1,92 +1,208 @@
 ---
 name: user-data-flow
 description: >-
-  Spec and gate for user-facing data lifecycles (CRUD + archive + empty CTA) on
-  entity rooms. Use when building or reviewing Brokk Hero/prototype screens,
-  room maps, "missing Add button", list-only mockups, or when the user mentions
-  user data flow, entity lifecycle, arquivar, excluir, or fluxo de dados.
+  Spec, full audit, and gate for user-facing data lifecycles (CRUD + archive +
+  empty CTA). Discovery builds a versioned room/entity catalog; Audit scans all
+  or targeted rooms (static + optional live preview). Use for "full data flow",
+  "auditar CRUD", "varre as telas", "cadê adicionar", entity lifecycle, arquivar,
+  excluir, fluxo de dados, or Hero maturity checks. Prefer Full over one-room
+  when covering more than one entity screen.
 ---
 
-# User Data Flow Spec
+# User Data Flow (Spec → Discover → Audit)
 
-Lista sem verbo = vitrine. Protótipo de gestão precisa **mostrar o ciclo** que
-o usuário vive — mesmo com mock/local state.
+Lista sem verbo = vitrine. Dois modos:
+
+| Modo | Quando |
+|---|---|
+| **Spec / Fix** | Implementar ou completar **uma** sala entity |
+| **Full / Targeted Audit** | Varrer o app como o `full-qa` — catálogo + veredito por sala |
+
+Não editar produto no Audit salvo o usuário pedir fixes depois do report.
 
 ## Uma linha
 
 ```
-entidade citada → sala dona → verbos na UI → empty CTA → vínculo com outras salas
+Discover catálogo → Audit (static ± live) → report → Fix só se pedido
 ```
 
-## Quando rodar
+---
 
-- Hero forge / profundidade de salas de console
-- Review de preview (“parece imaturo”, “cadê adicionar?”)
-- Depois do room map Litr (`docs/litr/rooms.md`)
-- Antes de marcar aceite de uma sala **entity**
+## Catálogo (fonte da verdade)
 
-Companion: `litr` / `litr-frontend-design` cuidam de alma e hot spot;
-**esta skill** cuida do **fluxo de dados do usuário**.
+No checkout:
 
-## Tipos de sala
+`.brokk/data-flow/catalog.json`
 
-| Tipo | Exemplo | Verbos mínimos |
-|---|---|---|
-| **entity** | Representantes, produtos, clientes | **Novo** · ver · **editar** · **arquivar** (soft) · empty CTA |
-| **pipeline** | Funil, arte | Mover estágio · abrir detalhe · (criar card se a esteira começa aqui) |
-| **tool** | Cotação, frete | Calcular · **salvar como entidade** (proposta/orçamento) se o fluxo cria registro |
-| **ledger** | Financeiro P/R | Mudar status (aberto→pago) · gerar cobrança mock — sem “excluir contábil” solto |
-| **study** | Estoque estudo | Read-only **explícito** (“estudo”) — sem fingir CRUD |
+Espelho humano (sempre atualizar junto): `docs/litr/data-flow.md`
 
-Se a sala **filtra/cita** uma entidade e não é a dona dela, a dona precisa existir
-(ou a sala ganha create inline). Mesma regra do room map: cita → hot spot ou sala.
-
-## Artefato
-
-Gravar `docs/litr/data-flow.md` (ou seção em `rooms.md`) com uma linha por entidade:
-
-```markdown
-| Entidade | Sala dona | Create | Edit | Archive | Delete hard? | Sai para |
-|---|---|---|---|---|---|---|
-| Representante | /representantes | + Novo | card | Arquivar | não (protótipo) | /funil?rep= |
+```json
+{
+  "version": 1,
+  "fingerprint": "<hash routes+rooms+pedidos>",
+  "discoveredAt": "<iso>",
+  "summary": "one paragraph",
+  "rooms": [
+    {
+      "id": "representantes",
+      "route": "/representantes",
+      "kind": "entity",
+      "entity": "Representante",
+      "priority": "p0",
+      "required": ["create", "read", "edit", "archive", "empty_cta"],
+      "linksTo": ["/funil"],
+      "notes": ""
+    }
+  ]
+}
 ```
 
-**Delete hard** no Hero: default **não**. Prefira arquivar + filtro “ativos /
-arquivados”. Hard delete só se o brief do cliente exigir.
+**Kinds → required verbs**
 
-## Checklist por sala entity
+| kind | required |
+|---|---|
+| `entity` | create, read, edit, archive, empty_cta |
+| `pipeline` | move_stage \| create_card (pelo menos um), read |
+| `tool` | primary_action; `save_as_entity` se o fluxo cria registro |
+| `ledger` | status_transition (ou explícito seed-only) |
+| `study` | read + badge/copy “estudo” (CRUD = **n/a**, não fail) |
+| `brand` | primary CTA de conversão |
+
+Se a UI/chat já colou um catálogo, use-o — não reinvente.
+
+---
+
+## Phase A — Discovery
+
+Quando: “descobrir data-flow”, catálogo ausente, ou **stale**.
+
+1. Ler `docs/litr/rooms.md`, `docs/litr/pedidos.md`, `docs/litr/data-flow.md`,
+   rotas (`App.tsx` / router), nav do shell, `features.json` se houver.
+2. Classificar cada rota (`kind`) + entidade dona.
+3. Regra **cita → dona**: se `/funil` filtra por rep e não existe sala
+   representantes → gap `missing_owner` no catálogo.
+4. Fingerprint = hash estável de rotas + kinds + required[] (kebab ids estáveis).
+5. Escrever `.brokk/data-flow/catalog.json` **e** espelhar tabela em
+   `docs/litr/data-flow.md`.
+6. Report: contagem por kind, lista p0, fingerprint mudou? sim/não.
+
+Discovery **não** implementa CRUD — só mapeia.
+
+**Stale:** rotas/rooms mudaram e o fingerprint diverge → avisar e re-Discover
+antes do Full Audit (mesmo espírito do `full-qa`).
+
+---
+
+## Phase B — Audit (varredura)
+
+Precisa do catálogo fresco. Modos:
+
+- **Full** — todas as rooms, p0 primeiro, depois p1.
+- **Targeted** — só ids/rotas/módulos nomeados na mensagem.
+
+### B1 — Static (sempre)
+
+Por room no catálogo:
+
+1. Abrir a page/component da rota.
+2. Checar evidência de cada `required[]`:
+
+| verb | Evidência (código ou copy) |
+|---|---|
+| create | botão/link “Novo/Adicionar/+ …” ou form de create |
+| edit | “Editar” / form de update por item |
+| archive | “Arquivar” (não só Excluir hard) |
+| empty_cta | empty state com o mesmo create |
+| move_stage / create_card | controle de estágio ou + card |
+| save_as_entity | “Salvar proposta/orçamento” que persiste |
+| status_transition | muda status visível |
+| study badge | “estudo” / read-only explícito |
+
+3. Opcional: rodar o helper da skill:
+
+```bash
+node skills/user-data-flow/scripts/audit-static.mjs .
+# ou, no checkout do produto:
+node path/to/user-data-flow/scripts/audit-static.mjs .
+```
+
+(Se o script não estiver no checkout, copie de `brokk/skills/user-data-flow/scripts/`
+ou faça o grep manual equivalente.)
+
+### B2 — Live (quando houver preview + browser tools)
+
+Espírito do `qa-review` / `full-qa` Execution:
+
+1. Login demo → abrir cada `route` p0.
+2. Snapshot: CTA create visível sem scroll hunt?
+3. Happy path mínimo entity: criar → editar → arquivar (se required).
+4. Screenshot só em fail.
+5. Honesty: não achar o botão = `blocked` (agente), não `fail` de produto —
+   confirmar com snapshot.
+
+### Veredito por room
+
+`pass` | `fail` | `deferred` | `n/a` | `blocked`
+
+- `deferred` = gap **consciente** já anotado em data-flow.md (ok no Hero se
+  explícito; ainda aparece no report).
+- `n/a` = study/brand sem aquele verbo.
+- `fail` = required ausente e **não** deferred.
+
+### Report (obrigatório)
+
+Escrever `.brokk/data-flow/last-report.md` e responder no chat:
+
+**Lead:** `X pass · Y fail · Z deferred · W blocked` (stale? sim/não)
+
+Tabela: `id · kind · verdict · missing[] · note`
+
+Expandir só fails. Sem especulação de código salvo pedido de Fix.
+
+---
+
+## Phase C — Fix (só se pedido)
+
+Para cada `fail` (p0 primeiro):
+
+1. Implementar verbos mínimos do kind (mock/local state ok).
+2. Atualizar `docs/litr/data-flow.md` + catalog.
+3. Re-auditar a room (static; live se preview up).
+4. Não expandir pra BaaS.
+
+---
+
+## Spec rápida (uma sala)
+
+Checklist entity:
 
 ```
-- [ ] Primary CTA visível no head da sala ("+ Novo …")
-- [ ] Empty state com o mesmo CTA (não só lista vazia)
-- [ ] Cada item: editar + arquivar (ou menu … com os dois)
-- [ ] Create/edit: campos que o brief citou (não formulário genérico de 20 inputs)
-- [ ] Persistência do protótipo: useState / localStorage / mock mutável — declare no data-flow
-- [ ] Vínculo: depois de criar, dá pra ver o efeito noutra sala (funil, proposta, …) ou deep-link
-- [ ] Copy de arquivo/exclusão em pt-BR claro (Arquivar ≠ Excluir)
+- [ ] Primary CTA "+ Novo …" no head
+- [ ] Empty state com o mesmo CTA
+- [ ] Item: editar + arquivar
+- [ ] Campos do brief (não form genérico)
+- [ ] Persistência declarada (useState / localStorage / mock)
+- [ ] Vínculo / deep-link pra sala que cita
+- [ ] Arquivar ≠ Excluir (copy pt-BR)
 ```
+
+**Delete hard** no Hero: default não.
 
 ## Anti-padrões
 
-- Roster só leitura com regras bonitas e zero gesto de cadastro
-- “Excluir” sem confirmação em entidade que outras salas citam
-- CRUD escondido só no chat Sindri — a **tela** é o contrato da demo
-- Inventar BaaS/auth só pra ter POST — mock mutável basta no Hero
-
-## Gate (antes de “pronto”)
-
-Para cada rota `entity` no hero_set / rooms:
-
-1. Abrir a sala → CTA Novo existe sem scroll hunt  
-2. Criar um item → aparece na lista  
-3. Arquivar → some dos ativos (ou badge Arquivado)  
-4. Editar → mudança visível  
-5. Se outra sala cita a entidade → deep-link ou filtro ainda faz sentido  
-
-Falhou algum → não fechar o card; completar o data-flow.
+- Roster read-only sem gesto de cadastro
+- CRUD só no chat Sindri
+- Omitir botão em vez de marcar `deferred`
+- Inventar BaaS só pra ter POST
 
 ## Brokk / one-shot
 
-No forge: depois do Litr room map, **rodar esta skill** nas salas entity do
-`hero_set` (e nas de profundidade quando o card for entity). Anotar gaps em
-`docs/litr/data-flow.md` — deferred explícito > omitir o botão.
+Ordem no forge:
+
+1. Litr room map  
+2. **user-data-flow Discover** → catalog  
+3. Hero paint + **Full Audit** nas entity do hero_set  
+4. fails → cards de profundidade ou Fix no mesmo run se o brief mandar  
+
+Chip mental: `/user-data-flow full` · `/user-data-flow discover` ·
+`/user-data-flow targeted representantes,propostas`
