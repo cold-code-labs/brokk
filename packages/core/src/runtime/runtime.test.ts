@@ -479,4 +479,5 @@ test("vite prepareFiles injects forge-veil overlay for HMR blank-flash", async (
   assert.match(veil!.contents, /vite:beforeUpdate/);
   assert.match(veil!.contents, /vite:beforeFullReload/);
   assert.match(veil!.contents, /Forging/);
+  assert.match(veil!.contents, /hmr:\s*false/);
 });

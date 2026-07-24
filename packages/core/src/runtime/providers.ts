@@ -167,7 +167,14 @@ function brokkForgeVeil() {
 export default async (env) => {
   const loaded = await loadConfigFromFile(env, undefined, process.cwd());
   return mergeConfig(loaded?.config ?? {}, {
-    server: { allowedHosts: PREVIEW_HOSTS },
+    server: {
+      allowedHosts: PREVIEW_HOSTS,
+      // Brokk iframe is reverse-proxied (preview-proxy). Vite HMR over that WS
+      // flaps (disconnect → invalidate → removeStyle) and leaves the app
+      // unstyled after a brief good first paint. Prefer stable inject-once.
+      hmr: false,
+      watch: null,
+    },
     preview: { allowedHosts: PREVIEW_HOSTS },
     plugins: [brokkForgeVeil()],
   });
