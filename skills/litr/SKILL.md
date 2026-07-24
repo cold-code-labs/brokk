@@ -16,11 +16,13 @@ Souls outrank the chat brief (ADR 0028).
 
 - Tweak / elevate a screen that already has a soul
 - Vocabulary, chrome, empty states, motion budget
+- **After Hero gate G** — short soul pass aligned to the painted UI
 - Not a full brand+product redesign → use **`litr-frontend-design`**
+- **Iniciar / first paint** → **`litr-frontend-design` Modo Hero** (not this skill first)
 
 ## Pipeline (short)
 
-1. **Read the soul** — `docs/litr/soul.json` (and DESIGN lock if present). If missing, stop and ask for `litr-init` / owner metaphor — do not invent another product's signature.
+1. **Read the soul** — `docs/litr/soul.json` (and DESIGN lock if present). If missing on a **Hero** run: write a *short* soul from what is already on screen (do not block on litr-init committee). If missing on profundidade/overhaul: stop and ask for `litr-init` / owner metaphor — do not invent another product's signature.
 2. **Mission → metaphor** — one sentence, one physical metaphor only.
 3. **Tokens by meaning** — prefer the app's CSS variables / Yggdrasil token package if already wired; no raw hex sprawl; at most one accent rule.
 4. **Layout scarcity** — one column system, one radius family, one border language.

@@ -198,14 +198,20 @@ Checklist entity:
 - Omitir botão em vez de marcar `deferred`
 - Inventar BaaS só pra ter POST
 
-## Brokk / one-shot
+## Brokk / Hero vs profundidade
 
-Ordem no forge:
+**Hero (Iniciar):** data-flow **não** lidera. Paint ≤3 superfícies + gate G primeiro
+(ver `litr-frontend-design` Modo Hero + runbook Var §5–6). Só então:
 
-1. Litr room map  
-2. **user-data-flow Discover** → catalog  
-3. Hero paint + **Full Audit** nas entity do hero_set  
-4. fails → cards de profundidade ou Fix no mesmo run se o brief mandar  
+1. `/user-data-flow targeted <entities do happy path>` — 1–2 entities, não o pack inteiro  
+2. fails no happy path → Fix no mesmo run **ou** card; não expandir escopo  
+3. **Não** rodar Discover + Full Audit no Hero só para “fechar C”
 
-Chip mental: `/user-data-flow full` · `/user-data-flow discover` ·
-`/user-data-flow targeted representantes,propostas`
+**Profundidade (G já verde):**
+
+1. Discover → `.brokk/data-flow/catalog.json`  
+2. Full Audit no restante do `hero_set` / pack  
+3. fails → cards ou Fix se o brief mandar  
+
+Chip mental: Hero → `/user-data-flow targeted cotacao,propostas` ·  
+Profundidade → `/user-data-flow discover` · `/user-data-flow full`

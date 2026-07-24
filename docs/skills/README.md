@@ -1,8 +1,8 @@
 # Brokk Skills (ADR 0039)
 
 A **Brokk Skill** is a package of `{ name, description, instructions | run }` that
-Sindri reaches via `invoke_skill` (catalogue in the system prompt) or via the
-composer **Skill** chip (pinned for the whole session).
+Brokk Chat reaches via `invoke_skill` (catalogue in the system prompt) or via the
+composer slash menu (pinned for the whole session).
 
 ## Where skills live
 
@@ -30,8 +30,8 @@ Pipeline: **Discovery → QA (LLM | Automated) → Forge**.
 
 - **Connect / novo projeto** dispara Discovery Huginn: brief de produto **e** catálogo QA.
 - **Capability `qa-discover`** — catálogo versionado (`qa_catalogs` + fingerprint).
-  Motor preferido **Cursor CLI**. `stale: true` → re-Discover.
-- **Instruction `full-qa`** — Execution no preview (Playwright MCP). Chips Sindri:
+  Motor preferido **OpenCode** (Playwright MCP no Chromium compartilhado). `stale: true` → re-Discover.
+- **Instruction `full-qa`** — Execution no preview (Playwright MCP). Chips Chat:
   Discover · Full QA · Targeted. Persist: `submit_qa_report` / `qa-progress`.
 - **Forge** — fail|blocked (e missing do brief) viram cards propostos automaticamente;
   Approve all enfileira `discovery` / `qa-fail` (não `qa-scenario`).
@@ -45,11 +45,13 @@ Espelho do Full QA para **ciclo de vida** (Novo / Editar / Arquivar), não GUI g
 - **Capability `data-flow-discover`** — audit estático no checkout; escreve
   `.brokk/data-flow/catalog.json` + `last-report.md`.
 - **Capability `submit_data_flow_report`** — persiste report do agente.
-- **API** `GET|POST /data-flow/:projectId[/discover]` + chips Sindri
+- **API** `GET|POST /data-flow/:projectId[/discover]` + chips Chat
   (**Flow** · **Full flow** · **Target flow**) no menu +.
 - Helper offline: `skills/user-data-flow/scripts/audit-static.mjs`.
 - Artefato humano: `docs/litr/data-flow.md`.
-- No Hero forge: depois do room map Litr, Discover + Audit nas salas `entity`.
+- **Hero forge:** paint ≤3 superfícies + gate G **antes** de data-flow. No Hero:
+  só `/user-data-flow targeted` no happy path. Discover + Full = **profundidade**
+  (runbook Var `fluxo-cliente-projeto-prototipo.md` §5–6).
 
 ## Shape
 
@@ -65,7 +67,7 @@ interface Skill {
 | Kind | Source | Examples |
 |------|--------|----------|
 | Capability | `buildSkills()` in `apps/chat` | `discovery`, `enhance` |
-| Instruction | `skills/*/SKILL.md` | `litr`, `litr-frontend-design` |
+| Instruction | `skills/*/SKILL.md` | `litr`, `litr-frontend-design` (Modo Hero vs A) |
 
 ## How the model reaches them
 
