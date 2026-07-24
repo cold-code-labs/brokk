@@ -322,26 +322,58 @@ export function buildBumpPlan(r: ScanResult): Bump[] {
   return [...byPkg.values()].sort((a, b) => a.pkg.localeCompare(b.pkg));
 }
 
+/** Which lockfile the dependency findings live in → which package manager. */
+function detectPackageManager(r: ScanResult): "pnpm" | "npm" | "yarn" {
+  const files = r.blocking.filter((f) => f.kind === "dependency").map((f) => f.file);
+  if (files.some((f) => /package-lock\.json$/.test(f))) return "npm";
+  if (files.some((f) => /yarn\.lock$/.test(f))) return "yarn";
+  return "pnpm"; // CCL fleet default (pnpm-lock.yaml)
+}
+
 /**
  * The imperative remediation Eitri appends when the security ward blocks on
- * dependency CVEs — a concrete bump list Brokk (OpenHands) can apply without
- * guessing, plus the guardrails that keep the revise on-scope.
+ * dependency CVEs. It must be *executable*, not aspirational: most of these are
+ * TRANSITIVE deps, so editing `dependencies` does nothing — the only reliable
+ * fix is a resolutions/overrides pin + a lockfile regen. We hand Brokk the exact
+ * override block and commands so the revise round is deterministic, not a guess.
  */
 export function formatBumpRemediation(r: ScanResult): string {
   const bumps = buildBumpPlan(r);
   if (bumps.length === 0) return "";
+  const pm = detectPackageManager(r);
   const rows = bumps
     .map((b) => `- \`${b.pkg}\`${b.from ? ` ${b.from}` : ""} → \`>=${b.to}\``)
     .join("\n");
+  const pinPairs = bumps.map((b) => `"${b.pkg}": ">=${b.to}"`).join(", ");
+  const overridesBlock =
+    pm === "yarn"
+      ? `"resolutions": { ${pinPairs} }`
+      : pm === "npm"
+        ? `"overrides": { ${pinPairs} }`
+        : `"pnpm": { "overrides": { ${pinPairs} } }`;
+  const installCmd =
+    pm === "yarn" ? "yarn install" : pm === "npm" ? "npm install" : "pnpm install --no-frozen-lockfile";
+  const lockfile =
+    pm === "yarn" ? "yarn.lock" : pm === "npm" ? "package-lock.json" : "pnpm-lock.yaml";
   return [
-    "## 🔧 Required dependency bumps",
-    "These blocking findings are pre-existing CVEs in dependencies, not in the diff.",
-    "**Brokk: bump each package to at least the target, update the manifest AND the",
-    "lockfile, run the package manager's install, then re-run verify. Do not change",
-    "application code for these, and do not open a new PR — push to the same branch.**",
+    "## 🔧 Required dependency bumps (deterministic — do exactly this)",
+    "These blocking findings are PRE-EXISTING CVEs in dependencies (in the lockfile),",
+    "not in your diff. Most are **transitive**, so editing `dependencies` will NOT fix",
+    `them — you MUST pin them via ${pm} ${pm === "yarn" ? "resolutions" : "overrides"} and`,
+    "regenerate the lockfile. Steps:",
     "",
+    `1. In \`package.json\`, add/merge: \`${overridesBlock}\``,
+    pm === "pnpm"
+      ? "2. If `pnpm-workspace.yaml` exists and is malformed (e.g. an `allowBuilds:` key, or no `packages:` list), FIX it: it needs a `packages:` list (use `- '.'` for a single-package repo) and build approvals go under `onlyBuiltDependencies:`. A broken workspace file makes `pnpm install` fail silently."
+      : "2. (skip)",
+    `3. Run \`${installCmd}\` to regenerate \`${lockfile}\`.`,
+    `4. Commit BOTH \`package.json\` and \`${lockfile}\` to the same branch. Change no application code; open no new PR.`,
+    "",
+    "Target versions:",
     rows,
-  ].join("\n");
+  ]
+    .filter((l) => l !== "2. (skip)")
+    .join("\n");
 }
 
 // --- shaping ----------------------------------------------------------------
