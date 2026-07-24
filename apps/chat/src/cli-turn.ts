@@ -16,6 +16,7 @@ import {
   resolveModel,
   runClaudeCliTurn,
   runCursorCliTurn,
+  runOpenCodeCliTurn,
 } from "@brokk/chat";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -27,7 +28,7 @@ const execFileAsync = promisify(execFile);
 const MAX_CONCURRENT = Math.max(1, Number(process.env.BROKK_CLI_MAX_CONCURRENT ?? 2) || 2);
 let inFlight = 0;
 
-export type CliKind = "claude" | "cursor";
+export type CliKind = "claude" | "cursor" | "opencode";
 
 export interface CliSessionTurnInput {
   session: ChatSession;
@@ -76,7 +77,8 @@ function historyPreamble(msgs: { role: string; blocks: unknown[] }[]): string {
 export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<void> {
   const { session, cfg, store, emit, signal } = input;
   const kind: CliKind = input.kind ?? "claude";
-  const engineLabel = kind === "cursor" ? "cursor-cli" : "claude-cli";
+  const engineLabel =
+    kind === "cursor" ? "cursor-cli" : kind === "opencode" ? "opencode" : "claude-cli";
   if (inFlight >= MAX_CONCURRENT) {
     throw new Error(`CLI lane at capacity (${MAX_CONCURRENT} concurrent turns) — try again shortly`);
   }
@@ -85,7 +87,12 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
     kind === "cursor"
       ? process.env.BROKK_CURSOR_MODEL ||
         (session.model === "opus" ? "composer-2.5" : "auto")
-      : resolveModel(cfg, session.model);
+      : kind === "opencode"
+        ? process.env.BROKK_OPENCODE_MODEL ||
+          session.model ||
+          process.env.LLM_MODEL ||
+          "auto"
+        : resolveModel(cfg, session.model);
   emit({ type: "status", phase: "turn_start", detail: { model, engine: engineLabel } });
 
   // Context bridge: if there's no CLI session to resume (fresh, or switched over
@@ -131,9 +138,12 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
     : "";
 
   const appendSystem = [
-    `You are Sindri, the session agent inside Brokk (CCL's coding pillar), working on repo ${input.repoFullName}.`,
+    `You are Brokk Chat, the session agent inside Brokk (CCL's development platform), working on repo ${input.repoFullName}.`,
     `Your checkout is a dedicated git worktree on branch \`${session.branch}\`. Do NOT switch branches or reset history — stay here.`,
     `COMMIT POLICY: Do NOT git commit or git push unless the user explicitly asks. Live preview / HMR already shows file edits — leave the tree dirty for the Commit button in the preview toolbar. If they ask you to commit, typecheck when available, then commit + push origin HEAD:dev (never force-push).`,
+    kind === "opencode"
+      ? `HANDOFF: To run autonomous DoD work (Forge/OpenHands), use the Brokk MCP tool enqueue_card — never try to be the forge yourself.`
+      : "",
     "",
     SCOPE_RULES,
     previewNote,
@@ -148,7 +158,12 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
   inFlight++;
   try {
     const promptText = preamble ? `${preamble}\n\n---\n\nCurrent request:\n${input.userText}` : input.userText;
-    const runTurn = kind === "cursor" ? runCursorCliTurn : runClaudeCliTurn;
+    const runTurn =
+      kind === "cursor"
+        ? runCursorCliTurn
+        : kind === "opencode"
+          ? runOpenCodeCliTurn
+          : runClaudeCliTurn;
     const turnOpts = (resume: string | undefined): CliTurnInput => ({
       cwd: input.cwd,
       prompt: promptText,
@@ -160,7 +175,14 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
       env:
         kind === "claude" && input.seatToken
           ? { CLAUDE_CODE_OAUTH_TOKEN: input.seatToken }
-          : undefined,
+          : kind === "opencode"
+            ? {
+                BROKK_PROJECT_ID: session.projectId,
+                BROKK_MCP_COMMAND:
+                  process.env.BROKK_MCP_COMMAND ||
+                  "node /app/dist/brokk-mcp-server.js",
+              }
+            : undefined,
       timeoutMs: Math.max(0, Number(process.env.BROKK_CLI_TURN_TIMEOUT_MS ?? 3_600_000) || 0),
       emit,
       signal,

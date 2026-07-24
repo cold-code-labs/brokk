@@ -1,9 +1,9 @@
 ---
 title: "ADR 0074 — Brokk = plataforma de desenvolvimento CCL (AO + AWF + Devin-class)"
-description: "Um produto web multi-tenant: IDE (Chat/OpenCode) + fabric (Forge/OpenHands) + ingress org (cards de qualquer serviço). O que entra e o que sai."
+description: "Um produto web multi-tenant: IDE (Chat/OpenCode) + fabric (Forge/OpenHands) + ingress org (cards de qualquer serviço). Plano executável + o que entra/sai."
 sidebar:
   order: 74
-tags: [adr, decisao, brokk, plataforma, ao, awf, devin, opencode, openhands, multi-tenant, north-star]
+tags: [adr, decisao, brokk, plataforma, ao, awf, devin, opencode, openhands, multi-tenant, north-star, roadmap]
 ---
 
 **Status:** Aceito · **Data:** 2026-07-23 · Depende de [ADR 0073](/decisoes/0073-brokk-chat-opencode-forge-openhands/) · Engines: [0072](/decisoes/0072-brokk-openhands-omniroute/) · Fuel: [0071](/decisoes/0071-omniroute-fuel-line/)
@@ -112,6 +112,61 @@ Humano no browser = AO. Card na fila = AWF. Svalinn/Huginn/Slack/API = Devin-cla
 | Sandbox Docker OH (vs `RUNTIME=process`) | depois do cutover estável |
 | VPC “Devin dedicated” | frota Coolify basta no médio prazo |
 
+## Plano executável (start agora)
+
+Inventário 2026-07-23: Forge/OH wired (default frota ainda shadow); Chat = Sindri/Afl/CLI nativo (**OpenCode = 0**); Mission backend (Regin) existe, **UI = 0**; ingress parcial (`POST /runs/from-brief`); PR-monitor/profiles = gap.
+
+### Fase 0 — Baseline (feito / paralelo)
+
+| Item | DoD |
+|---|---|
+| OH no Forge | `BROKK_FORGE_ENGINE=openhands` sobe claim→PR (smoke) |
+| Omni fuel | LLM_* → LiteLLM → OmniRoute |
+| Tenancy T0–T2 | conta → projeto (Logto) |
+
+### Fase 1 — Chat = OpenCode (AO) ← **start**
+
+| Entrega | Paths | DoD |
+|---|---|---|
+| Driver CLI | `packages/afl/src/opencode-cli.ts` | `opencode run --format json` → AgentEvent |
+| Engine wire | `apps/chat` + `cli-turn` + UI | `engine=opencode` no seletor; resume via `--session` |
+| Fuel Omni | `buildOpenCodeCliEnv` + `opencode.json` | LiteLLM via openai-compatible |
+| Imagem | `apps/chat/Dockerfile` | bin `opencode` pinned (`opencode-ai`) |
+| MCP Brokk | `apps/chat/src/brokk-mcp-server.ts` | tools: enqueue_card, list_projects, get_preview |
+
+Engines legados (`claude-*`, `cursor-*`) ficam disponíveis até cutover; **default de produto passa a `opencode` quando o binário + fuel estão ok**.
+
+### Fase 2 — Mission UI (AO surface)
+
+| Entrega | Paths | DoD |
+|---|---|---|
+| Página Mission | `apps/web` `/mission` | goal → mission → cards + status |
+| Compose | Mission + link Chat/preview | Plan lock visual (Regin já planeja) |
+
+### Fase 3 — Ingress Devin-class
+
+| Entrega | Paths | DoD |
+|---|---|---|
+| Contrato estável | `POST /ingress/cards` (+ docs) | brief → card queued + `dedupeKey` |
+| Auth serviço | Bearer `BROKK_API_SECRET` (v1) | Svalinn/Huginn/externos sem board |
+
+Alias canônico sobre `POST /runs/from-brief` — não reinventar.
+
+### Fase 4 — AWF completo
+
+| Entrega | DoD |
+|---|---|
+| Validate profiles | profiles versionados por projeto/app |
+| PR-monitor | comment/CI → re-claim OH → merge/close |
+| Jobs OH | Svalinn sec · Huginn QA · Eitri heal via mesmo fabric |
+
+### Ordem de merge (não negociar)
+
+1. OpenCode driver + chat wire + MCP Brokk  
+2. Ingress `/ingress/cards` + Mission UI skeleton  
+3. Default `opencode` quando available; OH default no Forge  
+4. Profiles + PR-monitor + jobs org  
+
 ## Por que esta é a arquitetura certa
 
 1. **Um produto** — não Chat vs Forge vs “Devin Brokk”; é Brokk com três modos de entrada.
@@ -129,6 +184,6 @@ Humano no browser = AO. Card na fila = AWF. Svalinn/Huginn/Slack/API = Devin-cla
 ## Consequências
 
 - North-star de produto: **plataforma de desenvolvimento CCL**, não “kanban com agent”.
-- Roadmap alinhado: (1) OpenCode no Chat, (2) Mission UI, (3) PR-monitor + profiles, (4) ingress docs/API para Svalinn/Huginn/externos.
+- Implementação segue as Fases 1→4 acima; este ADR é o envelope + plano de start.
 - Marketing/docs: Brokk = IDE web + esteira + autônomo org; Chat/Forge são superfícies, não produtos.
-- ADR 0073 permanece válido para engines/naming; **este ADR fixa o envelope de produto**.
+- ADR 0073 permanece válido para engines/naming; **este ADR fixa o envelope de produto e o plano de execução**.

@@ -20,6 +20,7 @@ import { subscriptionsRoutes } from "./routes/subscriptions.js";
 import { tasksRoutes } from "./routes/tasks.js";
 import { usersRoutes } from "./routes/users.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
+import { ingressRoutes } from "./routes/ingress.js";
 
 export interface AppDeps {
   store: Store;
@@ -120,6 +121,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/tasks", tasksRoutes(deps));
   app.route("/missions", missionsRoutes(deps));
   app.route("/runs", runsRoutes(deps));
+  app.route("/ingress", ingressRoutes(deps));
   app.route("/studio", studioRoutes(deps));
   app.route("/runner", runnerRoutes(deps));
   app.route("/webhooks", webhooksRoutes(deps));

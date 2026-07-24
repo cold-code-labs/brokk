@@ -76,6 +76,11 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
 # CLAUDE_CODE_OAUTH_TOKEN at runtime.
 RUN npm install -g @anthropic-ai/claude-code@2.1.207
 
+# OpenCode CLI — Brokk Chat engine (ADR 0073/0074). Fuel = LLM_* → Omni via
+# openai-compatible provider baked at turn time (OPENCODE_CONFIG_CONTENT).
+RUN npm install -g opencode-ai@1.18.4 \
+ && opencode --version
+
 # Cursor Agent CLI — engine=cursor-cli (--model auto). This is what the Debian
 # base exists for (BROKK-35). Installed to a shared HOME, symlinked as both
 # `cursor-agent` and `agent` (what cursorCliAvailable() probes).

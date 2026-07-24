@@ -17,6 +17,8 @@ export {
   runClaudeCliTurn,
   cursorCliAvailable,
   runCursorCliTurn,
+  openCodeCliAvailable,
+  runOpenCodeCliTurn,
 } from "@brokk/afl";
 export { buildSystemPrompt, SCOPE_RULES, type ContextInput } from "./context.js";
 export {

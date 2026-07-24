@@ -2,6 +2,7 @@ import {
   buildSystemPrompt,
   claudeCliAvailable,
   cursorCliAvailable,
+  openCodeCliAvailable,
   loadInstructionSkills,
   normalizeInboxPaths,
   skillMetaList,
@@ -43,7 +44,12 @@ import { screencast } from "./live-view.js";
 import { TurnManager } from "./turns.js";
 
 /** Canonical engine ids + legacy aliases (afl/cli). */
-export type ChatEngine = "claude-api" | "claude-cli" | "cursor-api" | "cursor-cli";
+export type ChatEngine =
+  | "claude-api"
+  | "claude-cli"
+  | "cursor-api"
+  | "cursor-cli"
+  | "opencode";
 
 export function normalizeEngine(raw: string | null | undefined): ChatEngine {
   switch ((raw ?? "claude-api").toLowerCase()) {
@@ -55,6 +61,10 @@ export function normalizeEngine(raw: string | null | undefined): ChatEngine {
     case "cursor-api":
     case "cursor":
       return "cursor-api";
+    case "opencode":
+    case "oc":
+    case "open-code":
+      return "opencode";
     case "afl":
     case "claude-api":
     case "brokk":
@@ -68,9 +78,11 @@ const ENGINE_ENUM = z.enum([
   "claude-cli",
   "cursor-api",
   "cursor-cli",
+  "opencode",
   // legacy
   "afl",
   "cli",
+  "oc",
 ]);
 
 export interface SindriDeps {
@@ -249,11 +261,19 @@ export function buildSindri(deps: SindriDeps): Hono {
   app.get("/engines", (c) => {
     const cursorCli = cursorCliAvailable();
     const claudeCli = claudeCliAvailable();
+    const openCode = openCodeCliAvailable();
     const cursorSeat = Boolean(
       process.env.CURSOR_SEAT_URL || process.env.CURSOR_SEAT_INGRESS,
     );
     return c.json({
       engines: [
+        {
+          id: "opencode",
+          available: openCode,
+          ...(openCode
+            ? {}
+            : { reason: "opencode binary or LLM_API_KEY/LLM_BASE_URL missing" }),
+        },
         { id: "claude-api", available: true },
         {
           id: "claude-cli",
@@ -446,9 +466,15 @@ export function buildSindri(deps: SindriDeps): Hono {
         400,
       );
     }
-    // "auto" is Cursor-seat only — never persist it on a Claude engine (BROKK-34).
+    if (engine === "opencode" && !openCodeCliAvailable()) {
+      return c.json(
+        { error: "OpenCode unavailable: opencode binary or LLM_API_KEY/LLM_BASE_URL missing" },
+        400,
+      );
+    }
+    // "auto" is Cursor-seat / OpenCode — never persist it on a Claude engine (BROKK-34).
     let model = parsed.data.model ?? "haiku";
-    if (model === "auto" && engine !== "cursor-api" && engine !== "cursor-cli") {
+    if (model === "auto" && engine !== "cursor-api" && engine !== "cursor-cli" && engine !== "opencode") {
       model = "sonnet";
     }
     const skillRaw = parsed.data.skill?.trim() || null;
@@ -542,12 +568,19 @@ export function buildSindri(deps: SindriDeps): Hono {
           400,
         );
       }
+      if (engine === "opencode" && !openCodeCliAvailable()) {
+        return c.json(
+          { error: "OpenCode unavailable: opencode binary or LLM_API_KEY/LLM_BASE_URL missing" },
+          400,
+        );
+      }
       const { engine: _rawEng, ...rest } = parsed.data;
       let model = rest.model;
       if (
         (model === "auto" || (model === undefined && existing.model === "auto")) &&
         engine !== "cursor-api" &&
-        engine !== "cursor-cli"
+        engine !== "cursor-cli" &&
+        engine !== "opencode"
       ) {
         model = "sonnet";
       }
@@ -565,7 +598,8 @@ export function buildSindri(deps: SindriDeps): Hono {
     if (
       patch.model === "auto" &&
       eng !== "cursor-api" &&
-      eng !== "cursor-cli"
+      eng !== "cursor-cli" &&
+      eng !== "opencode"
     ) {
       patch.model = "sonnet";
     }
@@ -1215,8 +1249,8 @@ async function runSessionTurn(
   const seatToken = await seatTokenFor(deps, session.createdBy);
   const engine = normalizeEngine(session.engine);
 
-  // CLI lanes (Claude Code / Cursor Agent) — genuine headless clients, no Afl loop.
-  if (engine === "claude-cli" || engine === "cursor-cli") {
+  // CLI lanes (Claude Code / Cursor Agent / OpenCode) — headless clients, no Afl loop.
+  if (engine === "claude-cli" || engine === "cursor-cli" || engine === "opencode") {
     try {
       await runCliSessionTurn({
         session: { ...session, branch },
@@ -1229,7 +1263,8 @@ async function runSessionTurn(
         attachments,
         emit,
         signal,
-        kind: engine === "cursor-cli" ? "cursor" : "claude",
+        kind:
+          engine === "cursor-cli" ? "cursor" : engine === "opencode" ? "opencode" : "claude",
       });
     } finally {
       if (live) liveWorktreeLocks.delete(path);

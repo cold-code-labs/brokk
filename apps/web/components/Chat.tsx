@@ -76,8 +76,9 @@ const EFFORTS = [
 
 // Turn engine — locked on the FIRST message (CLI resume / API transcript continuity).
 // Until then the chips are free to change on an empty session (BROKK-33).
-// IDs: claude-api | claude-cli | cursor-api | cursor-cli (legacy afl/cli still accepted).
+// IDs: opencode | claude-api | claude-cli | cursor-api | cursor-cli (legacy afl/cli still accepted).
 const ENGINES = [
+  { id: "opencode", label: "OpenCode", hint: "Brokk Chat · Omni · Plan/Build" },
   { id: "claude-api", label: "Claude API", hint: "LiteLLM → Ratatoskr Max seat" },
   { id: "claude-cli", label: "Claude CLI", hint: "Official Claude Code headless" },
   { id: "cursor-api", label: "Cursor API", hint: "Ratatoskr cursor sidecar · always Auto" },
@@ -94,6 +95,10 @@ function normalizeEngineUi(raw: string | undefined): string {
     case "cursor-api":
     case "cursor":
       return "cursor-api";
+    case "opencode":
+    case "oc":
+    case "open-code":
+      return "opencode";
     case "afl":
     case "brokk":
     case "claude-api":
@@ -104,6 +109,11 @@ function normalizeEngineUi(raw: string | undefined): string {
 
 function isCursorEngine(engine: string): boolean {
   return engine === "cursor-api" || engine === "cursor-cli";
+}
+
+/** Engines that run with model=auto (no Claude haiku/sonnet/opus picker). */
+function isAutoModelEngine(engine: string): boolean {
+  return isCursorEngine(engine) || engine === "opencode";
 }
 
 type SkillOption = { name: string; description: string; kind: string };
@@ -685,7 +695,7 @@ export default function Chat() {
     const { session, messages: msgs, running: live } = await chat.getSession(id);
     // Reflect the session's saved model + effort (all tiers are selectable now).
     setModel(
-      isCursorEngine(normalizeEngineUi(session.engine))
+      isAutoModelEngine(normalizeEngineUi(session.engine))
         ? "auto"
         : MODELS.some((m) => m.id === session.model)
           ? session.model
@@ -711,12 +721,12 @@ export default function Chat() {
     const eng = normalizeEngineUi(engineOverride ?? engine);
     if (engineOverride) {
       setEngine(eng);
-      if (isCursorEngine(eng)) setModel("auto");
+      if (isAutoModelEngine(eng)) setModel("auto");
       else if (model === "auto") setModel("sonnet");
     }
     const s = await chat.createSession({
       projectId,
-      model: isCursorEngine(eng) ? "auto" : model === "auto" ? "sonnet" : model,
+      model: isAutoModelEngine(eng) ? "auto" : model === "auto" ? "sonnet" : model,
       effort,
       engine: eng,
     });
@@ -756,7 +766,7 @@ export default function Chat() {
       try {
         const updated = await chat.patchSession(sid, {
           engine: eng,
-          model: isCursorEngine(eng) ? "auto" : model === "auto" ? "sonnet" : model,
+          model: isAutoModelEngine(eng) ? "auto" : model === "auto" ? "sonnet" : model,
           effort,
         });
         setSessions((prev) => prev.map((s) => (s.id === sid ? { ...s, ...updated } : s)));
@@ -1530,7 +1540,7 @@ export default function Chat() {
                         }}
                       />
                     ) : null}
-                    {engine !== "claude-cli" && engine !== "cursor-cli" && (
+                    {engine !== "claude-cli" && engine !== "cursor-cli" && engine !== "opencode" && (
                       <ComposerChip
                         title="Reasoning effort"
                         className="sindri-effort"
@@ -1550,8 +1560,15 @@ export default function Chat() {
                         }}
                       />
                     )}
-                    {isCursorEngine(engine) ? (
-                      <span className="sindri-chip sindri-chip-static" title="Cursor always uses Auto">
+                    {isAutoModelEngine(engine) ? (
+                      <span
+                        className="sindri-chip sindri-chip-static"
+                        title={
+                          engine === "opencode"
+                            ? "OpenCode uses Omni model (auto)"
+                            : "Cursor always uses Auto"
+                        }
+                      >
                         Auto
                       </span>
                     ) : (
@@ -1579,7 +1596,12 @@ export default function Chat() {
                           id: m.id,
                           label: m.label,
                           hint: disabled && avail?.reason ? avail.reason : m.hint,
-                          tag: m.id.startsWith("cursor") ? "cursor" : "claude",
+                          tag:
+                            m.id === "opencode"
+                              ? "opencode"
+                              : m.id.startsWith("cursor")
+                                ? "cursor"
+                                : "claude",
                           disabled,
                         };
                       })}
@@ -1594,22 +1616,22 @@ export default function Chat() {
                         }
                         const prev = engine;
                         setEngine(next);
-                        if (isCursorEngine(next)) {
+                        if (isAutoModelEngine(next)) {
                           setModel("auto");
-                        } else if (isCursorEngine(prev) || model === "auto") {
-                          // Leaving Cursor: drop the seat-only "auto" alias so a
+                        } else if (isAutoModelEngine(prev) || model === "auto") {
+                          // Leaving Cursor/OpenCode: drop the seat-only "auto" alias so a
                           // Claude/LiteLLM turn never sees model=auto (BROKK-34).
                           setModel("sonnet");
                         }
                         if (!sessionId) return;
                         // Empty session: patch in place — don't mint a new chat.
                         if (messages.length === 0) {
-                          const patchModel = isCursorEngine(next)
+                          const patchModel = isAutoModelEngine(next)
                             ? "auto"
-                            : model === "auto" || isCursorEngine(prev)
+                            : model === "auto" || isAutoModelEngine(prev)
                               ? "sonnet"
                               : model;
-                          if (!isCursorEngine(next) && patchModel !== model) setModel(patchModel);
+                          if (!isAutoModelEngine(next) && patchModel !== model) setModel(patchModel);
                           void chat
                             .patchSession(sessionId, {
                               engine: next,

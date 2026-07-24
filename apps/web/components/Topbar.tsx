@@ -29,6 +29,7 @@ type TopbarUserProps = { name: string; role?: string; authDisabled: boolean };
 const ROOMS = [
   { href: "/fleet", label: "Projects", icon: LayoutGrid, match: (p: string) => p === "/fleet" },
   { href: "/chat", label: "Chat", icon: MessageSquare, match: (p: string) => p.startsWith("/chat") },
+  { href: "/mission", label: "Mission", icon: Columns3, match: (p: string) => p.startsWith("/mission") },
 ] as const;
 
 const BENCH = [
