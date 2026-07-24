@@ -16,7 +16,7 @@ import { loadEitriConfig } from "./config.js";
 import { EitriGit } from "./git.js";
 import { type AppAuth, getInstallationToken, loadAppAuth } from "./github-app.js";
 import { reviewPr } from "@brokk/reviewer";
-import { formatScanMarkdown, runScan, scanPromptBlock } from "./scan.js";
+import { formatBumpRemediation, formatScanMarkdown, runScan, scanPromptBlock } from "./scan.js";
 
 const exec = promisify(execFile);
 
@@ -294,6 +294,9 @@ async function reviewOne(
     const gated = Boolean(scan && scan.blocking.length > 0);
     const verdict = gated ? "REQUEST_CHANGES" : llm.verdict;
     const scanMd = scan ? formatScanMarkdown(scan) : "";
+    // When the ward blocks purely on dependency CVEs, hand Brokk an exact bump
+    // plan so the revise round upgrades the deps instead of re-pushing no-ops.
+    const bumpMd = scan && gated ? formatBumpRemediation(scan) : "";
     // When the security ward overrides a softer LLM verdict, say so up front so the
     // comment's own "VERDICT: ..." line isn't read as contradictory.
     const banner =
@@ -301,7 +304,12 @@ async function reviewOne(
         ? `> ⛔ **REQUEST_CHANGES forced by the security ward** — ${scan!.blocking.length} blocking ` +
           `finding(s) in changed files. Eitri's code review (below) judged it \`${llm.verdict}\`.\n\n`
         : "";
-    const body = scanMd ? `${banner}${scanMd}\n\n---\n\n${llm.body}` : llm.body;
+    const scanSection = scanMd
+      ? bumpMd
+        ? `${scanMd}\n\n${bumpMd}`
+        : scanMd
+      : "";
+    const body = scanSection ? `${banner}${scanSection}\n\n---\n\n${llm.body}` : llm.body;
     const comment = `🛡️ **Eitri** — *the forge's second smith*\n\n${body}`;
     // Post identity: GitHub App token (Eitri[bot]) > own token > shared account.
     const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;

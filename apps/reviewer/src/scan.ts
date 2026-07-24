@@ -31,6 +31,11 @@ export interface Finding {
   ruleId: string; // rule id / CVE id
   title: string;
   message: string;
+  // Dependency findings only — the package + the version to bump to. Lets Eitri
+  // hand Brokk a concrete, machine-actionable bump plan instead of prose.
+  pkgName?: string;
+  installedVersion?: string;
+  fixedVersion?: string; // smallest safe upgrade in the installed major, if any
 }
 
 export interface ScanResult {
@@ -218,7 +223,10 @@ async function runTrivy(cwd: string): Promise<Finding[]> {
     const target = norm(String(res?.Target ?? ""));
     for (const v of res?.Vulnerabilities ?? []) {
       const id = String(v?.VulnerabilityID ?? "CVE");
-      const pkg = `${v?.PkgName ?? "?"}@${v?.InstalledVersion ?? "?"}`;
+      const pkgName = v?.PkgName ? String(v.PkgName) : undefined;
+      const installedVersion = v?.InstalledVersion ? String(v.InstalledVersion) : undefined;
+      const pkg = `${pkgName ?? "?"}@${installedVersion ?? "?"}`;
+      const fixedVersion = pickFixedVersion(installedVersion, v?.FixedVersion);
       const fixed = v?.FixedVersion ? ` (fixed in ${v.FixedVersion})` : " (no fix available)";
       out.push({
         tool: "trivy",
@@ -228,6 +236,9 @@ async function runTrivy(cwd: string): Promise<Finding[]> {
         ruleId: id,
         title: `${id} in ${pkg}`,
         message: `${String(v?.Title ?? v?.Description ?? "").slice(0, 300)}${fixed}`,
+        pkgName,
+        installedVersion,
+        fixedVersion,
       });
     }
     for (const s of res?.Secrets ?? []) {
@@ -244,6 +255,93 @@ async function runTrivy(cwd: string): Promise<Finding[]> {
     }
   }
   return out;
+}
+
+/** Parse a dotted version into numeric segments (non-numeric tails dropped). */
+function parseVer(v: string): number[] {
+  return v
+    .trim()
+    .replace(/^[vV=]/, "")
+    .split(".")
+    .map((s) => parseInt(s, 10))
+    .filter((n) => Number.isFinite(n));
+}
+
+function cmpVer(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0);
+    if (d) return d > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+/**
+ * Trivy's FixedVersion is often a comma list spanning majors (e.g. next:
+ * "15.5.21, 16.2.11"). Pick the *smallest* fix that is an upgrade from what's
+ * installed and stays in the installed major — the least-disruptive safe bump.
+ * Falls back to the overall smallest upgrade, then the raw first token.
+ */
+export function pickFixedVersion(installed?: string, fixedRaw?: unknown): string | undefined {
+  const raw = typeof fixedRaw === "string" ? fixedRaw : "";
+  const cands = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (cands.length === 0) return undefined;
+  if (!installed) return cands[0];
+  const inst = parseVer(installed);
+  const upgrades = cands
+    .map((c) => ({ c, v: parseVer(c) }))
+    .filter((x) => x.v.length > 0 && cmpVer(x.v, inst) > 0)
+    .sort((a, b) => cmpVer(a.v, b.v));
+  if (upgrades.length === 0) return cands[cands.length - 1];
+  const sameMajor = upgrades.find((x) => x.v[0] === inst[0]);
+  return (sameMajor ?? upgrades[0]).c;
+}
+
+export interface Bump {
+  pkg: string;
+  from?: string;
+  to: string;
+}
+
+/**
+ * Collapse the blocking dependency findings into one bump per package (highest
+ * target wins), so Eitri can hand Brokk an exact, deduped upgrade list. Only
+ * packages with a known fix are actionable; the rest are surfaced separately.
+ */
+export function buildBumpPlan(r: ScanResult): Bump[] {
+  const byPkg = new Map<string, Bump>();
+  for (const f of r.blocking) {
+    if (f.kind !== "dependency" || !f.pkgName || !f.fixedVersion) continue;
+    const prev = byPkg.get(f.pkgName);
+    if (!prev || cmpVer(parseVer(f.fixedVersion), parseVer(prev.to)) > 0) {
+      byPkg.set(f.pkgName, { pkg: f.pkgName, from: f.installedVersion, to: f.fixedVersion });
+    }
+  }
+  return [...byPkg.values()].sort((a, b) => a.pkg.localeCompare(b.pkg));
+}
+
+/**
+ * The imperative remediation Eitri appends when the security ward blocks on
+ * dependency CVEs — a concrete bump list Brokk (OpenHands) can apply without
+ * guessing, plus the guardrails that keep the revise on-scope.
+ */
+export function formatBumpRemediation(r: ScanResult): string {
+  const bumps = buildBumpPlan(r);
+  if (bumps.length === 0) return "";
+  const rows = bumps
+    .map((b) => `- \`${b.pkg}\`${b.from ? ` ${b.from}` : ""} → \`>=${b.to}\``)
+    .join("\n");
+  return [
+    "## 🔧 Required dependency bumps",
+    "These blocking findings are pre-existing CVEs in dependencies, not in the diff.",
+    "**Brokk: bump each package to at least the target, update the manifest AND the",
+    "lockfile, run the package manager's install, then re-run verify. Do not change",
+    "application code for these, and do not open a new PR — push to the same branch.**",
+    "",
+    rows,
+  ].join("\n");
 }
 
 // --- shaping ----------------------------------------------------------------

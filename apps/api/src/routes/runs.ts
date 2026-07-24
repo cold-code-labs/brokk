@@ -3,6 +3,8 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
+import { triggerEitri } from "../trigger-eitri.js";
+import { repoFullNameFromPrUrl } from "../pr-close.js";
 import { fireQaDiscover, isHeroTask } from "../huginn-fire.js";
 import { connectOne } from "./repositories.js";
 import { requireRunnerSecret } from "./runner.js";
@@ -261,6 +263,31 @@ export function runsRoutes(deps: AppDeps): Hono {
         ...(resolvedPrNumber ? { prNumber: resolvedPrNumber } : {}),
       },
     });
+
+    // Plan-less cards (ingress/manual/revise) have no Story flow to kick Eitri,
+    // and their target repos may carry no GitHub webhook — so a fresh PR would sit
+    // in `review` forever. Auto-trigger the reviewer here (fire-and-forget): on a
+    // clean gate it auto-merges; on a blocking gate it enqueues the revise (with
+    // the bump plan), closing the Eitri↔Brokk loop without a webhook. Plan cards
+    // already trigger Eitri from the plans route, so skip them to avoid double-fire.
+    if (taskStatus === "review" && !task.planId && resolvedPrNumber != null) {
+      const eitriPrNumber = resolvedPrNumber;
+      const eitriProjectId = task.projectId;
+      void (async () => {
+        const project = await deps.store.getProject(eitriProjectId).catch(() => null);
+        const repo = project
+          ? await deps.store.getRepository(project.repositoryId).catch(() => null)
+          : null;
+        const repoFullName = repo?.fullName ?? (prUrl ? repoFullNameFromPrUrl(prUrl) : null);
+        if (!repoFullName) return;
+        const res = await triggerEitri(deps, repoFullName, eitriPrNumber);
+        if (!res.ok) {
+          console.error(
+            `[runs] eitri trigger for ${repoFullName}#${eitriPrNumber} failed: ${res.detail}`,
+          );
+        }
+      })();
+    }
 
     // Plan bookkeeping. A failed card would otherwise stall its dependents in
     // `queued` forever (the DAG never sees it reach review/done), so surface the

@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
 import { canSeeProject, requestActor } from "../actor.js";
+import { triggerEitri } from "../trigger-eitri.js";
 
 const run = promisify(execFile);
 const GH_BIN = process.env.BROKK_GH_BIN ?? "gh";
@@ -298,29 +299,4 @@ export function plansRoutes(deps: AppDeps): Hono {
   });
 
   return r;
-}
-
-async function triggerEitri(
-  deps: AppDeps,
-  repo: string,
-  prNumber: number,
-): Promise<{ ok: boolean; detail?: string }> {
-  const base = (deps.eitriUrl ?? "").replace(/\/$/, "");
-  if (!base) {
-    return { ok: false, detail: "EITRI_URL unset" };
-  }
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  if (deps.runnerSecret) headers.authorization = `Bearer ${deps.runnerSecret}`;
-  try {
-    const res = await fetch(`${base}/eitri/review`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ repo, prNumber }),
-    });
-    const text = await res.text().catch(() => "");
-    if (!res.ok) return { ok: false, detail: `${res.status} ${text.slice(0, 200)}` };
-    return { ok: true, detail: text.slice(0, 200) || undefined };
-  } catch (e) {
-    return { ok: false, detail: e instanceof Error ? e.message : String(e) };
-  }
 }
