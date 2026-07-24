@@ -41,6 +41,8 @@ export interface CliTurnInput {
   prompt: string;
   /** Concrete model id (or CLI alias). Omit = CLI default. */
   model?: string;
+  /** OpenCode primary agent: `plan` (read-only) | `build` (default). */
+  agent?: "plan" | "build";
   /** Resume an existing CLI session (its id from a prior turn's outcome). */
   resume?: string;
   /** Appended to the CLI's own system prompt (repo/branch grounding). */

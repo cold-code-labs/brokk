@@ -15,6 +15,7 @@ const BASE = (process.env.NEXT_PUBLIC_BROKK_API_URL || "/api") + "/chat";
 
 export type BrokkSendExtras = {
   skill?: string | null;
+  agent?: "plan" | "build";
   attachments?: string[];
   attachmentUploads?: { name: string; dataBase64: string }[];
 };
@@ -78,6 +79,7 @@ export class BrokkChatTransport implements ChatTransport<UIMessage> {
       body: JSON.stringify({
         text,
         skill: extras.skill ?? undefined,
+        agent: extras.agent ?? undefined,
         attachments: extras.attachments,
         attachmentUploads: extras.attachmentUploads,
       }),

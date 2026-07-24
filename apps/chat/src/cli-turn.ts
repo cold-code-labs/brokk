@@ -48,6 +48,8 @@ export interface CliSessionTurnInput {
   signal?: AbortSignal;
   /** Claude Code vs Cursor Agent CLI. Default claude. */
   kind?: CliKind;
+  /** OpenCode Plan vs Build (ignored for other kinds). Default build. */
+  agent?: "plan" | "build";
 }
 
 function deriveTitle(text: string): string {
@@ -77,6 +79,8 @@ function historyPreamble(msgs: { role: string; blocks: unknown[] }[]): string {
 export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<void> {
   const { session, cfg, store, emit, signal } = input;
   const kind: CliKind = input.kind ?? "claude";
+  const agent: "plan" | "build" =
+    kind === "opencode" && input.agent === "plan" ? "plan" : "build";
   const engineLabel =
     kind === "cursor" ? "cursor-cli" : kind === "opencode" ? "opencode" : "claude-cli";
   if (inFlight >= MAX_CONCURRENT) {
@@ -93,7 +97,11 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
           process.env.LLM_MODEL ||
           "auto"
         : resolveModel(cfg, session.model);
-  emit({ type: "status", phase: "turn_start", detail: { model, engine: engineLabel } });
+  emit({
+    type: "status",
+    phase: "turn_start",
+    detail: { model, engine: engineLabel, ...(kind === "opencode" ? { agent } : {}) },
+  });
 
   // Context bridge: if there's no CLI session to resume (fresh, or switched over
   // from the afl lane), the CLI has no memory of prior turns — feed it a compact
@@ -141,9 +149,11 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
     `You are Brokk Chat, the session agent inside Brokk (CCL's development platform), working on repo ${input.repoFullName}.`,
     `Your checkout is a dedicated git worktree on branch \`${session.branch}\`. Do NOT switch branches or reset history — stay here.`,
     `COMMIT POLICY: Do NOT git commit or git push unless the user explicitly asks. Live preview / HMR already shows file edits — leave the tree dirty for the Commit button in the preview toolbar. If they ask you to commit, typecheck when available, then commit + push origin HEAD:dev (never force-push).`,
-    kind === "opencode"
-      ? `HANDOFF: To run autonomous DoD work (Forge/OpenHands), use the Brokk MCP tool enqueue_card — never try to be the forge yourself.`
-      : "",
+    kind === "opencode" && agent === "plan"
+      ? `MODE: OpenCode Plan (read-only). Explore and write a concrete implementation plan (steps, files, risks). You may write plan markdown under .opencode/plans/. Do NOT edit product code. Do NOT call enqueue_card — the human locks the plan in the Brokk UI and sends it to Forge.`
+      : kind === "opencode"
+        ? `MODE: OpenCode Build. Implement in this worktree. HANDOFF: for autonomous DoD / multi-card Forge work, use Brokk MCP enqueue_card — never pretend to be the forge.`
+        : "",
     "",
     SCOPE_RULES,
     previewNote,
@@ -168,6 +178,7 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
       cwd: input.cwd,
       prompt: promptText,
       model,
+      agent: kind === "opencode" ? agent : undefined,
       resume,
       appendSystem,
       gh: true,
@@ -191,7 +202,13 @@ export async function runCliSessionTurn(input: CliSessionTurnInput): Promise<voi
           const msg = await store.appendChatMessage(session.id, {
             role: "assistant",
             blocks,
-            meta: { model, engine: engineLabel, stopReason: meta.stopReason, usage: meta.usage },
+            meta: {
+              model,
+              engine: engineLabel,
+              ...(kind === "opencode" ? { agent } : {}),
+              stopReason: meta.stopReason,
+              usage: meta.usage,
+            },
           });
           emit({ type: "message", seq: msg.seq, role: "assistant", blocks });
         },

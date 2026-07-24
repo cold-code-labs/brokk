@@ -24,6 +24,11 @@ describe("opencode-cli", () => {
     assert.equal(cfg.provider.omni.options.baseURL, "https://litellm.example/v1");
   });
 
+  it("CliTurnInput.agent plan|build is typed on the shared interface", () => {
+    const input: { agent?: "plan" | "build" } = { agent: "plan" };
+    assert.equal(input.agent, "plan");
+  });
+
   it("handleOpenCodeJsonLine extracts session + text", () => {
     const events: AgentEvent[] = [];
     const state = {

@@ -1462,6 +1462,28 @@ body:has(.sindri) {
 .sindri-cockpit-controls {
   display: flex;
   align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.sindri-agent-toggle {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.1rem;
+  border-radius: 0.45rem;
+  background: color-mix(in oklab, var(--forge-ink, #1a1a1a) 6%, transparent);
+}
+
+.sindri-agent-toggle .sindri-chip.is-on {
+  background: color-mix(in oklab, var(--forge-ember, #c45c26) 22%, transparent);
+  border-color: color-mix(in oklab, var(--forge-ember, #c45c26) 45%, transparent);
+}
+
+.sindri-chip-forge {
+  font-weight: 600;
+}
+  display: flex;
+  align-items: center;
   gap: 0.35rem;
   flex-shrink: 0;
   margin-left: auto;

@@ -1,14 +1,13 @@
 "use client";
 
 /**
- * Mission UI skeleton (ADR 0074 Fase 2) — Plan lock surface over Regin.
- * Backend already plans/dispatches via /missions; this is the AO composition:
- * goal → mission → cards + status (preview link later).
+ * Mission = ops list of Regin missions (legacy). AO surface is Chat OpenCode
+ * Plan → lock → Forge (ADR 0073/0074). This page is not a custom Mission UI.
  */
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
-import { Crosshair, Loader2, Play, XCircle } from "lucide-react";
+import { Crosshair, Loader2, MessageSquare, Play, XCircle } from "lucide-react";
 import { Banner, Button, Main, Textarea } from "@cold-code-labs/yggdrasil-react";
 import { useProject } from "../lib/project-context";
 import { useToast } from "./Toaster";
@@ -86,7 +85,6 @@ export default function Mission() {
       const mission = await apiJson<MissionRow>("POST", "/missions", {
         projectId,
         goal: goal.trim(),
-        autoApprove: true,
       });
       setGoal("");
       toast("Mission started — Regin is planning", { tone: "ok" });
@@ -94,7 +92,6 @@ export default function Mission() {
       await openMission(mission.id);
     } catch (e) {
       setErr(String(e));
-      toast("Failed to start mission", { tone: "err" });
     } finally {
       setBusy(false);
     }
@@ -116,86 +113,67 @@ export default function Mission() {
       await refresh();
       if (selected?.mission.id === id) await openMission(id);
     } catch (e) {
-      toast(String(e), { tone: "err" });
+      setErr(String(e));
     }
   }
 
   return (
     <Main className="forge-page">
       <header className="forge-page-head">
-        <p className="forge-crumb">
-          <Link href="/fleet">Projects</Link>
-          <span aria-hidden> / </span>
-          Mission
-        </p>
         <h1 className="forge-title">
-          <Crosshair size={22} strokeWidth={1.75} aria-hidden /> Mission
+          <Crosshair size={22} strokeWidth={1.75} aria-hidden /> Missions
         </h1>
-        <p className="forge-lead">
-          Goal → plan → cards on the Forge. Chat (OpenCode) for interactive; Mission for org-scale
-          dispatch.
+        <p className="forge-lede">
+          Prefer{" "}
+          <Link href="/chat" className="forge-inline-link">
+            Chat → Plan → Forge
+          </Link>{" "}
+          (OpenCode). This page lists Regin org missions only — not a custom AO Mission UI.
+        </p>
+        <p style={{ marginTop: "0.75rem" }}>
+          <Link href="/chat" className="forge-inline-link">
+            <MessageSquare size={16} aria-hidden style={{ verticalAlign: "middle" }} /> Open Chat
+            (Plan / Build)
+          </Link>
         </p>
       </header>
 
-      {!projectId ? (
-        <Banner tone="warn">Pick a project on the anvil to start a mission.</Banner>
-      ) : (
-        <section className="forge-section" aria-label="Start mission">
-          <Textarea
-            value={goal}
-            onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setGoal(e.target.value)}
-            placeholder="What should Brokk accomplish? (e.g. harden auth, ship the billing fix…)"
-            rows={4}
-            disabled={busy}
-          />
-          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-            <Button onClick={() => void startMission()} disabled={busy || !goal.trim()}>
-              {busy ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
-              Start mission
-            </Button>
-            <Link href="/chat" className="forge-crumb" style={{ alignSelf: "center" }}>
-              Or open Chat
-            </Link>
-          </div>
-        </section>
-      )}
+      {err ? <Banner tone="danger">{err}</Banner> : null}
 
-      {err ? <Banner tone="err">{err}</Banner> : null}
+      <section className="forge-section" aria-label="Start Regin mission">
+        <h2 className="forge-subtitle">Regin mission (ops)</h2>
+        <Textarea
+          value={goal}
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setGoal(e.target.value)}
+          placeholder="Goal for Regin planner…"
+          rows={3}
+          disabled={!projectId || busy}
+        />
+        <div style={{ marginTop: "0.75rem" }}>
+          <Button onClick={() => void startMission()} disabled={busy || !goal.trim()}>
+            {busy ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
+            Start Regin mission
+          </Button>
+        </div>
+      </section>
 
       <section className="forge-section" aria-label="Missions">
-        <h2 className="forge-subtitle">Active & recent</h2>
+        <h2 className="forge-subtitle">Recent</h2>
         {list.length === 0 ? (
-          <p style={{ opacity: 0.7 }}>No missions yet for this project.</p>
+          <p className="forge-muted">No missions yet.</p>
         ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
+          <ul className="forge-list">
             {list.map((m) => (
-              <li
-                key={m.id}
-                style={{ display: "flex", gap: 8, alignItems: "flex-start", justifyContent: "space-between" }}
-              >
-                <button
-                  type="button"
-                  onClick={() => void openMission(m.id)}
-                  style={{
-                    textAlign: "left",
-                    flex: 1,
-                    background: "transparent",
-                    border: "1px solid var(--border, #333)",
-                    borderRadius: 6,
-                    padding: "10px 12px",
-                    cursor: "pointer",
-                    color: "inherit",
-                  }}
-                >
-                  <strong style={{ display: "block", marginBottom: 4 }}>{m.status}</strong>
-                  <span>{m.goal.slice(0, 120)}</span>
+              <li key={m.id} className="forge-list-row">
+                <button type="button" className="forge-list-main" onClick={() => void openMission(m.id)}>
+                  <strong>{m.status}</strong> — {m.goal.slice(0, 120)}
                 </button>
-                {m.status !== "done" && m.status !== "failed" && m.status !== "cancelled" ? (
+                {m.status === "running" || m.status === "planning" ? (
                   <button
                     type="button"
-                    aria-label="Cancel mission"
+                    className="forge-icon-btn"
+                    aria-label="Cancel"
                     onClick={() => void cancelMission(m.id)}
-                    style={{ background: "transparent", border: 0, cursor: "pointer", color: "inherit", padding: 8 }}
                   >
                     <XCircle size={16} />
                   </button>
@@ -210,25 +188,10 @@ export default function Mission() {
         <section className="forge-section" aria-label="Mission detail">
           <h2 className="forge-subtitle">Mission · {selected.mission.status}</h2>
           <p>{selected.mission.goal}</p>
-          {selected.mission.detail ? <p style={{ opacity: 0.7 }}>{selected.mission.detail}</p> : null}
-          <h3 className="forge-subtitle">Cards</h3>
-          {selected.cards.length === 0 ? (
-            <p style={{ opacity: 0.7 }}>Waiting for plan…</p>
-          ) : (
-            <ul style={{ listStyle: "none", padding: 0 }}>
-              {selected.cards.map((c) => (
-                <li key={c.id} style={{ marginBottom: 6 }}>
-                  <Link href={`/projects/${selected.mission.projectId}`}>{c.title}</Link>
-                  <span style={{ opacity: 0.7 }}> · {c.status}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <h3 className="forge-subtitle">Trail</h3>
-          <ul style={{ listStyle: "none", padding: 0, opacity: 0.7 }}>
-            {selected.events.slice(-12).map((e) => (
-              <li key={e.id}>
-                {e.type} · {new Date(e.createdAt).toLocaleString()}
+          <ul>
+            {selected.cards.map((c) => (
+              <li key={c.id}>
+                {c.status}: {c.title}
               </li>
             ))}
           </ul>

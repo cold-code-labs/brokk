@@ -3,7 +3,7 @@
 // LLM fuel is LiteLLM → OmniRoute via openai-compatible provider config.
 //
 // Invocation:
-//   opencode run --format json --auto --dir <cwd> [-m provider/model] [-s session] "…"
+//   opencode run --format json --auto --dir <cwd> [-m provider/model] [--agent plan|build] [-s session] "…"
 
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -285,6 +285,7 @@ export async function runOpenCodeCliTurn(input: CliTurnInput): Promise<CliTurnOu
       ? `${input.appendSystem}\n\n---\n\n${input.prompt}`
       : input.prompt;
 
+  const agent = input.agent === "plan" ? "plan" : "build";
   const args = [
     "run",
     "--format",
@@ -294,11 +295,17 @@ export async function runOpenCodeCliTurn(input: CliTurnInput): Promise<CliTurnOu
     input.cwd,
     "-m",
     `omni/${bareModel}`,
+    "--agent",
+    agent,
   ];
   if (input.resume) args.push("--session", input.resume);
   args.push(prompt);
 
-  emit({ type: "status", phase: "opencode_start", detail: { model: `omni/${bareModel}` } });
+  emit({
+    type: "status",
+    phase: "opencode_start",
+    detail: { model: `omni/${bareModel}`, agent },
+  });
 
   return await new Promise((resolve) => {
     const child = spawn(opencodeBin(), args, {

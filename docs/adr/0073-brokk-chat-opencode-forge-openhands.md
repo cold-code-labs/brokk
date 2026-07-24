@@ -88,7 +88,7 @@ Persona mitológica ok no tom; **arquitetura e produto falam Brokk Chat / Brokk 
 | Validate profile por app | AWF | verify/acceptance ad hoc | profiles versionados no projeto |
 | PR-monitor loop | AWF | Eitri one-shot + auto-merge pontual | comment/CI → re-claim OH → merge/close |
 | Adopt PR | AWF | parcial | monitor sem re-forjar |
-| Mission UI | AO + OpenCode Plan | board + chat separados | Plan lock → cards + preview na mesma superfície |
+| Mission UI | AO + OpenCode Plan | board + chat separados | **Chat Plan/Build + → Forge** (sem Mission AO custom) |
 | Agent pluggable | AWF | `BROKK_FORGE_ENGINE` | manter; Chat e Forge = dois plugs, um fabric |
 
 **Jobs OH (além do card manual):** Svalinn sec-fix · Huginn/QA remediar · Eitri/CI heal (via PR-monitor).

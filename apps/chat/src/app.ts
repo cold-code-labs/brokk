@@ -122,6 +122,8 @@ const SendMessage = z.object({
   text: z.string().min(1),
   /** Optional Brokk Skill for this turn (slash `/skill` from the composer). */
   skill: z.string().min(1).max(80).optional().nullable(),
+  /** OpenCode Plan vs Build (default build). */
+  agent: z.enum(["plan", "build"]).optional(),
   /** Relative paths already written under `.brokk/inbox/` via fs/write. */
   attachments: z.array(z.string().min(1).max(240)).max(8).optional(),
   /** Inline bytes when the checkout was not ready for fs/write yet. */
@@ -641,6 +643,7 @@ export function buildSindri(deps: SindriDeps): Hono {
       deps.turns.start(id, (emit, signal) =>
         runSessionTurn(deps, id, parsed.data.text, emit, signal, {
           skill: parsed.data.skill?.trim() || null,
+          agent: parsed.data.agent === "plan" ? "plan" : "build",
           attachments: parsed.data.attachments,
           attachmentUploads: parsed.data.attachmentUploads,
         }),
@@ -657,6 +660,74 @@ export function buildSindri(deps: SindriDeps): Hono {
   app.post("/sessions/:id/stop", (c) => {
     const stopped = deps.turns.stop(c.req.param("id"));
     return c.json({ stopped });
+  });
+
+  // Lock OpenCode Plan → Forge card (ADR 0073/0074). Brief = last assistant text
+  // (or explicit body). Does not run OpenCode — human-gated handoff.
+  app.post("/sessions/:id/enqueue-plan", async (c) => {
+    const id = c.req.param("id");
+    const session = await deps.store.getChatSession(id);
+    if (!session) return c.json({ error: "not found" }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      brief?: string;
+      title?: string;
+      proposedOnly?: boolean;
+    };
+    let brief = typeof body.brief === "string" ? body.brief.trim() : "";
+    let title = typeof body.title === "string" ? body.title.trim() : "";
+    if (!brief) {
+      const msgs = await deps.store.listChatMessages(id);
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i]!;
+        if (m.role !== "assistant") continue;
+        const text = (Array.isArray(m.blocks) ? m.blocks : [])
+          .filter(
+            (b): b is { type: string; text: string } =>
+              !!b &&
+              typeof b === "object" &&
+              (b as { type?: string }).type === "text" &&
+              typeof (b as { text?: unknown }).text === "string",
+          )
+          .map((b) => b.text)
+          .join("")
+          .trim();
+        if (text) {
+          brief = text;
+          break;
+        }
+      }
+    }
+    if (!brief) return c.json({ error: "no plan text — run a Plan turn first" }, 400);
+    if (!title) {
+      title = brief.split("\n").map((l) => l.trim()).find((l) => l.length > 0)?.slice(0, 80) || "Chat plan";
+      title = title.replace(/^#+\s*/, "").slice(0, 80);
+    }
+    const apiBase = (process.env.BROKK_API_URL || "http://api:8787").replace(/\/$/, "");
+    const secret = process.env.BROKK_API_SECRET || deps.runnerSecret || "";
+    const res = await fetch(`${apiBase}/ingress/cards`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(secret ? { authorization: `Bearer ${secret}` } : {}),
+      },
+      body: JSON.stringify({
+        brief,
+        title,
+        projectId: session.projectId,
+        dedupeKey: `chat-plan:${id}:${Buffer.from(brief).toString("base64url").slice(0, 24)}`,
+        createdBy: session.createdBy || "chat-plan",
+        proposedOnly: body.proposedOnly === true,
+      }),
+    });
+    const text = await res.text();
+    let json: unknown = text;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      /* keep */
+    }
+    if (!res.ok) return c.json({ error: json ?? text }, res.status as 400);
+    return c.json(json, res.status === 200 ? 200 : 201);
   });
 
   // ── Huginn: project discovery ─────────────────────────────────────────────────
@@ -1108,6 +1179,7 @@ async function runSessionTurn(
   signal: AbortSignal,
   opts?: {
     skill?: string | null;
+    agent?: "plan" | "build";
     attachments?: string[];
     attachmentUploads?: { name: string; dataBase64: string }[];
   },
@@ -1226,6 +1298,7 @@ async function runSessionTurn(
         signal,
         kind:
           engine === "cursor-cli" ? "cursor" : engine === "opencode" ? "opencode" : "claude",
+        agent: engine === "opencode" ? (opts?.agent === "plan" ? "plan" : "build") : undefined,
       });
     } finally {
       if (live) liveWorktreeLocks.delete(path);

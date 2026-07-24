@@ -394,7 +394,15 @@ export default function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const threadApiRef = useRef<SindriThreadApi | null>(null);
   const [threadHydrate, setThreadHydrate] = useState<{ sessionId: string; messages: ReturnType<typeof sessionMessagesToUIMessages>; resume: boolean } | null>(null);
-  const extrasRef = useRef({ skill: null as string | null, attachments: [] as string[], attachmentUploads: [] as { name: string; dataBase64: string }[] });
+  const extrasRef = useRef({
+    skill: null as string | null,
+    agent: "build" as "plan" | "build",
+    attachments: [] as string[],
+    attachmentUploads: [] as { name: string; dataBase64: string }[],
+  });
+  /** OpenCode Plan (read-only) vs Build — market surface; no custom Mission UI. */
+  const [agentMode, setAgentMode] = useState<"plan" | "build">("build");
+  const [enqueueBusy, setEnqueueBusy] = useState(false);
   const [phase, setPhase] = useState("");
   /** Bump to remount SindriThread (reattach / open). */
   const [threadEpoch, setThreadEpoch] = useState(0);
@@ -718,6 +726,7 @@ export default function Chat() {
       }
       extrasRef.current = {
         skill: slashSkill ?? null,
+        agent: agentMode,
         attachments: attachments ?? [],
         attachmentUploads: attachmentUploads ?? [],
       };
@@ -1293,7 +1302,11 @@ export default function Chat() {
                   <textarea
                     ref={inputRef}
                     className="sindri-input"
-                    placeholder="Ask anything…  (/ for skills · Enter sends)"
+                    placeholder={
+                      agentMode === "plan"
+                        ? "Describe the goal — Plan mode (read-only)…"
+                        : "Ask anything…  (/ for skills · Enter sends)"
+                    }
                     value={input}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -1455,9 +1468,60 @@ export default function Chat() {
                         }}
                       />
                     ) : null}
+                    <div
+                      className="sindri-agent-toggle"
+                      role="group"
+                      aria-label="OpenCode mode"
+                    >
+                      <button
+                        type="button"
+                        className={`sindri-chip${agentMode === "plan" ? " is-on" : ""}`}
+                        disabled={running}
+                        title="Plan — read-only (OpenCode plan agent)"
+                        onClick={() => setAgentMode("plan")}
+                      >
+                        Plan
+                      </button>
+                      <button
+                        type="button"
+                        className={`sindri-chip${agentMode === "build" ? " is-on" : ""}`}
+                        disabled={running}
+                        title="Build — edit worktree (OpenCode build agent)"
+                        onClick={() => setAgentMode("build")}
+                      >
+                        Build
+                      </button>
+                    </div>
+                    {agentMode === "plan" && sessionId && !running ? (
+                      <button
+                        type="button"
+                        className="sindri-chip sindri-chip-forge"
+                        disabled={enqueueBusy || !messages.some((m) => m.role === "assistant")}
+                        title="Lock last Plan reply → Forge card (OpenHands)"
+                        onClick={() => {
+                          if (!sessionId || enqueueBusy) return;
+                          setEnqueueBusy(true);
+                          setError("");
+                          void chat
+                            .enqueuePlan(sessionId)
+                            .then((r) => {
+                              const id = r.taskId || "";
+                              setPhase(
+                                r.deduped
+                                  ? `Forge card already queued${id ? ` · ${id.slice(0, 8)}` : ""}`
+                                  : `Sent to Forge${id ? ` · ${id.slice(0, 8)}` : ""}`,
+                              );
+                            })
+                            .catch((e) => setError(String(e)))
+                            .finally(() => setEnqueueBusy(false));
+                        }}
+                      >
+                        {enqueueBusy ? "Sending…" : "→ Forge"}
+                      </button>
+                    ) : null}
                     <span
                       className="sindri-chip sindri-chip-static"
-                      title="OpenCode Auto — único modo do Brokk Chat (Omni fuel)"
+                      title="OpenCode · Omni fuel"
                     >
                       OpenCode · Auto
                     </span>

@@ -134,11 +134,13 @@ Inventário fechado 2026-07-23 → implementação empurrada no mesmo ciclo.
 | Imagem | `apps/chat/Dockerfile` | `opencode-ai` pinned |
 | MCP Brokk | `apps/chat/src/brokk-mcp-server.ts` | enqueue_card / projects / preview |
 
-### Fase 2 — Mission UI (AO surface) ✅ (skeleton)
+### Fase 2 — OpenCode Plan surface ✅
 
 | Entrega | Paths | DoD |
 |---|---|---|
-| Página Mission | `apps/web` `/mission` | goal → mission → cards + status |
+| Plan / Build no Chat | `opencode --agent` + UI toggle | Plan = read-only; Build = edit |
+| Lock → Forge | `POST …/enqueue-plan` + botão → Forge | último reply Plan vira card |
+| `/mission` | CTA pro Chat | **não** AO Mission UI custom — Regin ops only |
 
 ### Fase 3 — Ingress Devin-class ✅
 
@@ -174,6 +176,6 @@ Docs: `docs/VALIDATE-PROFILES.md`, `docs/PR-MONITOR.md`, `docs/INGRESS.md`.
 ## Consequências
 
 - North-star de produto: **plataforma de desenvolvimento CCL**, não “kanban com agent”.
-- Fases 0–4 entregues no código (MVP); refinamentos de Mission compose / multi-profile DB / agent tokens ficam como follow-ups.
+- Fases 0–4 entregues no código (MVP); Mission compose AO **não** será produto Brokk — Plan é do OpenCode; lock→card é do Brokk. Follow-ups: multi-profile DB / agent tokens / PR-monitor deepen.
 - Marketing/docs: Brokk = IDE web + esteira + autônomo org; Chat/Forge são superfícies, não produtos.
 - ADR 0073 permanece válido para engines/naming; **este ADR fixa o envelope de produto e o plano de execução**.

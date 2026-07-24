@@ -113,6 +113,17 @@ export const chat = {
   ) => j<{ session: ChatSession }>("PATCH", `/sessions/${id}`, patch).then((r) => r.session),
   deleteSession: (id: string) => j<{ ok: true }>("DELETE", `/sessions/${id}`),
   stop: (id: string) => j<{ stopped: boolean }>("POST", `/sessions/${id}/stop`),
+  /** Lock last Plan reply → Forge card via ingress. */
+  enqueuePlan: (
+    id: string,
+    body?: { brief?: string; title?: string; proposedOnly?: boolean },
+  ) =>
+    j<{
+      taskId?: string;
+      status?: string;
+      deduped?: boolean;
+      task?: string;
+    }>("POST", `/sessions/${id}/enqueue-plan`, body ?? {}),
   devtreeStatus: (projectId: string, sessionId?: string | null) =>
     j<{
       dirty: boolean;
