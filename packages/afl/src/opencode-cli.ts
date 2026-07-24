@@ -122,21 +122,41 @@ export function buildOpenCodeCliEnv(
   // Strip a leading provider/ if the operator already passed omni/…
   const bareModel = modelId.includes("/") ? modelId.split("/").slice(1).join("/") : modelId;
 
+  // Brokk control-plane MCP (enqueue_card / projects / preview).
   const mcpBrokk = src.BROKK_MCP_COMMAND?.trim();
-  const mcpBlock = mcpBrokk
-    ? {
-        brokk: {
-          type: "local",
-          command: mcpBrokk.split(/\s+/),
-          enabled: true,
-          environment: {
-            BROKK_API_URL: src.BROKK_API_URL || "http://api:8787",
-            BROKK_API_SECRET: src.BROKK_API_SECRET || "",
-            BROKK_PROJECT_ID: src.BROKK_PROJECT_ID || "",
-          },
-        },
-      }
-    : undefined;
+  // Playwright MCP → shared Chromium CDP (live-view / ADR 0054). Same browser the
+  // MJPEG pane screencasts — without this, OpenCode's prompt promises browser
+  // tools that never appear.
+  const cdp =
+    src.BROKK_PLAYWRIGHT_CDP?.trim() ||
+    src.PLAYWRIGHT_MCP_CDP_ENDPOINT?.trim() ||
+    "http://127.0.0.1:9223";
+  const mcpPwRaw = src.BROKK_PLAYWRIGHT_MCP_COMMAND?.trim();
+  const mcpPlaywright =
+    mcpPwRaw === "0" || mcpPwRaw === "off"
+      ? undefined
+      : (mcpPwRaw || `playwright-mcp --cdp-endpoint ${cdp}`).split(/\s+/).filter(Boolean);
+
+  const mcp: Record<string, unknown> = {};
+  if (mcpBrokk) {
+    mcp.brokk = {
+      type: "local",
+      command: mcpBrokk.split(/\s+/),
+      enabled: true,
+      environment: {
+        BROKK_API_URL: src.BROKK_API_URL || "http://api:8787",
+        BROKK_API_SECRET: src.BROKK_API_SECRET || "",
+        BROKK_PROJECT_ID: src.BROKK_PROJECT_ID || "",
+      },
+    };
+  }
+  if (mcpPlaywright?.length) {
+    mcp["playwright-chat"] = {
+      type: "local",
+      command: mcpPlaywright,
+      enabled: true,
+    };
+  }
 
   const config = {
     $schema: "https://opencode.ai/config.json",
@@ -154,7 +174,7 @@ export function buildOpenCodeCliEnv(
         },
       },
     },
-    ...(mcpBlock ? { mcp: mcpBlock } : {}),
+    ...(Object.keys(mcp).length ? { mcp } : {}),
   };
   out.OPENCODE_CONFIG_CONTENT = JSON.stringify(config);
   out.OPENCODE_DISABLE_AUTOUPDATE = "1";

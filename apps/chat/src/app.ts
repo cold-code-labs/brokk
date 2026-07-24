@@ -39,7 +39,7 @@ import { fsRoutes } from "./fs-routes.js";
 import { devtreeRoutes } from "./devtree-routes.js";
 import type { McpToolProvider } from "@brokk/mcp";
 import { HeimdallAgentClient } from "./heimdall.js";
-import { screencast } from "./live-view.js";
+import { cdpReady, screencast } from "./live-view.js";
 import { TurnManager } from "./turns.js";
 import { runDataFlowAudit } from "./data-flow-audit.js";
 
@@ -292,8 +292,11 @@ export function buildSindri(deps: SindriDeps): Hono {
   // Live-view (ADR 0054): an MJPEG screencast of the shared browser the QA agent
   // drives. The preview pane renders it with a plain <img src="…/live/:id"> — no
   // WebSocket client, no canvas. `:id` is the chat session (cosmetic for now; one
-  // shared browser). 503 when nothing's driving yet.
-  app.get("/live/:id", (c) => {
+  // shared browser). 503 when Chromium/CDP isn't ready yet.
+  app.get("/live/:id", async (c) => {
+    if (!(await cdpReady())) {
+      return c.text("shared chromium / CDP not ready", 503);
+    }
     const boundary = "brokkframe";
     const enc = new TextEncoder();
     let stop = () => {};
@@ -312,7 +315,11 @@ export function buildSindri(deps: SindriDeps): Hono {
             }
           });
         } catch {
-          controller.close();
+          try {
+            controller.error(new Error("screencast unavailable"));
+          } catch {
+            controller.close();
+          }
           return;
         }
         c.req.raw.signal.addEventListener("abort", () => {

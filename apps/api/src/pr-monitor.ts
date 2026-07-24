@@ -209,16 +209,23 @@ export async function handlePrMonitorWebhook(
   }
 
   if (event === "issue_comment" && payload.action === "created") {
-    const issue = payload.issue as { pull_request?: { html_url?: string }; number?: number };
+    const issue = payload.issue as {
+      pull_request?: { html_url?: string };
+      number?: number;
+      body?: string | null;
+    };
     if (!issue?.pull_request?.html_url) return null;
     const comment = payload.comment as { body?: string; id?: number };
     const prUrl = issue.pull_request.html_url;
     const prNumber = issue.number;
     if (!prNumber || !comment?.body) return null;
+    // issue_comment payloads omit pull_request.body — use the issue body (same
+    // as the PR description) so forge stamps `task \`uuid\`` still resolve.
     return enqueuePrRemediation(store, {
       repoFullName: repoFullNameFromPrUrl(prUrl) || repo,
       prNumber,
       prUrl,
+      prBody: issue.body,
       body: comment.body,
       source: "review_comment",
       eventKey: String(comment.id ?? Date.now()),
@@ -230,25 +237,33 @@ export async function handlePrMonitorWebhook(
       conclusion?: string;
       head_sha?: string;
       head_branch?: string;
-      pull_requests?: { number: number; url?: string }[];
+      id?: number;
+      pull_requests?: { number: number; url?: string; html_url?: string }[];
     };
     if (suite?.conclusion !== "failure" && suite?.conclusion !== "timed_out") return null;
     const prs = suite.pull_requests ?? [];
     if (!prs.length) return null;
-    const pr = prs[0]!;
-    const prUrl =
-      (pr as { html_url?: string }).html_url ||
-      `https://github.com/${repo}/pull/${pr.number}`;
-    return enqueuePrRemediation(store, {
-      repoFullName: repo,
-      prNumber: pr.number,
-      prUrl,
-      headRef: suite.head_branch,
-      headSha: suite.head_sha,
-      body: `check_suite ${suite.conclusion} on ${suite.head_sha ?? "unknown"}`,
-      source: "check_failure",
-      eventKey: suite.head_sha || String(pr.number),
-    });
+    // Enqueue for every linked PR (not only [0]) — monorepo suites often attach
+    // multiple PRs; skipping siblings left remediations stranded.
+    let last: PrMonitorResult | null = null;
+    for (const pr of prs) {
+      const prUrl =
+        pr.html_url ||
+        (pr as { url?: string }).url ||
+        `https://github.com/${repo}/pull/${pr.number}`;
+      last = await enqueuePrRemediation(store, {
+        repoFullName: repo,
+        prNumber: pr.number,
+        prUrl,
+        headRef: suite.head_branch,
+        headSha: suite.head_sha,
+        body: `check_suite ${suite.conclusion} on ${suite.head_sha ?? "unknown"}`,
+        source: "check_failure",
+        // Include suite id + pr number so two fails on the same sha don't collide.
+        eventKey: `suite-${suite.id ?? "x"}-pr${pr.number}-${suite.head_sha?.slice(0, 12) ?? "nosha"}`,
+      });
+    }
+    return last;
   }
 
   if (event === "check_run" && payload.action === "completed") {

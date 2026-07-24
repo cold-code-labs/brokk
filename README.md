@@ -25,19 +25,23 @@ second agent before it can merge.
 
 The loop is ours. Brokk runs on **`@brokk/afl`**, a ~1.4k-LOC native kernel with zero
 runtime dependencies — no agent framework, by [deliberate
-decision](docs/adr/0027-simplify-for-oss-adoption.md). Three engine lanes plug into it
+decision](docs/adr/0027-simplify-for-oss-adoption.md). Engine lanes plug into forge
 via `BROKK_FORGE_ENGINE`:
 
 | Lane | What drives the turn |
 |---|---|
-| `cursor-cli` *(default)* | Cursor Agent CLI — needs the `cursor-agent` binary + `CURSOR_API_KEY` |
-| `openhands` | OpenHands CLI → LiteLLM→OmniRoute (`LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`) — [ADR 0072](docs/adr/0072-brokk-openhands-omniroute.md) |
+| `openhands` *(default)* | OpenHands CLI → LiteLLM→OmniRoute (`LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`) — [ADR 0072](docs/adr/0072-brokk-openhands-omniroute.md) |
+| `cursor-cli` | Cursor Agent CLI — needs the `cursor-agent` binary + `CURSOR_API_KEY` |
 | `cli` | the genuine Claude Code CLI |
 | `afl` | the native in-process loop, straight to the Messages API |
 
-The forge is **OpenHands** on the worker lane; Chat is **OpenCode** (Plan → Forge).
+Set `BROKK_FORGE_ENGINE_STRICT=1` to refuse boot when the wanted lane is unavailable
+(instead of falling back to `afl`).
+
+**Chat = OpenCode** (Plan → Forge). **Forge = OpenHands**.
 **Mímir cortex** was dissolved 2026-07-24 (Edda ledger — use Chat Plan, not `/mimir`).
-**Eitri** still reviews PRs. Chat drives a live preview via Playwright MCP.
+**Eitri** still reviews PRs. Chat drives a live preview via Playwright MCP on a
+shared Chromium CDP (same browser as **Assistir o agente**).
 
 ## Stack
 
@@ -52,7 +56,8 @@ apps/web              @brokk/web               Next 15 workbench — kanban + ch
 apps/forge            @brokk/forge-app         the runner — claim loop, worktrees, gh,
                                                preview supervisor
 apps/reviewer         @brokk/reviewer-app      Eitri daemon — polls PRs, scans, reviews, verdict
-apps/chat             @brokk/chat-app          Sindri daemon — detached turns, checkout manager
+apps/chat             @brokk/chat-app          Brokk Chat — OpenCode turns, checkout manager,
+                                               shared Chromium + Playwright MCP (live-view)
 apps/preview-proxy    @brokk/preview-proxy     *.preview reverse proxy (subdomain → live port).
                                                NOT the AI gateway — that's LiteLLM/Ratatoskr
 apps/enclave-manager  @brokk/enclave-manager-app  the one privileged process that holds the

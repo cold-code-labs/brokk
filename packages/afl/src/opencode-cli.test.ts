@@ -19,9 +19,51 @@ describe("opencode-cli", () => {
     const cfg = JSON.parse(env.OPENCODE_CONFIG_CONTENT) as {
       model: string;
       provider: { omni: { options: { baseURL: string } } };
+      mcp?: { "playwright-chat"?: { command: string[] } };
     };
     assert.equal(cfg.model, "omni/auto");
     assert.equal(cfg.provider.omni.options.baseURL, "https://litellm.example/v1");
+    assert.deepEqual(cfg.mcp?.["playwright-chat"]?.command, [
+      "playwright-mcp",
+      "--cdp-endpoint",
+      "http://127.0.0.1:9223",
+    ]);
+  });
+
+  it("buildOpenCodeCliEnv wires Brokk + Playwright MCP and respects off", () => {
+    const on = buildOpenCodeCliEnv(
+      { model: "auto", gh: false },
+      {
+        PATH: "/bin",
+        HOME: "/home/brokk",
+        LLM_API_KEY: "k",
+        LLM_BASE_URL: "https://x.example",
+        BROKK_MCP_COMMAND: "node /app/dist/brokk-mcp-server.js",
+        BROKK_PLAYWRIGHT_CDP: "http://127.0.0.1:9333",
+      },
+    );
+    const cfgOn = JSON.parse(on.OPENCODE_CONFIG_CONTENT) as {
+      mcp: Record<string, { command: string[] }>;
+    };
+    assert.ok(cfgOn.mcp.brokk);
+    assert.deepEqual(cfgOn.mcp["playwright-chat"]?.command, [
+      "playwright-mcp",
+      "--cdp-endpoint",
+      "http://127.0.0.1:9333",
+    ]);
+
+    const off = buildOpenCodeCliEnv(
+      { model: "auto", gh: false },
+      {
+        PATH: "/bin",
+        HOME: "/home/brokk",
+        LLM_API_KEY: "k",
+        LLM_BASE_URL: "https://x.example",
+        BROKK_PLAYWRIGHT_MCP_COMMAND: "off",
+      },
+    );
+    const cfgOff = JSON.parse(off.OPENCODE_CONFIG_CONTENT) as { mcp?: unknown };
+    assert.equal(cfgOff.mcp, undefined);
   });
 
   it("CliTurnInput.agent plan|build is typed on the shared interface", () => {

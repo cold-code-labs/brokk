@@ -21,10 +21,11 @@ For a pure QA request, drive and report — do NOT edit files.
 
 ## The preview
 
-The system prompt carries the preview URL (`http://forge:<port>`), and you have
-the Playwright browser tools (`mcp__playwright__*`). If neither is present, say
-so plainly — the QA lane isn't wired on this session (it needs the `claude-cli`
-engine + a live preview), so don't pretend to have driven anything.
+The system prompt carries the preview URL (`http://forge.localhost:<port>`), and
+you have the Playwright browser tools (`mcp__playwright-chat__*` /
+`mcp__playwright__*`) on the shared Chromium (same pane as **Assistir o agente**).
+Default engine is **OpenCode**. If tools or preview are missing, say so plainly —
+don't pretend to have driven anything.
 
 ## Method
 

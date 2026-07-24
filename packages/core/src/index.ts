@@ -121,15 +121,17 @@ export {
   type RunLogToolResult,
 } from "./run-log";
 
-/** Live-acceptance receipt (Nv2 QA): the forge booted the worktree app and ran
- *  the card's `.brokk/acceptance.mjs` check against it. `ran=false` means the
- *  card shipped no check (non-UI card) — nothing was asserted. The screenshot is
- *  a base64 PNG data URL for the board run-log; it is NOT committed to the repo. */
+/** E2E / behaviour receipt: the forge booted the worktree app and ran the repo's
+ *  E2E gate (profile `commands.e2e`, Playwright, or legacy `.brokk/acceptance.mjs`).
+ *  `ran=false` means no gate was configured. Screenshot is a base64 PNG data URL
+ *  for the board run-log; it is NOT committed to the repo. */
 export interface AcceptanceReceipt {
   ran: boolean;
   ok: boolean;
   output: string;
   screenshot?: string;
+  /** How the gate was resolved (when ran). */
+  source?: "profile" | "playwright" | "legacy-acceptance" | "none";
 }
 
 /** Lifecycle status of a dev-preview environment. `unsupported` = the resolver

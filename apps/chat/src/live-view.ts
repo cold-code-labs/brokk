@@ -14,6 +14,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 const CDP_PORT = 9223;
 export const CDP_ENDPOINT = `http://127.0.0.1:${CDP_PORT}`;
 let proc: ChildProcess | null = null;
+let relaunchTimer: ReturnType<typeof setTimeout> | null = null;
+let chromiumPathCached =
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
+  process.env.BROKK_CHROMIUM_PATH ||
+  "/usr/bin/chromium";
 
 /** The worker's HOME can be "/" (su-exec PID1 gotcha) — chromium then can't write
  *  its profile and dies on boot. Resolve a real, writable home like the CLI lane. */
@@ -22,10 +27,21 @@ function cliHome(): string {
   return process.env.BROKK_CLI_HOME || (h && h !== "/" ? h : "/home/brokk");
 }
 
+function scheduleRelaunch(delayMs = 1_500): void {
+  if (relaunchTimer) return;
+  relaunchTimer = setTimeout(() => {
+    relaunchTimer = null;
+    console.warn("[chat] shared chromium watchdog — relaunching");
+    startSharedBrowser(chromiumPathCached);
+  }, delayMs);
+  relaunchTimer.unref?.();
+}
+
 /** Launch (once) the shared browser the QA agent drives and we stream. Detached
  *  process group so tini reaps it; the MCP connects to it via --cdp-endpoint.
  *  Path: PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH, else Debian `/usr/bin/chromium`,
- *  else Alpine `/usr/bin/chromium-browser` (BROKK-35). */
+ *  else Alpine `/usr/bin/chromium-browser` (BROKK-35).
+ *  Exit → clear handle + watchdog relaunch (OpenCode/Playwright need CDP alive). */
 export function startSharedBrowser(
   chromiumPath =
     process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
@@ -33,6 +49,7 @@ export function startSharedBrowser(
     "/usr/bin/chromium",
 ): void {
   if (proc) return;
+  chromiumPathCached = chromiumPath;
   const home = cliHome();
   proc = spawn(
     chromiumPath,
@@ -48,15 +65,29 @@ export function startSharedBrowser(
       "--window-size=1280,800",
       "about:blank",
     ],
-    { stdio: "ignore", detached: true, env: { ...process.env, HOME: home } },
+    {
+      stdio: ["ignore", "ignore", "pipe"],
+      detached: true,
+      env: { ...process.env, HOME: home },
+    },
   );
-  // Missing binary must not take down Sindri (Alpine path vs Debian, etc.).
-  proc.on("error", (err) => {
-    console.error(`[sindri] shared chromium failed (${chromiumPath}):`, err.message);
-    proc = null;
+  let stderrTail = "";
+  proc.stderr?.on("data", (d: Buffer) => {
+    stderrTail = (stderrTail + d.toString()).slice(-800);
   });
-  proc.on("exit", () => {
+  // Missing binary must not take down Chat (Alpine path vs Debian, etc.).
+  proc.on("error", (err) => {
+    console.error(`[chat] shared chromium failed (${chromiumPath}):`, err.message);
     proc = null;
+    scheduleRelaunch(3_000);
+  });
+  proc.on("exit", (code, signal) => {
+    console.warn(
+      `[chat] shared chromium exited code=${code} signal=${signal}` +
+        (stderrTail ? ` — ${stderrTail.trim().slice(0, 200)}` : ""),
+    );
+    proc = null;
+    scheduleRelaunch();
   });
 }
 
@@ -76,48 +107,87 @@ async function activePageWs(): Promise<string | null> {
       const page = pages.find((p) => !p.url.startsWith("about:")) ?? pages[0];
       if (page?.webSocketDebuggerUrl) return page.webSocketDebuggerUrl;
     } catch {
-      /* browser not up yet */
+      /* browser not up yet — kick watchdog if the proc vanished */
+      if (!proc) startSharedBrowser(chromiumPathCached);
     }
     await new Promise((r) => setTimeout(r, 300));
   }
   return null;
 }
 
+/** True when the shared Chromium answers CDP `/json` (page list). */
+export async function cdpReady(timeoutMs = 2_000): Promise<boolean> {
+  startSharedBrowser();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const list = (await fetch(`${CDP_ENDPOINT}/json`).then((r) => r.json())) as unknown;
+      if (Array.isArray(list)) return true;
+    } catch {
+      /* not up yet */
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
+
 /** Screencast the active page, calling `onFrame` with each JPEG. Returns stop().
- *  Best-effort: if there's no page yet it throws so the route can 503. */
+ *  Best-effort: if there's no page yet it throws so the route can 503.
+ *  On CDP WebSocket drop, one reconnect is attempted while the client is still
+ *  attached (stop not called). */
 export async function screencast(onFrame: (jpeg: Buffer) => void): Promise<() => void> {
   startSharedBrowser(); // idempotent — relaunch if it died
-  const wsUrl = await activePageWs();
-  if (!wsUrl) throw new Error("no active page to screencast");
-  const ws = new WebSocket(wsUrl);
+  let stopped = false;
+  let ws: WebSocket | null = null;
   let id = 0;
-  const send = (method: string, params?: unknown) =>
-    ws.readyState === ws.OPEN && ws.send(JSON.stringify({ id: ++id, method, params }));
-  ws.addEventListener("open", () => {
-    send("Page.enable");
-    send("Page.startScreencast", {
-      format: "jpeg",
-      quality: 55,
-      maxWidth: 1280,
-      maxHeight: 800,
-      everyNthFrame: 2,
+
+  const attach = async (): Promise<void> => {
+    const wsUrl = await activePageWs();
+    if (!wsUrl) throw new Error("no active page to screencast");
+    if (stopped) return;
+    const sock = new WebSocket(wsUrl);
+    ws = sock;
+    const send = (method: string, params?: unknown) =>
+      sock.readyState === sock.OPEN && sock.send(JSON.stringify({ id: ++id, method, params }));
+    sock.addEventListener("open", () => {
+      send("Page.enable");
+      send("Page.startScreencast", {
+        format: "jpeg",
+        quality: 55,
+        maxWidth: 1280,
+        maxHeight: 800,
+        everyNthFrame: 2,
+      });
     });
-  });
-  ws.addEventListener("message", (ev) => {
-    let msg: { method?: string; params?: { data?: string; sessionId?: number } };
-    try {
-      msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
-    } catch {
-      return;
-    }
-    if (msg.method === "Page.screencastFrame" && msg.params?.data != null) {
-      onFrame(Buffer.from(msg.params.data, "base64"));
-      send("Page.screencastFrameAck", { sessionId: msg.params.sessionId });
-    }
-  });
+    sock.addEventListener("message", (ev) => {
+      let msg: { method?: string; params?: { data?: string; sessionId?: number } };
+      try {
+        msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
+      } catch {
+        return;
+      }
+      if (msg.method === "Page.screencastFrame" && msg.params?.data != null) {
+        onFrame(Buffer.from(msg.params.data, "base64"));
+        send("Page.screencastFrameAck", { sessionId: msg.params.sessionId });
+      }
+    });
+    sock.addEventListener("close", () => {
+      if (stopped) return;
+      console.warn("[chat] screencast CDP closed — reconnecting once");
+      startSharedBrowser(chromiumPathCached);
+      setTimeout(() => {
+        if (!stopped) void attach().catch((err) => {
+          console.warn("[chat] screencast reconnect failed:", (err as Error).message);
+        });
+      }, 800);
+    });
+  };
+
+  await attach();
   return () => {
+    stopped = true;
     try {
-      ws.close();
+      ws?.close();
     } catch {
       /* already closed */
     }

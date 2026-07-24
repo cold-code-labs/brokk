@@ -15,12 +15,17 @@ same branch → Eitri again.
 
 ## Matching
 
-1. Forge stamp in PR body (`task \`<uuid>\``)
+1. Forge stamp in PR body (`task \`<uuid>\``) — for `issue_comment`, the PR
+   description is taken from `issue.body` (webhook omits `pull_request.body`)
 2. Else `findTaskForMergedPr` (URL / repo+number)
 
 ## Dedupe
 
 `dedupeKey = pr-monitor:{repo}:#{n}:{source}:{sha12}:{eventKey}`
+
+`check_suite` eventKey includes suite id + PR number (not raw sha alone), so two
+fails on the same head don't collide. All PRs linked on a suite are enqueued
+(not only the first).
 
 Also skips if `openReviseExists(prNumber)` or revision cap
 (`BROKK_PR_MONITOR_MAX_REVISIONS`, default 3).

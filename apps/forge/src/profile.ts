@@ -1,7 +1,10 @@
 // Validate profile — ADR 0074 Fase 4.
 // Repo-local `.brokk/profile.json` overrides the worker's BROKK_VERIFY_CMD so
 // each app carries its own typecheck/lint/test gate with the code.
+// Optional `commands.e2e` is the UI/behaviour gate (Playwright / smoke) — see
+// resolveE2eGate.
 
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -13,8 +16,31 @@ export type ValidateProfile = {
     test?: string;
     /** Optional free-form ordered list; wins over named keys when present. */
     verify?: string[];
+    /**
+     * UI/behaviour gate (E2E). Brokk boots the worktree then runs this shell
+     * command with PLAYWRIGHT_BASE_URL / BASE_URL set. Prefer Playwright.
+     */
+    e2e?: string;
   };
 };
+
+/** How the forge picks the E2E gate for a worktree. */
+export type E2eGate =
+  | { source: "profile"; cmd: string }
+  | { source: "playwright"; cmd: string }
+  | { source: "legacy-acceptance"; cmd: string }
+  | { source: "none" };
+
+const PLAYWRIGHT_CONFIGS = [
+  "playwright.config.ts",
+  "playwright.config.mts",
+  "playwright.config.js",
+  "playwright.config.mjs",
+  "playwright.config.cjs",
+] as const;
+
+const DEFAULT_PLAYWRIGHT_CMD = "pnpm exec playwright test";
+const LEGACY_ACCEPTANCE = ".brokk/acceptance.mjs";
 
 const ORDER = ["typecheck", "lint", "test"] as const;
 
@@ -37,6 +63,7 @@ export async function loadValidateProfile(cwd: string): Promise<ValidateProfile 
         typecheck: typeof commands.typecheck === "string" ? commands.typecheck : undefined,
         lint: typeof commands.lint === "string" ? commands.lint : undefined,
         test: typeof commands.test === "string" ? commands.test : undefined,
+        e2e: typeof commands.e2e === "string" && commands.e2e.trim() ? commands.e2e.trim() : undefined,
         verify: Array.isArray(commands.verify)
           ? commands.verify.filter((c): c is string => typeof c === "string" && c.trim().length > 0)
           : undefined,
@@ -77,4 +104,24 @@ export async function resolveVerifyCmd(cwd: string, envFallback: string): Promis
   const env = envFallback.trim();
   if (env) return { cmd: env, source: "env" };
   return { cmd: "", source: "none" };
+}
+
+/**
+ * Resolve the UI/behaviour (E2E) gate for a worktree.
+ * Priority: profile `commands.e2e` → playwright.config.* → legacy acceptance.mjs → none.
+ */
+export async function resolveE2eGate(cwd: string): Promise<E2eGate> {
+  const profile = await loadValidateProfile(cwd);
+  if (profile?.commands.e2e) {
+    return { source: "profile", cmd: profile.commands.e2e };
+  }
+  for (const file of PLAYWRIGHT_CONFIGS) {
+    if (existsSync(join(cwd, file))) {
+      return { source: "playwright", cmd: DEFAULT_PLAYWRIGHT_CMD };
+    }
+  }
+  if (existsSync(join(cwd, LEGACY_ACCEPTANCE))) {
+    return { source: "legacy-acceptance", cmd: `node ${LEGACY_ACCEPTANCE}` };
+  }
+  return { source: "none" };
 }

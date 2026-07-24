@@ -27,7 +27,7 @@ import { ClaudeCliEngine, CursorCliEngine, ForgeEngine, OpenHandsCliEngine } fro
 import { claudeCliAvailable, cursorCliAvailable, openHandsCliAvailable } from "@brokk/afl";
 import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
 import { HeimdallLanes } from "./heimdall-lanes.js";
-import { runAcceptanceReceipt } from "./acceptance.js";
+import { e2eGateExists, runE2eGate } from "./e2e.js";
 import { makeAutofix } from "./autofix.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
 import { runDriverTurn, reapOrphanBrowsers } from "./driver.js";
@@ -62,11 +62,11 @@ async function main() {
   // seat OAuth direct — no gateway hop). Falls back to the native engine when
   // the binary/token isn't present, so a misconfig can never brick the runner.
   // Engine lanes: openhands (ADR 0072/0074 default) | cursor-cli | cli | afl.
-  // Every lane degrades to afl when its binary/credential is missing, so a bad
-  // image or a rotated key can never brick the runner — it just gets quieter
-  // and slower. The fallback is LOUD on purpose: a silent downgrade would make
-  // "the default changed" indistinguishable from "the default never took".
+  // Default: degrade to afl when binary/credential is missing (loud log).
+  // BROKK_FORGE_ENGINE_STRICT=1 → abort boot instead of silent-ish downgrade
+  // (ops thought they were on OpenHands while running native afl).
   const wantEngine = (process.env.BROKK_FORGE_ENGINE || "openhands").toLowerCase();
+  const engineStrict = process.env.BROKK_FORGE_ENGINE_STRICT === "1";
   const lane =
     wantEngine === "cursor-cli" && cursorCliAvailable()
       ? "cursor-cli"
@@ -89,6 +89,12 @@ async function main() {
     console.error(
       "[forge] BROKK_FORGE_ENGINE=cli but claude binary/CLAUDE_CODE_OAUTH_TOKEN missing — falling back to the native engine",
     );
+  }
+  if (engineStrict && wantEngine !== "afl" && lane === "afl") {
+    console.error(
+      `[forge] BROKK_FORGE_ENGINE_STRICT=1 — wanted ${wantEngine}, got afl; refusing to start`,
+    );
+    process.exit(1);
   }
   const engine =
     lane === "cursor-cli"
@@ -262,6 +268,20 @@ async function handleRun(
       console.log(
         `[forge] verify profile="${verifyResolved.profileName}" → ${verifyResolved.cmd.slice(0, 120)}`,
       );
+    } else if (verifyResolved.source === "none") {
+      console.warn(
+        `[forge] verify source=none for ${repo.fullName} — no .brokk/profile.json and no BROKK_VERIFY_CMD` +
+          (process.env.BROKK_REQUIRE_VERIFY === "1" ? " (BROKK_REQUIRE_VERIFY=1 → fail)" : ""),
+      );
+      if (process.env.BROKK_REQUIRE_VERIFY === "1") {
+        await buffer.flush();
+        await api(cfg, "POST", `/runs/${run.id}/complete`, {
+          status: "failed",
+          error:
+            "verify required: ship .brokk/profile.json or set BROKK_VERIFY_CMD (BROKK_REQUIRE_VERIFY=1)",
+        });
+        return;
+      }
     }
     const verifyCmd = verifyResolved.cmd;
     const result: RunResult = await engine.run({
@@ -293,31 +313,42 @@ async function handleRun(
     const usage = result.usage;
     const verify = result.verify;
 
-    // Live-acceptance receipt (Nv2 QA): if the card shipped a `.brokk/acceptance.mjs`
-    // check, boot the worktree app and run it — a green typecheck proves it compiles,
-    // this proves it BEHAVES. A red receipt FAILS the run (Auto Brokk / BROKK-44) so
-    // Regin can retry/replan — verify alone is no longer the only gate.
-    let receipt: Awaited<ReturnType<typeof runAcceptanceReceipt>> = null;
-    if (cfg.browser) {
+    // E2E gate: profile `commands.e2e` → playwright.config.* → legacy acceptance.mjs.
+    // Green verify proves it compiles; this proves it BEHAVES. Red receipt fails the run.
+    // Fail-closed: gate present + BROKK_BROWSER off → red (not skip).
+    let receipt: Awaited<ReturnType<typeof runE2eGate>> = null;
+    const wantsE2e = await e2eGateExists(wt.path);
+    if (wantsE2e && !cfg.browser) {
+      receipt = {
+        ran: true,
+        ok: false,
+        output:
+          "e2e gate present but BROKK_BROWSER is off — fail-closed (enable browser lane on the forge worker)",
+      };
+      buffer.emit({ type: "acceptance", payload: receipt });
+      console.error(`[forge] e2e fail-closed (browser off) for run ${run.id}`);
+    } else if (cfg.browser) {
       // Best-effort per-app secrets so gated pages can render — keyed by the
       // project slug (the `<slug>.env` convention in previewSecretsDir). Absent
-      // file → {} (the check script owns whatever else it needs to reach the UI).
+      // file → {} (the check owns whatever else it needs to reach the UI).
       const bootEnv = project?.name
         ? loadAppSecrets(cfg.previewSecretsDir, project.name)
         : {};
-      buffer.emit({ type: "status", payload: { phase: "acceptance" } });
-      receipt = await runAcceptanceReceipt({
+      buffer.emit({ type: "status", payload: { phase: "e2e" } });
+      receipt = await runE2eGate({
         wtPath: wt.path,
         cfg,
         bootEnv,
         log: (m) => console.log(m),
       }).catch((err) => {
-        console.error("[forge] acceptance receipt error:", err);
+        console.error("[forge] e2e receipt error:", err);
         return null;
       });
       if (receipt?.ran) {
         buffer.emit({ type: "acceptance", payload: receipt });
-        console.log(`[forge] acceptance ${receipt.ok ? "✓" : "✗"} for run ${run.id}`);
+        console.log(
+          `[forge] e2e ${receipt.ok ? "✓" : "✗"} (${receipt.source ?? "?"}) for run ${run.id}`,
+        );
       }
     }
 
@@ -392,15 +423,15 @@ async function handleRun(
       buffer.emit({ type: "status", payload: { phase: prPhase, branch } });
     }
 
-    // Red verify OR red acceptance → the run is a failure even though a PR exists
+    // Red verify OR red e2e → the run is a failure even though a PR exists
     // (so the diff is still inspectable). Green / no-gate → succeeded.
     const verifyFailed = verify ? !verify.ok : false;
-    const acceptanceFailed = receipt?.ran === true && receipt.ok === false;
-    const failed = verifyFailed || acceptanceFailed;
+    const e2eFailed = receipt?.ran === true && receipt.ok === false;
+    const failed = verifyFailed || e2eFailed;
     const failReason = verifyFailed
       ? `verify failed:\n${verify!.output.slice(-1500)}`
-      : acceptanceFailed
-        ? `acceptance failed:\n${(receipt!.output ?? "").slice(-1500)}`
+      : e2eFailed
+        ? `e2e failed:\n${(receipt!.output ?? "").slice(-1500)}`
         : undefined;
     trace?.complete({ verify, healAttempts: result.healAttempts, usage, prUrl: pr.url });
     await buffer.flush();
@@ -415,7 +446,7 @@ async function handleRun(
     console.log(
       `[forge] run ${run.id} → ${pr.url ? `PR ${pr.url}` : deferPr ? `story ${branch} (PR deferred)` : "no PR"}` +
         (verify ? ` · verify ${verify.ok ? "✓" : "✗"}` : "") +
-        (receipt?.ran ? ` · acceptance ${receipt.ok ? "✓" : "✗"}` : "") +
+        (receipt?.ran ? ` · e2e ${receipt.ok ? "✓" : "✗"}` : "") +
         (result.healAttempts ? ` · healed ×${result.healAttempts}` : ""),
     );
 
@@ -572,6 +603,20 @@ async function runDevLane(
       console.log(
         `[forge] verify profile="${verifyResolved.profileName}" → ${verifyResolved.cmd.slice(0, 120)}`,
       );
+    } else if (verifyResolved.source === "none") {
+      console.warn(
+        `[forge] verify source=none for ${repo.fullName} (dev-lane)` +
+          (process.env.BROKK_REQUIRE_VERIFY === "1" ? " (BROKK_REQUIRE_VERIFY=1 → fail)" : ""),
+      );
+      if (process.env.BROKK_REQUIRE_VERIFY === "1") {
+        await buffer.flush();
+        await api(cfg, "POST", `/runs/${run.id}/complete`, {
+          status: "failed",
+          error:
+            "verify required: ship .brokk/profile.json or set BROKK_VERIFY_CMD (BROKK_REQUIRE_VERIFY=1)",
+        });
+        return;
+      }
     }
     const verifyCmd = verifyResolved.cmd;
     const result: RunResult = await engine.run({
@@ -714,16 +759,15 @@ async function register(cfg: RunnerConfig): Promise<string> {
 }
 
 /**
- * TODO(P1): the control plane's /runner/claim currently returns only { task, run }.
- * The runner needs the repository (clone url, default branch) + project agent config.
- * Until claim is enriched, resolve from env as a stopgap so the skeleton is coherent.
+ * Env fallback when an old control plane omits repository on claim.
+ * Modern `/runner/claim` returns repository+project+plan+auth+memory.
  */
 async function resolveRepository(task: Task): Promise<Repository> {
   const full = process.env.BROKK_DEFAULT_REPO; // "owner/name"
   if (!full || !full.includes("/")) {
     throw new Error(
-      `cannot resolve repository for task ${task.id}: set BROKK_DEFAULT_REPO ` +
-        `(TODO(P1): enrich /runner/claim with project+repository)`,
+      `cannot resolve repository for task ${task.id}: claim payload had no repository ` +
+        `and BROKK_DEFAULT_REPO is unset`,
     );
   }
   const [owner, name] = full.split("/", 2);
@@ -780,16 +824,15 @@ async function runVerify(cmd: string, cwd: string): Promise<VerifyResult> {
   }
 }
 
-/** Render the live-acceptance receipt for a PR body. The screenshot is a base64
- *  data URL (GitHub won't render it inline without a host), so it lives in the
- *  Brokk run-log; here we surface the pass/fail verdict + the check's output. */
+/** Render the E2E receipt for a PR body. Screenshot lives in the Brokk run-log. */
 function acceptanceBlock(receipt: AcceptanceReceipt | null): string[] {
   if (!receipt?.ran) return [];
+  const src = "source" in receipt && receipt.source ? ` · ${receipt.source}` : "";
   return [
-    `**Acceptance (live):** ${receipt.ok ? "✅ met" : "❌ not met"}` +
+    `**E2E:** ${receipt.ok ? "✅ passed" : "❌ failed"}${src}` +
       (receipt.screenshot ? " · 📷 screenshot in the Brokk run-log" : ""),
     "",
-    "<details><summary>acceptance check output</summary>",
+    "<details><summary>e2e output</summary>",
     "",
     "```",
     receipt.output.slice(-2000) || "(no output)",
