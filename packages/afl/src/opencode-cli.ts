@@ -25,6 +25,23 @@ function opencodeBin(): string {
 
 let available: boolean | null = null;
 
+/** Writable dirs for OpenCode state — the Coolify volume often has root-owned
+ *  `.local` under HOME/work from earlier entrypoints; without this, `opencode
+ *  --version` exits 1 (EACCES) and the engine chip stays unavailable. */
+function openCodeStateEnv(src: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const home =
+    src.BROKK_CLI_HOME ||
+    (src.HOME && src.HOME !== "/" ? src.HOME : "/home/brokk");
+  const base = src.BROKK_OPENCODE_STATE_DIR || `${home}/work/.opencode-brokk`;
+  return {
+    HOME: home,
+    XDG_DATA_HOME: src.XDG_DATA_HOME || `${base}/share`,
+    XDG_STATE_HOME: src.XDG_STATE_HOME || `${base}/state`,
+    XDG_CACHE_HOME: src.XDG_CACHE_HOME || `${base}/cache`,
+    XDG_CONFIG_HOME: src.XDG_CONFIG_HOME || `${base}/config`,
+  };
+}
+
 /** True when the OpenCode CLI is on PATH and Omni/LiteLLM fuel env is present. */
 export function openCodeCliAvailable(): boolean {
   if (available !== null) return available;
@@ -34,7 +51,11 @@ export function openCodeCliAvailable(): boolean {
     return (available = false);
   }
   try {
-    const r = spawnSync(opencodeBin(), ["--version"], { timeout: 15_000, stdio: "ignore" });
+    const r = spawnSync(opencodeBin(), ["--version"], {
+      timeout: 15_000,
+      stdio: "ignore",
+      env: { ...process.env, ...openCodeStateEnv() },
+    });
     available = r.status === 0;
   } catch {
     available = false;
@@ -76,6 +97,7 @@ export function buildOpenCodeCliEnv(
   }
   out.HOME =
     src.BROKK_CLI_HOME || (src.HOME && src.HOME !== "/" ? src.HOME : "/home/brokk");
+  Object.assign(out, openCodeStateEnv({ ...src, HOME: out.HOME }));
   out.TERM = out.TERM || "dumb";
 
   const apiKey = src.LLM_API_KEY || src.OPENAI_API_KEY || src.ANTHROPIC_AUTH_TOKEN || "";
