@@ -41,6 +41,7 @@ import type { McpToolProvider } from "@brokk/mcp";
 import { HeimdallAgentClient } from "./heimdall.js";
 import { screencast } from "./live-view.js";
 import { TurnManager } from "./turns.js";
+import { runDataFlowAudit } from "./data-flow-audit.js";
 
 /** Canonical engine ids + legacy aliases (afl/cli). */
 export type ChatEngine =
@@ -391,6 +392,17 @@ export function buildSindri(deps: SindriDeps): Hono {
         description: "Emit live QA execution progress (scenario X of N).",
         kind: "capability",
       },
+      {
+        name: "data-flow-discover",
+        description:
+          "Build / refresh the user-data-flow catalog and run a static CRUD/lifecycle audit for this project.",
+        kind: "capability",
+      },
+      {
+        name: "submit_data_flow_report",
+        description: "Persist a user-data-flow Full/Targeted audit report for this project.",
+        kind: "capability",
+      },
     ]);
     return c.json({ skills: catalog });
   });
@@ -436,6 +448,8 @@ export function buildSindri(deps: SindriDeps): Hono {
         { name: "qa-discover", description: "", kind: "capability" },
         { name: "submit_qa_report", description: "", kind: "capability" },
         { name: "qa-progress", description: "", kind: "capability" },
+        { name: "data-flow-discover", description: "", kind: "capability" },
+        { name: "submit_data_flow_report", description: "", kind: "capability" },
       ]).map((s) => s.name));
       if (!known.has(skillRaw)) {
         return c.json({ error: `unknown skill "${skillRaw}"` }, 400);
@@ -985,6 +999,59 @@ export function buildSindri(deps: SindriDeps): Hono {
     return c.json({ run }, 201);
   });
 
+  // ── User data-flow: catalog + static audit (espelho Full QA) ─────────────────
+  app.get("/data-flow/:projectId", async (c) => {
+    const projectId = c.req.param("projectId");
+    const project = await deps.store.getProject(projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    try {
+      const live = await livePreviewCheckout(deps, projectId);
+      const repo = await deps.store.getRepository(project.repositoryId);
+      const { path } = live
+        ? { path: live.path }
+        : repo
+          ? await deps.checkouts.ensure({
+              sessionId: `df-${projectId}`,
+              branch: `data-flow/${projectId.slice(0, 8)}`,
+              repo: repo as Parameters<typeof deps.checkouts.ensure>[0]["repo"],
+              baseBranch: project.baseBranch,
+            })
+          : { path: "" };
+      if (!path) return c.json({ catalog: null, report: null });
+      const catalogRaw = await readFile(join(path, ".brokk/data-flow/catalog.json"), "utf8").catch(() => null);
+      const report = await readFile(join(path, ".brokk/data-flow/last-report.md"), "utf8").catch(() => null);
+      return c.json({
+        catalog: catalogRaw ? JSON.parse(catalogRaw) : null,
+        report,
+      });
+    } catch (err) {
+      return c.json({ catalog: null, report: null, error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post("/data-flow/:projectId/discover", async (c) => {
+    const projectId = c.req.param("projectId");
+    const project = await deps.store.getProject(projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    const repo = await deps.store.getRepository(project.repositoryId);
+    if (!repo) return c.json({ error: "repository not found" }, 404);
+    try {
+      const live = await livePreviewCheckout(deps, projectId);
+      const { path } = live
+        ? { path: live.path }
+        : await deps.checkouts.ensure({
+            sessionId: `df-${projectId}`,
+            branch: `data-flow/${projectId.slice(0, 8)}`,
+            repo: repo as Parameters<typeof deps.checkouts.ensure>[0]["repo"],
+            baseBranch: project.baseBranch,
+          });
+      const { catalog, results, reportMarkdown } = runDataFlowAudit(path);
+      return c.json({ catalog, results, report: reportMarkdown }, 200);
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
+    }
+  });
+
   // ── Resolve: per-card analysis ────────────────────────────────────────────────
 
   // In-flight analyses, so re-triggering (or answering a question → re-run) doesn't
@@ -1188,6 +1255,8 @@ async function runSessionTurn(
         { name: "qa-discover", description: "", kind: "capability" },
         { name: "submit_qa_report", description: "", kind: "capability" },
         { name: "qa-progress", description: "", kind: "capability" },
+        { name: "data-flow-discover", description: "", kind: "capability" },
+        { name: "submit_data_flow_report", description: "", kind: "capability" },
       ]).map((s) => s.name),
     );
     if (known.has(opts.skill) && session.skill !== opts.skill) {
@@ -1754,6 +1823,88 @@ function buildSkills(
             "Also at `.brokk/qa/last-report.md`. Open the project QA page for history.",
             forgeNote,
           ].join("\n"),
+        };
+      },
+    },
+    {
+      name: "data-flow-discover",
+      description:
+        "Build or refresh the user-data-flow catalog and run a static lifecycle audit (CRUD/archive/empty CTA) for THIS project's checkout. Writes `.brokk/data-flow/catalog.json` + `last-report.md`. Use before Full data-flow audit or when the catalog is missing/stale. Takes no input.",
+      run: async () => {
+        emit({ type: "status", phase: "data-flow-discover" });
+        const { catalog, results, reportMarkdown } = runDataFlowAudit(cwd);
+        const pass = results.filter((r) => r.verdict === "pass").length;
+        const fail = results.filter((r) => r.verdict === "fail").length;
+        const deferred = results.filter((r) => r.verdict === "deferred").length;
+        const blocked = results.filter((r) => r.verdict === "blocked").length;
+        const lines = [
+          `**Data-flow catalog ready** · ${catalog.rooms.length} rooms · fingerprint \`${catalog.fingerprint}\``,
+          "",
+          `**${pass} pass · ${fail} fail · ${deferred} deferred · ${blocked} blocked**`,
+          "",
+          catalog.summary,
+          "",
+          ...catalog.rooms.map(
+            (r) =>
+              `- \`${r.id}\` [${r.priority ?? "p?"}] ${r.kind} · ${r.route}` +
+              (r.required?.length ? ` · required=${r.required.join(",")}` : ""),
+          ),
+          "",
+          "Files: `.brokk/data-flow/catalog.json` · `last-report.md`.",
+          "Next: pin `/user-data-flow` and run Full or Targeted Audit (live optional).",
+          "",
+          reportMarkdown,
+        ];
+        return { ok: true, content: lines.join("\n") };
+      },
+    },
+    {
+      name: "submit_data_flow_report",
+      description:
+        "Persist a user-data-flow audit report. Pass { results: [{id, verdict: pass|fail|deferred|blocked|n/a, note, missing?: string[]}], summary?: markdown, mode?: full|targeted }. Writes `.brokk/data-flow/last-report.md`.",
+      run: async (input) => {
+        emit({ type: "status", phase: "data-flow: saving report" });
+        const rawResults = Array.isArray(input.results) ? input.results : [];
+        const results = rawResults.map((r) => {
+          const row = r as Record<string, unknown>;
+          return {
+            id: String(row.id ?? "").trim() || "?",
+            verdict: String(row.verdict ?? "blocked"),
+            note: String(row.note ?? ""),
+            missing: Array.isArray(row.missing) ? row.missing.map(String) : [],
+          };
+        });
+        const summary = String(input.summary ?? "").trim();
+        const pass = results.filter((r) => r.verdict === "pass").length;
+        const fail = results.filter((r) => r.verdict === "fail").length;
+        const deferred = results.filter((r) => r.verdict === "deferred").length;
+        const blocked = results.filter((r) => r.verdict === "blocked").length;
+        const head = `${pass} pass · ${fail} fail · ${deferred} deferred · ${blocked} blocked`;
+        const md = [
+          `# Data-flow audit`,
+          "",
+          `**${head}**`,
+          "",
+          summary,
+          "",
+          `| id | verdict | missing | note |`,
+          `|---|---|---|---|`,
+          ...results.map(
+            (r) =>
+              `| ${r.id} | ${r.verdict} | ${r.missing.join(", ") || "—"} | ${r.note.replace(/\|/g, "/")} |`,
+          ),
+          "",
+        ].join("\n");
+        try {
+          const dir = join(cwd, ".brokk", "data-flow");
+          await mkdir(dir, { recursive: true });
+          await writeFile(join(dir, "last-report.md"), md, "utf8");
+        } catch {
+          /* best-effort */
+        }
+        return {
+          ok: true,
+          content: `**Data-flow report saved** · ${head}\n\nAlso at \`.brokk/data-flow/last-report.md\`.`,
         };
       },
     },

@@ -60,6 +60,7 @@ import { FileViewer } from "./FileViewer";
 import { ContextRing } from "./ComposerChip";
 import { ComposerMenu } from "./ComposerMenu";
 import { QaControls, buildQaRunPrompt } from "./QaControls";
+import { DataFlowControls, buildDataFlowRunPrompt } from "./DataFlowControls";
 
 /** Único modo do Chat: OpenCode com model=auto (Omni / LiteLLM). */
 const CHAT_ENGINE = "opencode";
@@ -1416,6 +1417,21 @@ export default function Chat() {
                               }
                             }
                             const text = buildQaRunPrompt({ ...opts, runId: runId || "pending" });
+                            await send(sid, text);
+                          }}
+                        />
+                        <div className="sindri-plus-section">Data flow</div>
+                        <DataFlowControls
+                          projectId={projectId}
+                          disabled={running || attachBusy}
+                          onRun={async (opts) => {
+                            setPlusOpen(false);
+                            let sid = sessionId;
+                            if (!sid) {
+                              sid = (await newChat()) ?? "";
+                              if (!sid) return;
+                            }
+                            const text = buildDataFlowRunPrompt(opts);
                             await send(sid, text);
                           }}
                         />

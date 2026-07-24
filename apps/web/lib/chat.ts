@@ -269,6 +269,47 @@ export const qa = {
     j<{ run: QaRun }>("POST", `/qa/${encodeURIComponent(projectId)}/runs`, body),
 };
 
+export type DataFlowRoom = {
+  id: string;
+  route: string;
+  kind: string;
+  entity?: string;
+  priority?: string;
+  required?: string[];
+  deferred?: string[];
+};
+
+export type DataFlowCatalog = {
+  version: number;
+  fingerprint: string;
+  discoveredAt: string;
+  summary: string;
+  rooms: DataFlowRoom[];
+};
+
+export type DataFlowResult = {
+  id: string;
+  kind: string;
+  verdict: string;
+  missing: string[];
+  deferred: string[];
+  note: string;
+  file: string | null;
+};
+
+export const dataFlow = {
+  get: (projectId: string) =>
+    j<{ catalog: DataFlowCatalog | null; report: string | null }>(
+      "GET",
+      `/data-flow/${encodeURIComponent(projectId)}`,
+    ),
+  discover: (projectId: string) =>
+    j<{ catalog: DataFlowCatalog; results: DataFlowResult[]; report: string }>(
+      "POST",
+      `/data-flow/${encodeURIComponent(projectId)}/discover`,
+    ),
+};
+
 // ── Resolve: per-card analysis ────────────────────────────────────────────────
 
 export type { TaskAnalysis, AnalysisQuestion };

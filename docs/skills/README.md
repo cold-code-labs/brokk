@@ -41,9 +41,13 @@ Pipeline: **Discovery → QA (LLM | Automated) → Forge**.
 
 Espelho do Full QA para **ciclo de vida** (Novo / Editar / Arquivar), não GUI genérica.
 
-- **Instruction `user-data-flow`** — Discover catálogo (`.brokk/data-flow/catalog.json`) ·
-  Full / Targeted Audit · Fix só se pedido.
-- Helper estático: `skills/user-data-flow/scripts/audit-static.mjs`.
+- **Instruction `user-data-flow`** — Discover catálogo · Full / Targeted Audit · Fix só se pedido.
+- **Capability `data-flow-discover`** — audit estático no checkout; escreve
+  `.brokk/data-flow/catalog.json` + `last-report.md`.
+- **Capability `submit_data_flow_report`** — persiste report do agente.
+- **API** `GET|POST /data-flow/:projectId[/discover]` + chips Sindri
+  (**Flow** · **Full flow** · **Target flow**) no menu +.
+- Helper offline: `skills/user-data-flow/scripts/audit-static.mjs`.
 - Artefato humano: `docs/litr/data-flow.md`.
 - No Hero forge: depois do room map Litr, Discover + Audit nas salas `entity`.
 
