@@ -44,6 +44,7 @@ alma própria → DESIGN + dials → register → hot spot por sala → vocab CS
 - [ ] 2. DESIGN.md: 1 cena física · paleta · type law · FORBIDDEN · register
 - [ ] 3. Dials Taste: brand (VARIANCE alto) / product (DENSITY + hot spot)
 - [ ] 4. Mapa de salas: rota → missão → gesto → ruído → NOME do hot spot
+- [ ] 4b. **user-data-flow** nas salas entity (Novo · Editar · Arquivar · empty CTA)
 - [ ] 5. Register certo (brand | product)
 - [ ] 6. Implementar no vocab CSS do app (zero style={{}} visual)
 - [ ] 7. Shot/preview dark+light · gate · SYSTEM-MAP curto se o repo usa
