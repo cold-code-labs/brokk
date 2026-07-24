@@ -485,6 +485,19 @@ export function worktreeReclaimVerdict(
   return { reclaim: true, reason: `idle ${Math.round(idleMs / 86_400_000)}d > TTL` };
 }
 
+/** BROKK-22 (forge lane): where a card goes when its `running` run is reaped
+ *  because the runner stopped heartbeating. First reap(s) requeue — the forge
+ *  likely just restarted and another worker should retry; past the cap the card
+ *  stays failed so a permanently-crashing run can't ping-pong forever.
+ *
+ *  `reapCount` counts reaped runs for the card INCLUDING the one just reaped,
+ *  so with the default cap of 1 the first reap requeues and the second fails.
+ *  Pure so the decision is pinned by tests without a database. */
+export function reapedTaskTarget(reapCount: number, maxRequeues: number): "queued" | "failed" {
+  const cap = Number.isFinite(maxRequeues) && maxRequeues >= 0 ? Math.floor(maxRequeues) : 1;
+  return reapCount <= cap ? "queued" : "failed";
+}
+
 /** Pull request opened by a run. */
 export interface PullRequest {
   id: string;

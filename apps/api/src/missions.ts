@@ -34,6 +34,22 @@ const MAX_REPLANS = 1;
 const MAX_SAME_ERROR = 2;
 /** Driver-run zombie TTL (BROKK-22): forge restart leaves `running` forever. */
 const DRIVER_STALE_MS = 45 * 60 * 1000;
+/** Forge-run zombie TTL (BROKK-22 forge lane): a run whose runner stopped
+ *  heartbeating this long is dead — fail it and requeue the card. Comfortably
+ *  above the lease TTL + heartbeat cadence so a live-but-slow runner never
+ *  gets reaped. Override: BROKK_RUN_STALE_MS. */
+const RUN_STALE_MS = Math.max(
+  60_000,
+  Number(process.env.BROKK_RUN_STALE_MS) || 15 * 60 * 1000,
+);
+/** How many times a reaped card goes back to `queued` before staying failed.
+ *  Override: BROKK_RUN_REAP_REQUEUES. */
+const RUN_REAP_REQUEUES = Math.max(
+  0,
+  Number.isFinite(Number(process.env.BROKK_RUN_REAP_REQUEUES))
+    ? Number(process.env.BROKK_RUN_REAP_REQUEUES)
+    : 1,
+);
 /** Auto intake: only shepherd failed cards newer than this. */
 const AUTO_INTAKE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** Default pause after Mímir 429/529 before auto-intake resumes (30 min). */
@@ -100,6 +116,13 @@ export function startMissionReconciler(deps: MissionDeps, intervalMs = 30_000): 
       // BROKK-22: reap driver_runs stuck after forge recreate (no heartbeat).
       const reaped = await deps.store.reapStaleDriverRuns(DRIVER_STALE_MS).catch(() => 0);
       if (reaped > 0) console.warn(`[regin] reaped ${reaped} stale driver-run(s)`);
+
+      // BROKK-22 (forge lane): reap forge runs orphaned `running` by a dead
+      // runner — fail the run, free the app lease, requeue the card (capped).
+      const reapedRuns = await deps.store
+        .reapStaleRuns(RUN_STALE_MS, { maxRequeues: RUN_REAP_REQUEUES })
+        .catch(() => 0);
+      if (reapedRuns > 0) console.warn(`[regin] reaped ${reapedRuns} stale forge run(s)`);
 
       // BROKK-44: overnight intake — wrap orphaned failed cards into auto missions.
       await tickAutoIntake(deps).catch((err) =>
