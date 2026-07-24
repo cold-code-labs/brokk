@@ -56,7 +56,7 @@ import type {
   TriageSource,
   User,
 } from "@brokk/core";
-import { forcaToModel } from "@brokk/core";
+import { forcaToModel, reapedTaskTarget } from "@brokk/core";
 import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -614,6 +614,13 @@ export interface Store {
   /** ADR 0017: release the app lease a finished run held (no-op if already freed
    *  or reassigned). Called from completeRun. */
   releaseLease(runId: string): Promise<void>;
+  /** BROKK-22 (forge lane): fail `running` runs whose runner stopped
+   *  heartbeating — the same signal that renews the app lease — so a forge
+   *  killed mid-card can't leave the run `running` forever. Frees the app
+   *  lease and moves the card back to `queued` (first `maxRequeues` reaps,
+   *  default 1) or leaves it `failed` past the cap, logging a task event
+   *  either way. Returns how many runs were reaped. */
+  reapStaleRuns(staleMs: number, opts?: { maxRequeues?: number }): Promise<number>;
 
   // plans (Mímir planner → cards → one PR)
   insertPlan(values: typeof plans.$inferInsert): Promise<Plan>;
@@ -1479,6 +1486,96 @@ export function createStore(db: Db): Store {
         .update(projects)
         .set({ leaseRunId: null, leaseExpiresAt: null, updatedAt: new Date() })
         .where(eq(projects.leaseRunId, runId));
+    },
+
+    async reapStaleRuns(staleMs, opts) {
+      // BROKK-22 (forge lane): a forge killed mid-card leaves its run `running`
+      // forever — claimNext only selects queued cards, so the orphan is never
+      // reclaimable even after the app lease lapses. The staleness signal is the
+      // one heartbeats already renew: agents.last_seen_at (touchAgent, every 15s).
+      // A dead/recreated runner's old agent row stops being touched (register
+      // inserts a NEW row per boot), so last_seen_at aging past staleMs — or the
+      // agent row being gone entirely — is exactly "this runner is not coming back".
+      const maxRequeues = opts?.maxRequeues ?? 1;
+      const staleSecs = Math.max(60, Math.floor(staleMs / 1000));
+      return db.transaction(async (tx) => {
+        const staleRows = await tx
+          .select({ id: runs.id, taskId: runs.taskId })
+          .from(runs)
+          .where(
+            and(
+              eq(runs.status, "running"),
+              sql`not exists (
+                select 1 from ${agents} a
+                where a.id = ${runs.runnerId}
+                  and a.last_seen_at is not null
+                  and a.last_seen_at > now() - make_interval(secs => ${staleSecs})
+              )`,
+              // Grace for a just-created run whose runner hasn't heartbeat yet.
+              sql`coalesce(${runs.startedAt}, ${runs.createdAt}) < now() - make_interval(secs => ${staleSecs})`,
+            ),
+          )
+          .for("update", { skipLocked: true });
+
+        for (const stale of staleRows) {
+          await tx
+            .update(runs)
+            .set({
+              status: "failed",
+              error: "reaped: stale running (forge likely restarted)",
+              endedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(runs.id, stale.id));
+          // Free the app's dev-checkout lease this run held (idempotent — the TTL
+          // may already have lapsed or another card claimed it).
+          await tx
+            .update(projects)
+            .set({ leaseRunId: null, leaseExpiresAt: null, updatedAt: new Date() })
+            .where(eq(projects.leaseRunId, stale.id));
+
+          // Requeue the card so another worker retries — but only up to the cap,
+          // so a run that dies every attempt eventually rests as failed. The
+          // count includes the run just reaped (see reapedTaskTarget).
+          const reapedCount = await tx
+            .select({ n: sql<number>`count(*)::int` })
+            .from(runs)
+            .where(
+              and(
+                eq(runs.taskId, stale.taskId),
+                eq(runs.status, "failed"),
+                sql`${runs.error} like 'reaped:%'`,
+              ),
+            );
+          const target = reapedTaskTarget(reapedCount[0]?.n ?? 1, maxRequeues);
+          // Only move a card still `running` — a human/coordinator who already
+          // relocated it wins; the run is failed either way.
+          const moved = await tx
+            .update(tasks)
+            .set({
+              status: target,
+              // A queued card must be forge-claimable (claimNext filters owner='brokk').
+              ...(target === "queued" ? { owner: "brokk" as const } : {}),
+              updatedAt: new Date(),
+            })
+            .where(and(eq(tasks.id, stale.taskId), eq(tasks.status, "running")))
+            .returning({ id: tasks.id });
+          if (moved.length > 0) {
+            await appendTaskEvent(tx, {
+              taskId: stale.taskId,
+              type: "status",
+              from: "running",
+              to: target,
+              actor: "system",
+              reason:
+                target === "queued"
+                  ? "run reaped (runner stopped heartbeating) — requeued for retry"
+                  : "run reaped (runner stopped heartbeating) — requeue cap reached",
+            });
+          }
+        }
+        return staleRows.length;
+      });
     },
 
     async insertPlan(values) {

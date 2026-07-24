@@ -158,6 +158,21 @@ gateway, and alert on *agents that produce no artifact*, not just on errors. Not
 that framework step limits (`maxTurns`, `recursion_limit`) bound turns **inside** one
 invocation — they do not bound how often a daemon re-invokes the agent.
 
+### Harness recovery (crash mid-card)
+
+A forge worker killed mid-card would otherwise leave its run `running` forever —
+`claimNext` only picks up `queued` cards, so the orphan never gets retried. The API's
+reconciler (30s tick) reaps three kinds of zombies:
+
+- **Forge runs** — a run whose runner stopped heartbeating for `BROKK_RUN_STALE_MS`
+  (default 15 min; heartbeats land every ~15s) is failed with
+  `reaped: stale running (forge likely restarted)`, its app lease is released, and the
+  card goes back to `queued` so another worker retries. After
+  `BROKK_RUN_REAP_REQUEUES` reaps (default 1) the card stays `failed` instead of
+  ping-ponging.
+- **Driver runs** — same idea for chat driver sessions (45 min TTL).
+- **Previews** — stale preview processes are reaped by the forge's preview supervisor.
+
 ## Status
 
 **Operational (internal).** The full loop runs end-to-end: a card → the planner fans it
