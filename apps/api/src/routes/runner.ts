@@ -63,7 +63,15 @@ export function runnerRoutes(deps: AppDeps): Hono {
   r.post("/claim", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const runnerId = typeof body?.runnerId === "string" ? body.runnerId : crypto.randomUUID();
-    const claimed = await deps.store.claimNext(runnerId);
+    // Wave 2: the runner tells the control plane which apps it treats as dev-lane
+    // (BROKK_DEVLANE_APPS) so claimNext can key those cards' lane to the shared `dev`
+    // checkout. The DB has no other way to know. Missing/old runner → no dev-lane.
+    const devLaneApps = new Set<string>(
+      Array.isArray(body?.devLaneApps)
+        ? body.devLaneApps.filter((s: unknown): s is string => typeof s === "string")
+        : [],
+    );
+    const claimed = await deps.store.claimNext(runnerId, devLaneApps);
     if (!claimed) return c.body(null, 204);
 
     const { task, run, repository, project, plan, sealedToken } = claimed;

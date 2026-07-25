@@ -303,6 +303,27 @@ export const runs = pgTable("runs", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Wave 2 (supersedes the per-app `projects.lease_*` of ADR 0017): a lease keyed
+ *  by the *lane* — the shared git resource a run mutates — not the whole app. A
+ *  standalone PR card forks a unique branch → no lane → parallelizes freely, even
+ *  same-repo. Cards that share a resource contend on one key: dev-lane cards on the
+ *  app's `dev` checkout (`<projectId>:dev`), plan/story cards on the plan's feature
+ *  branch (`<projectId>:<featureBranch>`), revise on the PR branch. `expires_at` is
+ *  the crash backstop (renewed every heartbeat), since forge runs have no reaper —
+ *  a dead runner's lane frees itself once the TTL lapses, exactly like the old lease. */
+export const workLeases = pgTable("work_leases", {
+  /** The contended resource: `<projectId>:<branch>` (or `<projectId>:dev` for the
+   *  dev-lane shared checkout). One live row per lane = one run mutating it. */
+  laneKey: text("lane_key").primaryKey(),
+  /** The run holding the lane. No FK on purpose: the lease row is written in the
+   *  same claim tx *before* the run is inserted (so the loop can acquire the lane
+   *  and fall through to the next candidate on a miss, without a run to roll back).
+   *  Cleaned up by releaseLease on completion, or by the expires_at TTL on crash. */
+  runId: uuid("run_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** Append-only. Unique (run_id, seq) keeps the stream strictly ordered. */
 export const runEvents = pgTable(
   "run_events",
