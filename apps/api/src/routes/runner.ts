@@ -66,7 +66,7 @@ export function runnerRoutes(deps: AppDeps): Hono {
     // Wave 2: the runner tells the control plane which apps it treats as dev-lane
     // (BROKK_DEVLANE_APPS) so claimNext can key those cards' lane to the shared `dev`
     // checkout. The DB has no other way to know. Missing/old runner → no dev-lane.
-    const devLaneApps = new Set(
+    const devLaneApps = new Set<string>(
       Array.isArray(body?.devLaneApps)
         ? body.devLaneApps.filter((s: unknown): s is string => typeof s === "string")
         : [],
