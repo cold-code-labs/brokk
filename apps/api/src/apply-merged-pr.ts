@@ -5,6 +5,7 @@
  * paths use the same matching order: forge stamp in body → plan → task by URL/#.
  */
 import type { Store } from "@brokk/db";
+import { cleanupCandidateBranches } from "./cleanup-candidate-branches.js";
 import {
   extractPlanIdFromPrBody,
   extractTaskIdFromPrBody,
@@ -56,6 +57,7 @@ export async function applyMergedPr(
     if (task) {
       if (task.status !== "done") {
         await store.transitionTask(task.id, "done", { actor, reason, extra });
+        await cleanupCandidateBranches(store, { repo, taskId: task.id });
       } else if (task.prNumber !== pr.number || task.prUrl !== pr.html_url) {
         // Already done (e.g. via an earlier path) but pointer is stale — refresh.
         await store.updateTask(task.id, extra);
@@ -78,6 +80,7 @@ export async function applyMergedPr(
   if (task) {
     if (task.status !== "done") {
       await store.transitionTask(task.id, "done", { actor, reason, extra });
+      await cleanupCandidateBranches(store, { repo, taskId: task.id });
     } else if (task.prNumber !== pr.number || task.prUrl !== pr.html_url) {
       await store.updateTask(task.id, extra);
     }
