@@ -28,6 +28,7 @@ import { claudeCliAvailable, cursorCliAvailable, openHandsCliAvailable } from "@
 import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
 import { HeimdallLanes } from "./heimdall-lanes.js";
 import { e2eGateExists, runE2eGate } from "./e2e.js";
+import { FuelBreaker, isFuelError } from "./fuel.js";
 import { makeAutofix } from "./autofix.js";
 import { PreviewSupervisor, loadAppSecrets } from "./preview.js";
 import { runDriverTurn, reapOrphanBrowsers } from "./driver.js";
@@ -176,7 +177,22 @@ async function main() {
     15_000,
   );
 
+  // Fleet reliability: pause claiming when the fuel line is down instead of
+  // burning every queued card into a dead gateway (a fuel outage failed 62 cards
+  // on 2026-07-23). Cards stay `queued` and drain once the fuel recovers.
+  const fuel = new FuelBreaker();
+
   while (!stopping) {
+    if (!fuel.canClaim()) {
+      const waitMs = fuel.retryInMs();
+      console.warn(
+        `[forge] fuel breaker OPEN — not claiming for ~${Math.round(waitMs / 1000)}s (fuel outage; cards stay queued)`,
+      );
+      // Cap the nap so a mid-outage recovery is noticed promptly (and SIGTERM lands).
+      await sleep(Math.min(waitMs || cfg.pollIntervalMs, 15_000));
+      continue;
+    }
+
     let claimed: Claimed | null = null;
     try {
       claimed = await api<Claimed | null>(
@@ -202,9 +218,15 @@ async function main() {
       isDevLaneCard(cfg, claimed)
         ? runDevLane(cfg, git, engine, supervisor, lanes, claimed)
         : handleRun(cfg, git, engine, claimed);
-    await run.catch((err) =>
-      console.error(`[forge] run ${claimed?.run.id} crashed:`, err),
-    );
+    // The run handlers return the failure string (null on success) so the breaker
+    // can tell a fuel outage from a normal downstream failure; an unexpected throw
+    // is treated as a non-fuel error (don't trip on a bug in our own loop).
+    const err = await run.catch((e) => {
+      console.error(`[forge] run ${claimed?.run.id} crashed:`, e);
+      return null;
+    });
+    const note = fuel.record(err == null ? "ok" : isFuelError(err) ? "fuel-error" : "other-error");
+    if (note) console.warn(`[forge] ${note}`);
   }
 
   clearInterval(heartbeat);
@@ -217,7 +239,7 @@ async function handleRun(
   git: GhProvider,
   engine: AgentEngine,
   { task, run, repository, project, plan, auth, memory }: Claimed,
-): Promise<void> {
+): Promise<string | null> {
   console.log(
     `[forge] claimed task "${task.title}" (run ${run.id})` +
       (plan ? ` · plan ${plan.id.slice(0, 8)} [${task.planKey}]` : "") +
@@ -288,7 +310,7 @@ async function handleRun(
           error:
             "verify required: ship .brokk/profile.json or set BROKK_VERIFY_CMD (BROKK_REQUIRE_VERIFY=1)",
         });
-        return;
+        return null;
       }
     }
     const verifyCmd = verifyResolved.cmd;
@@ -504,11 +526,12 @@ async function handleRun(
       error: String(err),
     }).catch(() => {});
     // Keep the worktree on failure for debugging (ARCHITECTURE.md §8).
-    return;
+    return String(err); // → the claim loop's fuel breaker
   }
 
   await flushTraces();
   if (worktreePath) await git.cleanup({ path: worktreePath }).catch(() => {});
+  return null;
 }
 
 /** ADR 0017 Fase 3b: is this claim a dev-lane card (forge in the shared dev checkout
@@ -544,7 +567,7 @@ async function runDevLane(
   supervisor: PreviewSupervisor,
   lanes: HeimdallLanes | null,
   { task, run, repository, auth, memory }: Claimed,
-): Promise<void> {
+): Promise<string | null> {
   const repo = repository!; // isDevLaneCard guarantees a resolved repository
   // Private card checkout — deliberately NOT the preview's `<app>_dev` worktree.
   const workName = `devlane_${devCheckoutSlug(repo.name)}`;
@@ -623,7 +646,7 @@ async function runDevLane(
           error:
             "verify required: ship .brokk/profile.json or set BROKK_VERIFY_CMD (BROKK_REQUIRE_VERIFY=1)",
         });
-        return;
+        return null;
       }
     }
     const verifyCmd = verifyResolved.cmd;
@@ -668,7 +691,7 @@ async function runDevLane(
         usage,
       });
       console.log(`[forge] dev-lane run ${run.id} → verify ✗ (not landed)`);
-      return;
+      return `verify failed:\n${verify.output.slice(-1500)}`;
     }
 
     buffer.emit({ type: "status", payload: { phase: "push", branch: "dev" } });
@@ -710,10 +733,12 @@ async function runDevLane(
       status: "failed",
       error: String(err),
     }).catch(() => {});
+    return String(err); // → the claim loop's fuel breaker
   } finally {
     await flushTraces();
     // NEVER cleanup — the private card checkout is persistent (node_modules survive).
   }
+  return null;
 }
 
 /** Batches events and flushes them to /runs/:id/events to avoid chatty POSTs. */
