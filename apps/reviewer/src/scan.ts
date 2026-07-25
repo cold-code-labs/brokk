@@ -62,18 +62,29 @@ const EMPTY: ScanResult = {
   scanned: false,
 };
 
+/** Dependency manifests / lockfiles — a change to one of these is what makes a
+ *  trivy dependency (vuln) scan worthwhile; otherwise its findings are scoped out. */
+const MANIFEST_RE =
+  /(^|\/)(package\.json|pnpm-lock\.yaml|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|bun\.lockb|go\.mod|go\.sum|requirements\.txt|Pipfile\.lock|poetry\.lock|uv\.lock|Cargo\.lock|composer\.lock|Gemfile\.lock)$/;
+
 /** Normalize a path the way `git`/scanners emit it (posix, no leading ./). */
 function norm(p: string): string {
   return p.replace(/^\.\//, "").replace(/\\/g, "/").trim();
 }
 
+const _hasCache = new Map<string, boolean>();
 async function has(bin: string): Promise<boolean> {
+  const cached = _hasCache.get(bin);
+  if (cached !== undefined) return cached;
+  let ok = false;
   try {
     await exec(bin, ["--version"], { maxBuffer: 1024 * 1024 });
-    return true;
+    ok = true;
   } catch {
-    return false;
+    ok = false;
   }
+  _hasCache.set(bin, ok);
+  return ok;
 }
 
 /** Run the scanners, scope findings to `changedFiles`, and classify blockers. */
@@ -92,29 +103,37 @@ export async function runScan(opts: {
   const errors: string[] = [];
   const findings: Finding[] = [];
 
-  // --- semgrep (SAST), scanned over the changed files only -------------------
-  if (await has("semgrep")) {
-    toolsRun.push("semgrep");
-    try {
-      findings.push(...(await runSemgrep(opts.cwd, opts.changedFiles, opts.config.semgrepConfig)));
-    } catch (e) {
-      errors.push(`semgrep: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
-    }
-  } else {
-    toolsSkipped.push("semgrep");
-  }
+  // Trivy's dependency findings live in the lockfile path, so they only survive the
+  // changed-file scope filter when a manifest actually changed. When none did, skip
+  // the (multi-minute, whole-tree) vuln DB scan and keep only the cheap secret
+  // scanner — nothing of value is lost, and the common app-code PR stops paying for
+  // a full dependency audit on every (re-)review. Dep-CVE debt is handled by Renovate.
+  const depChanged = opts.changedFiles.some((f) => MANIFEST_RE.test(norm(f)));
+  const trivyScanners = depChanged ? "vuln,secret" : "secret";
 
-  // --- trivy (deps + secrets), scanned over the tree, filtered to scope ------
-  if (await has("trivy")) {
-    toolsRun.push("trivy");
-    try {
-      findings.push(...(await runTrivy(opts.cwd)));
-    } catch (e) {
-      errors.push(`trivy: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
-    }
-  } else {
-    toolsSkipped.push("trivy");
-  }
+  const [semOk, trivyOk] = await Promise.all([has("semgrep"), has("trivy")]);
+
+  // The two scanners are independent — run them concurrently instead of serially.
+  await Promise.all([
+    (async () => {
+      if (!semOk) return void toolsSkipped.push("semgrep");
+      toolsRun.push("semgrep");
+      try {
+        findings.push(...(await runSemgrep(opts.cwd, opts.changedFiles, opts.config.semgrepConfig)));
+      } catch (e) {
+        errors.push(`semgrep: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+      }
+    })(),
+    (async () => {
+      if (!trivyOk) return void toolsSkipped.push("trivy");
+      toolsRun.push(depChanged ? "trivy" : "trivy(secret)");
+      try {
+        findings.push(...(await runTrivy(opts.cwd, trivyScanners)));
+      } catch (e) {
+        errors.push(`trivy: ${String((e as Error)?.message ?? e).slice(0, 200)}`);
+      }
+    })(),
+  ]);
 
   const scoped = dedupe(findings.filter((f) => inScope(f.file)));
   const threshold = SEV_RANK[opts.config.blockSeverity];
@@ -199,11 +218,11 @@ function mapTrivySeverity(s: string): Severity {
   }
 }
 
-async function runTrivy(cwd: string): Promise<Finding[]> {
+async function runTrivy(cwd: string, scanners = "vuln,secret"): Promise<Finding[]> {
   const args = [
     "fs",
     "--quiet",
-    "--scanners=vuln,secret",
+    `--scanners=${scanners}`,
     "--format=json",
     "--timeout=5m",
     "--no-progress",
