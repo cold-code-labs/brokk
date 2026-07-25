@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { getInstallationToken, loadAppAuth } from "./github-app.js";
 
 const exec = promisify(execFile);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -18,21 +19,33 @@ async function gh(args: string[], env: NodeJS.ProcessEnv): Promise<string> {
 }
 
 export class EitriGit {
+  private readonly appAuth = loadAppAuth();
   constructor(
     private readonly opts: { workDir: string; repo: string; cloneUrl: string; githubToken: string },
   ) {}
 
-  private get env() {
-    return { ...process.env, GH_TOKEN: this.opts.githubToken };
+  /** Auth env for git/gh — a fresh Eitri App installation token (durable; the App
+   *  key doesn't expire like a PAT, which kept stranding PR fetch/clone), with the
+   *  static PAT as fallback. Mirrors the forge (apps/forge/src/git.ts). */
+  private async authEnv(): Promise<NodeJS.ProcessEnv> {
+    let token = this.opts.githubToken;
+    if (this.appAuth) {
+      try {
+        token = await getInstallationToken(this.appAuth);
+      } catch {
+        // App mint failed → fall back to the ambient PAT.
+      }
+    }
+    return { ...process.env, GH_TOKEN: token, GITHUB_TOKEN: token };
   }
   /** git over HTTPS authenticated via gh's credential helper (the Eitri image has
    *  gh but no global `gh auth setup-git`, so wire it per-command). Without this,
    *  cloning a private fleet repo fails with "could not read Username". */
-  private gitAuthed(cwd: string, args: string[]): Promise<string> {
+  private async gitAuthed(cwd: string, args: string[]): Promise<string> {
     return git(
       cwd,
       ["-c", "credential.https://github.com.helper=!gh auth git-credential", ...args],
-      this.env,
+      await this.authEnv(),
     );
   }
   private bareDir() {
@@ -41,14 +54,14 @@ export class EitriGit {
 
   /** The unified diff of the PR. */
   async diff(prNumber: number): Promise<string> {
-    return gh(["pr", "diff", String(prNumber), "--repo", this.opts.repo], this.env);
+    return gh(["pr", "diff", String(prNumber), "--repo", this.opts.repo], await this.authEnv());
   }
 
   /** Repo-relative paths the PR touches — the scope for the security scan. */
   async changedFiles(prNumber: number): Promise<string[]> {
     const out = await gh(
       ["pr", "diff", String(prNumber), "--repo", this.opts.repo, "--name-only"],
-      this.env,
+      await this.authEnv(),
     );
     return out.split("\n").map((s) => s.trim()).filter(Boolean);
   }
@@ -131,7 +144,7 @@ export class EitriGit {
   async findOpenPr(head: string, base: string): Promise<number | null> {
     const out = await gh(
       ["pr", "list", "--repo", this.opts.repo, "--state", "open", "--head", head, "--base", base, "--json", "number"],
-      this.env,
+      await this.authEnv(),
     );
     try {
       const arr = JSON.parse(out) as { number: number }[];
@@ -166,7 +179,7 @@ export class EitriGit {
     for (let i = 0; i < retries; i++) {
       const out = await gh(
         ["pr", "view", String(prNumber), "--repo", this.opts.repo, "--json", "mergeable"],
-        this.env,
+        await this.authEnv(),
       );
       try {
         const state = JSON.parse(out).mergeable as string;
@@ -189,7 +202,7 @@ export class EitriGit {
     try {
       const out = await gh(
         ["pr", "view", String(prNumber), "--repo", this.opts.repo, "--json", "mergeable"],
-        this.env,
+        await this.authEnv(),
       );
       return (JSON.parse(out).mergeable as string) === "CONFLICTING";
     } catch {

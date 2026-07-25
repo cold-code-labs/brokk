@@ -104,6 +104,11 @@ async function main() {
   const { db } = createDb(cfg.databaseUrl);
   const store = createStore(db);
   const appAuth = loadAppAuth();
+  // A fresh GitHub token for read ops (getPr/listOpenPrs): the durable Eitri App
+  // installation token, falling back to the ambient PAT. The PAT expiring is what
+  // made PR fetch 404 ("not found") and stalled reviews — the App key doesn't.
+  const ghToken = async (): Promise<string> =>
+    appAuth ? await getInstallationToken(appAuth).catch(() => cfg.githubToken) : cfg.githubToken;
 
   // One bare clone + worktree dir per repo, created lazily and cached.
   const gits = new Map<string, EitriGit>();
@@ -124,7 +129,7 @@ async function main() {
   const seedProjectId = cfg.repo ? await resolveProjectId(store, cfg.repo) : null;
 
   const reviewTriggered = async (repo: string, prNumber: number): Promise<{ ok: boolean; detail: string }> => {
-    const pr = await getPr(repo, prNumber, cfg.githubToken);
+    const pr = await getPr(repo, prNumber, await ghToken());
     if (!pr) return { ok: false, detail: `PR ${repo}#${prNumber} not found` };
     if (cfg.skipAuthors.includes(pr.author?.login)) {
       return { ok: false, detail: `author ${pr.author?.login} skipped` };
@@ -223,7 +228,7 @@ async function main() {
     for (const w of watch) {
       const git = gitFor(w.repo, w.cloneUrl);
       try {
-        const prs = await listOpenPrs(w.repo, cfg.githubToken);
+        const prs = await listOpenPrs(w.repo, await ghToken());
         for (const pr of prs) {
           if (cfg.skipAuthors.includes(pr.author?.login)) continue;
           if (await store.hasReview(w.repo, pr.number, pr.headRefOid)) {
