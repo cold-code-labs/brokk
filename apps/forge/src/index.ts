@@ -179,7 +179,15 @@ async function main() {
   while (!stopping) {
     let claimed: Claimed | null = null;
     try {
-      claimed = await api<Claimed | null>(cfg, "POST", "/runner/claim", { runnerId }, 204);
+      claimed = await api<Claimed | null>(
+        cfg,
+        "POST",
+        "/runner/claim",
+        // devLaneApps lets the control plane key dev-lane cards' lane to the shared
+        // `dev` checkout (Wave 2) — it's runner-side config the DB can't see.
+        { runnerId, devLaneApps: [...cfg.devLaneApps] },
+        204,
+      );
     } catch (err) {
       console.error("[forge] claim failed:", err);
     }
@@ -527,8 +535,8 @@ function devCheckoutSlug(appName: string): string {
  *  (ADR 0017 revisto): the card's checkout (`devlane_<app>`) is SEPARATE from the
  *  preview's (`<app>_dev`), so a running `next dev` never races the card's git/pnpm —
  *  the preview reflects the change once it lands on dev (refresh), not mid-forge. The
- *  app lease (claimNext) keeps it serial per app, so this private checkout is never
- *  touched by two cards at once. */
+ *  `<projectId>:dev` lane lease (claimNext, Wave 2) keeps dev-lane cards serial per
+ *  app, so this private checkout is never touched by two cards at once. */
 async function runDevLane(
   cfg: RunnerConfig,
   git: GhProvider,

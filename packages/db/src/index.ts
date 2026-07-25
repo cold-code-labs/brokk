@@ -56,6 +56,7 @@ import type {
   TriageSource,
   User,
 } from "@brokk/core";
+import { randomUUID } from "node:crypto";
 import { forcaToModel } from "@brokk/core";
 import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -80,6 +81,7 @@ import {
   taskEvents,
   tasks,
   users,
+  workLeases,
 } from "./schema.js";
 
 export * from "./schema.js";
@@ -466,10 +468,32 @@ const execRows = (res: unknown): Record<string, unknown>[] =>
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
-/** ADR 0017 lane-lease TTL. Short on purpose — a live run renews it every
- *  heartbeat (renewLeases), so this only bounds how long a *crashed* runner
- *  keeps an app locked before claimNext may reclaim it. */
+/** Lane-lease TTL. Short on purpose — a live run renews it every heartbeat
+ *  (renewLeases), so this only bounds how long a *crashed* runner keeps a lane
+ *  locked before claimNext may reclaim it. */
 const LEASE_TTL_MS = 10 * 60 * 1000;
+
+const EMPTY_STR_SET: ReadonlySet<string> = new Set();
+
+/** Wave 2: the git resource a card will mutate — the key it serializes on. Cards
+ *  that share one contend; a `null` lane (standalone PR card on a fresh unique
+ *  branch) never waits and parallelizes, even against same-repo work. Precedence
+ *  mirrors the runner's forge routing (plan → revise → dev-lane → standalone).
+ *   - plan/story card  → the plan's shared feature branch
+ *   - revise card      → the PR branch it updates
+ *   - dev-lane card    → the app's single `dev` checkout (ADR 0017)
+ *   - standalone card  → null (its own unique branch) */
+export function laneKeyForCard(
+  t: Pick<typeof tasks.$inferSelect, "planId" | "projectId" | "kind" | "branch">,
+  repoName: string | null,
+  featureBranch: string | null,
+  devLaneApps: ReadonlySet<string>,
+): string | null {
+  if (t.planId && featureBranch) return `${t.projectId}:${featureBranch}`;
+  if (t.kind === "revise" && t.branch) return `${t.projectId}:${t.branch}`;
+  if (repoName && devLaneApps.has(repoName)) return `${t.projectId}:dev`;
+  return null;
+}
 
 /** What a runner gets when it claims a card: the task + its run + the resolved
  *  repository/project (the footgun fix — no more BROKK_DEFAULT_REPO), the plan it
@@ -606,13 +630,20 @@ export interface Store {
   /** Atomically claim the next forge-ready queued task: skips cards whose plan
    *  dependencies haven't landed yet (the DAG), creates a run, flips task →
    *  running, resolves repo/project, and assigns the least-recently-used active
-   *  seat (round-robin). Returns null when nothing is ready. */
-  claimNext(runnerId: string): Promise<ClaimResult | null>;
-  /** ADR 0017: slide every live lease held by this runner's running runs forward
-   *  (called on heartbeat) so a long-but-alive run never has its app reclaimed. */
+   *  seat (round-robin). Returns null when nothing is ready.
+   *
+   *  Wave 2 — serialization is per *lane*, not per app. A card only waits on a
+   *  live `work_leases` row for the git resource it will mutate: dev-lane cards on
+   *  the app's `dev` checkout, plan/story cards on the shared feature branch, revise
+   *  on the PR branch. A standalone PR card forks a unique branch → no lane → runs
+   *  even while another card of the same repo runs. `devLaneApps` is the runner's
+   *  `BROKK_DEVLANE_APPS` (the DB can't know it otherwise); empty = no dev-lane. */
+  claimNext(runnerId: string, devLaneApps?: ReadonlySet<string>): Promise<ClaimResult | null>;
+  /** Wave 2: slide every live lane-lease held by this runner's running runs forward
+   *  (called on heartbeat) so a long-but-alive run never has its lane reclaimed. */
   renewLeases(runnerId: string): Promise<void>;
-  /** ADR 0017: release the app lease a finished run held (no-op if already freed
-   *  or reassigned). Called from completeRun. */
+  /** Wave 2: release the lane-lease a finished run held (no-op if already freed or
+   *  reassigned). Called from completeRun. */
   releaseLease(runId: string): Promise<void>;
 
   // plans (Mímir planner → cards → one PR)
@@ -1305,49 +1336,66 @@ export function createStore(db: Db): Store {
       return rowToRun(rows[0]);
     },
 
-    async claimNext(runnerId) {
+    async claimNext(runnerId, devLaneApps = EMPTY_STR_SET) {
       return db.transaction(async (tx) => {
         // Lock a window of queued candidates (skip-locked so concurrent runners
-        // don't fight). We then pick the first one whose plan dependencies have
-        // landed — a plan card forges only after the cards it depends on are in
-        // review/done (their commits are already on the feature branch).
+        // don't fight), enriched with the app name + plan feature branch so we can
+        // compute each card's *lane* without extra round-trips. Only `tasks` rows
+        // are locked (FOR UPDATE OF tasks) — the joins are read-only lookups.
         const candidates = await tx
-          .select()
+          .select({ task: tasks, repoName: repositories.name, featureBranch: plans.featureBranch })
           .from(tasks)
-          .where(
-            and(
-              eq(tasks.status, "queued"),
-              // owner='human' cards are pulled out for a person — the forge skips them.
-              eq(tasks.owner, "brokk"),
-              // ADR 0017 serial-per-app: skip cards whose app holds a LIVE dev-checkout
-              // lease (another card is mutating that app's dev checkout right now). An
-              // expired lease (dead runner) doesn't count → the app is reclaimable.
-              sql`not exists (select 1 from ${projects} p where p.id = ${tasks.projectId} and p.lease_run_id is not null and p.lease_expires_at > now())`,
-            ),
-          )
+          .innerJoin(projects, eq(projects.id, tasks.projectId))
+          .innerJoin(repositories, eq(repositories.id, projects.repositoryId))
+          .leftJoin(plans, eq(plans.id, tasks.planId))
+          // owner='human' cards are pulled out for a person — the forge skips them.
+          .where(and(eq(tasks.status, "queued"), eq(tasks.owner, "brokk")))
           .orderBy(sql`${tasks.priority} desc`, asc(tasks.createdAt))
           .limit(10)
-          .for("update", { skipLocked: true });
+          .for("update", { of: tasks, skipLocked: true });
 
+        // Pick the first candidate that is (a) plan-dependency-ready — a plan card
+        // forges only after the cards it depends on are in review/done — and (b)
+        // whose lane is free, acquiring the lane atomically as we go. A card with no
+        // lane (standalone PR, unique branch) is always free and runs even alongside
+        // another card of the same repo. `runId` is minted up front so the lane row
+        // can reference it before the run is inserted (both land in this one tx).
         let taskRow: typeof tasks.$inferSelect | undefined;
+        let runId: string | undefined;
         for (const cand of candidates) {
-          if (!cand.planId || cand.dependsOn.length === 0) {
-            taskRow = cand; // standalone card or no deps → always ready
-            break;
+          const t = cand.task;
+          if (t.planId && t.dependsOn.length > 0) {
+            const deps = await tx
+              .select({ key: tasks.planKey, status: tasks.status })
+              .from(tasks)
+              .where(and(eq(tasks.planId, t.planId), inArray(tasks.planKey, t.dependsOn)));
+            const ready =
+              deps.length === t.dependsOn.length &&
+              deps.every((d) => d.status === "review" || d.status === "done");
+            if (!ready) continue; // deps not landed → not forgeable yet
           }
-          const deps = await tx
-            .select({ key: tasks.planKey, status: tasks.status })
-            .from(tasks)
-            .where(and(eq(tasks.planId, cand.planId), inArray(tasks.planKey, cand.dependsOn)));
-          const ready =
-            deps.length === cand.dependsOn.length &&
-            deps.every((d) => d.status === "review" || d.status === "done");
-          if (ready) {
-            taskRow = cand;
-            break;
+          const lane = laneKeyForCard(t, cand.repoName, cand.featureBranch, devLaneApps);
+          const rid = randomUUID();
+          if (lane) {
+            // Atomic check-and-acquire: ON CONFLICT ... WHERE expires_at <= now()
+            // wins the lane only if it's free or the holder's lease has lapsed (the
+            // crash backstop). 0 rows → a live run holds this lane → next candidate.
+            const won = execRows(
+              await tx.execute(sql`
+                insert into work_leases (lane_key, run_id, expires_at, updated_at)
+                values (${lane}, ${rid}, now() + interval '${sql.raw(String(LEASE_TTL_MS))} milliseconds', now())
+                on conflict (lane_key) do update
+                  set run_id = excluded.run_id, expires_at = excluded.expires_at, updated_at = now()
+                  where work_leases.expires_at <= now()
+                returning lane_key`),
+            );
+            if (won.length === 0) continue; // lane busy → try the next candidate
           }
+          taskRow = t;
+          runId = rid;
+          break;
         }
-        if (!taskRow) return null;
+        if (!taskRow || !runId) return null;
 
         // Resolve repo + project (the footgun fix — the runner no longer guesses
         // from BROKK_DEFAULT_REPO).
@@ -1428,9 +1476,12 @@ export function createStore(db: Db): Store {
             .where(eq(subscriptions.id, seatRow.id));
         }
 
+        // Use the pre-minted id so this run matches the lane row acquired above
+        // (work_leases.run_id) — that row is the lease; no separate acquire needed.
         const runRows = await tx
           .insert(runs)
           .values({
+            id: runId,
             taskId: taskRow.id,
             status: "running",
             runnerId,
@@ -1439,19 +1490,6 @@ export function createStore(db: Db): Store {
             startedAt: new Date(),
           })
           .returning();
-
-        // ADR 0017: acquire the app's dev-checkout lease for this run. Held serial —
-        // the candidate filter above excludes leased apps. Renewed by the runner's
-        // heartbeat (renewLeases) and released on completeRun; lease_expires_at is the
-        // crash backstop. TTL is short (10 min) because a live run keeps renewing it.
-        await tx
-          .update(projects)
-          .set({
-            leaseRunId: runRows[0]!.id,
-            leaseExpiresAt: new Date(Date.now() + LEASE_TTL_MS),
-            updatedAt: new Date(),
-          })
-          .where(eq(projects.id, projRow.id));
 
         return {
           task: rowToTask(updatedTask[0]!),
@@ -1466,19 +1504,17 @@ export function createStore(db: Db): Store {
     },
 
     async renewLeases(runnerId) {
-      // Extend leases whose holder is a still-running run on this runner. Idempotent;
-      // touches nothing once a run completes (completeRun nulls lease_run_id).
+      // Extend every lane-lease whose holder is a still-running run on this runner.
+      // Idempotent; touches nothing once a run completes (releaseLease deleted it).
       await db.execute(sql`
-        update ${projects} set lease_expires_at = now() + interval '${sql.raw(String(LEASE_TTL_MS))} milliseconds'
-        where lease_run_id in (
+        update work_leases set expires_at = now() + interval '${sql.raw(String(LEASE_TTL_MS))} milliseconds', updated_at = now()
+        where run_id in (
           select ${runs.id} from ${runs} where ${runs.runnerId} = ${runnerId} and ${runs.status} = 'running'
         )`);
     },
     async releaseLease(runId) {
-      await db
-        .update(projects)
-        .set({ leaseRunId: null, leaseExpiresAt: null, updatedAt: new Date() })
-        .where(eq(projects.leaseRunId, runId));
+      // Free the lane the finished run held (no-op if a later claim already took it).
+      await db.execute(sql`delete from work_leases where run_id = ${runId}`);
     },
 
     async insertPlan(values) {
@@ -2695,9 +2731,19 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     await db.execute(sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS rss_mb integer;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS runtime jsonb;`);
     // ADR 0017 lane lease (serial per-app dev-checkout). Self-healed so it lands
-    // without a push (which hangs on db_brokk).
+    // without a push (which hangs on db_brokk). Kept but DEAD as of Wave 2 — the
+    // lease moved to work_leases (per-lane); dropped in a later cleanup.
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS lease_run_id uuid;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz;`);
+    // Wave 2 per-lane lease. FK omitted in the self-heal (ordering-free); the drizzle
+    // schema carries it for a fresh push. Index on run_id for renew/release lookups.
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS work_leases (
+      lane_key text PRIMARY KEY,
+      run_id uuid NOT NULL,
+      expires_at timestamptz NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );`);
+    await db.execute(sql`CREATE INDEX IF NOT EXISTS work_leases_run_id_idx ON work_leases (run_id);`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS dev_first boolean NOT NULL DEFAULT false;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS heimdall_app_id text;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS published boolean NOT NULL DEFAULT false;`);
