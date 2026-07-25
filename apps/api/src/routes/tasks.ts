@@ -1,4 +1,4 @@
-import { featureBranch, TASK_OWNERS, TASK_STATUSES } from "@brokk/core";
+import { featureBranch, isRunStale, TASK_OWNERS, TASK_STATUSES } from "@brokk/core";
 import type { TaskOwner } from "@brokk/core";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -101,8 +101,15 @@ export function tasksRoutes(deps: AppDeps): Hono {
   });
 
   // Runs for a task (newest first) — powers the card's run history + live log.
+  // Each run carries the runner's last heartbeat plus a derived `stale` flag: a
+  // `running` run whose runner stopped beating is a zombie (SSE looks live but
+  // nothing will ever emit) — the drawer shows "runner lost" instead of the
+  // healthy live strip.
   r.get("/:id/runs", async (c) => {
-    return c.json(await deps.store.listRunsByTask(c.req.param("id")));
+    const runs = await deps.store.listRunsByTask(c.req.param("id"));
+    return c.json(
+      runs.map((run) => ({ ...run, stale: isRunStale(run, run.runnerLastSeenAt ?? null) })),
+    );
   });
 
   // Edit fields or move column. A status change is routed through transitionTask so

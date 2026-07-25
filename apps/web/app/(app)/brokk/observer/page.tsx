@@ -8,7 +8,7 @@
 import { useRef, useState } from "react";
 import type { RunEvent } from "@brokk/sdk";
 import { Main, Button } from "@cold-code-labs/yggdrasil-react";
-import { RunLog } from "../../../../components/Board";
+import { RunLog, RunnerLostBanner } from "../../../../components/Board";
 import { STATUS_COLOR } from "../../../../lib/theme";
 
 const FIXTURE_EVENTS: RunEvent[] = [
@@ -45,8 +45,13 @@ const FIXTURE_EVENTS: RunEvent[] = [
   },
 ];
 
+/** Zombie fixture: run still `running` but the runner's heartbeats stopped
+ *  10 minutes ago — the drawer must show the sticky "runner lost" banner
+ *  instead of a healthy live strip. */
+const STALE_LAST_SEEN = new Date(Date.now() - 10 * 60_000).toISOString();
+
 export default function ObserverFixturePage() {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState<false | "live" | "stale">(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   return (
@@ -64,7 +69,7 @@ export default function ObserverFixturePage() {
           type="button"
           data-testid="forge-floor-row"
           className="forge-row is-clickable is-running"
-          onClick={() => setOpen(true)}
+          onClick={() => setOpen("live")}
         >
           <span
             style={{
@@ -78,6 +83,26 @@ export default function ObserverFixturePage() {
           <span className="forge-row-title">BROKK-39 · watch the forge think</span>
           <span className="forge-row-meta" style={{ color: STATUS_COLOR.running }}>
             Running
+          </span>
+        </button>
+        <button
+          type="button"
+          data-testid="forge-floor-row-stale"
+          className="forge-row is-clickable is-running"
+          onClick={() => setOpen("stale")}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: STATUS_COLOR.failed,
+              flexShrink: 0,
+            }}
+          />
+          <span className="forge-row-title">Zombie · runner heartbeats stopped</span>
+          <span className="forge-row-meta" style={{ color: STATUS_COLOR.failed }}>
+            Running (stale)
           </span>
         </button>
       </div>
@@ -107,13 +132,16 @@ export default function ObserverFixturePage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h2 style={{ margin: 0, fontSize: 17 }}>BROKK-39 · watch the forge think</h2>
+              <h2 style={{ margin: 0, fontSize: 17 }}>
+                {open === "stale" ? "Zombie · runner heartbeats stopped" : "BROKK-39 · watch the forge think"}
+              </h2>
               <Button variant="outline" size="icon" onClick={() => setOpen(false)} aria-label="Close">
                 ✕
               </Button>
             </div>
+            {open === "stale" && <RunnerLostBanner lastSeenAt={STALE_LAST_SEEN} />}
             <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "16px 0 8px" }}>
-              Live run log
+              {open === "stale" ? "Run log (stalled)" : "Live run log"}
             </h3>
             <RunLog events={FIXTURE_EVENTS} logRef={logRef} />
           </aside>
