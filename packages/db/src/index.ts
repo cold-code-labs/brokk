@@ -1323,12 +1323,15 @@ export function createStore(db: Db): Store {
       return rows[0] ? rowToRun(rows[0]) : null;
     },
     async listRunsByTask(taskId) {
+      // Join the runner's heartbeat (agents.last_seen_at) so the Board drill-in
+      // can spot a zombie: status=running while the runner stopped beating.
       const rows = await db
-        .select()
+        .select({ run: runs, runnerLastSeenAt: agents.lastSeenAt })
         .from(runs)
+        .leftJoin(agents, eq(agents.id, runs.runnerId))
         .where(eq(runs.taskId, taskId))
         .orderBy(sql`${runs.createdAt} desc`);
-      return rows.map(rowToRun);
+      return rows.map((r) => ({ ...rowToRun(r.run), runnerLastSeenAt: iso(r.runnerLastSeenAt) }));
     },
     async insertRun(values) {
       const rows = await db.insert(runs).values(values).returning();

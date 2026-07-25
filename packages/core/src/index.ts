@@ -121,6 +121,8 @@ export {
   type RunLogToolResult,
 } from "./run-log";
 
+export { isRunStale, RUNNER_STALE_MS_DEFAULT } from "./run-health";
+
 /** E2E / behaviour receipt: the forge booted the worktree app and ran the repo's
  *  E2E gate (profile `commands.e2e`, Playwright, or legacy `.brokk/acceptance.mjs`).
  *  `ran=false` means no gate was configured. Screenshot is a base64 PNG data URL
@@ -314,6 +316,13 @@ export interface Run {
   error: string | null;
   createdAt: string;
   updatedAt: string;
+  /** When the runner holding this run last heartbeated (agents.last_seen_at).
+   *  Decorated by GET /tasks/:id/runs for the Board drill-in; absent elsewhere. */
+  runnerLastSeenAt?: string | null;
+  /** Derived zombie flag: status=running but the runner stopped heartbeating —
+   *  the SSE stream looks live while nothing will ever produce events again.
+   *  The Board shows a sticky "runner lost" banner instead of the live strip. */
+  stale?: boolean;
 }
 
 /** Append-only stream entry. Ordered within a run by (runId, seq). */

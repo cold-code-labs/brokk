@@ -717,11 +717,26 @@ export function TaskDetail({ task, onClose, onChanged }: { task: Task; onClose: 
     return () => unsub?.();
   }, [task.id, isAnalysis]);
 
+  // Zombie watch: while the card is running, re-poll the runs so the API's
+  // derived `stale` flag (runner heartbeats stopped) surfaces within one poll
+  // cycle — the SSE stream alone would just sit silently "live" forever after
+  // a runner crash/redeploy.
+  useEffect(() => {
+    if (isAnalysis || task.status !== "running") return;
+    const i = setInterval(() => {
+      brokk.listTaskRuns(task.id).then(setRuns).catch(() => {});
+    }, 5000);
+    return () => clearInterval(i);
+  }, [task.id, task.status, isAnalysis]);
+
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [events]);
 
   const latest = runs[0];
+  // Zombie: the run claims `running` but its runner stopped heartbeating — the
+  // stream will never emit again. Sticky banner instead of a healthy live strip.
+  const runnerLost = latest?.status === "running" && latest?.stale === true;
   const origin = qaOrigin(task);
   const isQaScenario = origin === "scenario";
 
@@ -798,8 +813,10 @@ export function TaskDetail({ task, onClose, onChanged }: { task: Task; onClose: 
           <AnalysisPanel task={task} onChanged={onChanged} onClose={onClose} />
         ) : !isQaScenario ? (
           <>
+            {runnerLost && <RunnerLostBanner lastSeenAt={latest?.runnerLastSeenAt ?? latest?.startedAt ?? null} />}
             <h3 className="ygg-muted" style={{ fontSize: 12, textTransform: "uppercase", margin: "16px 0 8px" }}>
-              Live run log{latest && <> · <span className="forge-row-mono">{latest.id.slice(0, 8)}</span></>}
+              {runnerLost ? "Run log (stalled)" : "Live run log"}
+              {latest && <> · <span className="forge-row-mono">{latest.id.slice(0, 8)}</span></>}
             </h3>
             <RunLog events={events} logRef={logRef} />
           </>
@@ -1244,6 +1261,37 @@ function phaseMeta(p: Record<string, unknown>): { label: string; tint: string; I
     default:
       return null; // agent_start etc. — noise, skip
   }
+}
+
+/** Sticky zombie-run banner: the run says `running` but the runner's heartbeats
+ *  stopped — nothing will ever stream again, so don't let the drawer pretend it's
+ *  live. Exported for the observer fixture (stale state without a live API). */
+export function RunnerLostBanner({ lastSeenAt }: { lastSeenAt: string | null }) {
+  return (
+    <div
+      data-testid="runner-lost-banner"
+      role="alert"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginTop: 14,
+        padding: "10px 12px",
+        borderRadius: 8,
+        fontSize: 13,
+        color: STATUS_COLOR.failed,
+        background: `color-mix(in srgb, ${STATUS_COLOR.failed} 12%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${STATUS_COLOR.failed} 35%, var(--line-soft))`,
+      }}
+    >
+      <XCircle size={15} style={{ flexShrink: 0 }} />
+      <span>
+        <strong>Runner lost</strong> — heartbeats stopped
+        {lastSeenAt && <> (last seen {new Date(lastSeenAt).toLocaleTimeString()})</>}. Awaiting
+        reaper / requeue — this log will not advance.
+      </span>
+    </div>
+  );
 }
 
 /** Exported for the BROKK-39 acceptance fixture (static observer without a live run). */
