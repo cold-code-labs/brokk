@@ -75,11 +75,12 @@ export function loadEitriConfig(env = process.env): EitriConfig {
     postToken: env.EITRI_GITHUB_TOKEN || env.GITHUB_TOKEN || "",
     hasOwnIdentity: Boolean(env.EITRI_GITHUB_TOKEN),
     workDir: env.EITRI_WORKDIR ?? "/tmp/eitri",
-    // Cursor seat speaks `auto` / `sonnet`; keep alias when Claude LiteLLM is used.
-    model:
-      env.EITRI_MODEL ??
-      env.BROKK_DEFAULT_MODEL ??
-      (env.CURSOR_SEAT_URL || env.CURSOR_BRIDGE_URL ? "auto" : "sonnet"),
+    // The review LLM call goes through the afl gateway → LiteLLM. Use the same
+    // healthy fuel lane the forge uses (LLM_MODEL=cursor/auto). `||` (not `??`) so a
+    // set-but-EMPTY BROKK_DEFAULT_MODEL falls through: the old `??` chain returned
+    // "", the gateway then defaulted to haiku, and haiku's LiteLLM routing dead-ends
+    // at the terminated ratatoskr → gateway 500 → reviews never completed.
+    model: env.EITRI_MODEL || env.LLM_MODEL || env.BROKK_DEFAULT_MODEL || "cursor/auto",
     pollIntervalMs: Number(env.EITRI_POLL_MS ?? 30_000),
     mode,
     httpPort: Number(env.EITRI_PORT ?? 8796),
