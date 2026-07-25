@@ -181,6 +181,22 @@ export class EitriGit {
     return false;
   }
 
+  /** True ONLY when GitHub reports a real merge conflict (CONFLICTING) — never for
+   *  a transient UNKNOWN. `isMergeable` collapses both to `false`, so the rebase
+   *  path uses this to avoid enqueueing a pointless rebase while GitHub is still
+   *  computing mergeability. One cheap call, no retry. */
+  async isConflicting(prNumber: number): Promise<boolean> {
+    try {
+      const out = await gh(
+        ["pr", "view", String(prNumber), "--repo", this.opts.repo, "--json", "mergeable"],
+        this.env,
+      );
+      return (JSON.parse(out).mergeable as string) === "CONFLICTING";
+    } catch {
+      return false;
+    }
+  }
+
   async cleanup(path: string): Promise<void> {
     await rm(path, { recursive: true, force: true }).catch(() => {});
   }

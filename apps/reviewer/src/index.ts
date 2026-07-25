@@ -351,6 +351,81 @@ function isBrokkManagedBranch(headRefName: string): boolean {
   return headRefName.startsWith("brokk/") || headRefName.startsWith("story/");
 }
 
+/** Pure: is `sibling` an open PR that a just-merged `merged` PR could have pushed
+ *  into conflict? Same base (the branch that just advanced), a different PR, and
+ *  Brokk-managed (we only auto-rebase our own branches). Pure — no I/O. */
+export function isRebaseSiblingCandidate(
+  merged: { number: number; baseRefName: string },
+  sibling: { number: number; baseRefName: string; headRefName: string },
+): boolean {
+  return (
+    sibling.number !== merged.number &&
+    sibling.baseRefName === merged.baseRefName &&
+    isBrokkManagedBranch(sibling.headRefName)
+  );
+}
+
+/** Hand Brokk a `revise` card to rebase a CONFLICTING PR onto its base and push to
+ *  the same branch. Guarded like the review-feedback revise: one in flight per PR
+ *  (openReviseExists) and capped at maxRevisions rounds. projectId is resolved from
+ *  the PR's linked forge task (Brokk PRs are stamped); a PR with no task is skipped.
+ *  Returns whether a card was enqueued. */
+async function enqueueRebaseRevise(
+  cfg: ReturnType<typeof loadEitriConfig>,
+  store: ReturnType<typeof createStore>,
+  repo: string,
+  pr: OpenPr,
+): Promise<boolean> {
+  const prUrl = `https://github.com/${repo}/pull/${pr.number}`;
+  const task = await store.findTaskForMergedPr(prUrl, pr.number, repo).catch(() => null);
+  if (!task) return false; // not a Brokk task (or unmapped) — leave it alone
+  if (task.status === "done" || task.status === "cancelled") return false;
+  if (await store.openReviseExists(pr.number)) return false; // already being revised
+  const rounds = (await store.listReviews(repo)).filter((r) => r.prNumber === pr.number).length;
+  if (rounds > cfg.maxRevisions) {
+    console.log(`[eitri] ${repo}#${pr.number} CONFLICTING but hit ${cfg.maxRevisions}-round cap — leaving for a human`);
+    return false;
+  }
+  await store.insertTask({
+    projectId: task.projectId,
+    kind: "revise",
+    status: "queued",
+    title: `Rebase PR #${pr.number}: ${pr.title}`.slice(0, 200),
+    body: [
+      `PR #${pr.number} is blocked by merge conflicts with its base (\`${pr.baseRefName}\`).`,
+      `Resolve them on the SAME branch: merge the latest \`${pr.baseRefName}\` into \`${pr.headRefName}\`,`,
+      "fix the conflicts, run verify, and push. Do NOT open a new PR.",
+    ].join("\n"),
+    prNumber: pr.number,
+    branch: pr.headRefName,
+    prUrl,
+    iteration: rounds,
+    createdBy: "eitri",
+  });
+  console.log(`[eitri] ${repo}#${pr.number} CONFLICTING → enqueued rebase revise`);
+  return true;
+}
+
+/** A merge just advanced `merged.baseRefName`, so sibling open PRs on that base may
+ *  have turned CONFLICTING. In trigger mode there's no poll to catch them, so sweep
+ *  them here and hand each a rebase revise. Best-effort; never blocks the merge. */
+async function rebaseConflictingSiblings(
+  cfg: ReturnType<typeof loadEitriConfig>,
+  store: ReturnType<typeof createStore>,
+  git: EitriGit,
+  repo: string,
+  merged: OpenPr,
+): Promise<void> {
+  const open = await listOpenPrs(repo, cfg.githubToken).catch(() => [] as OpenPr[]);
+  for (const pr of open) {
+    if (!isRebaseSiblingCandidate(merged, pr)) continue;
+    if (!(await git.isConflicting(pr.number))) continue;
+    await enqueueRebaseRevise(cfg, store, repo, pr).catch((e) =>
+      console.error(`[eitri] ${repo}#${pr.number} rebase-revise enqueue failed:`, String(e).slice(0, 160)),
+    );
+  }
+}
+
 /** After a gate-passing review, squash-merge Brokk PRs into their base (dev). */
 async function tryAutoMerge(
   cfg: ReturnType<typeof loadEitriConfig>,
@@ -436,12 +511,25 @@ async function attemptMerge(
   } else if (!(await forgeVerifyAllowsMerge(store, repo, pr))) {
     console.log(`[eitri] ${repo}#${pr.number} — forge verify/task failed, not merging (BROKK-26)`);
   } else if (!(await git.isMergeable(pr.number))) {
-    console.log(`[eitri] ${repo}#${pr.number} not mergeable yet — will retry on next poll`);
+    // Not mergeable. A real CONFLICTING state won't clear itself — and in trigger
+    // mode there's no poll to retry — so hand Brokk a rebase revise. A transient
+    // UNKNOWN is left to settle (re-checked on the next review or sibling merge).
+    if (await git.isConflicting(pr.number)) {
+      await enqueueRebaseRevise(cfg, store, repo, pr);
+    } else {
+      console.log(`[eitri] ${repo}#${pr.number} mergeability UNKNOWN — settling, re-checked later`);
+    }
   } else {
     try {
       const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;
       await git.mergePr(pr.number, token);
       console.log(`[eitri] ${repo}#${pr.number} → MERGED (squash)`);
+      // The base just advanced — sibling Brokk PRs on it may now be CONFLICTING.
+      // Trigger mode has no poll to catch them (they'd hang APPROVED-but-unmergeable),
+      // so sweep them now and enqueue a rebase revise for each. Best-effort.
+      await rebaseConflictingSiblings(cfg, store, git, repo, pr).catch((e) =>
+        console.error(`[eitri] ${repo} sibling rebase sweep failed:`, String(e).slice(0, 160)),
+      );
       // If this landed on dev, consider promoting dev → prod (#5). A PR that merged
       // straight into main (EITRI_AUTOMERGE_MAIN) is already at prod — nothing to promote.
       if (pr.baseRefName !== "main") {
