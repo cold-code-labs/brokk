@@ -2567,6 +2567,18 @@ export async function ensureSchema(db: Db): Promise<void> {
     // dormant; weight-ordered memory still works.
   }
 
+  // Wave 2 per-lane claim lease. Created here (the API's own boot path) — claimNext
+  // is the consumer, so the table must exist before the API serves /claim, not rely
+  // on apps/chat's ensureChatSchema winning the boot race on the shared db_brokk. FK
+  // omitted (ordering-free); the drizzle schema carries it for a fresh push.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS work_leases (
+    lane_key text PRIMARY KEY,
+    run_id uuid NOT NULL,
+    expires_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS work_leases_run_id_idx ON work_leases (run_id);`);
+
   // Preview idle-reaper anchor. Self-healed onto the existing drizzle `previews`
   // table (db:push hangs on the shared db_brokk) so the column exists even on a
   // cluster that hasn't been pushed. Bumped on activity; the supervisor rests a
@@ -2735,15 +2747,6 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     // lease moved to work_leases (per-lane); dropped in a later cleanup.
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS lease_run_id uuid;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS lease_expires_at timestamptz;`);
-    // Wave 2 per-lane lease. FK omitted in the self-heal (ordering-free); the drizzle
-    // schema carries it for a fresh push. Index on run_id for renew/release lookups.
-    await db.execute(sql`CREATE TABLE IF NOT EXISTS work_leases (
-      lane_key text PRIMARY KEY,
-      run_id uuid NOT NULL,
-      expires_at timestamptz NOT NULL,
-      updated_at timestamptz NOT NULL DEFAULT now()
-    );`);
-    await db.execute(sql`CREATE INDEX IF NOT EXISTS work_leases_run_id_idx ON work_leases (run_id);`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS dev_first boolean NOT NULL DEFAULT false;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS heimdall_app_id text;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS published boolean NOT NULL DEFAULT false;`);
