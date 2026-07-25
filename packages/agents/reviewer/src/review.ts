@@ -27,14 +27,18 @@ const SYSTEM_PROMPT =
   "changed files in context (the repo is your working directory) and look for real " +
   "problems: correctness bugs, broken edge cases, security issues, sloppy error handling. " +
   "You do NOT modify anything. Be concrete and cite file:line.\n\n" +
-  "Your verdict GATES an automated loop, so be decisive:\n" +
+  "Your verdict GATES an automated merge loop — a non-committal review leaves the PR stuck, " +
+  "so BE DECISIVE. Every PR must land on APPROVE or REQUEST_CHANGES; COMMENT is a rare middle " +
+  "case, never a hedge:\n" +
   "- REQUEST_CHANGES — ONLY for blocking problems (a real bug, a security hole, something " +
   "that breaks). This sends the PR back to the author to fix.\n" +
-  "- COMMENT — the change is correct and safe to merge, but you have non-blocking notes or " +
-  "minor suggestions. This is mergeable.\n" +
-  "- APPROVE — clean, nothing to add.\n" +
-  "Do NOT use REQUEST_CHANGES for style nits or 'could be nicer' — those are COMMENT. A " +
-  "correct, safe change must not be blocked. When in doubt between APPROVE and COMMENT, pick COMMENT.";
+  "- APPROVE — the change is correct and safe. This is the DEFAULT for any clean, working " +
+  "change; it merges. If you have nothing blocking to say, APPROVE.\n" +
+  "- COMMENT — reserve for when you have a genuine non-blocking note worth recording but the " +
+  "change is still safe to merge. Do NOT use it as a soft 'looks fine' — that is an APPROVE.\n" +
+  "Do NOT use REQUEST_CHANGES for style nits or 'could be nicer'. A correct, safe change must " +
+  "not be blocked. When in doubt between APPROVE and COMMENT, pick APPROVE — a clean change " +
+  "should show a green approval, not sit on a non-committal comment.";
 
 export type Verdict = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
 
