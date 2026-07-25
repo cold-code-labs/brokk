@@ -3,11 +3,11 @@
  * Same labels/dedupe as apps/api `backlog-from-brief` / `backlog-from-qa` (ADR 0067).
  */
 import type { Store } from "@brokk/db";
-import type { QaCatalog, QaRun, Task } from "@brokk/core";
+import type { QaCatalog, QaRun, QaScenario, Task } from "@brokk/core";
 
 const DISCOVERY_LABEL = "discovery";
 const QA_LABEL = "qa";
-const QA_SCENARIO_LABEL = "qa-scenario";
+const QA_MODULE_LABEL = "qa-module";
 const QA_FAIL_LABEL = "qa-fail";
 
 /** Minimal project fields — store rows use Date; core Project uses ISO strings. */
@@ -89,6 +89,60 @@ export async function proposeFromBrief(
 }
 
 /** QA catalog scenarios → checklist cards (not forge-ready via Approve all). */
+/** Group Discovery scenarios by their `module`, preserving first-seen module order
+ *  and sorting each module's scenarios p0-first (stable within a tier). Pure — the
+ *  heart of the "26 scenario cards → ~5-6 module cards" collapse (Wave 2). */
+export function groupScenariosByModule(
+  scenarios: QaScenario[],
+): { module: string; scenarios: QaScenario[] }[] {
+  const order: string[] = [];
+  const byModule = new Map<string, QaScenario[]>();
+  for (const s of scenarios) {
+    const m = (s.module || "app").trim() || "app";
+    if (!byModule.has(m)) {
+      byModule.set(m, []);
+      order.push(m);
+    }
+    byModule.get(m)!.push(s);
+  }
+  const rank = (p: string) => (p === "p0" ? 0 : p === "p1" ? 1 : 2);
+  return order.map((m) => ({
+    module: m,
+    scenarios: byModule
+      .get(m)!
+      .map((s, i) => ({ s, i }))
+      .sort((a, b) => rank(a.s.priority) - rank(b.s.priority) || a.i - b.i)
+      .map((x) => x.s),
+  }));
+}
+
+/** One module card's body: every scenario of the module, so the forge builds/fixes
+ *  the whole module in ONE card → ONE PR (no two same-module PRs to conflict). Pure. */
+export function buildQaModuleCardBody(module: string, scenarios: QaScenario[]): string {
+  const lines: string[] = [
+    `Módulo **${module}** — ${scenarios.length} cenário(s) de QA Discovery. Garanta que TODOS passam;`,
+    "faça as mudanças numa ÚNICA PR pro módulo (não abra uma PR por cenário).",
+    "",
+  ];
+  for (const s of scenarios) {
+    lines.push(`### \`${s.id}\` · ${s.priority} — ${s.title}`);
+    if (s.steps?.length) {
+      lines.push("**Steps**");
+      s.steps.forEach((x, i) => lines.push(`${i + 1}. ${x}`));
+    }
+    if (s.expects?.length) {
+      lines.push("**Espera-se**");
+      s.expects.forEach((x) => lines.push(`- ${x}`));
+    }
+    lines.push("");
+  }
+  lines.push("— Huginn Discovery (batched por módulo). Approve all não enfileira qa-module.");
+  return lines.join("\n");
+}
+
+/** Discovery catalog → forge-ready backlog cards, ONE per module (Wave 2 batching).
+ *  Was one card per scenario (~26); now ~5-6 — which also kills the intra-module PR
+ *  conflict (a module's whole change lands in a single card/PR). Deduped by module. */
 export async function proposeFromQaCatalog(
   store: Store,
   project: ProjectRef,
@@ -98,20 +152,13 @@ export async function proposeFromQaCatalog(
   const seenLabels = new Set((existing.flatMap((t) => t.labels ?? [])).map((l) => l.toLowerCase()));
   let created = 0;
   let skipped = 0;
-  for (const s of catalog.scenarios ?? []) {
-    const dedupe = `qa-scenario:${s.id}`;
+  for (const group of groupScenariosByModule(catalog.scenarios ?? [])) {
+    const dedupe = `qa-module:${group.module}`;
     const r = await makeCard(store, project, seenLabels, {
       dedupeLabel: dedupe,
-      title: `[QA] ${s.title}`,
-      body: [
-        `Cenário Discovery \`${s.id}\` · módulo=${s.module} · prioridade=${s.priority}`,
-        "",
-        "**Steps**",
-        ...(s.steps?.length ? s.steps.map((x, i) => `${i + 1}. ${x}`) : ["- —"]),
-        "",
-        "— Huginn Discovery (cenário). Approve all não enfileira qa-scenario.",
-      ].join("\n"),
-      labels: [QA_LABEL, QA_SCENARIO_LABEL, dedupe],
+      title: `[QA] módulo ${group.module} — ${group.scenarios.length} cenário(s)`,
+      body: buildQaModuleCardBody(group.module, group.scenarios),
+      labels: [QA_LABEL, QA_MODULE_LABEL, dedupe],
       createdBy: "huginn",
     });
     if (r === "skipped") skipped++;
