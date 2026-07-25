@@ -81,6 +81,11 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
   // runs through the public origin. Reads stay open (Logto-off dev = open shell).
   const isMutation =
     req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS";
+  // GitHub webhooks (`/api/webhooks/*`) are unauthenticated by nature — GitHub has
+  // no Logto session. They self-authenticate at the control-plane via the HMAC
+  // signature (BROKK_GITHUB_WEBHOOK_SECRET), so they're exempt from the session
+  // requirement below. Everything else keeps the mutation-needs-a-session rule.
+  const isWebhook = req.nextUrl.pathname.startsWith("/api/webhooks");
   let actor = "";
   // ADR 0064 — org claims from Logto session (never client-supplied).
   let orgIds = "";
@@ -99,7 +104,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
     // Not the legacy shared mobile token either → require a Logto session for
     // mutations; carry its email as the actor (reads stay open in dev).
     const session = await getSession();
-    if (isMutation && !session.isAuthenticated) {
+    if (isMutation && !session.isAuthenticated && !isWebhook) {
       return new Response(JSON.stringify({ error: "unauthorized" }), {
         status: 401,
         headers: { "content-type": "application/json" },
