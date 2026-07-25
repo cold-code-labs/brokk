@@ -34,6 +34,10 @@ const MAX_REPLANS = 1;
 const MAX_SAME_ERROR = 2;
 /** Driver-run zombie TTL (BROKK-22): forge restart leaves `running` forever. */
 const DRIVER_STALE_MS = 45 * 60 * 1000;
+// Forge runs are LLM-bound at ~12min p50; a run still `running` past this was
+// orphaned by a runner SIGKILL (redeploy/OOM/fuel outage), not working. Env
+// override for tuning without a redeploy.
+const RUN_STALE_MS = Number(process.env.BROKK_RUN_STALE_MS) || 45 * 60 * 1000;
 /** Auto intake: only shepherd failed cards newer than this. */
 const AUTO_INTAKE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** Default pause after Mímir 429/529 before auto-intake resumes (30 min). */
@@ -100,6 +104,39 @@ export function startMissionReconciler(deps: MissionDeps, intervalMs = 30_000): 
       // BROKK-22: reap driver_runs stuck after forge recreate (no heartbeat).
       const reaped = await deps.store.reapStaleDriverRuns(DRIVER_STALE_MS).catch(() => 0);
       if (reaped > 0) console.warn(`[regin] reaped ${reaped} stale driver-run(s)`);
+
+      // Reap orphaned forge runs: a runner killed mid-card never fires
+      // /runs/:id/complete, so the run stays `running` forever, its lane-lease
+      // stays held (blocking the next card for that app), and the card is lost.
+      // Fail the run, free the lane (releaseLease), and — only if it's still the
+      // card's current attempt — drop the card to `failed`, where BROKK-44
+      // auto-intake / a human requeues it. Mirrors the /complete failure path
+      // minus the reviewer trigger (an orphan opened no PR).
+      const staleRuns = await deps.store.listStaleRuns(RUN_STALE_MS).catch(() => []);
+      for (const sr of staleRuns) {
+        try {
+          await deps.store.updateRun(sr.id, {
+            status: "failed",
+            error: `reaped: orphaned run >${Math.round(RUN_STALE_MS / 60000)}min (runner crash/redeploy/fuel outage)`,
+            endedAt: new Date(),
+          });
+          await deps.store.releaseLease(sr.id).catch(() => {});
+          if (sr.isLatest) {
+            const task = await deps.store.getTask(sr.taskId).catch(() => null);
+            if (task?.status === "running") {
+              await deps.store
+                .transitionTask(sr.taskId, "failed", {
+                  actor: "regin",
+                  reason: "forge run orphaned — runner died mid-card (reaped)",
+                })
+                .catch((err) => console.error(`[regin] reap transition ${sr.taskId.slice(0, 8)} failed:`, err));
+            }
+          }
+          console.warn(`[regin] reaped orphaned forge run ${sr.id.slice(0, 8)} (card ${sr.taskId.slice(0, 8)})`);
+        } catch (err) {
+          console.error(`[regin] reap run ${sr.id.slice(0, 8)} failed:`, err);
+        }
+      }
 
       // BROKK-44: overnight intake — wrap orphaned failed cards into auto missions.
       await tickAutoIntake(deps).catch((err) =>

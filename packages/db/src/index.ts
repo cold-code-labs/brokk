@@ -882,6 +882,14 @@ export interface Store {
   /** Mark `running` driver_runs older than `staleMs` as failed (forge recreated
    *  without finishing — BROKK-22). Returns how many rows were reaped. */
   reapStaleDriverRuns(staleMs: number): Promise<number>;
+  /** Forge `runs` stuck `running` past `staleMs` — the runner was SIGKILL'd
+   *  mid-card (redeploy/OOM/fuel outage) so `/runs/:id/complete` never fired,
+   *  leaving the run orphaned, its lane-lease held, and the card lost. Returns
+   *  the orphans (with the card id) so the reconciler can fail the run, free the
+   *  lane, and drop the card to `failed`. `isLatest` marks the run that is still
+   *  the card's current attempt (only then should the card be transitioned — a
+   *  re-forged card has a newer run that must not be clobbered). */
+  listStaleRuns(staleMs: number): Promise<Array<{ id: string; taskId: string; isLatest: boolean }>>;
   listMissionEvents(missionId: string): Promise<MissionEvent[]>;
 }
 
@@ -2309,6 +2317,27 @@ export function createStore(db: Db): Store {
             RETURNING id`,
       );
       return execRows(rows).length;
+    },
+    async listStaleRuns(staleMs) {
+      // ponytail: no per-run heartbeat column — started_at age is the signal,
+      // same as reapStaleDriverRuns. `is_latest` guards the re-forge case: only
+      // the card's newest run may move the card.
+      const rows = await db.execute(
+        sql`SELECT r.id, r.task_id,
+              (r.id = (SELECT r2.id FROM ${runs} r2
+                        WHERE r2.task_id = r.task_id
+                        ORDER BY r2.started_at DESC NULLS LAST LIMIT 1)) AS is_latest
+            FROM ${runs} r
+            WHERE r.status = 'running'
+              AND r.started_at IS NOT NULL
+              AND r.started_at < now() - make_interval(secs => ${Math.max(60, Math.floor(staleMs / 1000))})
+            ORDER BY r.started_at ASC`,
+      );
+      return execRows(rows).map((r) => ({
+        id: r.id as string,
+        taskId: r.task_id as string,
+        isLatest: r.is_latest === true,
+      }));
     },
   };
 }
