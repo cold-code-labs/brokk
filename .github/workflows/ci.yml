@@ -7,6 +7,11 @@ on:
 
 jobs:
   check:
+    # The forge already runs typecheck+build (verify) on its own workers before it
+    # opens a PR, and Eitri gates the merge on that green verify (BROKK-26). Re-running
+    # CI on every brokk/* forge branch is therefore pure redundant Actions spend (and
+    # it fails there anyway). Run CI on main pushes + human (non-forge) PRs only.
+    if: ${{ github.event_name == 'push' || !startsWith(github.head_ref, 'brokk/') }}
     name: typecheck + build
     runs-on: ubuntu-latest
     steps:

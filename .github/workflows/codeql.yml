@@ -3,8 +3,9 @@ name: "CodeQL"
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  # Per-PR CodeQL removed (2026-07-25): Eitri runs semgrep+trivy on each PR's diff,
+  # so CodeQL on every forge PR to main was redundant and minute-heavy (the bulk of
+  # the Actions bill). Keep the post-merge scan on main + the weekly deep sweep.
   schedule:
     - cron: "27 3 * * 1"
 
