@@ -56,6 +56,36 @@ async function waitForHttp(url: string, timeoutMs: number): Promise<boolean> {
   return false;
 }
 
+/** Next.js 16 registers a running `next dev` in `.next/dev/lock` (pid/port/url);
+ *  a second `next dev` in the same dir reads that lock and REFUSES to bind the
+ *  requested port — it points at the already-running server instead ("Another
+ *  next dev server is already running"). On the forge that silently broke the
+ *  acceptance gate: the app booted in <1s but on the OLD port, so the harness
+ *  polled the assigned port and timed out at 180s — the #1 failure bucket. Clear
+ *  a stale lock (and kill its process) before booting so `next dev -p $PORT`
+ *  owns a fresh instance. Best-effort: absent lock / other runtimes → no-op. */
+async function clearStaleNextDev(appDir: string, log: (m: string) => void): Promise<void> {
+  const devDir = join(appDir, ".next", "dev");
+  const lock = join(devDir, "lock");
+  if (!existsSync(lock)) return;
+  try {
+    const raw = await readFile(lock, "utf8");
+    const pid = Number(JSON.parse(raw)?.pid);
+    if (Number.isInteger(pid) && pid > 1) {
+      try {
+        process.kill(pid, "SIGKILL");
+        log(`[e2e] killed stale next dev (pid ${pid}) from .next/dev/lock`);
+      } catch {
+        /* already gone */
+      }
+    }
+  } catch {
+    /* unreadable/legacy lock — removing the dir below is enough */
+  }
+  await rm(devDir, { recursive: true, force: true }).catch(() => {});
+  log("[e2e] cleared stale .next/dev registry before boot");
+}
+
 /** True when the worktree declares an E2E gate (profile, Playwright, or legacy). */
 export async function e2eGateExists(wtPath: string): Promise<boolean> {
   const gate = await resolveE2eGate(wtPath);
@@ -105,6 +135,10 @@ export async function runE2eGate(opts: {
     writeFileSync(dest, f.contents);
     log(`[e2e] wrote prepare file ${f.path}`);
   }
+
+  // Next 16 dev-server-reuse would otherwise redirect this boot to a stale
+  // instance on a different port and hang the poll → false "did not boot".
+  await clearStaleNextDev(appDir, log);
 
   log(`[e2e] source=${gate.source} booting: ${cmd} (:${port})`);
   const proc = spawn("sh", ["-c", cmd], {
