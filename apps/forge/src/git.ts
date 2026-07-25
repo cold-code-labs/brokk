@@ -4,16 +4,31 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { GitProvider, Repository } from "@brokk/core";
+import { type AppAuth, getInstallationToken, loadAppAuth } from "./github-app.js";
 
 const exec = promisify(execFile);
 
+// Wave 3: process-wide provider for a fresh git token. Both `git` and `gh`
+// authenticate over HTTPS via the `gh auth git-credential` helper, which reads
+// GH_TOKEN — so injecting a fresh token into their env is all it takes. Prefer the
+// Eitri App installation token (durable — the App key doesn't expire like a PAT,
+// the reason a stale PAT kept stranding pushes); fall back to the ambient PAT.
+// Set by GhProvider's constructor.
+let freshToken: (() => Promise<string | undefined>) | null = null;
+
+async function authEnv(base?: NodeJS.ProcessEnv): Promise<NodeJS.ProcessEnv> {
+  const src = base ?? process.env;
+  const t = freshToken ? await freshToken().catch(() => undefined) : undefined;
+  return t ? { ...src, GH_TOKEN: t, GITHUB_TOKEN: t } : { ...src };
+}
+
 async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await exec("git", args, { cwd, maxBuffer: 1024 * 1024 * 64 });
+  const { stdout } = await exec("git", args, { cwd, env: await authEnv(), maxBuffer: 1024 * 1024 * 64 });
   return stdout.trim();
 }
 
-async function gh(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
-  const { stdout } = await exec("gh", args, { cwd, env, maxBuffer: 1024 * 1024 * 16 });
+async function gh(cwd: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string> {
+  const { stdout } = await exec("gh", args, { cwd, env: await authEnv(env), maxBuffer: 1024 * 1024 * 16 });
   return stdout.trim();
 }
 
@@ -22,9 +37,29 @@ async function gh(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<
  * Uses a cached bare clone per repo + a fresh worktree per run for isolation.
  */
 export class GhProvider implements GitProvider {
+  private readonly appAuth: AppAuth | null;
   constructor(
     private readonly opts: { workDir: string; githubToken: string },
-  ) {}
+  ) {
+    this.appAuth = loadAppAuth();
+    // Route every git/gh call through a fresh token: the Eitri App installation
+    // token when the App is configured (EITRI_APP_ID + PEM present), else the PAT.
+    freshToken = () => this.token();
+    if (this.appAuth) console.log("[forge] git auth: Eitri App installation token (durable)");
+  }
+
+  /** A fresh git token — the App installation token (durable, preferred) or, if the
+   *  App isn't configured or a mint fails transiently, the ambient PAT. */
+  private async token(): Promise<string | undefined> {
+    if (this.appAuth) {
+      try {
+        return await getInstallationToken(this.appAuth);
+      } catch (e) {
+        console.warn(`[forge] App token mint failed, falling back to PAT: ${String(e).slice(0, 120)}`);
+      }
+    }
+    return this.opts.githubToken || undefined;
+  }
 
   private bareDir(repo: Repository): string {
     return join(this.opts.workDir, "repos", `${repo.owner}__${repo.name}.git`);
@@ -235,7 +270,7 @@ export class GhProvider implements GitProvider {
     title: string;
     body: string;
   }): Promise<{ url: string; number: number | null }> {
-    const env = { ...process.env, GH_TOKEN: this.opts.githubToken };
+    // Token is injected by gh()/authEnv (App installation token → GH_TOKEN).
     const url = await gh(
       opts.cwd,
       [
@@ -252,7 +287,6 @@ export class GhProvider implements GitProvider {
         "--body",
         opts.body,
       ],
-      env,
     );
     const m = url.match(/\/pull\/(\d+)/);
     return { url, number: m ? Number(m[1]) : null };
