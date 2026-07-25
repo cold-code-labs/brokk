@@ -40,6 +40,11 @@ export interface EitriConfig {
   semgrepConfig: string;
   /** Minimum scanner severity (in changed files) that forces REQUEST_CHANGES. */
   scanBlockSeverity: "critical" | "high" | "medium" | "low";
+  /** Emit the machine-actionable dependency bump plan when the ward gates on a CVE
+   *  (the auto-bump loop). RETIRED by default (Wave 3) — Renovate is now fleet-wide
+   *  (renovate.json on all repos + vulnerabilityAlerts automerge), so it owns dep
+   *  bumps. Set EITRI_AUTOBUMP=1 to re-arm the belt-and-suspenders fallback. */
+  autoBump: boolean;
 
   // ── Confidence-scored promotion (#5) ──────────────────────────────────────
   /** Master switch: after a high-confidence forge PR merges into dev, ensure a
@@ -88,6 +93,8 @@ export function loadEitriConfig(env = process.env): EitriConfig {
     // keep off. p/default is semgrep's curated, low-noise security/correctness set.
     semgrepConfig: env.EITRI_SEMGREP_CONFIG ?? "p/default",
     scanBlockSeverity: normalizeSeverity(env.EITRI_SCAN_BLOCK_SEVERITY),
+    // Retired by default now that Renovate owns dep bumps fleet-wide (Wave 3).
+    autoBump: /^(1|true|yes)$/i.test(env.EITRI_AUTOBUMP ?? ""),
     // Promotion (#5) — opt-in, and auto-merge of the prod PR is a SECOND opt-in.
     promote: env.EITRI_PROMOTE === "true",
     promoteBase: env.EITRI_PROMOTE_BASE ?? "main",

@@ -294,9 +294,10 @@ async function reviewOne(
     const gated = Boolean(scan && scan.blocking.length > 0);
     const verdict = gated ? "REQUEST_CHANGES" : llm.verdict;
     const scanMd = scan ? formatScanMarkdown(scan) : "";
-    // When the ward blocks purely on dependency CVEs, hand Brokk an exact bump
-    // plan so the revise round upgrades the deps instead of re-pushing no-ops.
-    const bumpMd = scan && gated ? formatBumpRemediation(scan) : "";
+    // When the ward blocks purely on dependency CVEs, hand Brokk an exact bump plan
+    // (the auto-bump loop). Retired by default (Wave 3) — Renovate owns dep bumps
+    // fleet-wide now; re-arm with EITRI_AUTOBUMP=1 if a repo lacks Renovate.
+    const bumpMd = cfg.autoBump && scan && gated ? formatBumpRemediation(scan) : "";
     // When the security ward overrides a softer LLM verdict, say so up front so the
     // comment's own "VERDICT: ..." line isn't read as contradictory.
     const banner =

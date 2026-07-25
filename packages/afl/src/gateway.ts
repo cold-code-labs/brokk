@@ -143,8 +143,16 @@ export async function streamAssistant(
       });
     } catch (e) {
       if (signal?.aborted) throw e;
-      if (attempt === maxAttempts - 1) throw new GatewayError(`gateway unreachable: ${String(e)}`, 502);
-      await sleep(1000 * 2 ** attempt);
+      // A refused connection / bad DNS means the gateway is DOWN (the fuel-outage
+      // case), not a transient blip — don't burn the full ~4min exponential backoff
+      // on it. A couple of quick retries still survive a rolling restart; past that,
+      // fail fast. Transient errors keep the full 8-attempt exponential.
+      const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
+      const detail = String(cause?.code ?? cause?.message ?? (e as Error)?.message ?? e);
+      const isDown = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(detail);
+      const cap = isDown ? Math.min(maxAttempts, 3) : maxAttempts;
+      if (attempt >= cap - 1) throw new GatewayError(`gateway unreachable: ${String(e)}`, 502);
+      await sleep(isDown ? 500 : 1000 * 2 ** attempt);
       continue;
     }
 
