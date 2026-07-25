@@ -27,6 +27,10 @@ export interface EitriConfig {
   maxRevisions: number;
   /** Auto-merge (squash) a forge PR once it's mergeable (no CHANGES_REQUESTED). */
   autoMerge: boolean;
+  /** Allow auto-merge for PRs targeting `main` too. Off by default (main is the
+   *  human/prod rail); on for small fleet apps with no dev lane where main IS the
+   *  working branch, so an Eitri-approved fix concludes without a manual merge. */
+  autoMergeMain: boolean;
   /** GitHub login of the forge bot — skip its... no, we review ITS PRs; this is
    *  the login to skip (e.g. dependabot) if ever needed. */
   skipAuthors: string[];
@@ -77,6 +81,7 @@ export function loadEitriConfig(env = process.env): EitriConfig {
     runnerSecret: env.BROKK_RUNNER_SECRET ?? "",
     maxRevisions: Number(env.EITRI_MAX_REVISIONS ?? 3),
     autoMerge: env.EITRI_AUTO_MERGE !== "false",
+    autoMergeMain: env.EITRI_AUTOMERGE_MAIN === "true",
     skipAuthors: (env.EITRI_SKIP_AUTHORS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     securityScan: env.EITRI_SECURITY_SCAN !== "false",
     // Pinned pack (not "auto"): "auto" needs metrics ON to resolve rules, which we

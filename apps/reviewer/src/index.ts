@@ -427,8 +427,10 @@ async function attemptMerge(
   pr: OpenPr,
   verdict: string,
 ): Promise<void> {
-  if (pr.baseRefName === "main") {
-    console.log(`[eitri] ${repo}#${pr.number} targets main — not auto-merging (protected)`);
+  if (pr.baseRefName === "main" && !cfg.autoMergeMain) {
+    console.log(
+      `[eitri] ${repo}#${pr.number} targets main — not auto-merging (protected; set EITRI_AUTOMERGE_MAIN=true to allow)`,
+    );
   } else if (!cfg.autoMerge) {
     console.log(`[eitri] ${repo}#${pr.number} mergeable (${verdict}) — auto-merge off, leaving for a human`);
   } else if (!(await forgeVerifyAllowsMerge(store, repo, pr))) {
@@ -440,10 +442,13 @@ async function attemptMerge(
       const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;
       await git.mergePr(pr.number, token);
       console.log(`[eitri] ${repo}#${pr.number} → MERGED (squash)`);
-      // The change is on dev now. Consider promoting dev → prod (#5).
-      await maybePromote(cfg, store, git, appAuth, repo, pr, token).catch((e) =>
-        console.error(`[eitri] ${repo}#${pr.number} promotion check failed:`, String(e).slice(0, 200)),
-      );
+      // If this landed on dev, consider promoting dev → prod (#5). A PR that merged
+      // straight into main (EITRI_AUTOMERGE_MAIN) is already at prod — nothing to promote.
+      if (pr.baseRefName !== "main") {
+        await maybePromote(cfg, store, git, appAuth, repo, pr, token).catch((e) =>
+          console.error(`[eitri] ${repo}#${pr.number} promotion check failed:`, String(e).slice(0, 200)),
+        );
+      }
     } catch (e) {
       console.error(`[eitri] ${repo}#${pr.number} merge failed (App needs Contents:write?):`, String(e).slice(0, 160));
     }
