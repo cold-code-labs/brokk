@@ -473,6 +473,13 @@ const execRows = (res: unknown): Record<string, unknown>[] =>
  *  locked before claimNext may reclaim it. */
 const LEASE_TTL_MS = 10 * 60 * 1000;
 
+/** A run is presumed STALLED (hung/dead agent under a still-alive runner) once it has
+ *  emitted no event for this long. renewLeases then STOPS renewing its lane-lease, so
+ *  it lapses and claimNext's atomic takeover reclaims the lane (and reaps the run) — the
+ *  intrinsic, reaper-free fix for zombie runs (Fjöturr rail 1: measure progress, not
+ *  merely "runner alive"). Generous vs a healthy run's seconds-between-events. */
+const STALL_TTL_MS = 12 * 60 * 1000;
+
 const EMPTY_STR_SET: ReadonlySet<string> = new Set();
 
 /** Wave 2: the git resource a card will mutate — the key it serializes on. Cards
@@ -1370,6 +1377,10 @@ export function createStore(db: Db): Store {
         // can reference it before the run is inserted (both land in this one tx).
         let taskRow: typeof tasks.$inferSelect | undefined;
         let runId: string | undefined;
+        // The lapsed lane-holder we displace via takeover (if any) — reaped below so its
+        // zombie card doesn't stay stuck 'running'. Only ever set to a LAPSED holder: a
+        // live one blocks the takeover (won=0) and we move to the next candidate.
+        let staleHolder: string | null = null;
         for (const cand of candidates) {
           const t = cand.task;
           if (t.planId && t.dependsOn.length > 0) {
@@ -1385,6 +1396,12 @@ export function createStore(db: Db): Store {
           const lane = laneKeyForCard(t, cand.repoName, cand.featureBranch, devLaneApps);
           const rid = randomUUID();
           if (lane) {
+            // Note the current holder BEFORE the takeover: if we win, it can only have
+            // been a LAPSED lease (a live one blocks us), i.e. a stalled/crashed run —
+            // captured so we reap its zombie card status below (no reaper cron).
+            const holder = execRows(
+              await tx.execute(sql`select run_id from work_leases where lane_key = ${lane}`),
+            )[0]?.run_id;
             // Atomic check-and-acquire: ON CONFLICT ... WHERE expires_at <= now()
             // wins the lane only if it's free or the holder's lease has lapsed (the
             // crash backstop). 0 rows → a live run holds this lane → next candidate.
@@ -1398,6 +1415,7 @@ export function createStore(db: Db): Store {
                 returning lane_key`),
             );
             if (won.length === 0) continue; // lane busy → try the next candidate
+            staleHolder = typeof holder === "string" ? holder : null;
           }
           taskRow = t;
           runId = rid;
@@ -1445,6 +1463,46 @@ export function createStore(db: Db): Store {
           actor: "forge",
           reason: `claimed by runner ${runnerId}`,
         });
+
+        // Reap the zombie we displaced: winning a lane by takeover means its prior
+        // holder's lease had LAPSED — a stalled/crashed run. Fail that run + its card now
+        // (guarded to a still-'running' run, so a clean finisher or a peer's concurrent
+        // reclaim is a no-op) so the reclaim also reaps the dead run's status instead of
+        // leaving the card stuck 'running' forever. No reaper cron — this rides the claim.
+        if (staleHolder && staleHolder !== runId) {
+          const staleRows = await tx
+            .select({ taskId: runs.taskId })
+            .from(runs)
+            .where(and(eq(runs.id, staleHolder), eq(runs.status, "running")))
+            .limit(1);
+          const staleTaskId = staleRows[0]?.taskId;
+          if (staleTaskId) {
+            await tx
+              .update(runs)
+              .set({
+                status: "failed",
+                endedAt: new Date(),
+                error: "reclaimed: lane lease lapsed (stalled or crashed run)",
+                updatedAt: new Date(),
+              })
+              .where(eq(runs.id, staleHolder));
+            const failed = await tx
+              .update(tasks)
+              .set({ status: "failed", updatedAt: new Date() })
+              .where(and(eq(tasks.id, staleTaskId), eq(tasks.status, "running")))
+              .returning({ id: tasks.id });
+            if (failed[0]) {
+              await appendTaskEvent(tx, {
+                taskId: staleTaskId,
+                type: "status",
+                from: "running",
+                to: "failed",
+                actor: "reclaim",
+                reason: `lane lease lapsed — stalled run ${staleHolder.slice(0, 8)} reclaimed by runner ${runnerId}`,
+              });
+            }
+          }
+        }
 
         // Seat selection: prefer the task owner's own active seat, so each
         // teammate's runs bill to their own Max subscription. `tasks.created_by`
@@ -1512,12 +1570,26 @@ export function createStore(db: Db): Store {
     },
 
     async renewLeases(runnerId) {
-      // Extend every lane-lease whose holder is a still-running run on this runner.
+      // Extend every lane-lease whose holder is a still-running run on this runner — but
+      // ONLY while that run is PROGRESSING: it started within STALL_TTL, or emitted an
+      // event within STALL_TTL. A hung/dead agent under a still-alive runner stops
+      // emitting → its lease is no longer renewed → it lapses → claimNext's atomic
+      // takeover reclaims the lane and reaps the run. The heartbeat thus means "run
+      // progressing", not merely "runner alive" — the reaper-free fix for zombie runs.
       // Idempotent; touches nothing once a run completes (releaseLease deleted it).
       await db.execute(sql`
         update work_leases set expires_at = now() + interval '${sql.raw(String(LEASE_TTL_MS))} milliseconds', updated_at = now()
         where run_id in (
-          select ${runs.id} from ${runs} where ${runs.runnerId} = ${runnerId} and ${runs.status} = 'running'
+          select ${runs.id} from ${runs}
+          where ${runs.runnerId} = ${runnerId} and ${runs.status} = 'running'
+            and (
+              ${runs.startedAt} > now() - interval '${sql.raw(String(STALL_TTL_MS))} milliseconds'
+              or exists (
+                select 1 from ${runEvents}
+                where ${runEvents.runId} = ${runs.id}
+                  and ${runEvents.at} > now() - interval '${sql.raw(String(STALL_TTL_MS))} milliseconds'
+              )
+            )
         )`);
     },
     async releaseLease(runId) {
