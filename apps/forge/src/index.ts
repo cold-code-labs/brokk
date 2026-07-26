@@ -315,6 +315,41 @@ async function handleRun(
       }
     }
     const verifyCmd = verifyResolved.cmd;
+    // BROKK-48: fold the e2e/acceptance gate INTO the verify closure so the
+    // engine's self-heal loop retries on a BEHAVIOR failure too — not only on
+    // compile/typecheck. Before, e2e ran once AFTER healing, so a card that
+    // compiled but failed the QA scenario was failed with no chance to fix it.
+    // Now the agent gets heal turns with the acceptance output as feedback
+    // (bounded by maxHealAttempts). Compile/type is checked first (cheap) and
+    // short-circuits before the expensive app boot.
+    const wantsE2e = await e2eGateExists(wt.path);
+    const runE2e = wantsE2e && !!cfg.browser;
+    const e2eBootEnv = runE2e && project?.name ? loadAppSecrets(cfg.previewSecretsDir, project.name) : {};
+    let lastReceipt: Awaited<ReturnType<typeof runE2eGate>> = null;
+    const gate: (() => Promise<VerifyResult>) | undefined =
+      verifyCmd || runE2e
+        ? async () => {
+            if (verifyCmd) {
+              const v = await runVerify(verifyCmd, wt.path);
+              if (!v.ok || !runE2e) return v;
+            }
+            buffer.emit({ type: "status", payload: { phase: "e2e" } });
+            const receipt = await runE2eGate({ wtPath: wt.path, cfg, bootEnv: e2eBootEnv, log: (m) => console.log(m) }).catch(
+              (err) => {
+                console.error("[forge] e2e receipt error:", err);
+                return null;
+              },
+            );
+            lastReceipt = receipt;
+            if (receipt?.ran) {
+              buffer.emit({ type: "acceptance", payload: receipt });
+              console.log(`[forge] e2e ${receipt.ok ? "✓" : "✗"} (${receipt.source ?? "?"}) in gate for run ${run.id}`);
+            }
+            return receipt?.ran && !receipt.ok
+              ? { ok: false, output: `verify passed, but e2e/acceptance failed:\n${receipt.output ?? ""}` }
+              : { ok: true, output: receipt?.output ?? "verify ok" };
+          }
+        : undefined;
     const result: RunResult = await engine.run({
       task: {
         id: task.id,
@@ -332,7 +367,7 @@ async function handleRun(
       authToken: SEAT_DIRECT ? (auth?.token ?? undefined) : undefined,
       allowedTools: [],
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
-      verify: verifyCmd ? () => runVerify(verifyCmd, wt.path) : undefined,
+      verify: gate,
       maxHealAttempts: cfg.healAttempts,
       autofix:
         verifyCmd && cfg.autofix ? makeAutofix({ cwd: wt.path, cmd: cfg.autofixCmd || undefined }) : undefined,
@@ -344,11 +379,12 @@ async function handleRun(
     const usage = result.usage;
     const verify = result.verify;
 
-    // E2E gate: profile `commands.e2e` → playwright.config.* → legacy acceptance.mjs.
-    // Green verify proves it compiles; this proves it BEHAVES. Red receipt fails the run.
-    // Fail-closed: gate present + BROKK_BROWSER off → red (not skip).
-    let receipt: Awaited<ReturnType<typeof runE2eGate>> = null;
-    const wantsE2e = await e2eGateExists(wt.path);
+    // E2E gate result: it ran INSIDE the heal gate (BROKK-48), so `verify` above
+    // already reflects behavior (green only if e2e passed). Recover the receipt
+    // for the PR body + verdict. Fail-closed when a gate exists but the browser
+    // lane is off (BROKK_BROWSER) — an infra gap the agent can't heal, so it's
+    // decided here rather than burning heal turns on it.
+    let receipt: Awaited<ReturnType<typeof runE2eGate>> = lastReceipt;
     if (wantsE2e && !cfg.browser) {
       receipt = {
         ran: true,
@@ -358,29 +394,6 @@ async function handleRun(
       };
       buffer.emit({ type: "acceptance", payload: receipt });
       console.error(`[forge] e2e fail-closed (browser off) for run ${run.id}`);
-    } else if (cfg.browser) {
-      // Best-effort per-app secrets so gated pages can render — keyed by the
-      // project slug (the `<slug>.env` convention in previewSecretsDir). Absent
-      // file → {} (the check owns whatever else it needs to reach the UI).
-      const bootEnv = project?.name
-        ? loadAppSecrets(cfg.previewSecretsDir, project.name)
-        : {};
-      buffer.emit({ type: "status", payload: { phase: "e2e" } });
-      receipt = await runE2eGate({
-        wtPath: wt.path,
-        cfg,
-        bootEnv,
-        log: (m) => console.log(m),
-      }).catch((err) => {
-        console.error("[forge] e2e receipt error:", err);
-        return null;
-      });
-      if (receipt?.ran) {
-        buffer.emit({ type: "acceptance", payload: receipt });
-        console.log(
-          `[forge] e2e ${receipt.ok ? "✓" : "✗"} (${receipt.source ?? "?"}) for run ${run.id}`,
-        );
-      }
     }
 
     buffer.emit({ type: "status", payload: { phase: "push", branch } });
