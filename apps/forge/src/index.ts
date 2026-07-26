@@ -183,14 +183,26 @@ async function main() {
   // on 2026-07-23). Cards stay `queued` and drain once the fuel recovers.
   const fuel = new FuelBreaker();
 
+  // Card concurrency (BROKK-51): run up to N cards per runner at once. claimNext's
+  // work_leases already serialize per-lane, so distinct-lane cards are safe in
+  // parallel — this just lifts the one-card-at-a-time ceiling. Default 1
+  // (behavior-preserving); ops raises BROKK_CARD_CONCURRENCY when the queue is
+  // deep enough to justify the extra concurrent LLM + app-boot load.
+  const cardConcurrency = Math.max(1, Number(process.env.BROKK_CARD_CONCURRENCY) || 1);
+  if (cardConcurrency > 1) console.log(`[forge] card concurrency: ${cardConcurrency}`);
+  const inFlight = new Set<Promise<void>>();
+
   while (!stopping) {
-    if (!fuel.canClaim()) {
-      const waitMs = fuel.retryInMs();
-      console.warn(
-        `[forge] fuel breaker OPEN — not claiming for ~${Math.round(waitMs / 1000)}s (fuel outage; cards stay queued)`,
-      );
-      // Cap the nap so a mid-outage recovery is noticed promptly (and SIGTERM lands).
-      await sleep(Math.min(waitMs || cfg.pollIntervalMs, 15_000));
+    // Don't claim when the breaker is open or the pool is full — but keep draining
+    // in-flight runs so their outcomes (and the breaker) keep advancing.
+    if (!fuel.canClaim() || inFlight.size >= cardConcurrency) {
+      if (inFlight.size > 0) {
+        await Promise.race(inFlight);
+      } else {
+        const waitMs = fuel.isOpen ? Math.min(fuel.retryInMs() || cfg.pollIntervalMs, 15_000) : cfg.pollIntervalMs;
+        if (fuel.isOpen) console.warn(`[forge] fuel breaker OPEN — not claiming ~${Math.round(waitMs / 1000)}s (cards stay queued)`);
+        await sleep(waitMs);
+      }
       continue;
     }
 
@@ -209,27 +221,36 @@ async function main() {
       console.error("[forge] claim failed:", err);
     }
     if (!claimed) {
-      await sleep(cfg.pollIntervalMs);
+      // Empty queue: wait on an in-flight run if any, else poll (no busy-loop).
+      if (inFlight.size > 0) await Promise.race(inFlight);
+      else await sleep(cfg.pollIntervalMs);
       continue;
     }
+
     // ADR 0017 Fase 3b: a standalone implement card for a dev-lane app forges in the
     // shared dev checkout and commits straight to `dev` (no PR). Plans/revise, and
-    // any app not in BROKK_DEVLANE_APPS, keep the PR flow.
-    const run =
-      isDevLaneCard(cfg, claimed)
-        ? runDevLane(cfg, git, engine, supervisor, lanes, claimed)
-        : handleRun(cfg, git, engine, claimed);
-    // The run handlers return the failure string (null on success) so the breaker
-    // can tell a fuel outage from a normal downstream failure; an unexpected throw
-    // is treated as a non-fuel error (don't trip on a bug in our own loop).
-    const err = await run.catch((e) => {
-      console.error(`[forge] run ${claimed?.run.id} crashed:`, e);
-      return null;
-    });
-    const note = fuel.record(err == null ? "ok" : isFuelError(err) ? "fuel-error" : "other-error");
-    if (note) console.warn(`[forge] ${note}`);
+    // any app not in BROKK_DEVLANE_APPS, keep the PR flow. Start the run WITHOUT
+    // awaiting so the loop can claim the next card up to the concurrency cap.
+    const card = claimed;
+    let entry: Promise<void>;
+    entry = (async () => {
+      // The run handlers return the failure string (null on success) so the breaker
+      // can tell a fuel outage from a normal downstream failure; an unexpected throw
+      // is treated as a non-fuel error (don't trip on a bug in our own loop).
+      const err = await (isDevLaneCard(cfg, card)
+        ? runDevLane(cfg, git, engine, supervisor, lanes, card)
+        : handleRun(cfg, git, engine, card)
+      ).catch((e) => {
+        console.error(`[forge] run ${card.run.id} crashed:`, e);
+        return null;
+      });
+      const note = fuel.record(err == null ? "ok" : isFuelError(err) ? "fuel-error" : "other-error");
+      if (note) console.warn(`[forge] ${note}`);
+    })().finally(() => inFlight.delete(entry));
+    inFlight.add(entry);
   }
 
+  await Promise.all(inFlight); // let in-flight cards finish before shutting down
   clearInterval(heartbeat);
   await Promise.all([supervisorDone, driverDone]); // graceful shutdown of both loops
   console.log("[forge] stopped");
