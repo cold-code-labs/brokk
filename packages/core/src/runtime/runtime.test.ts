@@ -174,6 +174,26 @@ test("fastPath emits the Vite preset (promoted in v2) with allowlisted commands"
   );
 });
 
+test("dev script is authoritative: a leftover Next signal beside Vite resolves to Vite", () => {
+  // A worktree mid-migration (Next→Vite) can carry BOTH full signals at once: a
+  // leftover `next` dep + next.config beside the new `vite` dep + vite.config, with
+  // `dev: vite`. First-match-wins would boot Next (listed first in PROVIDERS); the
+  // dev script must decide, or every migration window re-fails at acceptance-boot.
+  const migrating = JSON.stringify({
+    dependencies: { next: "15.0.0", vite: "6.3.5", react: "19.0.0" },
+    scripts: { dev: "vite", build: "vite build" },
+  });
+  const spec = fastPath(
+    ctxOf({
+      "package.json": migrating,
+      "next.config.js": "module.exports={}",
+      "vite.config.ts": "export default {}",
+    }),
+  );
+  assert.equal(spec?.id, "vite");
+  assert.equal(spec?.supported, true);
+});
+
 test("fastPath emits the Astro preset with allowlisted commands", () => {
   const astroPkg = JSON.stringify({ dependencies: { astro: "4" }, scripts: { dev: "astro dev" } });
   const spec = fastPath(ctxOf({ "package.json": astroPkg, "astro.config.mjs": "x" }));

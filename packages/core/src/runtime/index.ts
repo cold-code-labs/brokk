@@ -285,6 +285,15 @@ function matchProviderAt(ctx: DetectCtx, root: string): RuntimeSpec | null {
   const deps = depNames(pkg);
   const scripts = (pkg.scripts ?? {}) as Record<string, string>;
 
+  // Collect EVERY provider whose canonical signal is present (dep AND config/script)
+  // instead of first-match-winning. A worktree mid-migration (e.g. Next→Vite) can
+  // carry TWO full signals at once — a leftover next.config beside a new vite.config —
+  // and provider ORDER must not decide which server boots. The `dev` script is
+  // authoritative: it is how the app actually runs, so a provider whose CLI `dev`
+  // invokes wins over one that merely still has a dep+config lying around. (Fleet
+  // Vite-migration robustness: a stale `next` never overrides `dev: vite`.)
+  const devScript = String(scripts.dev ?? "");
+  const candidates: { p: (typeof PROVIDERS)[number]; evidence: string[]; devMatch: boolean }[] = [];
   for (const p of PROVIDERS) {
     if (!p.supported || !p.commands) continue;
     const evidence: string[] = [];
@@ -303,30 +312,37 @@ function matchProviderAt(ctx: DetectCtx, root: string): RuntimeSpec | null {
     const hasDep = p.detect.anyDep?.some((d) => deps.has(d)) ?? false;
     if (!hasDep || (!cfg && !hasScript)) continue;
 
-    // The package manager is always read from the CHECKOUT root: in a workspace
-    // the root lockfile is what `install` acts on, and a member may carry none.
-    const pm = detectPm(ctx);
-    const info = PACKAGE_MANAGERS[pm];
-    const fill = (tpl: string) => tpl.replace(/\{exec\}/g, info.exec);
-    return {
-      id: p.id,
-      label: p.label,
-      appRoot: root,
-      install: info.install,
-      dev: fill(p.commands.dev),
-      build: fill(p.commands.build),
-      start: fill(p.commands.start),
-      health: p.health ?? "/",
-      bundleProbe: p.bundleProbe,
-      env: p.env,
-      prepareFiles: p.prepareFiles,
-      supported: true,
-      evidence,
-      confidence: 1,
-      source: "preset",
-    };
+    candidates.push({ p, evidence, devMatch: scriptRe ? scriptRe.test(devScript) : false });
   }
-  return null;
+  if (candidates.length === 0) return null;
+  // The dev script decides when >1 framework is fully signalled; else fall back to
+  // PROVIDERS order (the first canonical match — unchanged for single-framework apps).
+  const chosen = candidates.find((c) => c.devMatch) ?? candidates[0]!;
+  const cmds = chosen.p.commands;
+  if (!cmds) return null; // unreachable: unsupported providers are skipped above
+
+  // The package manager is always read from the CHECKOUT root: in a workspace
+  // the root lockfile is what `install` acts on, and a member may carry none.
+  const pm = detectPm(ctx);
+  const info = PACKAGE_MANAGERS[pm];
+  const fill = (tpl: string) => tpl.replace(/\{exec\}/g, info.exec);
+  return {
+    id: chosen.p.id,
+    label: chosen.p.label,
+    appRoot: root,
+    install: info.install,
+    dev: fill(cmds.dev),
+    build: fill(cmds.build),
+    start: fill(cmds.start),
+    health: chosen.p.health ?? "/",
+    bundleProbe: chosen.p.bundleProbe,
+    env: chosen.p.env,
+    prepareFiles: chosen.p.prepareFiles,
+    supported: true,
+    evidence: chosen.evidence,
+    confidence: 1,
+    source: "preset",
+  };
 }
 
 /** The cheap, deterministic path for a canonical app: package.json with a
