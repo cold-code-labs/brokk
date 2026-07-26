@@ -31,7 +31,7 @@ describe("handlePrMonitorWebhook issue_comment", () => {
       branch: "brokk/ship",
       prNumber: 42,
       prUrl: "https://github.com/acme/app/pull/42",
-    } as Task;
+    } as unknown as Task;
 
     const store = {
       getTask: async (id: string) => {
@@ -81,7 +81,7 @@ describe("handlePrMonitorWebhook check_suite", () => {
       branch: "brokk/x",
       prNumber: 7,
       prUrl: "https://github.com/acme/app/pull/7",
-    } as Task;
+    } as unknown as Task;
 
     const store = {
       getTask: async () => null,
