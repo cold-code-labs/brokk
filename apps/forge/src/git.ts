@@ -219,7 +219,20 @@ export class GhProvider implements GitProvider {
     } catch {
       await git(bare, ["fetch", "origin", `+refs/heads/${repo.defaultBranch}:refs/heads/${repo.defaultBranch}`]);
     }
-    await git(bare, ["fetch", "origin", `refs/heads/${branch}`]);
+    try {
+      await git(bare, ["fetch", "origin", `refs/heads/${branch}`]);
+    } catch (e) {
+      // A revise card whose branch is gone (PR merged/closed → branch deleted, or
+      // the original implement card never pushed it). Fail with a clear, non-fuel
+      // reason instead of a raw "couldn't find remote ref" so the board reads it
+      // as a stale revise, not an infra error.
+      if (/couldn't find remote ref/i.test(String(e))) {
+        throw new Error(
+          `revise branch '${branch}' no longer exists on origin — the PR was likely merged or closed (its branch deleted); nothing to revise`,
+        );
+      }
+      throw e;
+    }
     const path = join(this.opts.workDir, "worktrees", branch.replace(/[/]/g, "__"));
     await git(bare, ["worktree", "remove", "--force", path]).catch(() => {});
     await git(bare, ["worktree", "prune"]).catch(() => {});

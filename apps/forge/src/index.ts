@@ -9,6 +9,7 @@
  */
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { AcceptanceReceipt, AgentEngine, Plan, Project, RepoMemory, RunEvent, Repository, Run, RunResult, Task } from "@brokk/core";
 import { runBranch } from "@brokk/core";
@@ -822,6 +823,29 @@ async function resolveRepository(task: Task): Promise<Repository> {
 
 type VerifyResult = { ok: boolean; output: string };
 
+/** Install deps once if the worktree is a JS project that has none — so a verify
+ *  command that assumes an installed toolchain (`tsc`, `eslint`) doesn't fail
+ *  with "not found". Lockfile picks the manager; no lockfile / node_modules
+ *  already present / non-JS repo → no-op. Best-effort: an install failure is left
+ *  for the verify command to surface, not thrown here. */
+async function ensureDeps(cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
+  if (!existsSync(join(cwd, "package.json"))) return;
+  if (existsSync(join(cwd, "node_modules"))) return;
+  const install = existsSync(join(cwd, "pnpm-lock.yaml"))
+    ? "pnpm install --no-frozen-lockfile --prod=false"
+    : existsSync(join(cwd, "yarn.lock"))
+      ? "yarn install --frozen-lockfile"
+      : existsSync(join(cwd, "package-lock.json"))
+        ? "npm ci --include=dev"
+        : "npm install"; // no lockfile — last resort
+  console.log(`[forge] verify: node_modules missing → ${install}`);
+  try {
+    await execAsync(install, { cwd, env, maxBuffer: 1024 * 1024 * 64, timeout: 6 * 60 * 1000 });
+  } catch (e: any) {
+    console.warn(`[forge] verify pre-install failed (continuing): ${String(e?.message ?? e).slice(0, 200)}`);
+  }
+}
+
 /** Run the verify command in the worktree. Never throws — a non-zero exit is a
  *  failed verification, not a runner crash. */
 async function runVerify(cmd: string, cwd: string): Promise<VerifyResult> {
@@ -849,6 +873,12 @@ async function runVerify(cmd: string, cwd: string): Promise<VerifyResult> {
     COREPACK_HOME: `${home}/.cache/corepack`,
     npm_config_strict_dep_builds: "false",
   };
+  // A verify command is only as good as the toolchain it can reach. Many repos'
+  // verify (e.g. brokk's `pnpm -r typecheck`) assumes deps are installed, but a
+  // fresh PR-flow worktree has no node_modules → `tsc: not found` fails the run
+  // even when the change is clean (the #4 failure bucket). If the worktree is a
+  // JS project with no install, do it once (warm pnpm store → mostly hard-links).
+  await ensureDeps(cwd, verifyEnv);
   try {
     const { stdout, stderr } = await execAsync(cmd, {
       cwd,
