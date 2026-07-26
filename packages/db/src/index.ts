@@ -2319,9 +2319,13 @@ export function createStore(db: Db): Store {
       return execRows(rows).length;
     },
     async listStaleRuns(staleMs) {
-      // ponytail: no per-run heartbeat column — started_at age is the signal,
-      // same as reapStaleDriverRuns. `is_latest` guards the re-forge case: only
-      // the card's newest run may move the card.
+      // Liveness = last ACTIVITY, not run age. A run emits events (verify/e2e/heal
+      // phases) throughout; self-heal on e2e (BROKK-48) can legitimately push a run
+      // past a flat age cap, so reaping on started_at alone would kill a run that is
+      // actively healing. Reap only when the newest run_event (or started_at, if it
+      // emitted none) is older than staleMs — a real "runner died, nothing since"
+      // signal. `is_latest` guards the re-forge case: only the card's newest run
+      // may move the card.
       const rows = await db.execute(
         sql`SELECT r.id, r.task_id,
               (r.id = (SELECT r2.id FROM ${runs} r2
@@ -2330,7 +2334,10 @@ export function createStore(db: Db): Store {
             FROM ${runs} r
             WHERE r.status = 'running'
               AND r.started_at IS NOT NULL
-              AND r.started_at < now() - make_interval(secs => ${Math.max(60, Math.floor(staleMs / 1000))})
+              AND GREATEST(
+                    r.started_at,
+                    COALESCE((SELECT max(e.at) FROM run_events e WHERE e.run_id = r.id), r.started_at)
+                  ) < now() - make_interval(secs => ${Math.max(60, Math.floor(staleMs / 1000))})
             ORDER BY r.started_at ASC`,
       );
       return execRows(rows).map((r) => ({
