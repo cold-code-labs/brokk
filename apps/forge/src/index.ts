@@ -535,12 +535,16 @@ async function handleRun(
     trace?.fail(err);
     await flushTraces();
     await buffer.flush().catch(() => {});
+    // BROKK-49: a revise whose PR/branch is gone is void, not broken — cancel it
+    // (terminal, out of failure metrics, and auto-intake won't requeue a cancelled
+    // card) instead of failing and leaving it to retry.
+    const gone = /revise-branch-gone/.test(String(err));
     await api(cfg, "POST", `/runs/${run.id}/complete`, {
-      status: "failed",
+      status: gone ? "cancelled" : "failed",
       error: String(err),
     }).catch(() => {});
     // Keep the worktree on failure for debugging (ARCHITECTURE.md §8).
-    return String(err); // → the claim loop's fuel breaker
+    return gone ? null : String(err); // cancelled ⇒ not a fuel signal
   }
 
   await flushTraces();

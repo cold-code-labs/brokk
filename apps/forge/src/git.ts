@@ -227,8 +227,10 @@ export class GhProvider implements GitProvider {
       // reason instead of a raw "couldn't find remote ref" so the board reads it
       // as a stale revise, not an infra error.
       if (/couldn't find remote ref/i.test(String(e))) {
+        // Sentinel prefix (BROKK-49): handleRun cancels — not fails — a revise
+        // whose PR/branch is gone. Nothing to revise ⇒ the card is void, not broken.
         throw new Error(
-          `revise branch '${branch}' no longer exists on origin — the PR was likely merged or closed (its branch deleted); nothing to revise`,
+          `revise-branch-gone: branch '${branch}' no longer exists on origin — the PR was likely merged or closed (its branch deleted); nothing to revise`,
         );
       }
       throw e;
