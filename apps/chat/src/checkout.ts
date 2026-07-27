@@ -13,11 +13,32 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Repository } from "@brokk/core";
+import { type AppAuth, getInstallationToken, loadAppAuth } from "./github-app.js";
 
 const exec = promisify(execFile);
 
+// Wave 3 (chat): authenticate git over HTTPS with the Eitri App installation
+// token — durable, unlike the classic PAT whose expiry silently froze session
+// checkouts and QA-discovery scouts on a stale cached tree. Mirrors apps/forge and
+// apps/reviewer. git reads GH_TOKEN via the `gh auth git-credential` helper baked
+// into the image, so injecting it into the subprocess env is all it takes; fall
+// back to the ambient token when the App isn't configured or a mint fails.
+const appAuth: AppAuth | null = loadAppAuth();
+if (appAuth) console.log("[sindri] git auth: Eitri App installation token (durable)");
+
+async function authEnv(): Promise<NodeJS.ProcessEnv> {
+  if (!appAuth) return process.env;
+  try {
+    const t = await getInstallationToken(appAuth);
+    return { ...process.env, GH_TOKEN: t, GITHUB_TOKEN: t };
+  } catch (e) {
+    console.warn(`[sindri] App token mint failed, using ambient token: ${String(e).slice(0, 120)}`);
+    return process.env;
+  }
+}
+
 async function git(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await exec("git", args, { cwd, maxBuffer: 1024 * 1024 * 64 });
+  const { stdout } = await exec("git", args, { cwd, env: await authEnv(), maxBuffer: 1024 * 1024 * 64 });
   return stdout.trim();
 }
 
