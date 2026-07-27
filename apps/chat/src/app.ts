@@ -894,9 +894,9 @@ export function buildSindri(deps: SindriDeps): Hono {
           cfg: deps.cfg,
           cwd: path,
           repoFullName: repo.fullName,
-          // Fleet OAuth is Cursor CLI (same as Brokkr forge) — not Ratatoskr Anthropic OAuth.
-          engine: "cursor-cli",
-          model: process.env.BROKK_CURSOR_MODEL || "auto",
+          // Centralized fuel: afl lane → gateway (LiteLLM/OmniRoute), same as esteira + reviewer.
+          engine: "afl",
+          model: process.env.LLM_MODEL || "cursor/auto",
           onProgress: (n) => console.log(`[qa-discovery] ${repo.fullName}: ${n}`),
         });
         const discoveredAt = new Date().toISOString();
@@ -1592,8 +1592,8 @@ function buildSkills(
           cfg: deps.cfg,
           cwd,
           repoFullName,
-          engine: "cursor-cli",
-          model: process.env.BROKK_CURSOR_MODEL || "auto",
+          engine: "afl",
+          model: process.env.LLM_MODEL || "cursor/auto",
         });
         const discoveredAt = new Date().toISOString();
         await deps.store

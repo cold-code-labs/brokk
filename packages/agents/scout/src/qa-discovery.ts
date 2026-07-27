@@ -46,8 +46,9 @@ export interface RunQaDiscoveryInput {
   /** AFL alias (haiku/sonnet) or Cursor model id (`auto`). */
   model?: string;
   /**
-   * Fleet default is Cursor CLI when `agent` + CURSOR_API_KEY are present
-   * (same credential path as Brokkr forge). AFL is the fallback / explicit override.
+   * Default `afl` — the Messages/AFL lane through the gateway (LiteLLM/OmniRoute),
+   * so QA discovery shares the fleet's fuel + telemetry. `cursor-cli` hits Cursor's
+   * backend DIRECTLY (bypasses OmniRoute) and is opt-in only.
    */
   engine?: "cursor-cli" | "afl";
   maxRounds?: number;
@@ -265,12 +266,14 @@ function coerceScenarios(input: Record<string, unknown>): { summary: string; sce
 
 /** Scout a checkout and return a QA scenario catalog + fingerprint. */
 export async function runQaDiscovery(input: RunQaDiscoveryInput): Promise<QaDiscoveryResult> {
-  const engine =
-    input.engine ??
-    (cursorCliAvailable() || (process.env.BROKK_FORGE_ENGINE || "").toLowerCase() === "cursor-cli"
-      ? "cursor-cli"
-      : "afl");
+  // Centralize on the gateway (LiteLLM/OmniRoute): afl is the default so QA
+  // discovery shares the fleet's fuel + telemetry. cursor-cli talks to Cursor's
+  // backend DIRECTLY (bypasses OmniRoute) — opt-in only, and loud.
+  const engine = input.engine ?? "afl";
   if (engine === "cursor-cli") {
+    console.warn(
+      "[qa-discovery] \u26a0 engine=cursor-cli bypasses OmniRoute/LiteLLM (direct to Cursor) \u2014 prefer engine=afl",
+    );
     if (!cursorCliAvailable()) {
       throw new Error(
         "qa discovery engine=cursor-cli but agent binary / CURSOR_API_KEY unavailable",
