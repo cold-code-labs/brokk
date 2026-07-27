@@ -59,7 +59,7 @@ apps/reviewer         @brokk/reviewer-app      Eitri daemon — polls PRs, scans
 apps/chat             @brokk/chat-app          Brokk Chat — OpenCode turns, checkout manager,
                                                shared Chromium + Playwright MCP (live-view)
 apps/preview-proxy    @brokk/preview-proxy     *.preview reverse proxy (subdomain → live port).
-                                               NOT the AI gateway — that's LiteLLM/Ratatoskr
+                                               NOT the AI gateway — that's LiteLLM/OmniRoute
 apps/enclave-manager  @brokk/enclave-manager-app  the one privileged process that holds the
                                                Docker socket, so workers never do
 

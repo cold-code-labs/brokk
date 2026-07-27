@@ -189,7 +189,7 @@ deterministic reconciler, and the LLM appears only at one-shot decision points
 The flow:
 
 > **Mímir** advises/plans → **Huginn** scouts → **Brokkr** forges → **Eitri** reviews →
-> (**Sindri** is the human-driven side that ties it together) — all riding **Ratatoskr**
+> (**Sindri** is the human-driven side that ties it together) — all riding the **OmniRoute** fuel line
 > to the seat.
 
 Each agent package is the same tiny shape: a **persona** (system prompt) + its **extra
@@ -198,16 +198,18 @@ uniformity is the payoff of one kernel.
 
 ---
 
-## 8. Ratatoskr — the fuel line (the keystone)
+## 8. OmniRoute — the fuel line (the keystone)
 
-Ratatoskr holds the upstream credential and injects it into every request (today: the
+> **Fuel line = OmniRoute since 2026-07-24 (ADR 0071).** Ratatoskr was the original relay — now retired (0 containers). The keystone concept below is unchanged: one shared credential fuels the whole fleet through LiteLLM (+ Lago billing). Today the fleet fuels via a **Cursor seat** (`cursor/auto`); the **Claude** seat path is configured on Omni but not currently serving (401). Read "Ratatoskr" below as "the fuel line".
+
+OmniRoute holds the upstream credential and injects it into every request (today: the
 OAuth seat token + the "You are Claude Code" marker that unlocks Sonnet/Opus), so agents
 reach the model through LiteLLM.
 
 **Today, and through the entire factory-validation phase:** one shared CCL seat
 (`mode=seat`) commands the whole fleet. This is deliberate and stays.
 
-**The keystone is a credential-mode seam — not a per-user seat pool.** Ratatoskr must
+**The keystone is a credential-mode seam — not a per-user seat pool.** The fuel line must
 isolate credential injection behind a single switch:
 - `mode=seat` (today, default) — `Authorization: Bearer <oauth>` + the Claude Code system
   marker + the `oauth` beta flag.
@@ -293,7 +295,7 @@ apps/
 ```
 
 `apps/preview-proxy` is the **preview-lane router** — the live-preview half of the Session (§3/§4).
-It is unrelated to Ratatoskr (the AI fuel line, §8); the two only share the word "gateway".
+It is unrelated to the AI fuel line (§8, OmniRoute); the two only share the word "gateway".
 
 **Only generic, dependency-free tools live in Afl** (fs + bash). Domain tools
 (`create_card`, `plan_work`, `submit_brief`, `submit_review`) are **injected by each agent**
@@ -346,8 +348,8 @@ Design even the small bits so these never need a retrofit:
     deferred to the `@brokk/forge` build** — that's its first second-consumer.
 - **The Agent SDK is RETIRED (codebase-wide).** Both Brokkr (`@brokk/forge`) and Eitri
   (`@brokk/reviewer`) run native on the afl loop; `runAgentLoop` is the shared primitive.
-  Other live pillars: Mímir (enhance/triage/plan lib), Ratatoskr (single shared seat +
-  shape-gate fixed), preview lane, multi-repo Fleet.
+  Other live pillars: Mímir (enhance/triage/plan lib), OmniRoute (single shared seat, fuel
+  line — replaced Ratatoskr, ADR 0071), preview lane, multi-repo Fleet.
 - **Structure landed (#3 + #5):** agent libs grouped under `packages/agents/{forge,chat,
   scout,reviewer}`; the daemons live in `apps/{forge,reviewer,chat}` (the eitri brain split
   into `@brokk/reviewer` + the `apps/reviewer` daemon). Persona-neutral kernel names
@@ -364,7 +366,7 @@ Design even the small bits so these never need a retrofit:
 persona-neutral names), and #4 (retire the Planejador) are all **landed and proven in
 prod.** One item remains, and it is intentionally on hold:
 
-- **#6 — Ratatoskr credential-mode seam:** isolate credential injection behind
+- **#6 — credential-mode seam (now on OmniRoute):** isolate credential injection behind
   `mode=seat|apikey`. A single CCL seat commands the fleet today (`mode=seat`); the
   `apikey` path stays written but **dormant until the factory is validated** (Vitor's call,
   2026-06-25). ~30 lines, no change to today's hot path. *Not a per-user seat pool.*
