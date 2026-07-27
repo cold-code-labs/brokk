@@ -1519,18 +1519,14 @@ async function runImage(prompt: string): Promise<{ ok: boolean; content: string 
   }
 }
 
-/** Cursor API = Messages (or OpenAI via LiteLLM) against the Ratatoskr cursor
- *  sidecar. Prefer CURSOR_SEAT_URL (direct :8791) or fall through LiteLLM. */
+/** cursor-api lane: Messages against the gateway (LiteLLM/OmniRoute). Centralized —
+ *  no longer prefers the terminated Ratatoskr cursor sidecar (127.0.0.1:8791). */
 function cursorApiCfg(deps: SindriDeps): AflConfig {
-  const base =
-    process.env.CURSOR_SEAT_URL ||
-    process.env.CURSOR_BRIDGE_URL ||
-    "http://127.0.0.1:8791";
-  const token =
-    process.env.CURSOR_SEAT_INGRESS ||
-    process.env.CURSOR_INGRESS_KEYS?.split(",")[0]?.trim() ||
-    process.env.ANTHROPIC_AUTH_TOKEN ||
-    deps.cfg.authToken;
+  // Fuel through the gateway (LiteLLM/OmniRoute), same as opencode/claude/afl —
+  // not the dead Ratatoskr seat. deps.cfg already points here; keep the explicit
+  // env fallbacks for clarity.
+  const base = process.env.LLM_BASE_URL || deps.cfg.gatewayUrl || "http://litellm:4000";
+  const token = process.env.LLM_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || deps.cfg.authToken;
   return {
     ...deps.cfg,
     authKind: "bearer",
