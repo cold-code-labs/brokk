@@ -25,6 +25,7 @@ import { resolveE2eGate, type E2eGate } from "./profile.js";
 const LEGACY_CHECK_REL = ".brokk/acceptance.mjs";
 const BOOT_TIMEOUT_MS = Number(process.env.BROKK_E2E_BOOT_MS || process.env.BROKK_ACCEPTANCE_BOOT_MS) || 180_000;
 const CHECK_TIMEOUT_MS = Number(process.env.BROKK_E2E_CHECK_MS || process.env.BROKK_ACCEPTANCE_CHECK_MS) || 120_000;
+const BROWSER_INSTALL_TIMEOUT_MS = Number(process.env.BROKK_E2E_BROWSER_INSTALL_MS) || 300_000;
 const SHOT_W = 1000;
 const SHOT_H = 700;
 
@@ -54,6 +55,53 @@ async function waitForHttp(url: string, timeoutMs: number): Promise<boolean> {
     }
   }
   return false;
+}
+
+/** `@playwright/test` ignores BROKK_CHROMIUM / PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+ *  (a phantom env) and launches its *managed* browser from $PLAYWRIGHT_BROWSERS_PATH
+ *  (default `$HOME/.cache/ms-playwright`). The forge image ships a system Chromium
+ *  for the legacy acceptance script but NOT the managed browsers, and bakes
+ *  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 — so a repo's own Playwright e2e dies with
+ *  "Executable doesn't exist at …/.cache/ms-playwright" and the agent burns heal
+ *  turns on an infra gap it can't fix (arte-one run ca462aba). Install the
+ *  repo-pinned Chromium into the worktree, under the SAME HOME the check runs with,
+ *  so it lands exactly where Playwright looks. SKIP_BROWSER_DOWNLOAD only gates the
+ *  postinstall hook, not an explicit `playwright install`. Best-effort: on failure
+ *  we log and let the check surface the real error. Idempotent — a warm cache is a
+ *  fast no-op. */
+async function ensurePlaywrightBrowsers(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  log: (m: string) => void,
+): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const proc = spawn("sh", ["-c", "pnpm exec playwright install chromium"], {
+      cwd,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    const grab = (d: Buffer) => {
+      out = (out + d.toString()).slice(-2000);
+    };
+    proc.stdout?.on("data", grab);
+    proc.stderr?.on("data", grab);
+    const timer = setTimeout(() => proc.kill("SIGKILL"), BROWSER_INSTALL_TIMEOUT_MS);
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      log(
+        code === 0
+          ? "[e2e] playwright browsers ready (install chromium ok)"
+          : `[e2e] playwright install chromium exited ${code ?? "?"} (continuing):\n${out.trim()}`,
+      );
+      resolve();
+    });
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      log(`[e2e] playwright install spawn error (continuing): ${err}`);
+      resolve();
+    });
+  });
 }
 
 /** Next.js 16 registers a running `next dev` in `.next/dev/lock` (pid/port/url);
@@ -128,6 +176,16 @@ export async function runE2eGate(opts: {
   const shot = join(cfg.workDir || "/tmp", `brokk-e2e-${port}.png`);
   const cmd = composeCommand(spec, "dev").replace(/\$PORT|\$\{PORT\}/g, String(port));
 
+  // Pin HOME (+ a writable corepack cache) so the browser install below and the
+  // check itself agree on where Playwright's managed browsers live; the forge's
+  // curated env can arrive with HOME unset or "/". Mirrors runVerify()'s pinning.
+  const home = process.env.HOME && process.env.HOME !== "/" ? process.env.HOME : "/home/brokk";
+  const corepackHome = `${home}/.cache/corepack`;
+  // The check shells out to `playwright` (source=playwright, or a profile e2e that
+  // drives it) → it needs the managed browser installed. Legacy acceptance.mjs uses
+  // BROKK_CHROMIUM instead, so it never triggers this.
+  const needsBrowsers = /playwright/i.test(gate.cmd);
+
   const appDir = spec.appRoot ? join(wtPath, spec.appRoot) : wtPath;
   for (const f of spec.prepareFiles ?? []) {
     const dest = join(appDir, f.path);
@@ -174,9 +232,23 @@ export async function runE2eGate(opts: {
     }
     log(`[e2e] up on :${port} — running ${gate.cmd}`);
 
+    // Deps are installed by the verify step (ensureDeps) or the boot above, so
+    // `pnpm exec playwright` resolves the repo-pinned CLI here. Install the browser
+    // into the same HOME the check uses, before running it.
+    if (needsBrowsers) {
+      log(`[e2e] ensuring Playwright browsers for: ${gate.cmd}`);
+      await ensurePlaywrightBrowsers(
+        wtPath,
+        { ...process.env, ...bootEnv, HOME: home, COREPACK_HOME: corepackHome, CI: "true" },
+        log,
+      );
+    }
+
     const checkEnv: Record<string, string> = {
       ...process.env,
       ...bootEnv,
+      HOME: home,
+      COREPACK_HOME: corepackHome,
       PLAYWRIGHT_BASE_URL: url,
       BASE_URL: url,
       BROKK_ACCEPTANCE_URL: url,
