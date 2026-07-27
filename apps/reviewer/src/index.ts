@@ -129,10 +129,27 @@ async function main() {
   const seedProjectId = cfg.repo ? await resolveProjectId(store, cfg.repo) : null;
 
   const reviewTriggered = async (repo: string, prNumber: number): Promise<{ ok: boolean; detail: string }> => {
-    const pr = await getPr(repo, prNumber, await ghToken());
+    let pr = await getPr(repo, prNumber, await ghToken());
     if (!pr) return { ok: false, detail: `PR ${repo}#${prNumber} not found` };
     if (cfg.skipAuthors.includes(pr.author?.login)) {
       return { ok: false, detail: `author ${pr.author?.login} skipped` };
+    }
+    // A trigger fires the instant a run completes — for a `revise` run that is
+    // ~1s after the forge pushed the fix commit, so GitHub’s PR API may still
+    // serve the pre-push head. A lone getPr then reports the already-reviewed
+    // SHA, and in trigger mode there is no fleet poll to retry — stranding the
+    // PR in `review` forever (revise pushed, never re-reviewed). When the head
+    // looks already-reviewed, re-fetch briefly to let the just-pushed head show.
+    if (await store.hasReview(repo, pr.number, pr.headRefOid)) {
+      const staleSha = pr.headRefOid;
+      for (let i = 0; i < 5; i++) {
+        await sleep(2000);
+        const next = await getPr(repo, prNumber, await ghToken());
+        if (next && next.headRefOid !== staleSha) {
+          pr = next;
+          break;
+        }
+      }
     }
     if (await store.hasReview(repo, pr.number, pr.headRefOid)) {
       await tryAutoMerge(cfg, store, gitFor(repo, `https://github.com/${repo}.git`), appAuth, repo, pr).catch(
