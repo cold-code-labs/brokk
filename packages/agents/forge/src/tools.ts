@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { promises as fs } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import type { PartialExecutor, ToolDef } from "@brokk/afl";
 
@@ -54,7 +55,8 @@ export const MIGRATION_TOOL_DEF: ToolDef = {
         type: "string",
         description:
           "Short snake_case slug for the change, e.g. `add_orders_table` or " +
-          "`orders_add_status_column`. A zero-padded sequence number is prefixed automatically.",
+          "`orders_add_status_column`. A sortable timestamp prefix is added automatically, so " +
+          "migrations created in parallel PRs never collide — do not add your own number.",
       },
       sql: {
         type: "string",
@@ -68,20 +70,26 @@ export const MIGRATION_TOOL_DEF: ToolDef = {
   },
 };
 
-/** Next `NNNN` prefix: max existing numeric prefix in db/migrations + 1, else 1. */
-async function nextSeq(dir: string): Promise<number> {
-  let files: string[];
-  try {
-    files = await fs.readdir(dir);
-  } catch {
-    return 1; // no db/migrations yet
-  }
-  let max = 0;
-  for (const f of files) {
-    const m = /^(\d+)/.exec(f);
-    if (m) max = Math.max(max, Number.parseInt(m[1], 10));
-  }
-  return max + 1;
+/** A collision-free, lexicographically-sortable migration prefix: a UTC timestamp
+ *  (YYYYMMDDHHMMSS) + a short random suffix. Sequential `NNNN` prefixes made
+ *  PARALLEL PRs collide — two agents on separate worktrees each read the same
+ *  "max + 1" and produced the SAME `0002_…` file, so their migrations clashed on
+ *  merge (an unbreakable rebase livelock). Timestamps are what Rails/Django/Prisma
+ *  use for exactly this reason; existing NNNN files still sort first ('0' < '2') so
+ *  applied history is preserved, and the random suffix guards same-second parallel
+ *  creates. The control plane tracks migrations by name, not a contiguous sequence,
+ *  so gaps are fine. */
+function migrationPrefix(): string {
+  const d = new Date();
+  const p = (n: number): string => String(n).padStart(2, "0");
+  const ts =
+    String(d.getUTCFullYear()) +
+    p(d.getUTCMonth() + 1) +
+    p(d.getUTCDate()) +
+    p(d.getUTCHours()) +
+    p(d.getUTCMinutes()) +
+    p(d.getUTCSeconds());
+  return `${ts}${randomBytes(2).toString("hex")}`;
 }
 
 /** A partial executor exposing apply_migration; null for any other tool so it
@@ -102,8 +110,7 @@ export function makeMigrationExecutor(ctx: MigrationToolContext): PartialExecuto
     if (!sql.trim()) return { ok: false, content: "apply_migration needs a non-empty `sql` body" };
 
     const dir = join(ctx.cwd, MIGRATIONS_DIR);
-    const seq = String(await nextSeq(dir)).padStart(4, "0");
-    const migName = `${seq}_${slug}`;
+    const migName = `${migrationPrefix()}_${slug}`;
     const file = join(dir, `${migName}.sql`);
 
     // Write the file first, then apply. If the apply fails (bad SQL / rejected DDL
