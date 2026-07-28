@@ -58,7 +58,7 @@ import type {
 } from "@brokk/core";
 import { randomUUID } from "node:crypto";
 import { forcaToModel } from "@brokk/core";
-import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -605,6 +605,11 @@ export interface Store {
   ): Promise<Task | null>;
   /** Is there already a revise task in flight for this PR? (dedup the loop) */
   openReviseExists(prNumber: number): Promise<boolean>;
+  /** Is any *rebase* revise already in flight for this project? Serializes the
+   *  sibling merge-train: only one conflicting PR rebases at a time so N mutually-
+   *  conflicting PRs on the same base cannot livelock (each merges, then the next
+   *  rebases onto the advanced base). */
+  hasOpenRebaseRevise(projectId: string): Promise<boolean>;
 
   // users + subscriptions (Max seats)
   listUsers(): Promise<User[]>;
@@ -1221,6 +1226,21 @@ export function createStore(db: Db): Store {
             eq(tasks.kind, "revise"),
             eq(tasks.prNumber, prNumber),
             sql`${tasks.status} in ('backlog','queued','running')`,
+          ),
+        )
+        .limit(1);
+      return rows.length > 0;
+    },
+    async hasOpenRebaseRevise(projectId) {
+      const rows = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.projectId, projectId),
+            eq(tasks.kind, "revise"),
+            like(tasks.title, "Rebase PR%"),
+            sql`${tasks.status} in ('backlog','queued','running','review')`,
           ),
         )
         .limit(1);

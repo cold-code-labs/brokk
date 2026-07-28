@@ -409,6 +409,18 @@ async function enqueueRebaseRevise(
     console.log(`[eitri] ${repo}#${pr.number} CONFLICTING but hit ${cfg.maxRevisions}-round cap — leaving for a human`);
     return false;
   }
+  // Serialize the merge-train: never run two sibling rebases at once. N mutually-
+  // conflicting PRs on the same base would otherwise all rebase concurrently, each
+  // merge staling the others -> APPROVE-but-CONFLICTING livelock. Hold this PR until
+  // the in-flight rebase merges (the post-merge sibling sweep re-enqueues the next).
+  if (await store.hasOpenRebaseRevise(task.projectId)) {
+    console.log(`[eitri] ${repo}#${pr.number} CONFLICTING but a sibling rebase is already in flight - serializing (waits for the merge train)`);
+    return false;
+  }
+  if (task.owner === "human") {
+    console.log(`[eitri] ${repo}#${pr.number} CONFLICTING but owner=human - not auto-rebasing (left for a person)`);
+    return false;
+  }
   await store.insertTask({
     projectId: task.projectId,
     kind: "revise",
