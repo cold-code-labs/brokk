@@ -154,6 +154,21 @@ export async function handlePrMonitorWebhook(
   const repo = (payload.repository as { full_name?: string } | undefined)?.full_name;
   if (!repo) return null;
 
+  // Eitri re-posts its own verdict as a PR comment (GitHub refuses APPROVE /
+  // REQUEST_CHANGES on a self-authored PR). Those events must NOT drive the
+  // pr-monitor: the reviewer already runs its own revise loop (triggerEitri +
+  // enqueueRevise on REQUEST_CHANGES). Without this an APPROVE comment trips
+  // looksLikeRemediation (length>40) and enqueues a spurious revise on an
+  // already-merged PR (fleet-wide fuel waste). Skip events the reviewer authored.
+  const sender = ((payload.sender as { login?: string } | undefined)?.login ?? "").toLowerCase();
+  const selfBots = (process.env.PR_MONITOR_SELF_BOTS ?? "eitri-ccl[bot]")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (sender && selfBots.includes(sender)) {
+    return { ok: true, action: "skipped", reason: `self-authored by ${sender}` };
+  }
+
   if (event === "pull_request_review" && payload.action === "submitted") {
     const review = payload.review as {
       state?: string;
