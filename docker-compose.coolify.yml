@@ -136,6 +136,9 @@ services:
       BROKK_SECRETS_KEY: ${BROKK_SECRETS_KEY:-}
       BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
       BROKK_API_SECRET: ${BROKK_API_SECRET:-}
+      # Org fuel line (E6 · ASGARD-25): base the /runner/claim hands a fuel run so it
+      # POSTs to OmniRoute with the org's key (billing per org). Same network.
+      BROKK_OMNIROUTE_URL: ${BROKK_OMNIROUTE_URL:-http://omniroute:20128/v1}
       BROKK_GITHUB_WEBHOOK_SECRET: ${BROKK_GITHUB_WEBHOOK_SECRET:-}
       BROKK_SINDRI_URL: ${BROKK_SINDRI_URL:-http://chat:8795}
       EITRI_URL: ${EITRI_URL:-http://reviewer:8796}
