@@ -18,6 +18,13 @@ const TokenBody = z.object({
   label: z.string().max(80).optional(),
 });
 
+const OrgFuelBody = z.object({
+  logtoOrgId: z.string().min(1),
+  // The org's OmniRoute fuel key (sk-…). Minted by Asgard; sealed here.
+  apiKey: z.string().min(8),
+  label: z.string().max(80).optional(),
+});
+
 export function subscriptionsRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
@@ -78,6 +85,27 @@ export function subscriptionsRoutes(deps: AppDeps): Hono {
       status: "active",
     });
     return c.json(sub, 201);
+  });
+
+  // Org fuel line (E6 · ASGARD-25): a Asgard (a central) empurra a fuel key da org
+  // (uma OmniRoute key) — selada aqui, nunca guardada crua. Guardado por
+  // BROKK_API_SECRET (middleware do app). Idempotente por org.
+  r.put("/org-fuel", async (c) => {
+    const parsed = OrgFuelBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const { logtoOrgId, apiKey, label } = parsed.data;
+    const res = await deps.store.upsertOrgFuelSeat({
+      logtoOrgId,
+      sealedToken: seal(apiKey),
+      tokenPreview: preview(apiKey),
+      label,
+    });
+    return c.json({ ok: true, subscriptionId: res.subscriptionId });
+  });
+
+  r.delete("/org-fuel/:orgId", async (c) => {
+    await deps.store.removeOrgFuelSeat(c.req.param("orgId"));
+    return c.json({ ok: true });
   });
 
   return r;

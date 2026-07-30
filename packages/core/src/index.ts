@@ -553,6 +553,9 @@ export interface AgentRunContext {
   authMode: AuthMode;
   /** Per-run Max OAuth token (a seat). Overrides the runner's ambient token. */
   authToken?: string;
+  /** Org fuel line (E6 · ASGARD-25): when set, this run POSTs to OmniRoute here
+   *  (LLM_BASE_URL) with `authToken` as the org's fuel key — billing per org. */
+  llmBaseUrl?: string | null;
   allowedTools: string[];
   /** Per-repo memory (#2): facts Brokk learned about this repo (conventions,
    *  pitfalls, past review failures). Injected into the forge prompt so the agent

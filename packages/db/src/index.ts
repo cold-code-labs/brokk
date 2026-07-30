@@ -513,6 +513,9 @@ export interface ClaimResult {
   project: Project;
   plan: Plan | null;
   sealedToken: string | null;
+  /** Kind of the resolved seat: "fuel" (org fuel line → OmniRoute) | "max" (seat)
+   *  | null (ambient). Lets the API route the run to the right gateway. ASGARD-25. */
+  seatKind: string | null;
   /** Per-repo memory (#2) for the forge prompt — highest-weight first. */
   memory: RepoMemory[];
 }
@@ -1571,14 +1574,14 @@ export function createStore(db: Db): Store {
           }
         }
 
-        let seat: { id: string; sealed: string }[] = [];
+        let seat: { id: string; sealed: string; kind: string }[] = [];
         // Org fuel line (E6 · ASGARD-25): if the project belongs to an org that
         // connected a fuel key (via Asgard), the run bills to THE ORG — precedence
         // over the owner seat. This is the per-org billing the central promises.
         const orgId = projRow.logtoOrgId;
         if (orgId) {
           seat = await tx
-            .select({ id: subscriptions.id, sealed: subscriptions.sealedToken })
+            .select({ id: subscriptions.id, sealed: subscriptions.sealedToken, kind: subscriptions.kind })
             .from(subscriptions)
             .where(
               and(
@@ -1601,7 +1604,7 @@ export function createStore(db: Db): Store {
         const owner = (taskRow.createdBy ?? "").trim().toLowerCase();
         if (seat.length === 0 && owner.includes("@")) {
           seat = await tx
-            .select({ id: subscriptions.id, sealed: subscriptions.sealedToken })
+            .select({ id: subscriptions.id, sealed: subscriptions.sealedToken, kind: subscriptions.kind })
             .from(subscriptions)
             .innerJoin(users, eq(subscriptions.userId, users.id))
             .where(and(eq(subscriptions.status, "active"), sql`lower(${users.email}) = ${owner}`))
@@ -1613,7 +1616,7 @@ export function createStore(db: Db): Store {
           // Round-robin fallback: least-recently-used active seat, locked so two
           // concurrent claims don't both pick the same one.
           seat = await tx
-            .select({ id: subscriptions.id, sealed: subscriptions.sealedToken })
+            .select({ id: subscriptions.id, sealed: subscriptions.sealedToken, kind: subscriptions.kind })
             .from(subscriptions)
             .where(eq(subscriptions.status, "active"))
             .orderBy(sql`${subscriptions.lastUsedAt} asc nulls first`)
@@ -1650,6 +1653,7 @@ export function createStore(db: Db): Store {
           project: rowToProject(projRow),
           plan: planRow ? rowToPlan(planRow) : null,
           sealedToken: seatRow?.sealed ?? null,
+          seatKind: seatRow?.kind ?? null,
           memory: memoryRows.map(rowToRepoMemory),
         };
       });

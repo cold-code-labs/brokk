@@ -39,7 +39,13 @@ import { resolveVerifyCmd } from "./profile.js";
 import { type ForgeTrace, flushTraces, startForgeTrace } from "./tracer.js";
 
 type EventInput = Omit<RunEvent, "id" | "runId" | "seq" | "at">;
-type ClaimAuth = { source: "seat" | "env"; token: string | null; subscriptionId: string | null };
+type ClaimAuth = {
+  source: "seat" | "env" | "fuel";
+  token: string | null;
+  subscriptionId: string | null;
+  // Org fuel line (E6 · ASGARD-25): base to POST to (OmniRoute) when source="fuel".
+  baseUrl?: string | null;
+};
 type Claimed = {
   task: Task;
   run: Run;
@@ -386,6 +392,7 @@ async function handleRun(
       // Toggle: when direct-seat routing is off, drop the seat token so the engine
       // falls through to the Ratatoskr gateway path (shared seat) for every run.
       authToken: SEAT_DIRECT ? (auth?.token ?? undefined) : undefined,
+      llmBaseUrl: auth?.source === "fuel" ? (auth.baseUrl ?? undefined) : undefined,
       allowedTools: [],
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
       verify: gate,
@@ -704,6 +711,7 @@ async function runDevLane(
       // Toggle: when direct-seat routing is off, drop the seat token so the engine
       // falls through to the Ratatoskr gateway path (shared seat) for every run.
       authToken: SEAT_DIRECT ? (auth?.token ?? undefined) : undefined,
+      llmBaseUrl: auth?.source === "fuel" ? (auth.baseUrl ?? undefined) : undefined,
       allowedTools: [],
       memory: (memory ?? []).map((m) => `(${m.kind}) ${m.content}`),
       verify: verifyCmd ? () => runVerify(verifyCmd, wt.path) : undefined,

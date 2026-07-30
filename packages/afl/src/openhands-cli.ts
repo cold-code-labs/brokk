@@ -311,7 +311,9 @@ export async function runOpenHandsCliTurn(input: CliTurnInput): Promise<CliTurnO
     args.push("--resume", input.resume);
   }
 
-  const env = buildOpenHandsCliEnv(input);
+  // input.env (per-run overrides, e.g. an org fuel key → OmniRoute · ASGARD-25)
+  // wins over the ambient process.env. Absent → exactly process.env as before.
+  const env = buildOpenHandsCliEnv(input, { ...process.env, ...(input.env ?? {}) });
   emit({ type: "status", phase: "openhands_start", detail: { model: env.LLM_MODEL } });
 
   try {

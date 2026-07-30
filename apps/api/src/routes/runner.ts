@@ -74,7 +74,7 @@ export function runnerRoutes(deps: AppDeps): Hono {
     const claimed = await deps.store.claimNext(runnerId, devLaneApps);
     if (!claimed) return c.body(null, 204);
 
-    const { task, run, repository, project, plan, sealedToken } = claimed;
+    const { task, run, repository, project, plan, sealedToken, seatKind } = claimed;
     // claimNext returns weight-ordered memory; re-rank it semantically by the
     // card's intent (#2), best-effort — falls back to the weight order on any miss.
     let memory = claimed.memory;
@@ -82,14 +82,23 @@ export function runnerRoutes(deps: AppDeps): Hono {
       .searchRepoMemories(repository.id, `${task.title}\n${task.body}`)
       .catch(() => [] as typeof memory);
     if (sem.length) memory = sem;
-    let auth: { source: "seat" | "env"; token: string | null; subscriptionId: string | null } = {
-      source: "env",
-      token: null,
-      subscriptionId: null,
-    };
+    // Org fuel line (E6 · ASGARD-25): when the resolved sub is kind="fuel", the
+    // token is the ORG's OmniRoute key — the run must POST to OmniRoute directly
+    // (not the shared LiteLLM gateway). We hand the runner the base to use.
+    const omniBase = (process.env.BROKK_OMNIROUTE_URL || "").trim() || null;
+    let auth: {
+      source: "seat" | "env" | "fuel";
+      token: string | null;
+      subscriptionId: string | null;
+      baseUrl: string | null;
+    } = { source: "env", token: null, subscriptionId: null, baseUrl: null };
     if (sealedToken) {
       try {
-        auth = { source: "seat", token: unseal(sealedToken), subscriptionId: run.subscriptionId };
+        const token = unseal(sealedToken);
+        auth =
+          seatKind === "fuel"
+            ? { source: "fuel", token, subscriptionId: run.subscriptionId, baseUrl: omniBase }
+            : { source: "seat", token, subscriptionId: run.subscriptionId, baseUrl: null };
       } catch {
         // Sealing key missing/rotated → leave the runner on its ambient token.
       }

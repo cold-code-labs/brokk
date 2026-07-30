@@ -125,6 +125,18 @@ class CliEngine implements AgentEngine {
         appendSystem: DEFAULT_SYSTEM_PROMPT,
         maxTurns: this.opts.maxTurns,
         gh: true,
+        // Org fuel line (E6 · ASGARD-25): when the control plane resolved an org
+        // fuel key, route THIS run to OmniRoute with it (LLM_* overrides the
+        // ambient gateway) so the run bills to the org. Absent → ambient, as before.
+        env:
+          ctx.llmBaseUrl && ctx.authToken
+            ? {
+                LLM_API_KEY: ctx.authToken,
+                LLM_BASE_URL: ctx.llmBaseUrl,
+                OPENAI_API_KEY: ctx.authToken,
+                OPENAI_BASE_URL: ctx.llmBaseUrl,
+              }
+            : undefined,
         timeoutMs: this.opts.turnTimeoutMs ?? 3_600_000,
         emit: emitAdapter,
         hooks: {
