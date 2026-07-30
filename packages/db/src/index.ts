@@ -295,6 +295,7 @@ function rowToSubscription(row: typeof subscriptions.$inferSelect): Subscription
   return {
     id: row.id,
     userId: row.userId,
+    logtoOrgId: row.logtoOrgId,
     kind: row.kind,
     label: row.label,
     tokenPreview: row.tokenPreview,
@@ -624,6 +625,17 @@ export interface Store {
    *  Returns the sealed token (caller unseals). Null when the email has no active
    *  seat. */
   activeSeatForEmail(email: string): Promise<{ subscriptionId: string; sealedToken: string } | null>;
+
+  /** Fuel line de uma org (E6 · ASGARD-25): cria/atualiza a subscription kind=fuel
+   *  com o token (fuel key) já selado. Idempotente por org — uma fuel key por org. */
+  upsertOrgFuelSeat(input: {
+    logtoOrgId: string;
+    sealedToken: string;
+    tokenPreview: string;
+    label?: string;
+  }): Promise<{ subscriptionId: string }>;
+  /** Remove a fuel line da org (desativar IA). */
+  removeOrgFuelSeat(logtoOrgId: string): Promise<void>;
 
   // reviews (Eitri)
   hasReview(repo: string, prNumber: number, sha: string): Promise<boolean>;
@@ -1290,6 +1302,41 @@ export function createStore(db: Db): Store {
       return rows[0] ? { subscriptionId: rows[0].id, sealedToken: rows[0].sealed } : null;
     },
 
+    async upsertOrgFuelSeat({ logtoOrgId, sealedToken, tokenPreview, label }) {
+      // Uma fuel key por org: se já existe kind=fuel para a org, atualiza; senão cria.
+      const existing = await db
+        .select({ id: subscriptions.id })
+        .from(subscriptions)
+        .where(and(eq(subscriptions.kind, "fuel"), eq(subscriptions.logtoOrgId, logtoOrgId)))
+        .limit(1);
+      if (existing[0]) {
+        await db
+          .update(subscriptions)
+          .set({ sealedToken, tokenPreview, status: "active", updatedAt: new Date() })
+          .where(eq(subscriptions.id, existing[0].id));
+        return { subscriptionId: existing[0].id };
+      }
+      const rows = await db
+        .insert(subscriptions)
+        .values({
+          userId: null,
+          logtoOrgId,
+          kind: "fuel",
+          label: label ?? `Fuel — ${logtoOrgId}`,
+          sealedToken,
+          tokenPreview,
+          status: "active",
+        })
+        .returning({ id: subscriptions.id });
+      return { subscriptionId: rows[0]!.id };
+    },
+
+    async removeOrgFuelSeat(logtoOrgId) {
+      await db
+        .delete(subscriptions)
+        .where(and(eq(subscriptions.kind, "fuel"), eq(subscriptions.logtoOrgId, logtoOrgId)));
+    },
+
     async hasReview(repo, prNumber, sha) {
       const rows = await db
         .select({ id: reviews.id })
@@ -1524,6 +1571,26 @@ export function createStore(db: Db): Store {
           }
         }
 
+        let seat: { id: string; sealed: string }[] = [];
+        // Org fuel line (E6 · ASGARD-25): if the project belongs to an org that
+        // connected a fuel key (via Asgard), the run bills to THE ORG — precedence
+        // over the owner seat. This is the per-org billing the central promises.
+        const orgId = projRow.logtoOrgId;
+        if (orgId) {
+          seat = await tx
+            .select({ id: subscriptions.id, sealed: subscriptions.sealedToken })
+            .from(subscriptions)
+            .where(
+              and(
+                eq(subscriptions.status, "active"),
+                eq(subscriptions.kind, "fuel"),
+                eq(subscriptions.logtoOrgId, orgId),
+              ),
+            )
+            .orderBy(sql`${subscriptions.lastUsedAt} asc nulls first`)
+            .limit(1)
+            .for("update", { skipLocked: true });
+        }
         // Seat selection: prefer the task owner's own active seat, so each
         // teammate's runs bill to their own Max subscription. `tasks.created_by`
         // holds the actor's email (injected by the web proxy from the Logto
@@ -1532,8 +1599,7 @@ export function createStore(db: Db): Store {
         // tokens ran dry), we fall back to the least-recently-used active seat of
         // anyone — so work never stalls and a depleted teammate borrows a peer's.
         const owner = (taskRow.createdBy ?? "").trim().toLowerCase();
-        let seat: { id: string; sealed: string }[] = [];
-        if (owner.includes("@")) {
+        if (seat.length === 0 && owner.includes("@")) {
           seat = await tx
             .select({ id: subscriptions.id, sealed: subscriptions.sealedToken })
             .from(subscriptions)
@@ -2729,6 +2795,18 @@ export async function ensureSchema(db: Db): Promise<void> {
     .catch(() => {});
   await db
     .execute(sql`CREATE INDEX IF NOT EXISTS projects_logto_org_idx ON projects (logto_org_id);`)
+    .catch(() => {});
+
+  // Org fuel line (E6 · ASGARD-25): a subscription is either a per-user seat or a
+  // per-org fuel key. user_id becomes nullable; logto_org_id carries the org.
+  await db
+    .execute(sql`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS logto_org_id text;`)
+    .catch(() => {});
+  await db
+    .execute(sql`ALTER TABLE subscriptions ALTER COLUMN user_id DROP NOT NULL;`)
+    .catch(() => {});
+  await db
+    .execute(sql`CREATE INDEX IF NOT EXISTS subscriptions_logto_org_idx ON subscriptions (logto_org_id);`)
     .catch(() => {});
 
   await ensureChatSchema(db);

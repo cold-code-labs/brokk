@@ -376,20 +376,26 @@ export const users = pgTable("users", {
 
 /** A Max seat a user lends to the forge. `sealed_token` is AES-256-GCM at rest;
  *  only `token_preview` (last chars) is ever exposed to the UI. */
-export const subscriptions = pgTable("subscriptions", {
-  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull().default("max"),
-  label: text("label").notNull().default("Max seat"),
-  sealedToken: text("sealed_token").notNull(),
-  tokenPreview: text("token_preview").notNull().default(""),
-  status: text("status").notNull().default("active"),
-  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    // Nullable: a subscription is EITHER a per-user seat (userId set) OR a
+    // per-org fuel key (logtoOrgId set, userId null) — E6 · ASGARD-25.
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    // Org fuel line: the org's OmniRoute fuel key, sealed here. Set for kind="fuel".
+    logtoOrgId: text("logto_org_id"),
+    kind: text("kind").notNull().default("max"), // "max" (seat) | "fuel" (org)
+    label: text("label").notNull().default("Max seat"),
+    sealedToken: text("sealed_token").notNull(),
+    tokenPreview: text("token_preview").notNull().default(""),
+    status: text("status").notNull().default("active"),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ logtoOrg: index("subscriptions_logto_org_idx").on(t.logtoOrgId) }),
+);
 
 /** Eitri's review ledger — one row per (repo, pr, head sha) so a PR isn't
  *  re-reviewed until it changes. */

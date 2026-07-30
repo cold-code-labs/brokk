@@ -352,7 +352,10 @@ export interface User {
  *  at rest and never leaves the server — only a masked preview is exposed. */
 export interface Subscription {
   id: string;
-  userId: string;
+  /** Null for org fuel lines (kind="fuel"); set for per-user seats. E6 · ASGARD-25. */
+  userId: string | null;
+  /** Set for org fuel lines (kind="fuel"): the org whose fuel key this seals. */
+  logtoOrgId: string | null;
   kind: string;
   label: string;
   tokenPreview: string;
