@@ -12,6 +12,7 @@ import {
 import { brokk } from "../lib/api";
 import { useToast } from "./Toaster";
 import { useProject } from "../lib/project-context";
+import GithubConnect from "./GithubConnect";
 
 /** gh-backed importer: list the org's repos, pick the ones to forge in, connect
  *  them in one shot (each gets a default project). */
@@ -25,15 +26,28 @@ export default function ConnectRepos() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<number | null>(null);
+  const [needsConnect, setNeedsConnect] = useState(false);
   const { refresh, setCurrentId } = useProject();
 
   async function load() {
     setLoading(true);
     setErr(null);
     try {
-      const res = await brokk.importCandidates();
-      setOrg(res.org);
-      setCandidates(res.candidates);
+      // Direct fetch (proxied to brokk-api with org claims) so we can read the
+      // per-org shape: {source, candidates} or 409 {needsConnect} when the org
+      // hasn't connected its GitHub yet (ADR 0064).
+      const res = await fetch("/api/repositories/import/candidates");
+      const d = await res.json();
+      if (res.status === 409 && d?.needsConnect) {
+        setNeedsConnect(true);
+        setCandidates([]);
+        setOrg("");
+        return;
+      }
+      if (!res.ok) throw new Error(d?.error || `HTTP ${res.status}`);
+      setNeedsConnect(false);
+      setOrg(d.org ?? d.source ?? "");
+      setCandidates(d.candidates ?? []);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -103,6 +117,14 @@ export default function ConnectRepos() {
         </div>
         <div className="forge-head-rule" />
       </header>
+
+      <GithubConnect onChange={load} />
+
+      {needsConnect && (
+        <Banner tone="info">
+          Conecte o GitHub da organização acima para ver e importar os repositórios autorizados.
+        </Banner>
+      )}
 
       {err && (
         <Banner tone="err">
