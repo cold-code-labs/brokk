@@ -19,7 +19,7 @@
  * outgoing process keeps serving until the replacement is healthy on a new port;
  * only then do we flip the control-plane port and SIGTERM the old one.
  */
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import type { ChildProcess } from "node:child_process";
@@ -39,6 +39,7 @@ import type { GhProvider } from "./git.js";
 import type { DataProvider } from "./data-provider.js";
 import { previewSpawnEnv } from "./preview-env.js";
 import { ensureNativeNextSwc } from "./next-swc.js";
+import { ProcessSandbox, type Sandbox } from "./sandbox.js";
 
 interface LivePreview {
   proc: ChildProcess;
@@ -180,6 +181,11 @@ export class PreviewSupervisor {
    *  worktree over this is reclaimed anyway when it's not in-flight/pinned —
    *  trading a cold rebuild for bounded disk. 0 = disabled. BROKK_PREVIEW_DISK_MAX_MB. */
   private readonly diskMaxMb = Number(process.env.BROKK_PREVIEW_DISK_MAX_MB ?? 0) || 0;
+
+  /** F1 (ADR 0073 §fase 1.5): the substrate previews run in. ProcessSandbox = the
+   *  current bare-process behaviour; a future ContainerSandbox swaps in here to
+   *  isolate each session — spawn/rss/kill are the only substrate-specific ops. */
+  private readonly sandbox: Sandbox = new ProcessSandbox();
 
   /** Last disk-reclaim sweep, so it runs hourly instead of every tick — it shells
    *  out to git once per cached bare repo, which is wasted work at tick cadence. */
@@ -522,7 +528,7 @@ export class PreviewSupervisor {
           }
 
           // Stamp RSS of the HMR tree (shell + vite/next children) for the UI.
-          const rssMb = processTreeRssMb(lp.proc.pid);
+          const rssMb = this.sandbox.rssMb(lp.proc);
           if (rssMb != null && rssMb !== p.rssMb) {
             void this.controlPatch(`/previews/${p.id}`, { rssMb }).catch(() => {});
           }
@@ -1042,12 +1048,11 @@ export class PreviewSupervisor {
     const spawnFile = niceN ? "nice" : "sh";
     const spawnArgs = niceN ? ["-n", String(niceN), "sh", "-c", cmd] : ["-c", cmd];
 
-    const proc = spawn(spawnFile, spawnArgs, {
+    const proc = this.sandbox.spawn({
+      file: spawnFile,
+      args: spawnArgs,
       cwd: wtPath,
       env: spawnEnv,
-      // Own process group so killTree(-pid) reaps pnpm/vite/next children.
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
     });
 
     const tag = `[preview:${preview.subdomain}]`;
@@ -1120,7 +1125,7 @@ export class PreviewSupervisor {
       }
       this.pending.delete(preview.id);
       this.usedPorts.delete(port);
-      killTree(proc);
+      this.sandbox.kill(proc);
       if (retain && this.live.get(preview.id)?.proc === retain.proc) {
         // Soft-respin failed — keep the old process as the live preview.
         await this.controlPatch(`/previews/${preview.id}`, {
@@ -1159,7 +1164,7 @@ export class PreviewSupervisor {
         `[preview-supervisor] ${preview.subdomain}: cutover :${retain.port} → :${port} (retiring old pid=${retain.proc.pid})`,
       );
       this.usedPorts.delete(retain.port);
-      killTree(retain.proc);
+      this.sandbox.kill(retain.proc);
     }
 
     phase("ready");
@@ -1368,7 +1373,7 @@ export class PreviewSupervisor {
   private killAndClean(id: string, lp: LivePreview): void {
     this.live.delete(id);
     this.usedPorts.delete(lp.port);
-    killTree(lp.proc);
+    this.sandbox.kill(lp.proc);
   }
 
   // ── Control-plane HTTP ──────────────────────────────────────────────────────
@@ -1422,67 +1427,8 @@ export class PreviewSupervisor {
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** Sum VmRSS of `rootPid` and its descendants (KiB→MiB). Preview boots
- *  `sh -c` detached, so the real vite/next cost lives in the children. */
-function processTreeRssMb(rootPid: number | undefined): number | null {
-  if (!rootPid) return null;
-  try {
-    const children = new Map<number, number[]>();
-    for (const ent of readdirSync("/proc")) {
-      if (!/^\d+$/.test(ent)) continue;
-      const pid = Number(ent);
-      let st = "";
-      try {
-        st = readFileSync(`/proc/${pid}/status`, "utf8");
-      } catch {
-        continue;
-      }
-      const ppid = Number(/PPid:\s+(\d+)/.exec(st)?.[1] ?? NaN);
-      if (!Number.isFinite(ppid)) continue;
-      const list = children.get(ppid) ?? [];
-      list.push(pid);
-      children.set(ppid, list);
-    }
-    const stack = [rootPid];
-    const seen = new Set<number>();
-    let kb = 0;
-    while (stack.length) {
-      const pid = stack.pop()!;
-      if (seen.has(pid)) continue;
-      seen.add(pid);
-      try {
-        const st = readFileSync(`/proc/${pid}/status`, "utf8");
-        const m = /VmRSS:\s+(\d+)\s+kB/.exec(st);
-        if (m) kb += Number(m[1]);
-      } catch {
-        continue;
-      }
-      for (const c of children.get(pid) ?? []) stack.push(c);
-    }
-    if (kb <= 0) return null;
-    return Math.max(1, Math.round(kb / 1024));
-  } catch {
-    return null;
-  }
-}
-
-/** Kill the whole process group. Preview boots `sh -c "pnpm exec vite|next…"` —
- *  SIGTERM on the shell alone orphans the real server (vite/next) under PID 1,
- *  which is how the forge filled up with dozens of zombies at 95% RAM. Spawn with
- *  detached:true so the shell is group leader; negative-pid kill reaps the tree. */
-function killTree(proc: ChildProcess): void {
-  const pid = proc.pid;
-  if (!pid) return;
-  try {
-    process.kill(-pid, "SIGTERM");
-  } catch {
-    try {
-      proc.kill("SIGTERM");
-    } catch {
-      /* already dead */
-    }
-  }
-}
+// processTreeRssMb + killTree moved to ./process-tree.ts (F1, ADR 0073 fase 1.5)
+// and are now reached through the Sandbox (this.sandbox.rssMb / .kill).
 
 /** Sweep vite/next listening on the preview port range that we are NOT tracking.
  *  Covers survivors from before group-kill and from soft-respin cutovers that
