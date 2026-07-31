@@ -192,6 +192,20 @@ export interface Project {
   updatedAt: string;
 }
 
+/** GitHub App installation bound to a Logto org (ADR 0064 · per-org GitHub). */
+export interface GithubInstallation {
+  installationId: string;
+  logtoOrgId: string;
+  /** GitHub account (org or user login) the app is installed on. */
+  accountLogin: string | null;
+  /** "Organization" | "User". */
+  accountType: string | null;
+  /** Set when GitHub suspended the installation (access paused). */
+  suspendedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Repository {
   id: string;
   /** "owner/name" on GitHub. */

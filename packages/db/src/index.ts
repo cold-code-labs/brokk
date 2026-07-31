@@ -19,6 +19,7 @@ import type {
   ChatSessionStatus,
   ChatTurnState,
   ForcaLevel,
+  GithubInstallation,
   Mission,
   MissionEvent,
   MissionEventType,
@@ -69,6 +70,7 @@ import {
   mimirRevisions,
   mimirTriage,
   plans,
+  githubInstallations,
   previews,
   projects,
   pullRequests,
@@ -247,6 +249,20 @@ function rowToRepository(row: typeof repositories.$inferSelect): Repository {
     repoMap: row.repoMap,
     repoMapAt: iso(row.repoMapAt),
     logtoOrgId: row.logtoOrgId ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function rowToInstallation(
+  row: typeof githubInstallations.$inferSelect,
+): GithubInstallation {
+  return {
+    installationId: row.installationId,
+    logtoOrgId: row.logtoOrgId,
+    accountLogin: row.accountLogin ?? null,
+    accountType: row.accountType ?? null,
+    suspendedAt: iso(row.suspendedAt),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -521,6 +537,20 @@ export interface ClaimResult {
 }
 
 export interface Store {
+  // github installations (ADR 0064 · per-org GitHub connection)
+  /** Bind (or refresh) a GitHub App installation to an org. Keyed by installationId. */
+  upsertInstallation(input: {
+    installationId: string;
+    logtoOrgId: string;
+    accountLogin?: string | null;
+    accountType?: string | null;
+    suspendedAt?: Date | null;
+  }): Promise<GithubInstallation>;
+  /** All installations bound to any of these orgs (repo discovery + token). */
+  listInstallationsForOrgs(orgIds: string[]): Promise<GithubInstallation[]>;
+  getInstallation(installationId: string): Promise<GithubInstallation | null>;
+  deleteInstallation(installationId: string): Promise<void>;
+
   // repositories (the GitHub repos the forge can work in)
   listRepositories(opts?: { orgIds?: string[]; isStaff?: boolean }): Promise<Repository[]>;
   getRepository(id: string): Promise<Repository | null>;
@@ -923,6 +953,52 @@ export interface Store {
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
 export function createStore(db: Db): Store {
   return {
+    async upsertInstallation({ installationId, logtoOrgId, accountLogin, accountType, suspendedAt }) {
+      const rows = await db
+        .insert(githubInstallations)
+        .values({
+          installationId,
+          logtoOrgId,
+          accountLogin: accountLogin ?? null,
+          accountType: accountType ?? null,
+          suspendedAt: suspendedAt ?? null,
+        })
+        .onConflictDoUpdate({
+          target: githubInstallations.installationId,
+          set: {
+            logtoOrgId,
+            accountLogin: accountLogin ?? null,
+            accountType: accountType ?? null,
+            suspendedAt: suspendedAt ?? null,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+      return rowToInstallation(rows[0]!);
+    },
+    async listInstallationsForOrgs(orgIds) {
+      if (!orgIds.length) return [];
+      const rows = await db
+        .select()
+        .from(githubInstallations)
+        .where(inArray(githubInstallations.logtoOrgId, orgIds))
+        .orderBy(asc(githubInstallations.accountLogin));
+      return rows.map(rowToInstallation);
+    },
+    async getInstallation(installationId) {
+      const rows = await db
+        .select()
+        .from(githubInstallations)
+        .where(eq(githubInstallations.installationId, installationId))
+        .limit(1);
+      return rows[0] ? rowToInstallation(rows[0]) : null;
+    },
+    async deleteInstallation(installationId) {
+      await db
+        .delete(githubInstallations)
+        .where(eq(githubInstallations.installationId, installationId));
+    },
+
     async listRepositories(opts) {
       if (!opts || opts.isStaff) {
         const rows = await db.select().from(repositories).orderBy(asc(repositories.fullName));
@@ -2811,6 +2887,23 @@ export async function ensureSchema(db: Db): Promise<void> {
     .catch(() => {});
   await db
     .execute(sql`CREATE INDEX IF NOT EXISTS subscriptions_logto_org_idx ON subscriptions (logto_org_id);`)
+    .catch(() => {});
+
+  // ADR 0064 — per-org GitHub connection: installation → logto org (self-heal;
+  // db:push hangs on the shared db_brokk). Repo discovery + git ops key off this.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS github_installations (
+    installation_id text PRIMARY KEY,
+    logto_org_id text NOT NULL,
+    account_login text,
+    account_type text,
+    suspended_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );`);
+  await db
+    .execute(
+      sql`CREATE INDEX IF NOT EXISTS github_installations_logto_org_idx ON github_installations (logto_org_id);`,
+    )
     .catch(() => {});
 
   await ensureChatSchema(db);

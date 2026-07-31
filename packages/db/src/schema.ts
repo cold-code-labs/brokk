@@ -112,6 +112,28 @@ export const repositories = pgTable(
   }),
 );
 
+/** GitHub App installation → Logto org (ADR 0064 · per-org GitHub connection).
+ *  An org admin installs the Eitri App on their GitHub org/user; the setup callback
+ *  binds the installation id to their logtoOrgId. Repo discovery + git ops then use
+ *  THIS installation's token, not the fleet's. An org may hold >1 installation (repos
+ *  spread across GitHub accounts), so installation_id is the PK and logto_org_id is a
+ *  non-unique index. */
+export const githubInstallations = pgTable(
+  "github_installations",
+  {
+    installationId: text("installation_id").primaryKey(),
+    logtoOrgId: text("logto_org_id").notNull(),
+    accountLogin: text("account_login"),
+    accountType: text("account_type"),
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    logtoOrg: index("github_installations_logto_org_idx").on(t.logtoOrgId),
+  }),
+);
+
 /** Per-repo memory (#2): facts Brokk learned about a repo, persisted across runs.
  *  Eitri writes review failures here; the planner + forge read them so the agent
  *  stops forging cold. (repository_id, kind, content) is unique so a recurring
