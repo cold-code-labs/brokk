@@ -176,6 +176,10 @@ export class PreviewSupervisor {
   private readonly lastMemKill = new Map<string, number>();
   /** Consecutive mem-cap kills per preview id — trips PREVIEW_MEM_MAX_STRIKES. */
   private readonly memStrikes = new Map<string, number>();
+  /** F0 (ADR 0073 §fase 1.5): per-worktree disk budget (MB). A KEPT (not idle)
+   *  worktree over this is reclaimed anyway when it's not in-flight/pinned —
+   *  trading a cold rebuild for bounded disk. 0 = disabled. BROKK_PREVIEW_DISK_MAX_MB. */
+  private readonly diskMaxMb = Number(process.env.BROKK_PREVIEW_DISK_MAX_MB ?? 0) || 0;
 
   /** Last disk-reclaim sweep, so it runs hourly instead of every tick — it shells
    *  out to git once per cached bare repo, which is wasted work at tick cadence. */
@@ -628,6 +632,21 @@ export class PreviewSupervisor {
 
   // ── Disk reclaim ────────────────────────────────────────────────────────────
 
+  /** F0 (ADR 0073 §fase 1.5): disk footprint of a path in MB via `du -sm`. null
+   *  when unavailable (path gone, non-coreutils). Cheap enough at the hourly
+   *  sweep cadence; only called when BROKK_PREVIEW_DISK_MAX_MB opts a fleet in. */
+  private async dirSizeMb(path: string): Promise<number | null> {
+    try {
+      const { stdout } = await promisify(execFile)("du", ["-sm", path], {
+        maxBuffer: 1024 * 1024,
+      });
+      const n = Number(stdout.trim().split(/\s+/)[0]);
+      return Number.isFinite(n) ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Reclaim preview worktrees that nothing will boot again soon.
    *
    *  The idle reaper above rests the PROCESS and leaves the tree, so worktrees
@@ -667,6 +686,18 @@ export class PreviewSupervisor {
         now,
       });
       if (!verdict.reclaim) {
+        // F0 disk budget: an oversized worktree that isn't in-flight/pinned is
+        // reclaimed even when the time verdict would keep it — a cold rebuild is
+        // cheaper than a full disk. Skipped entirely when the cap is unset.
+        const busy = p ? this.live.has(p.id) || this.pending.has(p.id) || this.booting.has(p.id) : false;
+        if (this.diskMaxMb && !busy && !this.pinnedProjects.has(wt.name)) {
+          const sizeMb = await this.dirSizeMb(wt.path);
+          if (sizeMb != null && sizeMb > this.diskMaxMb) {
+            const ok = await this.git.reclaimPreviewWorktree(wt.bare, wt.path);
+            (ok ? reclaimed : blocked).push(`${wt.name} (disk ${sizeMb}MB > ${this.diskMaxMb}MB)`);
+            continue;
+          }
+        }
         kept++;
         continue;
       }
@@ -1003,7 +1034,15 @@ export class PreviewSupervisor {
           }
         : env;
 
-    const proc = spawn("sh", ["-c", cmd], {
+    // F0 (ADR 0073 §fase 1.5): de-prioritise the dev server so a busy preview
+    // never starves the forge claim loop on the shared runner. `nice` execs sh in
+    // place, so the process group (killTree -pid) is unchanged. Opt-in via
+    // BROKK_PREVIEW_NICE (0 = off, unchanged behaviour).
+    const niceN = Math.max(0, Math.min(19, Number(process.env.BROKK_PREVIEW_NICE ?? 0) || 0));
+    const spawnFile = niceN ? "nice" : "sh";
+    const spawnArgs = niceN ? ["-n", String(niceN), "sh", "-c", cmd] : ["-c", cmd];
+
+    const proc = spawn(spawnFile, spawnArgs, {
       cwd: wtPath,
       env: spawnEnv,
       // Own process group so killTree(-pid) reaps pnpm/vite/next children.
