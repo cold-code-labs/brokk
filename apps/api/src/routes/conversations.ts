@@ -6,7 +6,7 @@ import type { Context } from "hono";
 import { z } from "zod";
 import { actorFrom, canSeeProject, resolveLogtoOrgId } from "../actor.js";
 import type { AppDeps } from "../app.js";
-import { connectOne } from "./repositories.js";
+import { connectOne, resolveInstallationId } from "./repositories.js";
 
 const run = promisify(execFile);
 const GH_BIN = process.env.BROKK_GH_BIN ?? "gh";
@@ -166,6 +166,11 @@ export function conversationsRoutes(deps: AppDeps): Hono {
         baseBranch: "dev",
         heimdallAppId: app.id,
         logtoOrgId: org.logtoOrgId,
+        // ADR 0064: when the org connected its GitHub, use its installation so the
+        // forge clones/pushes this Heimdall-born repo with the org's own token (not
+        // just the fleet default). Null when it hasn't — stays fleet, which is right
+        // for repos under the fleet's own GH org.
+        installationId: await resolveInstallationId(deps, org.logtoOrgId, app.repoFullName),
       },
     );
     if (!project) return c.json({ error: "failed to create Brokk project" }, 502);

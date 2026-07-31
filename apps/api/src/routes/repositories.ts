@@ -218,7 +218,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
 /** The org's installation that owns a repo — matched by account login (the repo
  *  owner), falling back to the org's sole installation. Null when the org hasn't
  *  connected GitHub (repo stays on the ambient fleet token). */
-async function resolveInstallationId(
+export async function resolveInstallationId(
   deps: AppDeps,
   logtoOrgId: string | null,
   fullName: string,
