@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
@@ -7,6 +8,19 @@ import type { GitProvider, Repository } from "@brokk/core";
 import { type AppAuth, getInstallationToken, loadAppAuth } from "./github-app.js";
 
 const exec = promisify(execFile);
+
+// ADR 0064: per-card GitHub installation context. The forge shares one GhProvider
+// across concurrent cards (BROKK-51), so the "which installation" can't be an
+// instance field — it would race. Instead each card runs inside runWithInstallation
+// and the token resolver reads the id from async-local storage at call time, so
+// concurrent cards each mint their OWN org's token.
+const installationStore = new AsyncLocalStorage<string | null>();
+
+/** Run `fn` with the active GitHub installation id (the repo's org). Every git/gh
+ *  call inside resolves its token for THIS installation. */
+export function runWithInstallation<T>(installationId: string | null, fn: () => Promise<T>): Promise<T> {
+  return installationStore.run(installationId ?? null, fn);
+}
 
 // Wave 3: process-wide provider for a fresh git token. Both `git` and `gh`
 // authenticate over HTTPS via the `gh auth git-credential` helper, which reads
@@ -53,7 +67,9 @@ export class GhProvider implements GitProvider {
   private async token(): Promise<string | undefined> {
     if (this.appAuth) {
       try {
-        return await getInstallationToken(this.appAuth);
+        // The repo's installation (org's own) when a card set it; else fleet default.
+        const installationId = installationStore.getStore() ?? undefined;
+        return await getInstallationToken(this.appAuth, installationId);
       } catch (e) {
         console.warn(`[forge] App token mint failed, falling back to PAT: ${String(e).slice(0, 120)}`);
       }

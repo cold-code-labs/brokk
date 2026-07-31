@@ -23,7 +23,7 @@ const execAsync = promisify(exec);
 // BROKK_DIRECT_SEAT=0 to force every run back through Ratatoskr (the shared CCL
 // seat) — the global kill-switch for per-user billing.
 const SEAT_DIRECT = process.env.BROKK_DIRECT_SEAT !== "0";
-import { GhProvider } from "./git.js";
+import { GhProvider, runWithInstallation } from "./git.js";
 import { ClaudeCliEngine, CursorCliEngine, ForgeEngine, OpenHandsCliEngine } from "@brokk/forge";
 import { claudeCliAvailable, cursorCliAvailable, openHandsCliAvailable } from "@brokk/afl";
 import { makeHauldrDataProvider, passthroughProvider } from "./data-provider.js";
@@ -243,9 +243,12 @@ async function main() {
       // The run handlers return the failure string (null on success) so the breaker
       // can tell a fuel outage from a normal downstream failure; an unexpected throw
       // is treated as a non-fuel error (don't trip on a bug in our own loop).
-      const err = await (isDevLaneCard(cfg, card)
-        ? runDevLane(cfg, git, engine, supervisor, lanes, card)
-        : handleRun(cfg, git, engine, card)
+      // ADR 0064: run the whole card under its repo's installation, so every git/gh
+      // call inside clones/pushes with the ORG's own token (concurrency-safe via ALS).
+      const err = await runWithInstallation(card.repository?.installationId ?? null, () =>
+        isDevLaneCard(cfg, card)
+          ? runDevLane(cfg, git, engine, supervisor, lanes, card)
+          : handleRun(cfg, git, engine, card),
       ).catch((e) => {
         console.error(`[forge] run ${card.run.id} crashed:`, e);
         return null;

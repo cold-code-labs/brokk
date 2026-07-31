@@ -53,23 +53,32 @@ async function ghApi<T>(path: string, token: string, init: RequestInit = {}): Pr
   return (await res.json()) as T;
 }
 
-let cache: { token: string; exp: number } | null = null;
+// Tokens cached PER installation id (ADR 0064): a run on org A's repo mints A's
+// installation token; org B's run mints B's — no more one fleet token for all.
+const tokenCache = new Map<string, { token: string; exp: number }>();
+let fleetInstallationId: string | null = null;
 
-/** A fresh installation token (cached until ~5 min before expiry). */
-export async function getInstallationToken(auth: AppAuth): Promise<string> {
-  if (cache && cache.exp > Date.now() + 5 * 60_000) return cache.token;
-  const jwt = mintJwt(auth);
-  let installationId = auth.installationId;
-  if (!installationId) {
-    const insts = await ghApi<{ id: number }[]>("/app/installations", jwt);
-    if (!insts.length) throw new Error("Eitri App has no installations — install it on the repo");
-    installationId = String(insts[0]!.id);
-  }
+/** The app's first installation — the fleet default when a repo carries no
+ *  installation id (legacy CCL repos under the fleet org). Cached. */
+async function firstInstallationId(auth: AppAuth): Promise<string> {
+  if (fleetInstallationId) return fleetInstallationId;
+  const insts = await ghApi<{ id: number }[]>("/app/installations", mintJwt(auth));
+  if (!insts.length) throw new Error("GitHub App has no installations — install it on the repo");
+  fleetInstallationId = String(insts[0]!.id);
+  return fleetInstallationId;
+}
+
+/** A fresh installation token (cached until ~5 min before expiry). Pass the repo's
+ *  installation id to use the ORG's own installation; omit for the fleet default. */
+export async function getInstallationToken(auth: AppAuth, installationId?: string): Promise<string> {
+  const id = installationId ?? auth.installationId ?? (await firstInstallationId(auth));
+  const hit = tokenCache.get(id);
+  if (hit && hit.exp > Date.now() + 5 * 60_000) return hit.token;
   const r = await ghApi<{ token: string; expires_at: string }>(
-    `/app/installations/${installationId}/access_tokens`,
-    jwt,
+    `/app/installations/${id}/access_tokens`,
+    mintJwt(auth),
     { method: "POST" },
   );
-  cache = { token: r.token, exp: new Date(r.expires_at).getTime() };
+  tokenCache.set(id, { token: r.token, exp: new Date(r.expires_at).getTime() });
   return r.token;
 }
