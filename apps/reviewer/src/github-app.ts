@@ -46,23 +46,48 @@ async function ghApi<T>(path: string, token: string, init: RequestInit = {}): Pr
   return (await res.json()) as T;
 }
 
-let cache: { token: string; exp: number } | null = null;
+// Tokens cached PER installation id (ADR 0064): review a private repo of org A
+// with A's installation token, org B's with B's — not one fleet token for all.
+const tokenCache = new Map<string, { token: string; exp: number }>();
+let fleetInstallationId: string | null = null;
 
-/** A fresh installation token (cached until ~5 min before expiry). */
-export async function getInstallationToken(auth: AppAuth): Promise<string> {
-  if (cache && cache.exp > Date.now() + 5 * 60_000) return cache.token;
-  const jwt = mintJwt(auth);
-  let installationId = auth.installationId;
-  if (!installationId) {
-    const insts = await ghApi<{ id: number }[]>("/app/installations", jwt);
-    if (!insts.length) throw new Error("Eitri App has no installations — install it on the repo");
-    installationId = String(insts[0]!.id);
-  }
+async function firstInstallationId(auth: AppAuth): Promise<string> {
+  if (fleetInstallationId) return fleetInstallationId;
+  const insts = await ghApi<{ id: number }[]>("/app/installations", mintJwt(auth));
+  if (!insts.length) throw new Error("Eitri App has no installations — install it on the repo");
+  fleetInstallationId = String(insts[0]!.id);
+  return fleetInstallationId;
+}
+
+/** A fresh installation token (cached until ~5 min before expiry). Pass the repo's
+ *  installation id to review with the ORG's own installation; omit for fleet default. */
+export async function getInstallationToken(auth: AppAuth, installationId?: string): Promise<string> {
+  const id = installationId ?? auth.installationId ?? (await firstInstallationId(auth));
+  const hit = tokenCache.get(id);
+  if (hit && hit.exp > Date.now() + 5 * 60_000) return hit.token;
   const r = await ghApi<{ token: string; expires_at: string }>(
-    `/app/installations/${installationId}/access_tokens`,
-    jwt,
+    `/app/installations/${id}/access_tokens`,
+    mintJwt(auth),
     { method: "POST" },
   );
-  cache = { token: r.token, exp: new Date(r.expires_at).getTime() };
+  tokenCache.set(id, { token: r.token, exp: new Date(r.expires_at).getTime() });
   return r.token;
+}
+
+/** Resolve the installation id for a repo: its stored installationId, else the
+ *  installation on the repo's GitHub owner (per-org), else undefined (fleet). */
+export async function installationIdForRepo(
+  store: {
+    getRepositoryByFullName: (
+      f: string,
+    ) => Promise<{ installationId: string | null } | null>;
+    getInstallationByAccount: (a: string) => Promise<{ installationId: string } | null>;
+  },
+  repo: string,
+): Promise<string | undefined> {
+  const row = await store.getRepositoryByFullName(repo).catch(() => null);
+  if (row?.installationId) return row.installationId;
+  const owner = repo.split("/")[0] ?? "";
+  const inst = owner ? await store.getInstallationByAccount(owner).catch(() => null) : null;
+  return inst?.installationId ?? undefined;
 }

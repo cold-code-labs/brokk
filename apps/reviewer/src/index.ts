@@ -14,7 +14,12 @@ import { promisify } from "node:util";
 import { createDb, createStore } from "@brokk/db";
 import { loadEitriConfig } from "./config.js";
 import { EitriGit } from "./git.js";
-import { type AppAuth, getInstallationToken, loadAppAuth } from "./github-app.js";
+import {
+  type AppAuth,
+  getInstallationToken,
+  installationIdForRepo,
+  loadAppAuth,
+} from "./github-app.js";
 import { reviewPr } from "@brokk/reviewer";
 import { formatBumpRemediation, formatScanMarkdown, runScan, scanPromptBlock } from "./scan.js";
 
@@ -107,12 +112,18 @@ async function main() {
   // A fresh GitHub token for read ops (getPr/listOpenPrs): the durable Eitri App
   // installation token, falling back to the ambient PAT. The PAT expiring is what
   // made PR fetch 404 ("not found") and stalled reviews — the App key doesn't.
-  const ghToken = async (): Promise<string> =>
-    appAuth ? await getInstallationToken(appAuth).catch(() => cfg.githubToken) : cfg.githubToken;
+  // ADR 0064: token for a repo = its org's installation (private org repos), else
+  // fleet default. Per-repo, so concurrent reviews of different orgs don't cross.
+  const ghToken = async (repo?: string): Promise<string> => {
+    if (!appAuth) return cfg.githubToken;
+    const id = repo ? await installationIdForRepo(store, repo) : undefined;
+    return getInstallationToken(appAuth, id).catch(() => cfg.githubToken);
+  };
 
-  // One bare clone + worktree dir per repo, created lazily and cached.
+  // One bare clone + worktree dir per repo, created lazily and cached (with its
+  // resolved installation, so the org's token is used for clone/fetch).
   const gits = new Map<string, EitriGit>();
-  const gitFor = (repo: string, cloneUrl: string): EitriGit => {
+  const gitFor = async (repo: string, cloneUrl: string): Promise<EitriGit> => {
     let g = gits.get(repo);
     if (!g) {
       g = new EitriGit({
@@ -120,6 +131,7 @@ async function main() {
         repo,
         cloneUrl,
         githubToken: cfg.githubToken,
+        installationId: appAuth ? await installationIdForRepo(store, repo) : null,
       });
       gits.set(repo, g);
     }
@@ -129,7 +141,7 @@ async function main() {
   const seedProjectId = cfg.repo ? await resolveProjectId(store, cfg.repo) : null;
 
   const reviewTriggered = async (repo: string, prNumber: number): Promise<{ ok: boolean; detail: string }> => {
-    let pr = await getPr(repo, prNumber, await ghToken());
+    let pr = await getPr(repo, prNumber, await ghToken(repo));
     if (!pr) return { ok: false, detail: `PR ${repo}#${prNumber} not found` };
     if (cfg.skipAuthors.includes(pr.author?.login)) {
       return { ok: false, detail: `author ${pr.author?.login} skipped` };
@@ -144,7 +156,7 @@ async function main() {
       const staleSha = pr.headRefOid;
       for (let i = 0; i < 5; i++) {
         await sleep(2000);
-        const next = await getPr(repo, prNumber, await ghToken());
+        const next = await getPr(repo, prNumber, await ghToken(repo));
         if (next && next.headRefOid !== staleSha) {
           pr = next;
           break;
@@ -152,7 +164,7 @@ async function main() {
       }
     }
     if (await store.hasReview(repo, pr.number, pr.headRefOid)) {
-      await tryAutoMerge(cfg, store, gitFor(repo, `https://github.com/${repo}.git`), appAuth, repo, pr).catch(
+      await tryAutoMerge(cfg, store, await gitFor(repo, `https://github.com/${repo}.git`), appAuth, repo, pr).catch(
         () => {},
       );
       return { ok: true, detail: `already reviewed @ ${pr.headRefOid.slice(0, 8)}` };
@@ -161,7 +173,7 @@ async function main() {
     const cloneUrl =
       (await store.getRepositoryByFullName(repo).catch(() => null))?.cloneUrl ??
       `https://github.com/${repo}.git`;
-    await reviewOne(cfg, store, gitFor(repo, cloneUrl), appAuth, repo, projectId, pr);
+    await reviewOne(cfg, store, await gitFor(repo, cloneUrl), appAuth, repo, projectId, pr);
     return { ok: true, detail: `reviewed ${repo}#${pr.number} @ ${pr.headRefOid.slice(0, 8)}` };
   };
 
@@ -243,9 +255,9 @@ async function main() {
       console.error("[eitri] watch-set build failed:", e);
     }
     for (const w of watch) {
-      const git = gitFor(w.repo, w.cloneUrl);
+      const git = await gitFor(w.repo, w.cloneUrl);
       try {
-        const prs = await listOpenPrs(w.repo, await ghToken());
+        const prs = await listOpenPrs(w.repo, await ghToken(w.repo));
         for (const pr of prs) {
           if (cfg.skipAuthors.includes(pr.author?.login)) continue;
           if (await store.hasReview(w.repo, pr.number, pr.headRefOid)) {
@@ -335,7 +347,7 @@ async function reviewOne(
     const body = scanSection ? `${banner}${scanSection}\n\n---\n\n${llm.body}` : llm.body;
     const comment = `🛡️ **Eitri** — *the forge's second smith*\n\n${body}`;
     // Post identity: GitHub App token (Eitri[bot]) > own token > shared account.
-    const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;
+    const token = appAuth ? await getInstallationToken(appAuth, await installationIdForRepo(store, repo)) : cfg.postToken;
     const canReview = Boolean(appAuth) || cfg.hasOwnIdentity;
     // Belt and braces for INC-2026-07-19: postReview now degrades a refused
     // verdict to COMMENT, so this should not throw. If it still does, record the
@@ -562,7 +574,7 @@ async function attemptMerge(
     }
   } else {
     try {
-      const token = appAuth ? await getInstallationToken(appAuth) : cfg.postToken;
+      const token = appAuth ? await getInstallationToken(appAuth, await installationIdForRepo(store, repo)) : cfg.postToken;
       await git.mergePr(pr.number, token);
       console.log(`[eitri] ${repo}#${pr.number} → MERGED (squash)`);
       // The base just advanced — sibling Brokk PRs on it may now be CONFLICTING.

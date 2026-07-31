@@ -21,7 +21,14 @@ async function gh(args: string[], env: NodeJS.ProcessEnv): Promise<string> {
 export class EitriGit {
   private readonly appAuth = loadAppAuth();
   constructor(
-    private readonly opts: { workDir: string; repo: string; cloneUrl: string; githubToken: string },
+    private readonly opts: {
+      workDir: string;
+      repo: string;
+      cloneUrl: string;
+      githubToken: string;
+      /** ADR 0064: the repo's org installation — its token clones private org repos. */
+      installationId?: string | null;
+    },
   ) {}
 
   /** Auth env for git/gh — a fresh Eitri App installation token (durable; the App
@@ -31,7 +38,7 @@ export class EitriGit {
     let token = this.opts.githubToken;
     if (this.appAuth) {
       try {
-        token = await getInstallationToken(this.appAuth);
+        token = await getInstallationToken(this.appAuth, this.opts.installationId ?? undefined);
       } catch {
         // App mint failed → fall back to the ambient PAT.
       }
