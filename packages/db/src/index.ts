@@ -59,7 +59,7 @@ import type {
 } from "@brokk/core";
 import { randomUUID } from "node:crypto";
 import { forcaToModel } from "@brokk/core";
-import { and, asc, desc, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -1702,12 +1702,16 @@ export function createStore(db: Db): Store {
             .for("update", { skipLocked: true });
         }
         if (seat.length === 0) {
-          // Round-robin fallback: least-recently-used active seat, locked so two
-          // concurrent claims don't both pick the same one.
+          // Round-robin fallback: least-recently-used active PERSONAL seat, locked so
+          // two concurrent claims don't both pick the same one. Excludes kind="fuel"
+          // (ADR 0064): an unattributed card must NEVER borrow an org's fuel key —
+          // that would bill a random tenant. It may borrow a personal Max seat (the
+          // "teammate lends a peer" intent, CCL-internal); with none, it falls through
+          // to the ambient/fleet token (source "env") — work still never stalls.
           seat = await tx
             .select({ id: subscriptions.id, sealed: subscriptions.sealedToken, kind: subscriptions.kind })
             .from(subscriptions)
-            .where(eq(subscriptions.status, "active"))
+            .where(and(eq(subscriptions.status, "active"), ne(subscriptions.kind, "fuel")))
             .orderBy(sql`${subscriptions.lastUsedAt} asc nulls first`)
             .limit(1)
             .for("update", { skipLocked: true });
