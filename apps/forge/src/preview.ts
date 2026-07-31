@@ -102,6 +102,21 @@ export function loadAppSecrets(dir: string, project: string): Record<string, str
 
 /** How many trailing output lines a boot keeps to explain a death before serving. */
 const TAIL_LINES = 12;
+
+// ── F0 resource guardrails (ADR 0073 §fase 1.5) ──────────────────────────────
+// The supervisor spawns each preview as a `next dev` process on a SHARED runner.
+// Until per-session sandboxing lands (F2 ContainerSandbox), a single runaway
+// preview can starve every neighbour and the runner itself. These are the cheap,
+// opt-in guardrails that contain that blast radius WITHOUT changing the process
+// model — every knob defaults to off, so an unset env = today's behaviour.
+//
+/** Consecutive mem-cap kills (within the reset window) before a preview is
+ *  FAILED instead of respun — so a genuinely too-heavy app can't be pinned in an
+ *  endless kill/respin loop. */
+const PREVIEW_MEM_MAX_STRIKES = 3;
+/** A mem-cap strike older than this is forgiven: a preview that runs healthy for
+ *  this long resets its strike count, so unrelated future spikes start fresh. */
+const PREVIEW_MEM_STRIKE_RESET_MS = 10 * 60_000;
 /** Porcelain paths that Next (etc.) rewrites on boot — not human live-edits (BROKK-2). */
 const GENERATED_DIRTY_RE = /(?:^|\s)(?:\.\/)?next-env\.d\.ts$/;
 
@@ -148,6 +163,19 @@ export class PreviewSupervisor {
   private readonly codeHealedShas = new Set<string>();
   /** Master switch for bundle self-heal (BROKK_PREVIEW_AUTOHEAL=0 disables). */
   private readonly autoheal = process.env.BROKK_PREVIEW_AUTOHEAL !== "0";
+
+  /** F0 (ADR 0073 §fase 1.5): hard resident-set cap (MB) for a preview's process
+   *  tree. Over it, the tick watchdog kills + respins the preview. 0 = disabled
+   *  (default) — set via BROKK_PREVIEW_MEM_HARD_MB to opt a fleet in. */
+  private readonly memHardMb = Number(process.env.BROKK_PREVIEW_MEM_HARD_MB ?? 0) || 0;
+  /** Min ms between watchdog kills of the SAME preview — backoff so a heavy-but-
+   *  legit app isn't pinned in a kill/respin loop. BROKK_PREVIEW_MEM_BACKOFF_SEC. */
+  private readonly memBackoffMs =
+    (Number(process.env.BROKK_PREVIEW_MEM_BACKOFF_SEC ?? 120) || 120) * 1000;
+  /** Last mem-cap kill per preview id (ms) — drives the backoff above. */
+  private readonly lastMemKill = new Map<string, number>();
+  /** Consecutive mem-cap kills per preview id — trips PREVIEW_MEM_MAX_STRIKES. */
+  private readonly memStrikes = new Map<string, number>();
 
   /** Last disk-reclaim sweep, so it runs hourly instead of every tick — it shells
    *  out to git once per cached bare repo, which is wasted work at tick cadence. */
@@ -493,6 +521,50 @@ export class PreviewSupervisor {
           const rssMb = processTreeRssMb(lp.proc.pid);
           if (rssMb != null && rssMb !== p.rssMb) {
             void this.controlPatch(`/previews/${p.id}`, { rssMb }).catch(() => {});
+          }
+
+          // F0 resource watchdog (ADR 0073 §fase 1.5): contain a runaway preview
+          // on the SHARED runner before it starves its neighbours — the kernel's
+          // job once per-session sandboxing (F2) lands, ours until then. Reuses
+          // the RSS just measured; over the hard cap it kills the tree and respins
+          // (status→starting), with per-preview backoff so a heavy-but-legit app
+          // isn't pinned in a loop, and a strike limit that FAILS it (instead of
+          // looping) when it simply won't fit. Off unless BROKK_PREVIEW_MEM_HARD_MB.
+          if (this.memHardMb && rssMb != null && rssMb > this.memHardMb) {
+            const now = Date.now();
+            const last = this.lastMemKill.get(p.id) ?? 0;
+            if (now - last >= this.memBackoffMs) {
+              const prior =
+                now - last > PREVIEW_MEM_STRIKE_RESET_MS ? 0 : this.memStrikes.get(p.id) ?? 0;
+              const strikes = prior + 1;
+              this.lastMemKill.set(p.id, now);
+              this.memStrikes.set(p.id, strikes);
+              this.killAndClean(p.id, lp);
+              if (strikes >= PREVIEW_MEM_MAX_STRIKES) {
+                console.error(
+                  `[preview-supervisor] ${p.subdomain}: RSS ${rssMb}MB > cap ${this.memHardMb}MB ×${strikes} — giving up (failed)`,
+                );
+                await this.controlPatch(`/previews/${p.id}`, {
+                  status: "failed",
+                  detail: `Preview excedeu ${this.memHardMb}MB de RAM ${strikes}× — parado para proteger o runner.`,
+                  pid: null,
+                  port: null,
+                  rssMb: null,
+                }).catch(() => {});
+              } else {
+                console.warn(
+                  `[preview-supervisor] ${p.subdomain}: RSS ${rssMb}MB > cap ${this.memHardMb}MB — respin ${strikes}/${PREVIEW_MEM_MAX_STRIKES}`,
+                );
+                await this.controlPatch(`/previews/${p.id}`, {
+                  status: "starting",
+                  detail: `Reiniciando: RAM ${rssMb}MB acima do limite de ${this.memHardMb}MB.`,
+                  pid: null,
+                  port: null,
+                  rssMb: null,
+                }).catch(() => {});
+              }
+              break;
+            }
           }
 
           // Drift refresh: pull the branch tip into the worktree so pushes that
@@ -918,9 +990,22 @@ export class PreviewSupervisor {
       }
     }
 
+    // F0 (ADR 0073 §fase 1.5): cap the dev server's V8 heap so one runaway preview
+    // can't OOM the shared runner. Applies to the long-lived server only (not the
+    // one-shot install above), appends to any inherited NODE_OPTIONS, and is
+    // idempotent. Opt-in: BROKK_PREVIEW_NODE_HEAP_MB unset = no cap (unchanged).
+    const heapMb = Number(process.env.BROKK_PREVIEW_NODE_HEAP_MB ?? 0) || 0;
+    const spawnEnv: NodeJS.ProcessEnv =
+      heapMb && !/--max-old-space-size=/.test(env.NODE_OPTIONS ?? "")
+        ? {
+            ...env,
+            NODE_OPTIONS: `${env.NODE_OPTIONS ? `${env.NODE_OPTIONS} ` : ""}--max-old-space-size=${heapMb}`,
+          }
+        : env;
+
     const proc = spawn("sh", ["-c", cmd], {
       cwd: wtPath,
-      env,
+      env: spawnEnv,
       // Own process group so killTree(-pid) reaps pnpm/vite/next children.
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
