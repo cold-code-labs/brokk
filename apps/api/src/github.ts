@@ -14,8 +14,12 @@ export interface AppAuth {
 }
 
 export function loadAppAuth(env = process.env): AppAuth | null {
-  const appId = env.EITRI_APP_ID;
-  const keyFile = env.EITRI_APP_PRIVATE_KEY_FILE;
+  // Prefer a DEDICATED public "Brokk connect" app (multi-tenant org installs);
+  // fall back to the fleet's Eitri app so a single-app deploy still works. Keeping
+  // them separable means the tenant-facing install app isn't the same one that
+  // runs the fleet's own forge/reviewer.
+  const appId = env.BROKK_GITHUB_APP_ID || env.EITRI_APP_ID;
+  const keyFile = env.BROKK_GITHUB_APP_PRIVATE_KEY_FILE || env.EITRI_APP_PRIVATE_KEY_FILE;
   if (!appId || !keyFile) return null;
   try {
     return { appId, privateKey: readFileSync(keyFile, "utf8") };
