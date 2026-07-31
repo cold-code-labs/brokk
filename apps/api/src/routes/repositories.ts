@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requestActor, canSeeProject, listScope, orgTenancyEnabled } from "../actor.js";
 import type { AppDeps } from "../app.js";
 import { fireHuginnDiscovery } from "../huginn-fire.js";
+import { loadAppAuth, listInstallationRepositories } from "../github.js";
 
 const run = promisify(execFile);
 
@@ -85,14 +86,57 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
     return c.json(await deps.store.listRepositories(listScope(actor)));
   });
 
-  // Candidates from the org, minus the ones already connected. Powers the
-  // "auto-import via gh" picker in the UI. Staff-only when tenancy is on —
-  // the GH org is the CCL fleet surface (ADR 0064).
+  // Candidates to connect, minus the ones already connected. Two sources:
+  //  • per-org (ADR 0064): if the org connected its own GitHub, list the repos its
+  //    installation(s) authorize — GET /installation/repositories. No staff gate.
+  //  • fleet: `gh repo list <CCL org>` — staff-only when tenancy is on (the GH org
+  //    is the fleet surface). An org with no installation is told to connect first.
   r.get("/import/candidates", async (c) => {
     const actor = requestActor(c, deps.runnerSecret);
-    if (orgTenancyEnabled() && !actor.isStaff) {
-      return c.json({ error: "forbidden" }, 403);
+    const auth = loadAppAuth();
+    const orgIds = actor.isStaff ? [] : actor.orgIds;
+    const insts =
+      auth && orgIds.length ? await deps.store.listInstallationsForOrgs(orgIds) : [];
+
+    if (auth && insts.length) {
+      const seen = new Set<string>();
+      const candidates: Candidate[] = [];
+      const errors: string[] = [];
+      for (const inst of insts) {
+        try {
+          const repos = await listInstallationRepositories(auth, inst.installationId);
+          for (const repo of repos) {
+            if (seen.has(repo.fullName) || repo.isArchived) continue;
+            seen.add(repo.fullName);
+            candidates.push({
+              fullName: repo.fullName,
+              owner: repo.owner,
+              name: repo.name,
+              defaultBranch: repo.defaultBranch,
+              description: repo.description,
+              isArchived: repo.isArchived,
+            });
+          }
+        } catch (err) {
+          errors.push(err instanceof Error ? err.message : String(err));
+        }
+      }
+      const connected = new Set(
+        (await deps.store.listRepositories(listScope(actor))).map((x) => x.fullName),
+      );
+      return c.json({
+        source: "installation",
+        candidates: candidates.filter((x) => !connected.has(x.fullName)),
+        ...(errors.length ? { errors } : {}),
+      });
     }
+
+    // No installation for this org → tell the UI to run the connect flow first
+    // (instead of leaking the fleet org's repos).
+    if (orgTenancyEnabled() && !actor.isStaff) {
+      return c.json({ error: "conecte o GitHub da organização primeiro", needsConnect: true }, 409);
+    }
+
     const org = c.req.query("org") ?? GH_ORG;
     let candidates: Candidate[];
     try {
@@ -110,6 +154,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
       (await deps.store.listRepositories(listScope(actor))).map((x) => x.fullName),
     );
     return c.json({
+      source: "fleet",
       org,
       candidates: candidates.filter((x) => !connected.has(x.fullName)),
     });
@@ -126,17 +171,24 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
     return c.json(repo);
   });
 
-  // Bulk-connect selected repos (and, by default, a project each).
+  // Bulk-connect selected repos (and, by default, a project each). Org-aware:
+  // a non-staff admin imports into their own org, stamping the org's installation.
   r.post("/import", async (c) => {
     const actor = requestActor(c, deps.runnerSecret);
-    if (orgTenancyEnabled() && !actor.isStaff) {
-      return c.json({ error: "forbidden" }, 403);
-    }
     const parsed = ImportBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    let logtoOrgId: string | null = null;
+    if (orgTenancyEnabled() && !actor.isStaff) {
+      if (!actor.orgIds.length) return c.json({ error: "no organization on session" }, 403);
+      logtoOrgId = actor.orgIds[0]!;
+    }
     const out = [];
     for (const repo of parsed.data.repos) {
-      const connected = await connectOne(deps, repo, parsed.data.createProject);
+      const installationId = await resolveInstallationId(deps, logtoOrgId, repo.fullName);
+      const connected = await connectOne(deps, repo, parsed.data.createProject, {
+        logtoOrgId,
+        installationId,
+      });
       out.push(connected.repo);
     }
     return c.json(out, 201);
@@ -152,13 +204,31 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
       if (!actor.orgIds.length) return c.json({ error: "no organization on session" }, 403);
       logtoOrgId = actor.orgIds[0]!;
     }
+    const installationId = await resolveInstallationId(deps, logtoOrgId, parsed.data.fullName);
     const connected = await connectOne(deps, parsed.data, parsed.data.createProject, {
       logtoOrgId,
+      installationId,
     });
     return c.json(connected.repo, 201);
   });
 
   return r;
+}
+
+/** The org's installation that owns a repo — matched by account login (the repo
+ *  owner), falling back to the org's sole installation. Null when the org hasn't
+ *  connected GitHub (repo stays on the ambient fleet token). */
+async function resolveInstallationId(
+  deps: AppDeps,
+  logtoOrgId: string | null,
+  fullName: string,
+): Promise<string | null> {
+  if (!logtoOrgId) return null;
+  const insts = await deps.store.listInstallationsForOrgs([logtoOrgId]);
+  if (!insts.length) return null;
+  const owner = fullName.split("/")[0]!.toLowerCase();
+  const match = insts.find((i) => (i.accountLogin ?? "").toLowerCase() === owner);
+  return (match ?? insts[0]!).installationId;
 }
 
 export async function connectOne(
@@ -170,6 +240,7 @@ export async function connectOne(
     baseBranch?: string;
     heimdallAppId?: string;
     logtoOrgId?: string | null;
+    installationId?: string | null;
   },
 ) {
   const existing = await deps.store.getRepositoryByFullName(input.fullName);
@@ -182,6 +253,7 @@ export async function connectOne(
       defaultBranch: input.defaultBranch,
       cloneUrl: `https://github.com/${input.fullName}.git`,
       logtoOrgId: opts?.logtoOrgId ?? null,
+      installationId: opts?.installationId ?? null,
     }));
 
   let project = (await deps.store.listProjects()).find((p) => p.repositoryId === repo.id) ?? null;

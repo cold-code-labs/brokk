@@ -5,6 +5,7 @@ import { version } from "../package.json";
 import { chatRoutes } from "./routes/chat.js";
 import { conversationsRoutes } from "./routes/conversations.js";
 import { driverRunsRoutes } from "./routes/driver-runs.js";
+import { githubRoutes } from "./routes/github.js";
 import { missionsRoutes } from "./routes/missions.js";
 import { plansRoutes } from "./routes/plans.js";
 import { previewsRoutes } from "./routes/previews.js";
@@ -105,6 +106,7 @@ export function buildApp(deps: AppDeps): Hono {
   });
 
   app.route("/repositories", repositoriesRoutes(deps));
+  app.route("/github", githubRoutes(deps));
   app.route("/conversations", conversationsRoutes(deps));
   app.route("/projects", projectsRoutes(deps));
   app.route("/plans", plansRoutes(deps));

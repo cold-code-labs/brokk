@@ -68,6 +68,33 @@ export function webhooksRoutes(deps: AppDeps): Hono {
       }
     }
 
+    // ADR 0064: GitHub App installation lifecycle → keep installation↔org in sync.
+    // Binding (created) happens in /github/setup (carries the signed org); here we
+    // handle the events that have no org context: uninstall + suspend/unsuspend.
+    if (event === "installation") {
+      const instId = payload.installation?.id != null ? String(payload.installation.id) : null;
+      if (instId) {
+        if (payload.action === "deleted") {
+          await deps.store.deleteInstallation(instId).catch(() => {});
+        } else if (payload.action === "suspend" || payload.action === "unsuspend") {
+          const inst = await deps.store.getInstallation(instId).catch(() => null);
+          if (inst) {
+            await deps.store
+              .upsertInstallation({
+                installationId: instId,
+                logtoOrgId: inst.logtoOrgId,
+                accountLogin: inst.accountLogin,
+                accountType: inst.accountType,
+                suspendedAt: payload.action === "suspend" ? new Date() : null,
+              })
+              .catch(() => {});
+          }
+        }
+        console.log(`[webhook] installation ${payload.action} ${instId.slice(0, 8)}`);
+      }
+      return c.json({ ok: true, event, action: payload.action });
+    }
+
     // ADR 0074: PR-monitor — review / CI → revise card for OpenHands.
     const monitored = await handlePrMonitorWebhook(
       deps.store,
@@ -106,6 +133,7 @@ function verifyGithubSignature(body: string, header: string, secret: string): bo
 
 type GithubPayload = {
   action?: string;
+  installation?: { id?: number | string };
   repository?: { full_name?: string };
   pull_request?: {
     merged?: boolean;
