@@ -243,6 +243,24 @@ export async function connectOne(
     installationId?: string | null;
   },
 ) {
+  // Attribution (ADR 0064). An explicit org (from the actor, via the connect
+  // routes) always wins. When none is given — ingress/from-brief have no actor —
+  // derive it from the repo's GitHub OWNER: the installation on that account
+  // carries its org. So a card first touched via Svalinn/ingress still forges with
+  // the org's fuel + its own installation token, and never grabs a random seat.
+  // A repo under the fleet's own GH org (no tenant installation) stays null =
+  // fleet default, which is correct for CCL.
+  let logtoOrgId = opts?.logtoOrgId ?? null;
+  let installationId = opts?.installationId ?? null;
+  if (!logtoOrgId || !installationId) {
+    const owner = input.fullName.split("/")[0]!;
+    const inst = await deps.store.getInstallationByAccount(owner).catch(() => null);
+    if (inst) {
+      logtoOrgId ??= inst.logtoOrgId;
+      installationId ??= inst.installationId;
+    }
+  }
+
   const existing = await deps.store.getRepositoryByFullName(input.fullName);
   const repo =
     existing ??
@@ -252,8 +270,8 @@ export async function connectOne(
       name: input.fullName.split("/").slice(1).join("/"),
       defaultBranch: input.defaultBranch,
       cloneUrl: `https://github.com/${input.fullName}.git`,
-      logtoOrgId: opts?.logtoOrgId ?? null,
-      installationId: opts?.installationId ?? null,
+      logtoOrgId,
+      installationId,
     }));
 
   let project = (await deps.store.listProjects()).find((p) => p.repositoryId === repo.id) ?? null;
@@ -267,7 +285,7 @@ export async function connectOne(
       baseBranch: opts?.baseBranch ?? repo.defaultBranch,
       devFirst: opts?.devFirst ?? false,
       heimdallAppId: opts?.heimdallAppId ?? null,
-      logtoOrgId: opts?.logtoOrgId ?? repo.logtoOrgId ?? null,
+      logtoOrgId: logtoOrgId ?? repo.logtoOrgId ?? null,
     });
     // Huginn Discovery (ADR 0067): brief always; QA only after Hero on prototypes
     // (devFirst) — cataloguing the empty template wastes the board.

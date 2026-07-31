@@ -548,6 +548,9 @@ export interface Store {
   }): Promise<GithubInstallation>;
   /** All installations bound to any of these orgs (repo discovery + token). */
   listInstallationsForOrgs(orgIds: string[]): Promise<GithubInstallation[]>;
+  /** The installation on a GitHub account (org/user login) — reverse lookup used to
+   *  auto-attribute a repo to its org when no actor context is available (ingress). */
+  getInstallationByAccount(accountLogin: string): Promise<GithubInstallation | null>;
   getInstallation(installationId: string): Promise<GithubInstallation | null>;
   deleteInstallation(installationId: string): Promise<void>;
 
@@ -984,6 +987,16 @@ export function createStore(db: Db): Store {
         .where(inArray(githubInstallations.logtoOrgId, orgIds))
         .orderBy(asc(githubInstallations.accountLogin));
       return rows.map(rowToInstallation);
+    },
+    async getInstallationByAccount(accountLogin) {
+      const rows = await db
+        .select()
+        .from(githubInstallations)
+        .where(sql`lower(${githubInstallations.accountLogin}) = ${accountLogin.toLowerCase()}`)
+        // Prefer a live installation over a suspended one for the same account.
+        .orderBy(asc(githubInstallations.suspendedAt))
+        .limit(1);
+      return rows[0] ? rowToInstallation(rows[0]) : null;
     },
     async getInstallation(installationId) {
       const rows = await db
