@@ -22,7 +22,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
-import type { ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -39,10 +38,10 @@ import type { GhProvider } from "./git.js";
 import type { DataProvider } from "./data-provider.js";
 import { previewSpawnEnv } from "./preview-env.js";
 import { ensureNativeNextSwc } from "./next-swc.js";
-import { ProcessSandbox, type Sandbox } from "./sandbox.js";
+import { ProcessSandbox, type Sandbox, type SandboxHandle } from "./sandbox.js";
 
 interface LivePreview {
-  proc: ChildProcess;
+  handle: SandboxHandle;
   port: number;
   /** When the process was spawned — lets the tick tell a fresh boot settling
    *  into 'live' apart from a stale process whose row was respun to 'starting'. */
@@ -285,7 +284,7 @@ export class PreviewSupervisor {
         patch.detail = "Atualizando preview…";
         // Keep port/pid so the gateway keeps routing the outgoing process.
         patch.port = lp.port;
-        patch.pid = lp.proc.pid ?? null;
+        patch.pid = lp.handle.pid ?? null;
       }
       await this.controlPatch(`/previews/${id}`, patch).catch(() => {});
     }
@@ -470,11 +469,11 @@ export class PreviewSupervisor {
               console.error(`[preview-supervisor] boot ${p.id} error:`, err);
               const detail = (err instanceof Error ? err.message : String(err)).slice(0, 300);
               // Soft-respin failed: restore live on the retained process if any.
-              if (stale && this.live.get(p.id)?.proc === stale.proc) {
+              if (stale && this.live.get(p.id)?.handle === stale.handle) {
                 void this.controlPatch(`/previews/${p.id}`, {
                   status: "live",
                   detail: null,
-                  pid: stale.proc.pid ?? null,
+                  pid: stale.handle.pid ?? null,
                   port: stale.port,
                 }).catch(() => {});
               } else {
@@ -494,9 +493,9 @@ export class PreviewSupervisor {
           if (!lp) break; // not managed by this instance
 
           // Process exited on its own
-          if (lp.proc.exitCode !== null || lp.proc.killed) {
+          if (lp.handle.exitCode !== null || lp.handle.killed) {
             console.log(
-              `[preview-supervisor] ${p.subdomain} exited (code=${lp.proc.exitCode})`,
+              `[preview-supervisor] ${p.subdomain} exited (code=${lp.handle.exitCode})`,
             );
             this.killAndClean(p.id, lp);
             await this.controlPatch(`/previews/${p.id}`, {
@@ -528,7 +527,7 @@ export class PreviewSupervisor {
           }
 
           // Stamp RSS of the HMR tree (shell + vite/next children) for the UI.
-          const rssMb = this.sandbox.rssMb(lp.proc);
+          const rssMb = lp.handle.rssMb();
           if (rssMb != null && rssMb !== p.rssMb) {
             void this.controlPatch(`/previews/${p.id}`, { rssMb }).catch(() => {});
           }
@@ -1064,28 +1063,24 @@ export class PreviewSupervisor {
     // 1 on ERR_PNPM_IGNORED_BUILDS). Echo the last lines back on failure so the
     // reason is in the log next to the verdict.
     const tail: string[] = [];
-    const keepTail = (d: Buffer) => {
-      for (const line of d.toString().split("\n")) {
+    const keepTail = (d: string) => {
+      for (const line of d.split("\n")) {
         const s = line.trim();
         if (!s) continue;
         tail.push(s);
         if (tail.length > TAIL_LINES) tail.shift();
       }
     };
-    proc.stdout?.on("data", (d: Buffer) => {
-      keepTail(d);
-      process.stdout.write(`${tag} ${d}`);
-    });
-    proc.stderr?.on("data", (d: Buffer) => {
-      keepTail(d);
-      process.stderr.write(`${tag} ${d}`);
+    proc.onOutput((chunk, stream) => {
+      keepTail(chunk);
+      (stream === "stderr" ? process.stderr : process.stdout).write(`${tag} ${chunk}`);
     });
 
     // Register locally BEFORE the first await so concurrent ticks don't
     // double-boot. Soft cutover: keep the outgoing process in `live` and park
     // the incoming one in `pending` until health flips the pointer.
     const entry: LivePreview = {
-      proc,
+      handle: proc,
       port,
       startedAt: Date.now(),
       bundleProbe: spec.bundleProbe,
@@ -1112,7 +1107,7 @@ export class PreviewSupervisor {
         ? "Reiniciando preview (o atual segue no ar)…"
         : "Instalando dependências e compilando…",
       // Keep serving the retained port while status is starting (gateway accepts it).
-      ...(retain ? { port: retain.port, pid: retain.proc.pid ?? null } : {}),
+      ...(retain ? { port: retain.port, pid: retain.handle.pid ?? null } : {}),
     }).catch(() => {});
 
     const outcome = await this.waitHealthy(preview, proc, port, spec.health ?? "/");
@@ -1125,19 +1120,19 @@ export class PreviewSupervisor {
       }
       this.pending.delete(preview.id);
       this.usedPorts.delete(port);
-      this.sandbox.kill(proc);
-      if (retain && this.live.get(preview.id)?.proc === retain.proc) {
+      proc.kill();
+      if (retain && this.live.get(preview.id)?.handle === retain.handle) {
         // Soft-respin failed — keep the old process as the live preview.
         await this.controlPatch(`/previews/${preview.id}`, {
           status: "live",
           detail: null,
-          pid: retain.proc.pid ?? null,
+          pid: retain.handle.pid ?? null,
           port: retain.port,
         }).catch(() => {});
         return;
       }
       const lp = this.live.get(preview.id);
-      if (lp && lp.proc === proc) this.killAndClean(preview.id, lp);
+      if (lp && lp.handle === proc) this.killAndClean(preview.id, lp);
       await this.controlPatch(`/previews/${preview.id}`, {
         status: "failed",
         detail: tail.length
@@ -1159,12 +1154,12 @@ export class PreviewSupervisor {
       port,
     });
 
-    if (retain && retain.proc !== proc) {
+    if (retain && retain.handle !== proc) {
       console.log(
-        `[preview-supervisor] ${preview.subdomain}: cutover :${retain.port} → :${port} (retiring old pid=${retain.proc.pid})`,
+        `[preview-supervisor] ${preview.subdomain}: cutover :${retain.port} → :${port} (retiring old pid=${retain.handle.pid})`,
       );
       this.usedPorts.delete(retain.port);
-      this.sandbox.kill(retain.proc);
+      retain.handle.kill();
     }
 
     phase("ready");
@@ -1186,7 +1181,7 @@ export class PreviewSupervisor {
     console.log(`[preview-supervisor] ${preview.subdomain}: fases ${phaseSummary()}`);
 
     // Auto-stop when the process exits unexpectedly
-    proc.on("exit", (code, signal) => {
+    proc.onExit((code, signal) => {
       console.log(
         `[preview-supervisor] ${preview.subdomain} exited` +
           ` (code=${code}, signal=${signal})`,
@@ -1194,7 +1189,7 @@ export class PreviewSupervisor {
       const lp = this.live.get(preview.id);
       if (lp) {
         // Only clean up if this is still the registered process (not a restart)
-        if (lp.proc === proc) {
+        if (lp.handle === proc) {
           this.killAndClean(preview.id, lp);
           void this.controlPatch(`/previews/${preview.id}`, {
             status: "stopped",
@@ -1247,7 +1242,7 @@ export class PreviewSupervisor {
         detail: "Reiniciando preview (mantendo o atual no ar)…",
         // Keep port/pid so the gateway keeps routing the outgoing process.
         port: lp.port,
-        pid: lp.proc.pid ?? null,
+        pid: lp.handle.pid ?? null,
       });
       return;
     }
@@ -1319,7 +1314,7 @@ export class PreviewSupervisor {
    *  first compile shouldn't read as a failure. */
   private async waitHealthy(
     preview: Preview,
-    proc: ChildProcess,
+    proc: SandboxHandle,
     port: number,
     healthPath: string,
   ): Promise<"ready" | "exited" | "timeout"> {
@@ -1373,7 +1368,7 @@ export class PreviewSupervisor {
   private killAndClean(id: string, lp: LivePreview): void {
     this.live.delete(id);
     this.usedPorts.delete(lp.port);
-    this.sandbox.kill(lp.proc);
+    lp.handle.kill();
   }
 
   // ── Control-plane HTTP ──────────────────────────────────────────────────────
@@ -1428,7 +1423,7 @@ export class PreviewSupervisor {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // processTreeRssMb + killTree moved to ./process-tree.ts (F1, ADR 0073 fase 1.5)
-// and are now reached through the Sandbox (this.sandbox.rssMb / .kill).
+// and are now reached through the SandboxHandle (handle.rssMb() / .kill()).
 
 /** Sweep vite/next listening on the preview port range that we are NOT tracking.
  *  Covers survivors from before group-kill and from soft-respin cutovers that
