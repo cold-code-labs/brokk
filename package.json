@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "CCL's open-source AI coding-agent platform \u2014 cards, chat and review agents on a native lean kernel (Afl), forging code in isolated worktrees into PRs.",
+  "description": "CCL's open-source AI coding-agent platform — cards, chat and review agents on a native lean kernel (Afl), forging code in isolated worktrees into PRs.",
   "license": "Apache-2.0",
   "packageManager": "pnpm@9.15.0",
   "engines": {
@@ -26,7 +26,16 @@
   "pnpm": {
     "overrides": {
       "esbuild": ">=0.28.1",
-      "postcss": ">=8.5.10"
+      "postcss": ">=8.5.10",
+      "next": "15.5.22",
+      "sharp@<0.35.0": ">=0.35.0",
+      "postcss@<8.5.18": ">=8.5.18",
+      "fast-uri@<3.1.4": ">=3.1.4",
+      "js-yaml@>=4.0.0 <4.3.0": ">=4.3.0",
+      "js-yaml@<3.15.0": ">=3.15.0",
+      "brace-expansion@>=3.0.0 <5.0.7": ">=5.0.7",
+      "shell-quote@<1.9.0": ">=1.9.0",
+      "hono": "4.12.26"
     }
   }
 }
