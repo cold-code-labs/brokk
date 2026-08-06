@@ -195,12 +195,19 @@ export class Ledger {
     return this.db.prepare(sql).all(...args, limit)
   }
 
-  /** accept_rate por lente — a métrica que rebaixa lente ruidosa (ADR 0087 §6). */
+  /**
+   * accept_rate por lente — a métrica que rebaixa lente ruidosa (ADR 0087 §6).
+   *
+   * O denominador é o TRIADO, não o publicado. Publicado-mas-ainda-não-triado é
+   * ignorância, não rejeição: contá-lo como rejeição faz toda lente nova nascer
+   * com 0% e ser rebaixada antes de alguém olhar para ela.
+   */
   acceptRates(project) {
     return this.db
       .prepare(
         `select lens_id,
                 count(*) as published,
+                sum(case when status in ('open') then 1 else 0 end) as pendentes,
                 sum(case when status in ('triaged','dispatched','awaiting_verification','fixed') then 1 else 0 end) as accepted,
                 sum(case when status in ('wontfix','false_positive','suppressed') then 1 else 0 end) as rejected
            from findings where project = ? group by lens_id`,

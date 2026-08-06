@@ -121,10 +121,13 @@ switch (cmd) {
   case "stats": {
     const ledger = new Ledger(ledgerPath)
     const rows = ledger.acceptRates(args.project).map((r) => ({
-      lens: r.lens_id, publicados: r.published, aceitos: r.accepted, rejeitados: r.rejected,
-      accept_rate: r.published ? `${Math.round((r.accepted / r.published) * 100)}%` : "—",
+      lens: r.lens_id, achados: r.published, pendentes: r.pendentes,
+      aceitos: r.accepted, rejeitados: r.rejected,
+      accept_rate: (r.accepted + r.rejected)
+        ? `${Math.round((r.accepted / (r.accepted + r.rejected)) * 100)}%`
+        : "sem triagem",
     }))
-    console.log(table(rows, ["lens", "publicados", "aceitos", "rejeitados", "accept_rate"]))
+    console.log(table(rows, ["lens", "achados", "pendentes", "aceitos", "rejeitados", "accept_rate"]))
     ledger.close()
     break
   }
