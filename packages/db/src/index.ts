@@ -684,7 +684,12 @@ export interface Store {
   // ── Assurance ledger (ADR 0087) ──
   /** Dedupes by (repo, lens, fingerprint). See LedgerVerdict for the outcomes. */
   recordFinding(input: FindingInput): Promise<LedgerVerdict>;
-  listFindings(opts: { repo: string; status?: string; lensId?: string }): Promise<FindingRow[]>;
+  listFindings(opts: {
+    repo: string;
+    status?: string;
+    lensId?: string;
+    limit?: number;
+  }): Promise<FindingRow[]>;
   /** Refuses to write without a reason — a silent dismissal is not a triage. */
   triageFinding(
     id: string,
@@ -1637,15 +1642,18 @@ export function createStore(db: Db): Store {
       }
       return { verdict: "recurring" as const, id: existing.id, fingerprint: fp };
     },
-    async listFindings({ repo, status, lensId }) {
+    async listFindings({ repo, status, lensId, limit = 200 }) {
       const conds = [eq(findings.repo, repo)];
       if (status) conds.push(eq(findings.status, status));
       if (lensId) conds.push(eq(findings.lensId, lensId));
+      // Bounded by default: a long-lived repo ledger is unbounded, and this feeds
+      // a prompt. (Eitri flagged the missing LIMIT reviewing PR #93.)
       return db
         .select()
         .from(findings)
         .where(and(...conds))
-        .orderBy(desc(findings.updatedAt));
+        .orderBy(desc(findings.updatedAt))
+        .limit(limit);
     },
     async triageFinding(id, status, opts) {
       // The Svalinn rule: a dismissal without a reason is not a decision, it's a

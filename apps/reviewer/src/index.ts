@@ -321,7 +321,7 @@ async function reviewOne(
     // before comes back as the SAME finding instead of a fresh one. Best-effort:
     // if the read fails, the review still happens — it just forgets this round.
     const known: KnownFinding[] = await store
-      .listFindings({ repo, status: "open", lensId: "review.correctness" })
+      .listFindings({ repo, status: "open", lensId: "review.correctness", limit: 40 })
       .then((rows) => rows.map((r) => ({ id: r.id, title: r.title, file: r.filePath })))
       .catch(() => []);
 
@@ -359,6 +359,19 @@ async function reviewOne(
     // re-raised on the next commit. Best-effort: a ledger hiccup must never cost
     // the PR its review.
     const ledger = await recordFindings(store, repo, pr, llm.findings);
+    // Say it out loud: a review whose prose lists problems but whose machine block
+    // is empty writes NOTHING to the ledger, and the silence is indistinguishable
+    // from "clean PR". Observed on PR #93's second round.
+    console.log(
+      `[eitri] ${repo}#${pr.number} ledger: ${llm.findings.length} structured finding(s) → ` +
+        (ledger.length
+          ? Object.entries(
+              ledger.reduce<Record<string, number>>((a, l) => ({ ...a, [l.verdict]: (a[l.verdict] ?? 0) + 1 }), {}),
+            )
+              .map(([k, v]) => `${v} ${k}`)
+              .join(", ")
+          : "nothing recorded"),
+    );
     const body = scanSection ? `${banner}${scanSection}\n\n---\n\n${llm.body}` : llm.body;
     const comment =
       `🛡️ **Eitri** — *the forge's second smith*\n\n${body}` + formatLedgerFooter(ledger);
