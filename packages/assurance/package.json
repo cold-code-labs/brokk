@@ -1,0 +1,19 @@
+{
+  "name": "@brokk/assurance",
+  "version": "0.0.1-poc",
+  "private": true,
+  "type": "module",
+  "description": "PoC da ADR 0087 — lentes de asseguração com ledger de achados (dedupe entre runs, verificação adversarial, orçamento). Engine: Cursor API headless.",
+  "bin": {
+    "assurance": "./bin/assurance.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "smoke": "node bin/assurance.mjs lenses"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}
