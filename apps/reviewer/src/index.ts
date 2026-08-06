@@ -322,7 +322,7 @@ async function reviewOne(
     // if the read fails, the review still happens — it just forgets this round.
     const known: KnownFinding[] = await store
       .listFindings({ repo, status: "open", lensId: "review.correctness" })
-      .then((rows) => rows.slice(0, 40).map((r) => ({ id: r.id, title: r.title, file: r.filePath })))
+      .then((rows) => rows.map((r) => ({ id: r.id, title: r.title, file: r.filePath })))
       .catch(() => []);
 
     const llm = await reviewPr({

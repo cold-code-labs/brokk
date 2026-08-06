@@ -1537,6 +1537,12 @@ export function createStore(db: Db): Store {
                   eq(findings.id, input.matchId),
                   eq(findings.repo, input.repo),
                   eq(findings.lensId, input.lensId),
+                  // `open` only, matching exactly what the reviewer was shown. An
+                  // id it made up that happened to hit a suppressed row would
+                  // swallow a genuinely new finding; one hitting a fixed row would
+                  // fake a regression. The claim can only ever attach to a row the
+                  // model could actually have read.
+                  eq(findings.status, "open"),
                 ),
               )
               .limit(1)
