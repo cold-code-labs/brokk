@@ -7,6 +7,7 @@
  */
 
 export {
+  type KnownFinding,
   type ReviewFinding,
   type ReviewResult,
   loadEitriAflConfig,

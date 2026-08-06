@@ -20,7 +20,7 @@ import {
   installationIdForRepo,
   loadAppAuth,
 } from "./github-app.js";
-import { reviewPr, type ReviewFinding } from "@brokk/reviewer";
+import { reviewPr, type KnownFinding, type ReviewFinding } from "@brokk/reviewer";
 import { formatBumpRemediation, formatScanMarkdown, runScan, scanPromptBlock } from "./scan.js";
 
 const exec = promisify(execFile);
@@ -317,12 +317,21 @@ async function reviewOne(
       );
     }
 
+    // Show the reviewer what the ledger already holds, so a defect it has seen
+    // before comes back as the SAME finding instead of a fresh one. Best-effort:
+    // if the read fails, the review still happens — it just forgets this round.
+    const known: KnownFinding[] = await store
+      .listFindings({ repo, status: "open", lensId: "review.correctness" })
+      .then((rows) => rows.slice(0, 40).map((r) => ({ id: r.id, title: r.title, file: r.filePath })))
+      .catch(() => []);
+
     const llm = await reviewPr({
       cwd,
       model: cfg.model,
       prTitle: pr.title,
       diff,
       scanBlock: scan ? scanPromptBlock(scan) : undefined,
+      known,
     });
     // The scan gates independently of the LLM: any blocking finding → REQUEST_CHANGES.
     const gated = Boolean(scan && scan.blocking.length > 0);
@@ -764,6 +773,7 @@ async function recordFindings(
           proofKind: f.proof ? "executable" : "advisory",
           proofRef: f.proof,
           sha: pr.headRefOid,
+          matchId: f.sameAs,
         }),
       );
     } catch (e) {

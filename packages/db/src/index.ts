@@ -983,6 +983,10 @@ export interface FindingInput {
   proofKind?: "executable" | "advisory";
   proofRef?: string | null;
   sha?: string | null;
+  /** Ledger id the reviewer said this is the SAME defect as. Trusted only when
+   *  the row exists AND belongs to this repo+lens — a hallucinated id must not
+   *  silently attach a finding to someone else's row. */
+  matchId?: string | null;
 }
 
 export type FindingRow = typeof findings.$inferSelect;
@@ -1506,7 +1510,11 @@ export function createStore(db: Db): Store {
         filePath: input.filePath,
         title: input.title,
       });
-      const existing = (
+      // Layer 1 — deterministic fingerprint, free. Layer 2 — the reviewer told us
+      // this is the same defect under different words. Measured on the PoC: layer 1
+      // alone deduped 3/10 across two passes over the SAME commit, because a model
+      // does not re-word a defect the same way twice.
+      const byFingerprint = (
         await db
           .select()
           .from(findings)
@@ -1519,6 +1527,22 @@ export function createStore(db: Db): Store {
           )
           .limit(1)
       )[0];
+      const claimed = input.matchId
+        ? (
+            await db
+              .select()
+              .from(findings)
+              .where(
+                and(
+                  eq(findings.id, input.matchId),
+                  eq(findings.repo, input.repo),
+                  eq(findings.lensId, input.lensId),
+                ),
+              )
+              .limit(1)
+          )[0]
+        : undefined;
+      const existing = byFingerprint ?? claimed;
 
       const event = async (findingId: string, kind: string, reason?: string) => {
         await db.insert(findingEvents).values({ findingId, kind, actor: input.lensId, reason });
