@@ -1,3 +1,11 @@
+---
+title: "ADR 0087 — Brokk: lentes de asseguração (o ledger de achados é o que falta, não mais um revisor)"
+description: "O Svalinn é excepcional em Sec, mas o que o faz bom não é o prompt de segurança — é o plano de asseguração: registro de engines, fingerprint/dedupe, triagem com justificativa, ciclo de vida do finding e o gate de controle negativo. Esse kernel é agnóstico de eixo. Esta ADR o generaliza para o Brokk como LENTE. F0 EM PRODUÇÃO desde 06/08/2026: o Eitri grava achados no db_brokk com dedupe entre pushes, triagem que exige justificativa e rodapé de ledger no PR. Sec NÃO vira eixo do Brokk — continua no Svalinn (ADR 0079) e federa. A regra que separa eixo de opinião: uma lente só despacha forge se declarar sua PROVA de remediação executável; sem prova, é advisory e nunca fecha sozinha."
+sidebar:
+  order: 87
+tags: [adr, decisao, brokk, review, qa, asseguracao, lentes, findings, eitri, huginn, svalinn, dedupe, controle-negativo, budget]
+---
+
 **Status:** **Aceito · F0 EM PRODUÇÃO** · **Data:** 2026-08-06 · **Escopo:** Brokk (`packages/db`, `apps/reviewer`, `packages/agents/{reviewer,scout}`, `apps/api`) · Svalinn (federação, sem migração de dado)
 
 > **F0 no ar desde 06/08/2026.** PR [#92](https://github.com/cold-code-labs/brokk/pull/92)
