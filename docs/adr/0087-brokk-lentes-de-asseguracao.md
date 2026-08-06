@@ -6,7 +6,11 @@ sidebar:
 tags: [adr, decisao, brokk, review, qa, asseguracao, lentes, findings, eitri, huginn, svalinn, dedupe, controle-negativo, budget]
 ---
 
-**Status:** Proposta · **PoC rodando** (`packages/assurance`, alvo arte-one, engine Cursor API) · **Data:** 2026-08-06 · **Escopo:** Brokk (`packages/db`, `apps/reviewer`, `packages/agents/{reviewer,scout}`, `apps/api`) · Svalinn (federação, sem migração de dado)
+**Status:** Proposta · **F0 codada** (Eitri grava no `db_brokk`) · **PoC das lentes rodando** (`packages/assurance`, alvo arte-one, engine Cursor API) · **Data:** 2026-08-06 · **Escopo:**
+
+> **Onde está:** branch `feat/assurance-poc` no Brokk. F0 = ledger + Eitri gravando
+> (typecheck limpo, 11 testes, invariantes verificadas em Postgres 17 real).
+> **Ainda não rodou contra um PR de verdade** — falta deploy do `apps/reviewer`. Brokk (`packages/db`, `apps/reviewer`, `packages/agents/{reviewer,scout}`, `apps/api`) · Svalinn (federação, sem migração de dado)
 **Aplica ao Brokk a doutrina de registro da [ADR 0079](/decisoes/0079-svalinn-catalogo-de-engines-de-seguranca/)** · Consome [ADR 0005](/decisoes/0005-remediacao-frota-brokk/) (finding→card) · Evolui [ADR 0069](/decisoes/0069-brokk-story-qa-eitri-trigger/) (Story QA + Eitri sob trigger) · Resolve o item 4 da [ADR 0078](/decisoes/0078-brokk-one-shot-quality/) (nenhum gate toca estética) · Naming pela [ADR 0039](/decisoes/0039-corte-de-unhas-nomes-de-produto/)
 
 > Nasce de uma pergunta do fundador: *"o Svalinn faz um trabalho excepcional em Sec, mas Sec poderia ser só um eixo do Brokk? Como trazer grandiosidade de revisão? O gargalo é review, código está abundante."*
@@ -193,7 +197,7 @@ create table finding_events (   -- histórico imutável: quem mexeu, quando, por
 
 | Fase | Entrega | Critério de pronto |
 |---|---|---|
-| **F0** | `findings` + `finding_events` + fingerprint + triagem com justificativa. Eitri **grava** em vez de só comentar. | um achado rejeitado não reaparece no PR seguinte |
+| **F0** ✅ | `findings` + `finding_events` + fingerprint + triagem com justificativa. Eitri **grava** em vez de só comentar. | um achado rejeitado não reaparece no PR seguinte |
 | **F1** | Registro de lentes + as duas lentes `pr` baratas (`correctness`, `simplification`) + dedupe adversarial + budget de publicação | `accept_rate` medido por lente; nenhum corte silencioso |
 | **F2** | Camada `nightly`: `arch.debt` (repomap) + `qa.functional` amarrado ao Story QA da ADR 0069 + `qa.a11y`; `proof_ref` obrigatório em lente executable | um finding só vai a `fixed` com controle negativo registrado |
 | **F3** | Federação Svalinn (sec no mesmo painel, dado fica lá) + loop de campanha por eixo + `ui.visual` | painel único por projeto, multi-eixo |
