@@ -12,6 +12,7 @@
 import { fingerprint } from "./fingerprint.mjs"
 import { checkout, diffAgainst, runLensViaCursor } from "./cursor.mjs"
 import { verificar } from "./verify.mjs"
+import { dedupeSemantico } from "./dedupe.mjs"
 
 const SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3, info: 4 }
 
@@ -23,7 +24,7 @@ export async function runLens({
   const wt = await checkout(repoDir, ref)
   const stats = {
     bruto: 0, novos: 0, recorrentes: 0, suprimidos: 0, regressoes: 0,
-    refutados: 0, publicados: 0, cortados_por_orcamento: 0,
+    refutados: 0, publicados: 0, cortados_por_orcamento: 0, dedupe_semantico: 0, sem_prova: 0,
   }
 
   try {
@@ -59,7 +60,26 @@ export async function runLens({
         proofKind: lens.proof,
         fingerprint: fingerprint({ lensId: lens.id, rule: n.rule, filePath: n.filePath, title: n.title }),
       }
-      const { verdict, id } = ledger.upsert(f, runId)
+      // 1ª camada: fingerprint determinístico (via rápida, custo zero).
+      // 2ª camada: dedupe semântico, só se o fingerprint não bateu e já existe
+      // achado da mesma lente no mesmo arquivo. MEDIDO: sem ela o dedupe fica
+      // em ~30% quando a fonte é agente (ver src/dedupe.mjs).
+      let matchedId = null
+      const jaVisto = ledger.db
+        .prepare(`select 1 from findings where project = ? and lens_id = ? and fingerprint = ?`)
+        .get(f.project, f.lensId, f.fingerprint)
+      if (!jaVisto) {
+        const existentes = ledger.byFile(project, lens.id, n.filePath)
+        if (existentes.length) {
+          const d = await dedupeSemantico({ cwd: wt.dir, candidate: f, existentes, model })
+          matchedId = d.matchedId
+          if (matchedId) {
+            stats.dedupe_semantico++
+            log(`  ≡ mesmo achado que ${matchedId.slice(0, 8)}: ${d.why.slice(0, 80)}`)
+          }
+        }
+      }
+      const { verdict, id } = ledger.upsert(f, runId, matchedId)
       stats[{ new: "novos", recurring: "recorrentes", suppressed: "suprimidos", regression: "regressoes" }[verdict]]++
       if (verdict === "suppressed") continue          // triado uma vez, calado para sempre
       if (verdict === "recurring") continue           // já está no painel; não republica
@@ -85,8 +105,14 @@ export async function runLens({
         log(`  ✗ refutado: ${c.title.slice(0, 70)}`)
         continue
       }
-      sobreviventes.push({ ...c, confidence: v.confidence })
-      log(`  ✓ confirmado (${v.confidence}): ${c.title.slice(0, 70)}`)
+      // proof_kind cai para advisory quando o controle negativo não convence:
+      // o achado é publicado, mas não pode fechar sozinho (ADR 0087 §3).
+      if (!v.proofReady && c.proofKind === "executable") {
+        ledger.db.prepare(`update findings set proof_kind = 'advisory' where id = ?`).run(c.id)
+        stats.sem_prova++
+      }
+      sobreviventes.push({ ...c, confidence: v.confidence, proofReady: v.proofReady })
+      log(`  ✓ confirmado (${v.confidence})${v.proofReady ? " +prova" : " sem prova → advisory"}: ${c.title.slice(0, 60)}`)
     }
 
     // ── rank + orçamento ────────────────────────────────────────────────────

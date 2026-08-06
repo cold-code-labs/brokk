@@ -6,7 +6,7 @@ sidebar:
 tags: [adr, decisao, brokk, review, qa, asseguracao, lentes, findings, eitri, huginn, svalinn, dedupe, controle-negativo, budget]
 ---
 
-**Status:** Proposta · **Data:** 2026-08-06 · **Escopo:** Brokk (`packages/db`, `apps/reviewer`, `packages/agents/{reviewer,scout}`, `apps/api`) · Svalinn (federação, sem migração de dado)
+**Status:** Proposta · **PoC rodando** (`packages/assurance`, alvo arte-one, engine Cursor API) · **Data:** 2026-08-06 · **Escopo:** Brokk (`packages/db`, `apps/reviewer`, `packages/agents/{reviewer,scout}`, `apps/api`) · Svalinn (federação, sem migração de dado)
 **Aplica ao Brokk a doutrina de registro da [ADR 0079](/decisoes/0079-svalinn-catalogo-de-engines-de-seguranca/)** · Consome [ADR 0005](/decisoes/0005-remediacao-frota-brokk/) (finding→card) · Evolui [ADR 0069](/decisoes/0069-brokk-story-qa-eitri-trigger/) (Story QA + Eitri sob trigger) · Resolve o item 4 da [ADR 0078](/decisoes/0078-brokk-one-shot-quality/) (nenhum gate toca estética) · Naming pela [ADR 0039](/decisoes/0039-corte-de-unhas-nomes-de-produto/)
 
 > Nasce de uma pergunta do fundador: *"o Svalinn faz um trabalho excepcional em Sec, mas Sec poderia ser só um eixo do Brokk? Como trazer grandiosidade de revisão? O gargalo é review, código está abundante."*
@@ -112,6 +112,23 @@ lentes em paralelo
   → rank por severidade × confiança
   → publica os N que cabem no budget de atenção; o resto CONTADO E VISÍVEL
 ```
+
+**Dedupe é em DUAS camadas — corrigido pela medição do PoC (2026-08-06).** A
+versão original desta ADR assumia que um fingerprint determinístico bastava. Não
+basta quando a fonte é um agente: duas passadas da lente `arch.debt` no **mesmo
+commit** do arte-one deduplicaram **3 de 10** — a LLM não repete o slug da regra
+nem o título, então o mesmo defeito volta com identidade nova. Com a segunda
+camada, **9 de 10** (o décimo era achado genuinamente novo).
+
+| camada | o que é | custo | quando roda |
+|---|---|---|---|
+| 1 — fingerprint | `lente + arquivo + título normalizado` (sem número de linha) | zero | sempre |
+| 2 — semântica | um julgamento "é o mesmo defeito?" contra os achados da mesma lente **no mesmo arquivo** | 1 chamada curta | só quando a camada 1 não bate e há candidatos |
+
+A camada 2 é instruída a preferir **"mesmo"** na dúvida: republicar um achado que
+o humano já triou custa mais que agrupar dois parecidos. Ela falha **fail-open**
+(trata como novo) — buraco conhecido e declarado, cuja correção (fila de
+re-tentativa) é trabalho de F1.
 
 Duas regras não-negociáveis, ambas com falha conhecida:
 

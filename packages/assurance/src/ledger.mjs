@@ -114,10 +114,27 @@ export class Ledger {
    *   'suppressed' — já triado como wontfix/false_positive; NUNCA volta a aparecer
    *   'regression' — estava fixed e voltou; publica com destaque (métrica-chave da ADR)
    */
-  upsert(f, runId) {
-    const row = this.db
-      .prepare(`select * from findings where project = ? and lens_id = ? and fingerprint = ?`)
-      .get(f.project, f.lensId, f.fingerprint)
+  /** Candidatos para o dedupe semântico: mesma lente, mesmo arquivo. */
+  byFile(project, lensId, filePath) {
+    if (!filePath) return []
+    return this.db
+      .prepare(`select id, title, body, status from findings
+                 where project = ? and lens_id = ? and file_path = ?
+                 order by updated_at desc`)
+      .all(project, lensId, filePath)
+  }
+
+  /**
+   * @param {object} f — achado normalizado
+   * @param {string} runId
+   * @param {string|null} matchedId — id resolvido pelo dedupe semântico (2ª camada)
+   */
+  upsert(f, runId, matchedId = null) {
+    const row = matchedId
+      ? this.db.prepare(`select * from findings where id = ?`).get(matchedId)
+      : this.db
+          .prepare(`select * from findings where project = ? and lens_id = ? and fingerprint = ?`)
+          .get(f.project, f.lensId, f.fingerprint)
 
     if (!row) {
       const id = randomUUID()

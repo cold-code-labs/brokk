@@ -66,10 +66,25 @@ export async function verificar({ cwd, finding, model, minVotos = 2 }) {
   for (const lente of LENSES_DE_VERIFICACAO) {
     votes.push(await umVoto({ cwd, finding, lente, model }))
   }
-  const confirmados = votes.filter((v) => !v.refuted).length
+
+  // MEDIDO no PoC (arte-one, review.correctness, 6 achados): o ângulo `prova`
+  // refutou 5/6 enquanto `existe` confirmou 6/6. Tratar os três como votos iguais
+  // fazia `prova` não filtrar nada e só rebaixar a confiança de todo mundo.
+  //
+  // A correção não é afrouxar o verificador — é separar os dois portões:
+  //   PUBLICAR = existe ∧ importa   (o achado é real e dói)
+  //   FECHAR   = + prova            (ADR 0087 §3: sem controle negativo não vai a `fixed`)
+  // Um bug de RLS real não pode deixar de ser publicado porque a descrição do
+  // teste de regressão veio fraca.
+  const publicacao = votes.filter((v) => v.lens !== "prova")
+  const prova = votes.find((v) => v.lens === "prova")
+  const confirmados = publicacao.filter((v) => !v.refuted).length
+
   return {
     survives: confirmados >= minVotos,
     votes,
-    confidence: Number((confirmados / LENSES_DE_VERIFICACAO.length).toFixed(2)),
+    // proofReady = pode caminhar para `fixed` sem humano refazer a prova.
+    proofReady: prova ? !prova.refuted : false,
+    confidence: Number((confirmados / publicacao.length).toFixed(2)),
   }
 }
