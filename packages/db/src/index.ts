@@ -62,10 +62,13 @@ import { forcaToModel } from "@brokk/core";
 import { and, asc, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { fingerprint } from "./fingerprint.js";
 import {
   agents,
   chatMessages,
   chatSessions,
+  findingEvents,
+  findings,
   mimirPrompts,
   mimirRevisions,
   mimirTriage,
@@ -678,6 +681,17 @@ export interface Store {
   insertReview(values: typeof reviews.$inferInsert): Promise<Review>;
   listReviews(repo?: string): Promise<Review[]>;
 
+  // ── Assurance ledger (ADR 0087) ──
+  /** Dedupes by (repo, lens, fingerprint). See LedgerVerdict for the outcomes. */
+  recordFinding(input: FindingInput): Promise<LedgerVerdict>;
+  listFindings(opts: { repo: string; status?: string; lensId?: string }): Promise<FindingRow[]>;
+  /** Refuses to write without a reason — a silent dismissal is not a triage. */
+  triageFinding(
+    id: string,
+    status: "triaged" | "wontfix" | "false_positive",
+    opts: { reason: string; actor?: string },
+  ): Promise<void>;
+
   // agents (runners)
   registerAgent(host: string, capabilities: string[]): Promise<Agent>;
   touchAgent(id: string): Promise<void>;
@@ -954,6 +968,40 @@ export interface Store {
 }
 
 /** Concrete Postgres store with the CRUD helpers the API + runner need. */
+export interface FindingInput {
+  repo: string;
+  prNumber?: number | null;
+  lensId: string;
+  axis: string;
+  severity?: string;
+  confidence?: number | null;
+  title: string;
+  body?: string | null;
+  filePath?: string | null;
+  lineStart?: number | null;
+  lineEnd?: number | null;
+  proofKind?: "executable" | "advisory";
+  proofRef?: string | null;
+  sha?: string | null;
+}
+
+export type FindingRow = typeof findings.$inferSelect;
+
+/**
+ * What the ledger says about a finding it was just shown:
+ *  - `new`        never seen → publish it
+ *  - `recurring`  already open → do NOT re-publish, just bump last-seen
+ *  - `suppressed` triaged away once → stays silent forever
+ *  - `regression` was fixed and came back → publish, loudly
+ */
+export interface LedgerVerdict {
+  verdict: "new" | "recurring" | "suppressed" | "regression";
+  id: string;
+  fingerprint: string;
+  /** Present for suppressed — why a human dismissed it, so the log can say. */
+  triageReason?: string | null;
+}
+
 export function createStore(db: Db): Store {
   return {
     async upsertInstallation({ installationId, logtoOrgId, accountLogin, accountType, suspendedAt }) {
@@ -1451,6 +1499,143 @@ export function createStore(db: Db): Store {
         scanTotal: r.scanTotal,
         createdAt: r.createdAt.toISOString(),
       };
+    },
+    async recordFinding(input) {
+      const fp = fingerprint({
+        lensId: input.lensId,
+        filePath: input.filePath,
+        title: input.title,
+      });
+      const existing = (
+        await db
+          .select()
+          .from(findings)
+          .where(
+            and(
+              eq(findings.repo, input.repo),
+              eq(findings.lensId, input.lensId),
+              eq(findings.fingerprint, fp),
+            ),
+          )
+          .limit(1)
+      )[0];
+
+      const event = async (findingId: string, kind: string, reason?: string) => {
+        await db.insert(findingEvents).values({ findingId, kind, actor: input.lensId, reason });
+      };
+
+      if (!existing) {
+        // onConflictDoNothing, not a bare insert: two reviews of the same repo can
+        // land the same fingerprint at once and race into the unique constraint.
+        // Losing that race must mean "someone else already recorded it" (fall
+        // through to the existing-row path), never a lost finding.
+        const inserted = (
+          await db
+            .insert(findings)
+            .values({
+              repo: input.repo,
+              prNumber: input.prNumber ?? null,
+              lensId: input.lensId,
+              axis: input.axis,
+              fingerprint: fp,
+              severity: input.severity ?? "medium",
+              confidence: input.confidence ?? null,
+              title: input.title,
+              body: input.body ?? null,
+              filePath: input.filePath ?? null,
+              lineStart: input.lineStart ?? null,
+              lineEnd: input.lineEnd ?? null,
+              proofKind: input.proofKind ?? "advisory",
+              proofRef: input.proofRef ?? null,
+              lastSeenSha: input.sha ?? null,
+            })
+            .onConflictDoNothing({ target: [findings.repo, findings.lensId, findings.fingerprint] })
+            .returning()
+        )[0];
+        if (inserted) {
+          await event(inserted.id, "seen");
+          return { verdict: "new" as const, id: inserted.id, fingerprint: fp };
+        }
+        // Lost the race — re-read and treat it as a sighting of what won.
+        const won = (
+          await db
+            .select()
+            .from(findings)
+            .where(
+              and(
+                eq(findings.repo, input.repo),
+                eq(findings.lensId, input.lensId),
+                eq(findings.fingerprint, fp),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (!won) throw new Error(`recordFinding: insert conflicted but row is gone (${fp})`);
+        await event(won.id, "seen");
+        return { verdict: "recurring" as const, id: won.id, fingerprint: fp };
+      }
+
+      await db
+        .update(findings)
+        .set({
+          seenCount: existing.seenCount + 1,
+          lastSeenSha: input.sha ?? existing.lastSeenSha,
+          lineStart: input.lineStart ?? existing.lineStart,
+          lineEnd: input.lineEnd ?? existing.lineEnd,
+          updatedAt: new Date(),
+        })
+        .where(eq(findings.id, existing.id));
+      await event(existing.id, "seen");
+
+      if (["wontfix", "false_positive", "suppressed"].includes(existing.status)) {
+        return {
+          verdict: "suppressed" as const,
+          id: existing.id,
+          fingerprint: fp,
+          triageReason: existing.triageReason,
+        };
+      }
+      if (existing.status === "fixed") {
+        // Clear the old triage too: a reopened finding carrying the previous
+        // dismissal's reason/author reads as though someone just triaged it.
+        await db
+          .update(findings)
+          .set({ status: "open", triageReason: null, triagedBy: null, triagedAt: null })
+          .where(eq(findings.id, existing.id));
+        await event(existing.id, "regression", "fingerprint reappeared after fixed");
+        return { verdict: "regression" as const, id: existing.id, fingerprint: fp };
+      }
+      return { verdict: "recurring" as const, id: existing.id, fingerprint: fp };
+    },
+    async listFindings({ repo, status, lensId }) {
+      const conds = [eq(findings.repo, repo)];
+      if (status) conds.push(eq(findings.status, status));
+      if (lensId) conds.push(eq(findings.lensId, lensId));
+      return db
+        .select()
+        .from(findings)
+        .where(and(...conds))
+        .orderBy(desc(findings.updatedAt));
+    },
+    async triageFinding(id, status, opts) {
+      // The Svalinn rule: a dismissal without a reason is not a decision, it's a
+      // shrug — and a shrug is exactly what nobody can audit six months later.
+      if (!opts.reason?.trim()) throw new Error("triage requires a reason");
+      const updated = await db
+        .update(findings)
+        .set({
+          status,
+          triageReason: opts.reason,
+          triagedBy: opts.actor ?? null,
+          triagedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(findings.id, id))
+        .returning();
+      if (!updated.length) throw new Error(`finding ${id} not found`);
+      await db
+        .insert(findingEvents)
+        .values({ findingId: id, kind: "triaged", actor: opts.actor, reason: opts.reason });
     },
     async listReviews(repo) {
       const rows = repo
@@ -2862,6 +3047,65 @@ export async function ensureSchema(db: Db): Promise<void> {
   // is the consumer, so the table must exist before the API serves /claim, not rely
   // on apps/chat's ensureChatSchema winning the boot race on the shared db_brokk. FK
   // omitted (ordering-free); the drizzle schema carries it for a fresh push.
+  // Assurance ledger (ADR 0087). Created here for the same reason as work_leases:
+  // Eitri writes findings on its own boot path and must not depend on winning a
+  // db:push race on the shared db_brokk. The drizzle schema carries the FKs for a
+  // fresh push; this bootstrap keeps a live cluster self-healing.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS findings (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    repo text NOT NULL,
+    pr_number integer,
+    lens_id text NOT NULL,
+    axis text NOT NULL,
+    source text NOT NULL DEFAULT 'brokk',
+    fingerprint text NOT NULL,
+    severity text NOT NULL DEFAULT 'medium',
+    confidence real,
+    title text NOT NULL,
+    body text,
+    file_path text,
+    line_start integer,
+    line_end integer,
+    proof_kind text NOT NULL DEFAULT 'advisory',
+    proof_ref text,
+    status text NOT NULL DEFAULT 'open',
+    triage_reason text,
+    triaged_by text,
+    triaged_at timestamptz,
+    task_id uuid,
+    seen_count integer NOT NULL DEFAULT 1,
+    last_seen_sha text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT findings_repo_lens_fingerprint_uniq UNIQUE (repo, lens_id, fingerprint)
+  );`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS findings_repo_status_idx ON findings (repo, status);`,
+  );
+  // A dismissal with no reason is unauditable — the constraint, not just the code,
+  // refuses it.
+  await db
+    .execute(
+      sql`ALTER TABLE findings ADD CONSTRAINT findings_triage_reasoned CHECK (
+        status NOT IN ('wontfix','false_positive','suppressed')
+        OR (triage_reason IS NOT NULL AND length(btrim(triage_reason)) > 0));`,
+    )
+    .catch(() => {
+      /* already present */
+    });
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS finding_events (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    finding_id uuid NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+    kind text NOT NULL,
+    actor text,
+    reason text,
+    payload jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+  );`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS finding_events_finding_idx ON finding_events (finding_id, created_at);`,
+  );
+
   await db.execute(sql`CREATE TABLE IF NOT EXISTS work_leases (
     lane_key text PRIMARY KEY,
     run_id uuid NOT NULL,

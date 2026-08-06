@@ -42,9 +42,80 @@ const SYSTEM_PROMPT =
 
 export type Verdict = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
 
+/** One structured finding, so the ledger can give it an identity (ADR 0087). */
+export interface ReviewFinding {
+  title: string;
+  file?: string | null;
+  line?: number | null;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  body?: string | null;
+  /** The test that fails today and passes after the fix. Absent = advisory. */
+  proof?: string | null;
+}
+
 export interface ReviewResult {
   verdict: Verdict;
   body: string;
+  /** Empty when the model emitted no parseable block — never a hard failure. */
+  findings: ReviewFinding[];
+}
+
+const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
+
+/**
+ * Pull the findings block out of the review. Best-effort by design: the markdown
+ * review is what humans read and must never be lost because a JSON block was
+ * malformed. A missing block degrades to "no structured findings", not an error.
+ */
+/** The machine block is the LAST json fence — the prompt says "append AFTER the
+ *  review", and a review of a `package.json` change may quote JSON of its own.
+ *  Anchoring to the first fence would parse the quoted snippet and ignore the
+ *  real findings. (Caught by Eitri reviewing this very change, PR #92.) */
+function lastJsonFence(text: string): string | null {
+  const fences = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
+  return fences.length ? (fences[fences.length - 1]![1] ?? null) : null;
+}
+
+export function parseFindings(text: string): ReviewFinding[] {
+  const block = lastJsonFence(text);
+  if (!block) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(block.trim());
+  } catch {
+    return [];
+  }
+  const items = Array.isArray(parsed)
+    ? parsed
+    : ((parsed as { findings?: unknown }).findings ?? []);
+  if (!Array.isArray(items)) return [];
+  return items.flatMap((raw): ReviewFinding[] => {
+    const it = raw as Record<string, unknown>;
+    const title = typeof it.title === "string" ? it.title.trim() : "";
+    if (!title) return [];
+    const sev = String(it.severity ?? "").toLowerCase();
+    return [
+      {
+        title,
+        file: typeof it.file === "string" ? it.file : null,
+        line: Number.isInteger(it.line) ? (it.line as number) : null,
+        severity: (SEVERITIES as readonly string[]).includes(sev)
+          ? (sev as ReviewFinding["severity"])
+          : "medium",
+        body: typeof it.body === "string" ? it.body : null,
+        proof: typeof it.proof === "string" && it.proof.trim() ? it.proof : null,
+      },
+    ];
+  });
+}
+
+/** Strip the machine block so the PR comment stays human-readable. Strips the
+ *  SAME fence parseFindings read — the last one — so the two never disagree. */
+export function stripFindingsBlock(text: string): string {
+  const fences = [...text.matchAll(/```json\s*[\s\S]*?```/g)];
+  const last = fences[fences.length - 1];
+  if (!last || last.index === undefined) return text.trimEnd();
+  return (text.slice(0, last.index) + text.slice(last.index + last[0].length)).trimEnd();
 }
 
 /** Build the user turn: the review request + the diff. The persona is delivered
@@ -65,6 +136,14 @@ function buildReviewPrompt(opts: { prTitle: string; diff: string; scanBlock?: st
     "  Then a one-paragraph summary.",
     "  Then a `## Findings` list (file:line — issue), or `No blocking issues found.`",
     "Keep it tight and specific. Do not modify any files.",
+    "",
+    "AFTER the review, append ONE fenced ```json block — the same findings, machine-readable,",
+    "so they can be tracked across pushes instead of re-raised every time:",
+    '  {"findings":[{"title":"…","file":"path.ts","line":12,"severity":"critical|high|medium|low|info",',
+    '   "body":"why it breaks","proof":"the test that fails today and passes after the fix"}]}',
+    "Omit `proof` when you cannot name such a test — do NOT invent one.",
+    "Emit `{\"findings\":[]}` when there is nothing blocking. One finding per real defect,",
+    "and keep the `title` describing the DEFECT (not the file), since it is the identity.",
     "",
     "```diff",
     opts.diff.slice(0, 60_000),
@@ -146,7 +225,9 @@ export async function reviewPr(opts: {
   });
 
   const text = lastText.trim();
-  return { verdict: parseVerdict(text), body: text || "_(Eitri produced no output)_" };
+  const findings = parseFindings(text);
+  const body = stripFindingsBlock(text) || "_(Eitri produced no output)_";
+  return { verdict: parseVerdict(text), body, findings };
 }
 
 export { SYSTEM_PROMPT };

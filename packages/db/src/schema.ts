@@ -438,6 +438,71 @@ export const reviews = pgTable(
   (t) => ({ uniq: unique("reviews_repo_pr_sha_uniq").on(t.repo, t.prNumber, t.sha) }),
 );
 
+/**
+ * The assurance ledger (ADR 0087). `reviews` records that a PR WAS reviewed;
+ * `findings` records WHAT was found — with an identity that survives across runs,
+ * so a finding triaged once stays triaged. Without this table Eitri forgets: it
+ * re-raises what you already dismissed, on every push.
+ *
+ * `fingerprint` deliberately excludes the line number — code moves, the defect
+ * doesn't. Sec findings are NOT stored here: they live in db_svalinn and arrive
+ * federated (`source = 'svalinn'`), per ADR 0079.
+ */
+export const findings = pgTable(
+  "findings",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    repo: text("repo").notNull(),
+    /** Where the finding was raised. Null for repo-wide (nightly) lenses. */
+    prNumber: integer("pr_number"),
+    lensId: text("lens_id").notNull(),
+    axis: text("axis").notNull(),
+    source: text("source").notNull().default("brokk"),
+    fingerprint: text("fingerprint").notNull(),
+    severity: text("severity").notNull().default("medium"),
+    confidence: real("confidence"),
+    title: text("title").notNull(),
+    body: text("body"),
+    filePath: text("file_path"),
+    lineStart: integer("line_start"),
+    lineEnd: integer("line_end"),
+    /** `executable` = has a negative control and may close automatically. */
+    proofKind: text("proof_kind").notNull().default("advisory"),
+    proofRef: text("proof_ref"),
+    status: text("status").notNull().default("open"),
+    /** Never null once triaged away — the ledger refuses a silent dismissal. */
+    triageReason: text("triage_reason"),
+    triagedBy: text("triaged_by"),
+    triagedAt: timestamp("triaged_at", { withTimezone: true }),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    seenCount: integer("seen_count").notNull().default(1),
+    lastSeenSha: text("last_seen_sha"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    dedupe: unique("findings_repo_lens_fingerprint_uniq").on(t.repo, t.lensId, t.fingerprint),
+    byStatus: index("findings_repo_status_idx").on(t.repo, t.status),
+  }),
+);
+
+/** Append-only history of a finding: who touched it, when, and why. */
+export const findingEvents = pgTable(
+  "finding_events",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    findingId: uuid("finding_id")
+      .notNull()
+      .references(() => findings.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    actor: text("actor"),
+    reason: text("reason"),
+    payload: jsonb("payload"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ byFinding: index("finding_events_finding_idx").on(t.findingId, t.createdAt) }),
+);
+
 export const pullRequests = pgTable("pull_requests", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   taskId: uuid("task_id")
