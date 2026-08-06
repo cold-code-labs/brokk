@@ -11,7 +11,7 @@ import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { createDb, createStore } from "@brokk/db";
+import { createDb, createStore, type LedgerVerdict } from "@brokk/db";
 import { loadEitriConfig } from "./config.js";
 import { EitriGit } from "./git.js";
 import {
@@ -20,7 +20,7 @@ import {
   installationIdForRepo,
   loadAppAuth,
 } from "./github-app.js";
-import { reviewPr } from "@brokk/reviewer";
+import { reviewPr, type ReviewFinding } from "@brokk/reviewer";
 import { formatBumpRemediation, formatScanMarkdown, runScan, scanPromptBlock } from "./scan.js";
 
 const exec = promisify(execFile);
@@ -344,8 +344,15 @@ async function reviewOne(
         ? `${scanMd}\n\n${bumpMd}`
         : scanMd
       : "";
+    // ── Assurance ledger (ADR 0087) ──────────────────────────────────────────
+    // Eitri stops forgetting here. Every structured finding gets an identity that
+    // survives pushes, so what a human triaged once stays triaged instead of being
+    // re-raised on the next commit. Best-effort: a ledger hiccup must never cost
+    // the PR its review.
+    const ledger = await recordFindings(store, repo, pr, llm.findings);
     const body = scanSection ? `${banner}${scanSection}\n\n---\n\n${llm.body}` : llm.body;
-    const comment = `🛡️ **Eitri** — *the forge's second smith*\n\n${body}`;
+    const comment =
+      `🛡️ **Eitri** — *the forge's second smith*\n\n${body}` + formatLedgerFooter(ledger);
     // Post identity: GitHub App token (Eitri[bot]) > own token > shared account.
     const token = appAuth ? await getInstallationToken(appAuth, await installationIdForRepo(store, repo)) : cfg.postToken;
     const canReview = Boolean(appAuth) || cfg.hasOwnIdentity;
@@ -723,6 +730,69 @@ async function recordReviewFailure(
   } catch (e) {
     console.error(`[eitri] ${repo}#${pr.number} memory record failed:`, String(e).slice(0, 160));
   }
+}
+
+/**
+ * Write Eitri's structured findings to the assurance ledger (ADR 0087).
+ *
+ * Best-effort by construction: the review is the product, the ledger is the
+ * memory. A ledger failure degrades to "Eitri forgot this round" — never to a PR
+ * left without a review.
+ */
+async function recordFindings(
+  store: ReturnType<typeof createStore>,
+  repo: string,
+  pr: OpenPr,
+  findings: ReviewFinding[],
+): Promise<LedgerVerdict[]> {
+  const out: LedgerVerdict[] = [];
+  for (const f of findings) {
+    try {
+      out.push(
+        await store.recordFinding({
+          repo,
+          prNumber: pr.number,
+          lensId: "review.correctness",
+          axis: "review",
+          severity: f.severity,
+          title: f.title,
+          body: f.body,
+          filePath: f.file,
+          lineStart: f.line,
+          // No named negative control → advisory: it can be published, but it may
+          // not close on its own (ADR 0087 §3).
+          proofKind: f.proof ? "executable" : "advisory",
+          proofRef: f.proof,
+          sha: pr.headRefOid,
+        }),
+      );
+    } catch (e) {
+      console.error(`[eitri] ${repo}#${pr.number} ledger write failed:`, String(e).slice(0, 160));
+    }
+  }
+  return out;
+}
+
+/**
+ * The footer is the whole point of the ledger being visible: it tells the author
+ * what Eitri already knew. Silence about suppressed findings would look like
+ * Eitri never saw them.
+ */
+function formatLedgerFooter(ledger: LedgerVerdict[]): string {
+  if (!ledger.length) return "";
+  const n = (k: LedgerVerdict["verdict"]) => ledger.filter((l) => l.verdict === k).length;
+  const parts = [`${n("new")} new`];
+  if (n("recurring")) parts.push(`${n("recurring")} already open`);
+  if (n("regression")) parts.push(`**${n("regression")} regression(s)**`);
+  if (n("suppressed")) parts.push(`${n("suppressed")} silenced by earlier triage`);
+  const suppressed = ledger.filter((l) => l.verdict === "suppressed" && l.triageReason);
+  const why = suppressed.length
+    ? "\n" +
+      suppressed
+        .map((s) => `> - silenced: ${String(s.triageReason).slice(0, 200)}`)
+        .join("\n")
+    : "";
+  return `\n\n---\n\n> 📒 **Ledger** — ${parts.join(" · ")}.${why}`;
 }
 
 function firstParagraph(md: string): string {
