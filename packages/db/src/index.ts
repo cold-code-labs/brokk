@@ -1525,7 +1525,11 @@ export function createStore(db: Db): Store {
       };
 
       if (!existing) {
-        const row = (
+        // onConflictDoNothing, not a bare insert: two reviews of the same repo can
+        // land the same fingerprint at once and race into the unique constraint.
+        // Losing that race must mean "someone else already recorded it" (fall
+        // through to the existing-row path), never a lost finding.
+        const inserted = (
           await db
             .insert(findings)
             .values({
@@ -1545,10 +1549,30 @@ export function createStore(db: Db): Store {
               proofRef: input.proofRef ?? null,
               lastSeenSha: input.sha ?? null,
             })
+            .onConflictDoNothing({ target: [findings.repo, findings.lensId, findings.fingerprint] })
             .returning()
-        )[0]!;
-        await event(row.id, "seen");
-        return { verdict: "new" as const, id: row.id, fingerprint: fp };
+        )[0];
+        if (inserted) {
+          await event(inserted.id, "seen");
+          return { verdict: "new" as const, id: inserted.id, fingerprint: fp };
+        }
+        // Lost the race — re-read and treat it as a sighting of what won.
+        const won = (
+          await db
+            .select()
+            .from(findings)
+            .where(
+              and(
+                eq(findings.repo, input.repo),
+                eq(findings.lensId, input.lensId),
+                eq(findings.fingerprint, fp),
+              ),
+            )
+            .limit(1)
+        )[0];
+        if (!won) throw new Error(`recordFinding: insert conflicted but row is gone (${fp})`);
+        await event(won.id, "seen");
+        return { verdict: "recurring" as const, id: won.id, fingerprint: fp };
       }
 
       await db
@@ -1572,7 +1596,12 @@ export function createStore(db: Db): Store {
         };
       }
       if (existing.status === "fixed") {
-        await db.update(findings).set({ status: "open" }).where(eq(findings.id, existing.id));
+        // Clear the old triage too: a reopened finding carrying the previous
+        // dismissal's reason/author reads as though someone just triaged it.
+        await db
+          .update(findings)
+          .set({ status: "open", triageReason: null, triagedBy: null, triagedAt: null })
+          .where(eq(findings.id, existing.id));
         await event(existing.id, "regression", "fingerprint reappeared after fixed");
         return { verdict: "regression" as const, id: existing.id, fingerprint: fp };
       }

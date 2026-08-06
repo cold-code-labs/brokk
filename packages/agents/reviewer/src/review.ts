@@ -67,12 +67,21 @@ const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
  * review is what humans read and must never be lost because a JSON block was
  * malformed. A missing block degrades to "no structured findings", not an error.
  */
+/** The machine block is the LAST json fence — the prompt says "append AFTER the
+ *  review", and a review of a `package.json` change may quote JSON of its own.
+ *  Anchoring to the first fence would parse the quoted snippet and ignore the
+ *  real findings. (Caught by Eitri reviewing this very change, PR #92.) */
+function lastJsonFence(text: string): string | null {
+  const fences = [...text.matchAll(/```json\s*([\s\S]*?)```/g)];
+  return fences.length ? (fences[fences.length - 1]![1] ?? null) : null;
+}
+
 export function parseFindings(text: string): ReviewFinding[] {
-  const m = text.match(/```json\s*([\s\S]*?)```/);
-  if (!m) return [];
+  const block = lastJsonFence(text);
+  if (!block) return [];
   let parsed: unknown;
   try {
-    parsed = JSON.parse(m[1]!.trim());
+    parsed = JSON.parse(block.trim());
   } catch {
     return [];
   }
@@ -100,9 +109,13 @@ export function parseFindings(text: string): ReviewFinding[] {
   });
 }
 
-/** Strip the machine block so the PR comment stays human-readable. */
+/** Strip the machine block so the PR comment stays human-readable. Strips the
+ *  SAME fence parseFindings read — the last one — so the two never disagree. */
 export function stripFindingsBlock(text: string): string {
-  return text.replace(/```json\s*[\s\S]*?```\s*$/, "").trimEnd();
+  const fences = [...text.matchAll(/```json\s*[\s\S]*?```/g)];
+  const last = fences[fences.length - 1];
+  if (!last || last.index === undefined) return text.trimEnd();
+  return (text.slice(0, last.index) + text.slice(last.index + last[0].length)).trimEnd();
 }
 
 /** Build the user turn: the review request + the diff. The persona is delivered

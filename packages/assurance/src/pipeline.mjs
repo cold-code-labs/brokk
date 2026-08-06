@@ -58,7 +58,7 @@ export async function runLens({
         ...n,
         project, repo: repoDir, lensId: lens.id, axis: lens.axis,
         proofKind: lens.proof,
-        fingerprint: fingerprint({ lensId: lens.id, rule: n.rule, filePath: n.filePath, title: n.title }),
+        fingerprint: fingerprint({ lensId: lens.id, filePath: n.filePath, title: n.title }),
       }
       // 1ª camada: fingerprint determinístico (via rápida, custo zero).
       // 2ª camada: dedupe semântico, só se o fingerprint não bateu e já existe

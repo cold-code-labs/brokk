@@ -89,6 +89,23 @@ try {
   await client`update findings set status = 'fixed' where id = ${first.id}`;
   const back = await store.recordFinding({ ...base, lineStart: 9 });
   check("fixed finding that comes back → regression", back.verdict, "regression");
+  // A reopened finding must not keep the old dismissal, or it reads as if someone
+  // just triaged it (caught by Eitri reviewing PR #92).
+  const reopened = (await client`select triage_reason, triaged_by from findings where id = ${first.id}`) as unknown as {
+    triage_reason: string | null;
+    triaged_by: string | null;
+  }[];
+  check("  …and the stale triage is cleared", [reopened[0]?.triage_reason, reopened[0]?.triaged_by], [null, null]);
+
+  // Two reviews of the same repo can land the same fingerprint at once: the loser
+  // of the race must see "recurring", never lose the finding to a constraint.
+  const [raceA, raceB] = await Promise.all([
+    store.recordFinding({ ...base, title: "Concurrent write", severity: "low" }),
+    store.recordFinding({ ...base, title: "Concurrent write", severity: "low" }),
+  ]);
+  check("concurrent identical findings → one new, one recurring, same row",
+    [[raceA.verdict, raceB.verdict].sort(), raceA.id === raceB.id],
+    [["new", "recurring"], true]);
 
   const other = await store.recordFinding({ ...base, title: "Missing index on hot query", severity: "medium" });
   check("different defect, same file → new", other.verdict, "new");

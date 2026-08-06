@@ -51,6 +51,30 @@ describe("Eitri structured findings (ADR 0087)", () => {
     assert.deepEqual(parseFindings("VERDICT: APPROVE\n\nAll good."), []);
   });
 
+  // Regression for the asymmetry Eitri caught reviewing PR #92: parse read the
+  // FIRST fence while strip removed the LAST, so a review that quoted JSON (e.g.
+  // reviewing a package.json change) parsed the quote and stripped the real block.
+  it("reads the LAST json fence, not a snippet quoted mid-review", () => {
+    const withQuote = [
+      "VERDICT: COMMENT",
+      "",
+      "The added dependency block:",
+      '```json',
+      '{"dependencies":{"left-pad":"^1.0.0"}}',
+      "```",
+      "",
+      '```json',
+      '{"findings":[{"title":"Real defect","severity":"high"}]}',
+      "```",
+    ].join("\n");
+    const f = parseFindings(withQuote);
+    assert.equal(f.length, 1);
+    assert.equal(f[0]!.title, "Real defect");
+    const body = stripFindingsBlock(withQuote);
+    assert.ok(body.includes("left-pad"), "the quoted snippet must survive");
+    assert.ok(!body.includes("Real defect"), "the machine block must be stripped");
+  });
+
   it("strips the machine block from the posted comment", () => {
     const body = stripFindingsBlock(REVIEW);
     assert.ok(!body.includes("```json"));

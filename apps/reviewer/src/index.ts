@@ -785,6 +785,9 @@ function formatLedgerFooter(ledger: LedgerVerdict[]): string {
   if (n("recurring")) parts.push(`${n("recurring")} already open`);
   if (n("regression")) parts.push(`**${n("regression")} regression(s)**`);
   if (n("suppressed")) parts.push(`${n("suppressed")} silenced by earlier triage`);
+  // NOTE: a triage reason is human free-text and becomes PUBLIC the moment the
+  // finding recurs on a public PR. That is the deal — a silenced finding without
+  // its reason is unauditable — but whoever writes the reason should know it.
   const suppressed = ledger.filter((l) => l.verdict === "suppressed" && l.triageReason);
   const why = suppressed.length
     ? "\n" +
