@@ -684,7 +684,12 @@ export interface Store {
   // ── Assurance ledger (ADR 0087) ──
   /** Dedupes by (repo, lens, fingerprint). See LedgerVerdict for the outcomes. */
   recordFinding(input: FindingInput): Promise<LedgerVerdict>;
-  listFindings(opts: { repo: string; status?: string; lensId?: string }): Promise<FindingRow[]>;
+  listFindings(opts: {
+    repo: string;
+    status?: string;
+    lensId?: string;
+    limit?: number;
+  }): Promise<FindingRow[]>;
   /** Refuses to write without a reason — a silent dismissal is not a triage. */
   triageFinding(
     id: string,
@@ -983,6 +988,10 @@ export interface FindingInput {
   proofKind?: "executable" | "advisory";
   proofRef?: string | null;
   sha?: string | null;
+  /** Ledger id the reviewer said this is the SAME defect as. Trusted only when
+   *  the row exists AND belongs to this repo+lens — a hallucinated id must not
+   *  silently attach a finding to someone else's row. */
+  matchId?: string | null;
 }
 
 export type FindingRow = typeof findings.$inferSelect;
@@ -1506,7 +1515,11 @@ export function createStore(db: Db): Store {
         filePath: input.filePath,
         title: input.title,
       });
-      const existing = (
+      // Layer 1 — deterministic fingerprint, free. Layer 2 — the reviewer told us
+      // this is the same defect under different words. Measured on the PoC: layer 1
+      // alone deduped 3/10 across two passes over the SAME commit, because a model
+      // does not re-word a defect the same way twice.
+      const byFingerprint = (
         await db
           .select()
           .from(findings)
@@ -1519,6 +1532,28 @@ export function createStore(db: Db): Store {
           )
           .limit(1)
       )[0];
+      const claimed = input.matchId
+        ? (
+            await db
+              .select()
+              .from(findings)
+              .where(
+                and(
+                  eq(findings.id, input.matchId),
+                  eq(findings.repo, input.repo),
+                  eq(findings.lensId, input.lensId),
+                  // `open` only, matching exactly what the reviewer was shown. An
+                  // id it made up that happened to hit a suppressed row would
+                  // swallow a genuinely new finding; one hitting a fixed row would
+                  // fake a regression. The claim can only ever attach to a row the
+                  // model could actually have read.
+                  eq(findings.status, "open"),
+                ),
+              )
+              .limit(1)
+          )[0]
+        : undefined;
+      const existing = byFingerprint ?? claimed;
 
       const event = async (findingId: string, kind: string, reason?: string) => {
         await db.insert(findingEvents).values({ findingId, kind, actor: input.lensId, reason });
@@ -1607,15 +1642,18 @@ export function createStore(db: Db): Store {
       }
       return { verdict: "recurring" as const, id: existing.id, fingerprint: fp };
     },
-    async listFindings({ repo, status, lensId }) {
+    async listFindings({ repo, status, lensId, limit = 200 }) {
       const conds = [eq(findings.repo, repo)];
       if (status) conds.push(eq(findings.status, status));
       if (lensId) conds.push(eq(findings.lensId, lensId));
+      // Bounded by default: a long-lived repo ledger is unbounded, and this feeds
+      // a prompt. (Eitri flagged the missing LIMIT reviewing PR #93.)
       return db
         .select()
         .from(findings)
         .where(and(...conds))
-        .orderBy(desc(findings.updatedAt));
+        .orderBy(desc(findings.updatedAt))
+        .limit(limit);
     },
     async triageFinding(id, status, opts) {
       // The Svalinn rule: a dismissal without a reason is not a decision, it's a

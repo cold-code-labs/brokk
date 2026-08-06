@@ -82,3 +82,16 @@ describe("Eitri structured findings (ADR 0087)", () => {
     assert.ok(body.startsWith("VERDICT: REQUEST_CHANGES"));
   });
 });
+
+describe("semantic dedupe hand-off (ADR 0087 §5, layer 2)", () => {
+  it("carries same_as through as sameAs", () => {
+    const f = parseFindings('```json\n{"findings":[{"title":"x","same_as":"abc-123"}]}\n```');
+    assert.equal(f[0]!.sameAs, "abc-123");
+  });
+
+  it("an absent or blank same_as is null, never an empty match", () => {
+    const f = parseFindings('```json\n{"findings":[{"title":"x"},{"title":"y","same_as":"  "}]}\n```');
+    assert.equal(f[0]!.sameAs, null);
+    assert.equal(f[1]!.sameAs, null);
+  });
+});

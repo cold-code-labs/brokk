@@ -51,6 +51,16 @@ export interface ReviewFinding {
   body?: string | null;
   /** The test that fails today and passes after the fix. Absent = advisory. */
   proof?: string | null;
+  /** Ledger id this is the SAME defect as — the semantic half of dedupe. */
+  sameAs?: string | null;
+}
+
+/** A finding the ledger already holds, shown to the reviewer so it can say
+ *  "that's the one you already know" instead of minting a new identity. */
+export interface KnownFinding {
+  id: string;
+  title: string;
+  file?: string | null;
 }
 
 export interface ReviewResult {
@@ -104,6 +114,7 @@ export function parseFindings(text: string): ReviewFinding[] {
           : "medium",
         body: typeof it.body === "string" ? it.body : null,
         proof: typeof it.proof === "string" && it.proof.trim() ? it.proof : null,
+        sameAs: typeof it.same_as === "string" && it.same_as.trim() ? it.same_as.trim() : null,
       },
     ];
   });
@@ -120,9 +131,31 @@ export function stripFindingsBlock(text: string): string {
 
 /** Build the user turn: the review request + the diff. The persona is delivered
  *  separately as the API `system` (cacheable, not re-sent in the prompt). */
-function buildReviewPrompt(opts: { prTitle: string; diff: string; scanBlock?: string }): string {
+function buildReviewPrompt(opts: {
+  prTitle: string;
+  diff: string;
+  scanBlock?: string;
+  known?: KnownFinding[];
+}): string {
   const scanSection = opts.scanBlock
     ? ["", "--- SECURITY SCAN ---", opts.scanBlock, "--- END SECURITY SCAN ---", ""]
+    : [];
+  // The semantic half of dedupe, done with the model already in the loop instead
+  // of a second call: a defect described in new words is still the same defect,
+  // and only something that reads both descriptions can tell.
+  const knownSection = opts.known?.length
+    ? [
+        "",
+        "--- ALREADY IN THE LEDGER (open findings for this repo) ---",
+        ...opts.known
+          .slice(0, 40)
+          .map((k) => `${k.id} · ${k.file ?? "—"} · ${k.title}`),
+        "--- END LEDGER ---",
+        "If one of your findings is the SAME underlying defect as one of these — even",
+        'worded differently — set `"same_as":"<id>"` on it. Do not re-file it as new.',
+        "Two findings are the same when fixing one resolves the other.",
+        "",
+      ]
     : [];
   return [
     `Review this pull request: "${opts.prTitle}".`,
@@ -130,6 +163,7 @@ function buildReviewPrompt(opts: { prTitle: string; diff: string; scanBlock?: st
     "The repository is your working directory — open the changed files to understand",
     "the surrounding code before judging. The unified diff is below.",
     ...scanSection,
+    ...knownSection,
     "",
     "Reply with a markdown review in EXACTLY this shape:",
     "  First line: `VERDICT: APPROVE` or `VERDICT: COMMENT` or `VERDICT: REQUEST_CHANGES`.",
@@ -140,7 +174,8 @@ function buildReviewPrompt(opts: { prTitle: string; diff: string; scanBlock?: st
     "AFTER the review, append ONE fenced ```json block — the same findings, machine-readable,",
     "so they can be tracked across pushes instead of re-raised every time:",
     '  {"findings":[{"title":"…","file":"path.ts","line":12,"severity":"critical|high|medium|low|info",',
-    '   "body":"why it breaks","proof":"the test that fails today and passes after the fix"}]}',
+    '   "body":"why it breaks","proof":"the test that fails today and passes after the fix",',
+    '   "same_as":"<ledger id, only when it is a defect already listed above>"}]}',
     "Omit `proof` when you cannot name such a test — do NOT invent one.",
     "Emit `{\"findings\":[]}` when there is nothing blocking. One finding per real defect,",
     "and keep the `title` describing the DEFECT (not the file), since it is the identity.",
@@ -183,6 +218,8 @@ export async function reviewPr(opts: {
   diff: string;
   /** Pre-computed security-scan context, injected so the LLM weighs it. */
   scanBlock?: string;
+  /** Open ledger findings, so a known defect is recognised, not re-filed. */
+  known?: KnownFinding[];
   /** Gateway config; defaults to Cursor seat when set, else LiteLLM/Claude. */
   cfg?: AflConfig;
   signal?: AbortSignal;
