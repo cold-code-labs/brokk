@@ -1093,9 +1093,10 @@ main.forge-room.is-house {
 }
 .house-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(14.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
   gap: 0.65rem;
   padding-bottom: 0.35rem;
+  align-items: stretch;
 }
 .house-card {
   position: relative;
@@ -1103,7 +1104,9 @@ main.forge-room.is-house {
   flex-direction: row;
   align-items: stretch;
   gap: 0.35rem;
-  min-height: 8.5rem;
+  /* Same footprint with or without live preview — internal vs clients look even. */
+  min-height: 14rem;
+  height: 100%;
   padding: 0.7rem 0.45rem 0.65rem 0.8rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -1111,7 +1114,7 @@ main.forge-room.is-house {
   transition: border-color 0.12s ease, background 0.12s ease;
 }
 .house-card.has-preview {
-  min-height: 11.5rem;
+  min-height: 14rem;
 }
 .house-card:hover {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
@@ -1168,14 +1171,14 @@ main.forge-room.is-house {
 }
 .house-card-status {
   margin: 0;
-  flex: 1 1 auto;
   font-size: 0.78rem;
   line-height: 1.35;
   color: var(--fg-soft);
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  padding: 0.55rem 0.6rem;
 }
 .house-card-status.is-spacer {
   visibility: hidden;
@@ -1184,22 +1187,34 @@ main.forge-room.is-house {
 }
 .house-card-stage {
   position: relative;
+  container-type: size;
   flex: 1 1 auto;
-  min-height: 5.5rem;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  min-height: 8.25rem;
   margin: 0.1rem 0 0.15rem;
   border-radius: 0.4rem;
   border: 1px solid var(--line-soft);
   background: color-mix(in srgb, var(--fg) 4%, var(--panel));
   overflow: hidden;
 }
+.house-card-stage.is-empty {
+  display: flex;
+  align-items: stretch;
+}
+.house-card-stage.is-empty .house-card-status {
+  flex: 1;
+  align-self: center;
+}
+/* Desktop viewport scaled to stage width — full hero fits without the old 200%/0.5 crop. */
 .house-card-frame {
   position: absolute;
   top: 0;
   left: 0;
-  width: 200%;
-  height: 200%;
+  width: 1280px;
+  height: 800px;
   border: 0;
-  transform: scale(0.5);
+  transform: scale(calc(100cqw / 1280));
   transform-origin: 0 0;
   pointer-events: none;
   background: #fff;
@@ -1208,7 +1223,7 @@ main.forge-room.is-house {
   display: grid;
   place-items: center;
   height: 100%;
-  min-height: 5.5rem;
+  min-height: 8.25rem;
   font-size: 0.72rem;
   color: var(--fg-dim);
 }
@@ -1669,7 +1684,7 @@ main.forge-room.is-house {
 
 @media (max-width: 960px) {
   .house-grid {
-    grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(14.5rem, 1fr));
   }
 }
 @media (max-width: 640px) {
@@ -1677,6 +1692,9 @@ main.forge-room.is-house {
   .house-grid {
     grid-template-columns: 1fr 1fr;
     gap: 0.5rem;
+  }
+  .house-card {
+    min-height: 12.5rem;
   }
 }
 @media (max-width: 420px) {

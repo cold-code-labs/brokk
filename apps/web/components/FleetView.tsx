@@ -235,12 +235,16 @@ function ProjectCard({
             label={label}
             onOpen={onOpenPreview}
           />
-        ) : status ? (
-          <p className={`house-card-status tone-${status.tone}`}>{status.text}</p>
         ) : (
-          <p className="house-card-status is-spacer" aria-hidden>
-            &nbsp;
-          </p>
+          <div className="house-card-stage is-empty">
+            {status ? (
+              <p className={`house-card-status tone-${status.tone}`}>{status.text}</p>
+            ) : (
+              <p className="house-card-status is-spacer" aria-hidden>
+                &nbsp;
+              </p>
+            )}
+          </div>
         )}
 
         <div className="house-card-meta">
