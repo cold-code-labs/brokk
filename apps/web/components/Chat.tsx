@@ -531,6 +531,39 @@ export default function Chat() {
           : remembered && list?.some((s) => s.id === remembered)
             ? remembered
             : null;
+      // House objective lock → pending brief for this project: mint a session and send it.
+      let pendingBrief: string | null = null;
+      try {
+        const raw = sessionStorage.getItem("brokk.house.pendingBrief");
+        if (raw) {
+          const parsed = JSON.parse(raw) as { projectId?: string; brief?: string };
+          if (parsed.projectId === projectId && parsed.brief?.trim()) {
+            pendingBrief = parsed.brief.trim();
+            sessionStorage.removeItem("brokk.house.pendingBrief");
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+      if (pendingBrief) {
+        const s = await chat.createSession({
+          projectId,
+          model: CHAT_MODEL,
+          engine: CHAT_ENGINE,
+        });
+        if (!active) return;
+        const withStats: ChatSessionWithStats = {
+          ...s,
+          stats: { messages: 0, tokensIn: 0, tokensOut: 0, lastMessageAt: null },
+        };
+        setSessions((prev) => [withStats, ...(list ?? prev)]);
+        await openSession(s.id);
+        // Defer send until openSession state settles.
+        setTimeout(() => {
+          void send(s.id, pendingBrief!);
+        }, 50);
+        return;
+      }
       if (target) await openSession(target);
     })();
     return () => {

@@ -3,12 +3,36 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Columns3, Eye, Flame, FolderGit2, MessageSquare, Pin } from "lucide-react";
+import { Columns3, Eye, Flame, FolderGit2, MessageSquare, Pin, Target } from "lucide-react";
 import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
+import type { HouseLifecycle, HouseObjective } from "@brokk/core";
 import { STATUS_COLOR } from "../lib/theme";
 import { discovery, type BriefStatus } from "../lib/chat";
 import { useProject } from "../lib/project-context";
 import type { Project, Repository, Task } from "@brokk/sdk";
+import ObjectivePanel from "./ObjectivePanel";
+
+export function projectLifecycle(p: Project): HouseLifecycle {
+  return (p as Project & { houseLifecycle?: HouseLifecycle }).houseLifecycle ?? "undocumented";
+}
+
+export function projectObjective(p: Project): HouseObjective | null {
+  return (p as Project & { houseObjective?: HouseObjective | null }).houseObjective ?? null;
+}
+
+export function needsObjective(p: Project): boolean {
+  const life = projectLifecycle(p);
+  if (life === "archived") return false;
+  if (life === "undocumented") return true;
+  return !projectObjective(p)?.summary;
+}
+
+const LIFE_LABEL: Record<HouseLifecycle, string> = {
+  prototype: "Protótipo",
+  undocumented: "Sem objetivo",
+  working: "Trabalhando",
+  archived: "Arquivado",
+};
 
 function EnvPrepBadge({ projectId }: { projectId: string }) {
   const [status, setStatus] = useState<BriefStatus | null>(null);
@@ -127,6 +151,7 @@ function ProjectRow({
   onQueueMissing,
   onOpenChat,
   onOpenPreview,
+  onOpenObjective,
 }: {
   project: Project;
   repo?: Repository;
@@ -141,6 +166,7 @@ function ProjectRow({
   onQueueMissing: (text: string) => void;
   onOpenChat: () => void;
   onOpenPreview: () => void;
+  onOpenObjective: () => void;
 }) {
   const missing = brief?.missing ?? [];
   const topMissing = missing[0];
@@ -148,10 +174,15 @@ function ProjectRow({
   const queued = counts("queued");
   const review = counts("review");
   const backlog = counts("backlog");
+  const life = projectLifecycle(project);
+  const needObj = needsObjective(project);
+  const archived = life === "archived";
 
   return (
     <div
-      className={`house-row${running > 0 ? " is-running" : ""}${hot ? " is-hot" : ""}`}
+      className={`house-row${running > 0 ? " is-running" : ""}${hot ? " is-hot" : ""}${
+        needObj ? " needs-objective" : ""
+      }${archived ? " is-archived" : ""}`}
       role="row"
     >
       <div className="house-cell house-cell-pin">
@@ -174,6 +205,22 @@ function ProjectRow({
         <span className="house-repo" title={repo?.fullName}>
           {repo ? `${repo.fullName} · ${project.baseBranch}` : "—"}
         </span>
+      </div>
+
+      <div className="house-cell house-cell-life">
+        <button
+          type="button"
+          className={`house-life house-life-${life}${needObj ? " is-need" : ""}`}
+          onClick={onOpenObjective}
+          title="Objetivo / lifecycle"
+        >
+          {LIFE_LABEL[life]}
+        </button>
+        {needObj ? (
+          <button type="button" className="house-need-prompt" onClick={onOpenObjective}>
+            precisa objetivo
+          </button>
+        ) : null}
       </div>
 
       <div className="house-cell house-cell-state">
@@ -210,7 +257,12 @@ function ProjectRow({
       </div>
 
       <div className="house-cell house-cell-gap">
-        {topMissing ? (
+        {needObj ? (
+          <button type="button" className="house-gap is-objective" onClick={onOpenObjective}>
+            <span className="house-gap-mark">?</span>
+            <span className="house-gap-text">Definir objetivo (entrevista)</span>
+          </button>
+        ) : topMissing ? (
           <button
             type="button"
             className="house-gap"
@@ -231,6 +283,9 @@ function ProjectRow({
       </div>
 
       <div className="house-cell house-cell-cta">
+        <IconBtn label="Objetivo" onClick={onOpenObjective}>
+          <Target size={15} strokeWidth={1.75} />
+        </IconBtn>
         <IconBtn label="Chat" onClick={onOpenChat}>
           <MessageSquare size={15} strokeWidth={1.75} />
         </IconBtn>
@@ -259,8 +314,18 @@ export interface FleetViewProps {
   counts: { running: number; queued: number; review: number; seats: number };
   err: string | null;
   previewBusyId: string | null;
+  houseBusyId: string | null;
   onQueueMissing: (projectId: string, missing: string) => void;
   onOpenPreview: (projectId: string) => void;
+  onSaveHouse: (
+    projectId: string,
+    next: {
+      houseLifecycle: HouseLifecycle;
+      houseObjective: HouseObjective;
+      chatBrief: string;
+    },
+  ) => void | Promise<void>;
+  onArchiveProject: (projectId: string) => void | Promise<void>;
 }
 
 /** House — full-bleed project list. Header + list + footer dock. */
@@ -269,6 +334,7 @@ export default function FleetView(p: FleetViewProps) {
   const router = useRouter();
   const { setCurrentId, getLastSession, pinnedProjects } = useProject();
   const listRef = useRef<HTMLDivElement>(null);
+  const [objectiveId, setObjectiveId] = useState<string | null>(null);
 
   function openAnvilChat(projectId: string) {
     setCurrentId(projectId);
@@ -277,9 +343,13 @@ export default function FleetView(p: FleetViewProps) {
   }
 
   const pinRank = new Map(p.pinnedIds.map((id, i) => [id, i + 1]));
+  const needCount = p.projects.filter(needsObjective).length;
+  const objectiveProject = objectiveId
+    ? p.projects.find((x) => x.id === objectiveId) ?? null
+    : null;
 
   return (
-    <main className="fleet forge-room is-house">
+    <main className={`fleet forge-room is-house${objectiveProject ? " has-obj" : ""}`}>
       <header className="house-bar">
         <div className="house-bar-brand">
           <span className="fleet-eyebrow">Brokk · CCL</span>
@@ -290,6 +360,9 @@ export default function FleetView(p: FleetViewProps) {
               ? `${running} forging · ${p.counts.queued} queued · ${p.counts.review} PR`
               : `quiet · ${p.projects.length} projects · ${p.counts.seats} seats`}
           </span>
+          {needCount > 0 ? (
+            <span className="house-need-count">{needCount} sem objetivo</span>
+          ) : null}
         </div>
         <div className="house-bar-actions">
           {pinnedProjects.length > 0 ? (
@@ -301,7 +374,9 @@ export default function FleetView(p: FleetViewProps) {
                   <button
                     key={proj.id}
                     type="button"
-                    className={`fleet-pin-chip${run > 0 ? " is-running" : ""}`}
+                    className={`fleet-pin-chip${run > 0 ? " is-running" : ""}${
+                      needsObjective(proj) ? " needs-objective" : ""
+                    }`}
                     onClick={() => openAnvilChat(proj.id)}
                     title={`${proj.name} · ${i + 1}`}
                   >
@@ -313,7 +388,7 @@ export default function FleetView(p: FleetViewProps) {
               })}
             </div>
           ) : (
-            <span className="house-bar-hint">Pin clients in the list · keys 1–9</span>
+            <span className="house-bar-hint">Pin clients · keys 1–9 · objetivo = única etapa humana</span>
           )}
           <Button asChild>
             <Link href="/connect">+ Connect</Link>
@@ -323,6 +398,7 @@ export default function FleetView(p: FleetViewProps) {
 
       {p.err && <Banner tone="err">⚠ {p.err}</Banner>}
 
+      <div className="house-body">
       <section className="house-list-wrap" aria-label="All projects">
         <div className="house-list-head" role="row">
           <span className="house-cell house-cell-pin" />
@@ -332,9 +408,10 @@ export default function FleetView(p: FleetViewProps) {
               {p.projects.length} · by need
             </em>
           </span>
-          <span className="house-cell house-cell-state">State</span>
+          <span className="house-cell house-cell-life">Lifecycle</span>
+          <span className="house-cell house-cell-state">Forge</span>
           <span className="house-cell house-cell-counts">bk / q / pr</span>
-          <span className="house-cell house-cell-gap">Next gap</span>
+          <span className="house-cell house-cell-gap">Next</span>
           <span className="house-cell house-cell-cta" />
         </div>
 
@@ -374,12 +451,34 @@ export default function FleetView(p: FleetViewProps) {
                   onQueueMissing={(text) => p.onQueueMissing(proj.id, text)}
                   onOpenChat={() => openAnvilChat(proj.id)}
                   onOpenPreview={() => p.onOpenPreview(proj.id)}
+                  onOpenObjective={() => setObjectiveId(proj.id)}
                 />
               );
             })}
           </div>
         )}
       </section>
+
+      {objectiveProject ? (
+        <ObjectivePanel
+          projectId={objectiveProject.id}
+          projectName={objectiveProject.name}
+          lifecycle={projectLifecycle(objectiveProject)}
+          objective={projectObjective(objectiveProject)}
+          busy={p.houseBusyId === objectiveProject.id}
+          onClose={() => setObjectiveId(null)}
+          onSave={async (next) => {
+            await p.onSaveHouse(objectiveProject.id, next);
+            setObjectiveId(null);
+            openAnvilChat(objectiveProject.id);
+          }}
+          onArchive={async () => {
+            await p.onArchiveProject(objectiveProject.id);
+            setObjectiveId(null);
+          }}
+        />
+      ) : null}
+      </div>
 
       <footer className="house-footer">
         <div className="house-footer-dock" aria-label="Recent sessions">

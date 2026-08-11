@@ -116,6 +116,13 @@ export interface BrokkClient {
   }): Promise<Repository[]>;
 
   listProjects(): Promise<Project[]>;
+  patchProjectHouse(
+    id: string,
+    patch: {
+      houseLifecycle?: import("@brokk/core").HouseLifecycle;
+      houseObjective?: import("@brokk/core").HouseObjective | null;
+    },
+  ): Promise<Project>;
   listTasks(projectId?: string): Promise<Task[]>;
   getTask(id: string): Promise<Task>;
   createTask(input: CreateTaskInput): Promise<Task>;
@@ -298,6 +305,15 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
     },
     listProjects() {
       return req<Project[]>("GET", "/projects");
+    },
+    patchProjectHouse(
+      id: string,
+      patch: {
+        houseLifecycle?: import("@brokk/core").HouseLifecycle;
+        houseObjective?: import("@brokk/core").HouseObjective | null;
+      },
+    ) {
+      return req<Project>("PATCH", `/projects/${encodeURIComponent(id)}/house`, patch);
     },
     listTasks(projectId) {
       const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";

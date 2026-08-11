@@ -197,6 +197,12 @@ export const projects = pgTable(
     // checkout. Decided once at connect (Huginn skill / fast-path), reused per boot.
     // Null = resolve each boot (legacy projects fall through to the Next fast-path).
     runtime: jsonb("runtime").$type<import("@brokk/core").RuntimeSpec>(),
+    // House cockpit — product lifecycle + locked objective interview.
+    houseLifecycle: text("house_lifecycle")
+      .$type<import("@brokk/core").HouseLifecycle>()
+      .notNull()
+      .default("undocumented"),
+    houseObjective: jsonb("house_objective").$type<import("@brokk/core").HouseObjective | null>(),
     // ADR 0064 / BROKK-47: denormalized from repository for cheap board filters.
     // null = legado CCL-only (só isCclStaff).
     logtoOrgId: text("logto_org_id"),

@@ -188,8 +188,27 @@ export interface Project {
    *  checkout. Decided once at connect (Huginn skill / fast-path) and reused
    *  deterministically. Null = resolve each boot (legacy / not yet scouted). */
   runtime: RuntimeSpec | null;
+  /** House cockpit lifecycle — product readiness, not forge idle/running. */
+  houseLifecycle?: HouseLifecycle;
+  /** Locked objective interview (answers + summary). Null = still needs human objective. */
+  houseObjective?: HouseObjective | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** House product lifecycle (orthogonal to forge task status). */
+export type HouseLifecycle = "prototype" | "undocumented" | "working" | "archived";
+
+/** Structured objective from the House interview (human gate). */
+export interface HouseObjective {
+  /** One-line north star the operator locked. */
+  summary: string;
+  /** Question id → chosen option id(s) and/or free text. */
+  answers: Record<string, string | string[]>;
+  /** ISO timestamp when the human locked the objective. */
+  lockedAt: string;
+  /** Interview pack id (e.g. "logcheck", "generic"). */
+  pack: string;
 }
 
 /** GitHub App installation bound to a Logto org (ADR 0064 · per-org GitHub). */
