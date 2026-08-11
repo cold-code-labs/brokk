@@ -207,7 +207,7 @@ export interface HouseObjective {
   answers: Record<string, string | string[]>;
   /** ISO timestamp when the human locked the objective. */
   lockedAt: string;
-  /** Interview pack id (e.g. "logcheck", "generic"). */
+  /** Interview pack / round id (e.g. "round:logcheck"). */
   pack: string;
 }
 

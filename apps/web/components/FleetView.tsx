@@ -2,8 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { Columns3, Eye, Flame, FolderGit2, MessageSquare, Pin, Target } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Columns3,
+  Eye,
+  Flame,
+  FolderGit2,
+  MessageSquare,
+  MoreHorizontal,
+  Pin,
+  Target,
+} from "lucide-react";
 import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
 import type { HouseLifecycle, HouseObjective } from "@brokk/core";
 import { STATUS_COLOR } from "../lib/theme";
@@ -93,60 +102,45 @@ export type DockSession = {
   turnState: "idle" | "running";
 };
 
-function IconBtn({
-  label,
-  onClick,
-  href,
-  busy,
-  children,
-}: {
-  label: string;
-  onClick?: (e: React.MouseEvent) => void;
-  href?: string;
-  busy?: boolean;
-  children: React.ReactNode;
-}) {
-  const cls = `house-ico${busy ? " is-busy" : ""}`;
-  if (href) {
-    return (
-      <Link
-        href={href}
-        className={cls}
-        title={label}
-        aria-label={label}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {children}
-      </Link>
-    );
+function statusLine(input: {
+  needObj: boolean;
+  running: number;
+  review: number;
+  queued: number;
+  missing: string[];
+  mission: string | null;
+  objectiveSummary: string | null;
+}): { tone: "need" | "run" | "review" | "gap" | "ok" | "idle"; text: string } {
+  if (input.needObj) return { tone: "need", text: "Definir próximo objetivo" };
+  if (input.running > 0) return { tone: "run", text: `${input.running} forjando agora` };
+  if (input.review > 0) return { tone: "review", text: `${input.review} em review` };
+  if (input.queued > 0) return { tone: "run", text: `${input.queued} na fila` };
+  if (input.missing[0]) {
+    const g = input.missing[0];
+    return { tone: "gap", text: g.length > 72 ? `${g.slice(0, 70)}…` : g };
   }
-  return (
-    <button
-      type="button"
-      className={cls}
-      title={label}
-      aria-label={label}
-      disabled={busy}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick?.(e);
-      }}
-    >
-      {children}
-    </button>
-  );
+  if (input.objectiveSummary) {
+    const first = input.objectiveSummary.split("\n")[0]?.replace(/^Próximo objetivo:\s*/i, "") ?? "";
+    if (first) return { tone: "ok", text: first.length > 72 ? `${first.slice(0, 70)}…` : first };
+  }
+  if (input.mission) {
+    const m = input.mission;
+    return { tone: "idle", text: m.length > 72 ? `${m.slice(0, 70)}…` : m };
+  }
+  return { tone: "idle", text: "Quiet — sem sinal recente" };
 }
 
-function ProjectRow({
+function ProjectCard({
   project,
   repo,
   running,
   counts,
   brief,
-  attention,
   pinned,
   pinIndex,
   previewBusy,
+  menuOpen,
+  onToggleMenu,
   onTogglePin,
   onQueueMissing,
   onOpenChat,
@@ -158,10 +152,11 @@ function ProjectRow({
   running: number;
   counts: (s: string) => number;
   brief?: HouseBrief;
-  attention: number;
   pinned: boolean;
   pinIndex: number | null;
   previewBusy: boolean;
+  menuOpen: boolean;
+  onToggleMenu: () => void;
   onTogglePin: () => void;
   onQueueMissing: (text: string) => void;
   onOpenChat: () => void;
@@ -169,23 +164,40 @@ function ProjectRow({
   onOpenObjective: () => void;
 }) {
   const missing = brief?.missing ?? [];
-  const topMissing = missing[0];
-  const hot = attention >= 40 || running > 0;
   const queued = counts("queued");
   const review = counts("review");
   const backlog = counts("backlog");
   const life = projectLifecycle(project);
+  const obj = projectObjective(project);
   const needObj = needsObjective(project);
   const archived = life === "archived";
+  const status = statusLine({
+    needObj,
+    running,
+    review,
+    queued,
+    missing,
+    mission: brief?.mission ?? null,
+    objectiveSummary: obj?.summary ?? null,
+  });
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) onToggleMenu();
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuOpen, onToggleMenu]);
 
   return (
-    <div
-      className={`house-row${running > 0 ? " is-running" : ""}${hot ? " is-hot" : ""}${
-        needObj ? " needs-objective" : ""
-      }${archived ? " is-archived" : ""}`}
-      role="row"
+    <article
+      className={`house-card${running > 0 ? " is-running" : ""}${needObj ? " needs-objective" : ""}${
+        archived ? " is-archived" : ""
+      }`}
     >
-      <div className="house-cell house-cell-pin">
+      <header className="house-card-head">
         <button
           type="button"
           className={`fleet-pin-btn${pinned ? " is-on" : ""}`}
@@ -193,37 +205,70 @@ function ProjectRow({
           title={pinned ? (pinIndex != null ? `Pinned · key ${pinIndex}` : "Unpin") : "Pin"}
           onClick={onTogglePin}
         >
-          <Pin size={14} strokeWidth={pinned ? 2.25 : 1.75} />
+          <Pin size={13} strokeWidth={pinned ? 2.25 : 1.75} />
           {pinIndex != null ? <span className="house-pin-idx">{pinIndex}</span> : null}
         </button>
-      </div>
-
-      <div className="house-cell house-cell-name">
-        <Link href={`/projects/${project.id}`} className="house-name">
-          {project.name}
-        </Link>
-        <span className="house-repo" title={repo?.fullName}>
-          {repo ? `${repo.fullName} · ${project.baseBranch}` : "—"}
-        </span>
-      </div>
-
-      <div className="house-cell house-cell-life">
-        <button
-          type="button"
-          className={`house-life house-life-${life}${needObj ? " is-need" : ""}`}
-          onClick={onOpenObjective}
-          title="Objetivo / lifecycle"
-        >
-          {LIFE_LABEL[life]}
-        </button>
-        {needObj ? (
-          <button type="button" className="house-need-prompt" onClick={onOpenObjective}>
-            precisa objetivo
+        <div className="house-card-titles">
+          <Link href={`/projects/${project.id}`} className="house-card-name" title={project.name}>
+            {project.name}
+          </Link>
+          <span className="house-card-repo" title={repo?.fullName}>
+            {repo ? repo.fullName.split("/").pop() : "—"}
+          </span>
+        </div>
+        <div className="house-card-menu" ref={menuRef}>
+          <button
+            type="button"
+            className="house-ico"
+            aria-label="Ações rápidas"
+            aria-expanded={menuOpen}
+            onClick={onToggleMenu}
+          >
+            <MoreHorizontal size={15} strokeWidth={1.75} />
           </button>
-        ) : null}
-      </div>
+          {menuOpen ? (
+            <div className="house-menu" role="menu">
+              <button type="button" role="menuitem" onClick={onOpenObjective}>
+                <Target size={14} /> Objetivo / próxima rodada
+              </button>
+              <button type="button" role="menuitem" onClick={onOpenChat}>
+                <MessageSquare size={14} /> Chat
+              </button>
+              <Link href={`/projects/${project.id}`} role="menuitem" onClick={onToggleMenu}>
+                <Columns3 size={14} /> Board
+              </Link>
+              <button type="button" role="menuitem" disabled={previewBusy} onClick={onOpenPreview}>
+                <Eye size={14} /> Preview
+              </button>
+              {missing[0] ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onQueueMissing(missing[0]!);
+                    onToggleMenu();
+                  }}
+                >
+                  + Queue gap
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </header>
 
-      <div className="house-cell house-cell-state">
+      <button
+        type="button"
+        className={`house-life house-life-${life}${needObj ? " is-need" : ""}`}
+        onClick={onOpenObjective}
+        title="Abrir objetivo desta rodada"
+      >
+        {LIFE_LABEL[life]}
+      </button>
+
+      <p className={`house-card-status tone-${status.tone}`}>{status.text}</p>
+
+      <div className="house-card-meta">
         {running > 0 ? (
           <span className="fleet-card-state running">
             <span className="fleet-run-dot" />
@@ -233,70 +278,43 @@ function ProjectRow({
           <span className="fleet-card-state idle">idle</span>
         )}
         <EnvPrepBadge projectId={project.id} />
-      </div>
-
-      <div className="house-cell house-cell-counts" aria-label="counts">
-        <span className="house-count" title="backlog">
+        <span className="house-card-counts" title="backlog / queued / review / gaps">
           {backlog}
-          <em>bk</em>
-        </span>
-        <span className={`house-count${queued ? " is-warn" : ""}`} title="queued">
-          {queued}
-          <em>q</em>
-        </span>
-        <span className={`house-count${review ? " is-info" : ""}`} title="in review">
-          {review}
+          <em>bk</em> {queued}
+          <em>q</em> {review}
           <em>pr</em>
+          {missing.length ? (
+            <>
+              {" "}
+              {missing.length}
+              <em>gap</em>
+            </>
+          ) : null}
         </span>
-        {missing.length > 0 ? (
-          <span className="house-count is-warn" title="Huginn missing">
-            {missing.length}
-            <em>gap</em>
-          </span>
-        ) : null}
       </div>
 
-      <div className="house-cell house-cell-gap">
-        {needObj ? (
-          <button type="button" className="house-gap is-objective" onClick={onOpenObjective}>
-            <span className="house-gap-mark">?</span>
-            <span className="house-gap-text">Definir objetivo (entrevista)</span>
-          </button>
-        ) : topMissing ? (
-          <button
-            type="button"
-            className="house-gap"
-            title="Queue this gap to the forge"
-            onClick={() => onQueueMissing(topMissing)}
-          >
-            <span className="house-gap-mark">+</span>
-            <span className="house-gap-text">{topMissing}</span>
-            {missing.length > 1 ? (
-              <span className="house-gap-more">+{missing.length - 1}</span>
-            ) : null}
-          </button>
-        ) : brief?.status === "ready" ? (
-          <span className="house-gap-empty">—</span>
-        ) : (
-          <span className="house-gap-empty">{brief?.mission ? brief.mission : "…"}</span>
-        )}
-      </div>
-
-      <div className="house-cell house-cell-cta">
-        <IconBtn label="Objetivo" onClick={onOpenObjective}>
+      <footer className="house-card-cta">
+        <button type="button" className="house-ico" title="Objetivo" aria-label="Objetivo" onClick={onOpenObjective}>
           <Target size={15} strokeWidth={1.75} />
-        </IconBtn>
-        <IconBtn label="Chat" onClick={onOpenChat}>
+        </button>
+        <button type="button" className="house-ico" title="Chat" aria-label="Chat" onClick={onOpenChat}>
           <MessageSquare size={15} strokeWidth={1.75} />
-        </IconBtn>
-        <IconBtn label="Board" href={`/projects/${project.id}`}>
+        </button>
+        <Link href={`/projects/${project.id}`} className="house-ico" title="Board" aria-label="Board">
           <Columns3 size={15} strokeWidth={1.75} />
-        </IconBtn>
-        <IconBtn label="Preview" onClick={onOpenPreview} busy={previewBusy}>
+        </Link>
+        <button
+          type="button"
+          className={`house-ico${previewBusy ? " is-busy" : ""}`}
+          title="Preview"
+          aria-label="Preview"
+          disabled={previewBusy}
+          onClick={onOpenPreview}
+        >
           <Eye size={15} strokeWidth={1.75} />
-        </IconBtn>
-      </div>
-    </div>
+        </button>
+      </footer>
+    </article>
   );
 }
 
@@ -328,13 +346,13 @@ export interface FleetViewProps {
   onArchiveProject: (projectId: string) => void | Promise<void>;
 }
 
-/** House — full-bleed project list. Header + list + footer dock. */
+/** House — alphabetical project grid + per-project objective round. */
 export default function FleetView(p: FleetViewProps) {
   const running = p.counts.running;
   const router = useRouter();
   const { setCurrentId, getLastSession, pinnedProjects } = useProject();
-  const listRef = useRef<HTMLDivElement>(null);
   const [objectiveId, setObjectiveId] = useState<string | null>(null);
+  const [menuId, setMenuId] = useState<string | null>(null);
 
   function openAnvilChat(projectId: string) {
     setCurrentId(projectId);
@@ -347,6 +365,14 @@ export default function FleetView(p: FleetViewProps) {
   const objectiveProject = objectiveId
     ? p.projects.find((x) => x.id === objectiveId) ?? null
     : null;
+
+  const alphaProjects = useMemo(() => {
+    const active = p.projects.filter((x) => projectLifecycle(x) !== "archived");
+    const archived = p.projects.filter((x) => projectLifecycle(x) === "archived");
+    const byName = (a: Project, b: Project) =>
+      a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
+    return [...active.sort(byName), ...archived.sort(byName)];
+  }, [p.projects]);
 
   return (
     <main className={`fleet forge-room is-house${objectiveProject ? " has-obj" : ""}`}>
@@ -388,7 +414,7 @@ export default function FleetView(p: FleetViewProps) {
               })}
             </div>
           ) : (
-            <span className="house-bar-hint">Pin clients · keys 1–9 · objetivo = única etapa humana</span>
+            <span className="house-bar-hint">Pin · 1–9 · Objetivo = gate humano por projeto</span>
           )}
           <Button asChild>
             <Link href="/connect">+ Connect</Link>
@@ -399,85 +425,86 @@ export default function FleetView(p: FleetViewProps) {
       {p.err && <Banner tone="err">⚠ {p.err}</Banner>}
 
       <div className="house-body">
-      <section className="house-list-wrap" aria-label="All projects">
-        <div className="house-list-head" role="row">
-          <span className="house-cell house-cell-pin" />
-          <span className="house-cell house-cell-name">
-            Project
-            <em className="house-list-meta">
-              {p.projects.length} · by need
-            </em>
-          </span>
-          <span className="house-cell house-cell-life">Lifecycle</span>
-          <span className="house-cell house-cell-state">Forge</span>
-          <span className="house-cell house-cell-counts">bk / q / pr</span>
-          <span className="house-cell house-cell-gap">Next</span>
-          <span className="house-cell house-cell-cta" />
-        </div>
-
-        {p.projects.length === 0 ? (
-          <div className="fleet-empty is-panel">
-            <span className="fleet-empty-mark">
-              <FolderGit2 />
-            </span>
-            <span className="fleet-empty-title">No repos at the house yet</span>
-            <p className="fleet-empty-sub">
-              Connect a repository and Brokk can pick up tasks, open PRs, and forge previews.
-            </p>
-            <span className="fleet-empty-action">
-              <Button asChild>
-                <Link href="/connect">+ Connect a repo</Link>
-              </Button>
+        <section className="house-grid-wrap" aria-label="Projects A–Z">
+          <div className="house-grid-head">
+            <span>
+              Projetos
+              <em className="house-list-meta">
+                {alphaProjects.length} · A–Z
+              </em>
             </span>
           </div>
-        ) : (
-          <div className="house-list" ref={listRef} role="table">
-            {p.projects.map((proj) => {
-              const ts = p.tasksByProject.get(proj.id) ?? [];
-              const c = (s: string) => ts.filter((x) => x.status === s).length;
-              return (
-                <ProjectRow
-                  key={proj.id}
-                  project={proj}
-                  repo={p.repoById.get(proj.repositoryId)}
-                  running={c("running")}
-                  counts={c}
-                  brief={p.briefsByProject[proj.id]}
-                  attention={p.attentionOf(proj.id)}
-                  pinned={p.pinnedIds.includes(proj.id)}
-                  pinIndex={pinRank.get(proj.id) ?? null}
-                  previewBusy={p.previewBusyId === proj.id}
-                  onTogglePin={() => p.onTogglePin(proj.id)}
-                  onQueueMissing={(text) => p.onQueueMissing(proj.id, text)}
-                  onOpenChat={() => openAnvilChat(proj.id)}
-                  onOpenPreview={() => p.onOpenPreview(proj.id)}
-                  onOpenObjective={() => setObjectiveId(proj.id)}
-                />
-              );
-            })}
-          </div>
-        )}
-      </section>
 
-      {objectiveProject ? (
-        <ObjectivePanel
-          projectId={objectiveProject.id}
-          projectName={objectiveProject.name}
-          lifecycle={projectLifecycle(objectiveProject)}
-          objective={projectObjective(objectiveProject)}
-          busy={p.houseBusyId === objectiveProject.id}
-          onClose={() => setObjectiveId(null)}
-          onSave={async (next) => {
-            await p.onSaveHouse(objectiveProject.id, next);
-            setObjectiveId(null);
-            openAnvilChat(objectiveProject.id);
-          }}
-          onArchive={async () => {
-            await p.onArchiveProject(objectiveProject.id);
-            setObjectiveId(null);
-          }}
-        />
-      ) : null}
+          {alphaProjects.length === 0 ? (
+            <div className="fleet-empty is-panel">
+              <span className="fleet-empty-mark">
+                <FolderGit2 />
+              </span>
+              <span className="fleet-empty-title">No repos at the house yet</span>
+              <p className="fleet-empty-sub">
+                Connect a repository and Brokk can pick up tasks, open PRs, and forge previews.
+              </p>
+              <span className="fleet-empty-action">
+                <Button asChild>
+                  <Link href="/connect">+ Connect a repo</Link>
+                </Button>
+              </span>
+            </div>
+          ) : (
+            <div className="house-grid">
+              {alphaProjects.map((proj) => {
+                const ts = p.tasksByProject.get(proj.id) ?? [];
+                const c = (s: string) => ts.filter((x) => x.status === s).length;
+                return (
+                  <ProjectCard
+                    key={proj.id}
+                    project={proj}
+                    repo={p.repoById.get(proj.repositoryId)}
+                    running={c("running")}
+                    counts={c}
+                    brief={p.briefsByProject[proj.id]}
+                    pinned={p.pinnedIds.includes(proj.id)}
+                    pinIndex={pinRank.get(proj.id) ?? null}
+                    previewBusy={p.previewBusyId === proj.id}
+                    menuOpen={menuId === proj.id}
+                    onToggleMenu={() => setMenuId((cur) => (cur === proj.id ? null : proj.id))}
+                    onTogglePin={() => p.onTogglePin(proj.id)}
+                    onQueueMissing={(text) => p.onQueueMissing(proj.id, text)}
+                    onOpenChat={() => openAnvilChat(proj.id)}
+                    onOpenPreview={() => p.onOpenPreview(proj.id)}
+                    onOpenObjective={() => {
+                      setMenuId(null);
+                      setObjectiveId(proj.id);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {objectiveProject ? (
+          <ObjectivePanel
+            projectId={objectiveProject.id}
+            projectName={objectiveProject.name}
+            lifecycle={projectLifecycle(objectiveProject)}
+            objective={projectObjective(objectiveProject)}
+            tasks={p.tasksByProject.get(objectiveProject.id) ?? []}
+            mission={p.briefsByProject[objectiveProject.id]?.mission ?? null}
+            missing={p.briefsByProject[objectiveProject.id]?.missing ?? []}
+            busy={p.houseBusyId === objectiveProject.id}
+            onClose={() => setObjectiveId(null)}
+            onSave={async (next) => {
+              await p.onSaveHouse(objectiveProject.id, next);
+              setObjectiveId(null);
+              openAnvilChat(objectiveProject.id);
+            }}
+            onArchive={async () => {
+              await p.onArchiveProject(objectiveProject.id);
+              setObjectiveId(null);
+            }}
+          />
+        ) : null}
       </div>
 
       <footer className="house-footer">

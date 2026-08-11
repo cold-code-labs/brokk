@@ -6,14 +6,13 @@ import { brokk } from "../lib/api";
 import { chat, discovery, type ChatSessionWithStats, type ProjectBrief } from "../lib/chat";
 import {
   attentionScore,
-  sortByAttention,
   type BriefSnapshot,
 } from "../lib/house";
 import { useProject } from "../lib/project-context";
 import "../app/fleet.css";
 import FleetView, { type DockSession, type HouseBrief } from "./FleetView";
 
-/** Brokk home — the House cockpit. Data here; FleetView renders the list. */
+/** Brokk home — the House cockpit. Data here; FleetView renders the grid. */
 export default function Fleet() {
   const [repos, setRepos] = useState<Repository[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -151,11 +150,6 @@ export default function Fleet() {
     return (id: string) => scores.get(id) ?? 0;
   }, [projects, tasksByProject, briefsByProject]);
 
-  const sortedProjects = useMemo(
-    () => sortByAttention(projects, scoreOf),
-    [projects, scoreOf],
-  );
-
   const count = (s: string) => tasks.filter((x) => x.status === s).length;
   const queue = useMemo(
     () =>
@@ -250,7 +244,7 @@ export default function Fleet() {
 
   return (
     <FleetView
-      projects={sortedProjects}
+      projects={projects}
       repoById={repoById}
       projectById={projectById}
       tasksByProject={tasksByProject}
