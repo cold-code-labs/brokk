@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Columns3, Flame, FolderGit2, MessageSquare, Target } from "lucide-react";
+import { Columns3, Eye, Flame, FolderGit2, MessageSquare, Target } from "lucide-react";
 import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
 import type { HouseLifecycle, HouseObjective } from "@brokk/core";
 import { STATUS_COLOR } from "../lib/theme";
@@ -190,13 +190,16 @@ function ProjectCard({
         </Link>
         <button
           type="button"
-          className={`house-preview-dot${previewLive ? " is-live" : ""}${previewBusy ? " is-busy" : ""}`}
-          title={previewLive ? "Preview ao vivo" : "Abrir / subir preview"}
-          aria-label={previewLive ? "Preview ao vivo" : "Abrir preview"}
+          className={`house-ico house-preview-btn${previewBusy ? " is-busy" : ""}`}
+          title={previewLive ? "Preview · ambiente disponível" : "Preview"}
+          aria-label={previewLive ? "Preview · ambiente disponível" : "Preview"}
           disabled={previewBusy}
           onClick={onOpenPreview}
         >
-          <span />
+          <Eye size={15} strokeWidth={1.75} />
+          {previewLive ? (
+            <span className="house-preview-live" title="Ambiente disponível" aria-hidden />
+          ) : null}
         </button>
       </nav>
     </article>

@@ -1143,36 +1143,21 @@ main.forge-room.is-house {
   gap: 0.15rem;
   padding: 0 0.1rem;
 }
-.house-preview-dot {
-  display: inline-grid;
-  place-items: center;
-  width: 1.85rem;
-  height: 1.85rem;
-  border: 0;
-  border-radius: 0.4rem;
-  background: transparent;
-  cursor: pointer;
-  padding: 0;
+.house-preview-btn {
+  position: relative;
 }
-.house-preview-dot span {
-  width: 0.55rem;
-  height: 0.55rem;
+.house-preview-live {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  width: 0.42rem;
+  height: 0.42rem;
   border-radius: 50%;
-  border: 1.5px solid color-mix(in srgb, var(--fg-dim) 55%, transparent);
-  background: transparent;
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.house-preview-dot.is-live span {
-  border-color: #2fbf6b;
   background: #2fbf6b;
-  box-shadow: 0 0 0 3px color-mix(in srgb, #2fbf6b 22%, transparent);
-}
-.house-preview-dot:hover span {
-  border-color: color-mix(in srgb, #2fbf6b 70%, var(--fg-dim));
-}
-.house-preview-dot.is-busy {
-  opacity: 0.45;
-  cursor: wait;
+  box-shadow:
+    0 0 0 1.5px var(--panel),
+    0 0 0 3px color-mix(in srgb, #2fbf6b 28%, transparent);
+  pointer-events: none;
 }
 
 .house-obj {
