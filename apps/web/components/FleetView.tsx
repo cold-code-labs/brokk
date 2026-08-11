@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
+  BarChart3,
   Columns3,
   Eye,
   Flame,
@@ -137,6 +138,18 @@ function CardPreviewStage({
   );
 }
 
+type CardMode = "preview" | "stats";
+type BorderTone = "run" | "idle" | "fail";
+
+function cardBorderTone(input: {
+  running: number;
+  briefFailed: boolean;
+}): BorderTone {
+  if (input.briefFailed) return "fail";
+  if (input.running > 0) return "run";
+  return "idle";
+}
+
 function ProjectCard({
   project,
   repo,
@@ -168,11 +181,14 @@ function ProjectCard({
   const queued = counts("queued");
   const review = counts("review");
   const backlog = counts("backlog");
+  const done = counts("done");
   const life = projectLifecycle(project);
   const obj = projectObjective(project);
   const needObj = needsObjective(project);
   const archived = life === "archived";
   const previewLive = Boolean(preview?.live && preview.subdomain);
+  const briefFailed = brief?.status === "failed";
+  const border = cardBorderTone({ running, briefFailed });
   const status = statusLine({
     needObj,
     running,
@@ -186,6 +202,7 @@ function ProjectCard({
   const repoLeaf = repo?.fullName?.split("/").pop() ?? "";
   const showRepo =
     Boolean(repoLeaf) && prettyProjectName(repoLeaf).toLowerCase() !== label.toLowerCase();
+  const [mode, setMode] = useState<CardMode>("preview");
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -200,36 +217,111 @@ function ProjectCard({
 
   return (
     <article
-      className={`house-card${running > 0 ? " is-running" : ""}${needObj ? " needs-objective" : ""}${
-        archived ? " is-archived" : ""
-      }${previewLive ? " has-preview" : ""}`}
+      className={`house-card tone-${border}${archived ? " is-archived" : ""}${
+        previewLive ? " has-preview" : ""
+      }${needObj ? " needs-objective" : ""}`}
     >
-      <div className="house-card-main">
-        <header className="house-card-head">
-          <div className="house-card-titles">
-            <Link href={`/projects/${project.id}`} className="house-card-name" title={label}>
-              {label}
-            </Link>
-            {showRepo ? (
-              <span className="house-card-repo" title={repo?.fullName}>
-                {repoLeaf}
-              </span>
-            ) : null}
-          </div>
-        </header>
-
-        {life !== "undocumented" ? (
+      <header className="house-card-head">
+        <div className="house-card-titles">
+          <Link href={`/projects/${project.id}`} className="house-card-name" title={label}>
+            {label}
+          </Link>
+          {showRepo ? (
+            <span className="house-card-repo" title={repo?.fullName}>
+              {repoLeaf}
+            </span>
+          ) : null}
+        </div>
+        <div className="house-card-head-actions">
           <button
             type="button"
-            className={`house-life house-life-${life}`}
-            onClick={onOpenObjective}
-            title="Abrir objetivo desta rodada"
+            className="house-ico"
+            title={mode === "preview" ? "Ver stats" : "Ver preview"}
+            aria-label={mode === "preview" ? "Trocar para stats" : "Trocar para preview"}
+            onClick={() => setMode((m) => (m === "preview" ? "stats" : "preview"))}
           >
-            {LIFE_LABEL[life]}
+            {mode === "preview" ? (
+              <BarChart3 size={15} strokeWidth={1.75} />
+            ) : (
+              <span className="house-mode-eye">
+                <Eye size={15} strokeWidth={1.75} />
+                {previewLive ? <span className="house-preview-live" aria-hidden /> : null}
+              </span>
+            )}
           </button>
-        ) : null}
+          <div className="house-card-menu" ref={menuRef}>
+            <button
+              type="button"
+              className="house-ico"
+              aria-label="Mais ações"
+              aria-expanded={menuOpen}
+              title="Mais ações"
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <MoreHorizontal size={15} strokeWidth={1.75} />
+            </button>
+            {menuOpen ? (
+              <div className="house-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenObjective();
+                  }}
+                >
+                  <Target size={14} /> Objetivo / rodada
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenChat();
+                  }}
+                >
+                  <MessageSquare size={14} /> Chat
+                </button>
+                <Link
+                  href={`/projects/${project.id}`}
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  <Columns3 size={14} /> Board
+                </Link>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={previewBusy}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenPreview();
+                  }}
+                >
+                  <Eye size={14} /> Abrir preview
+                </button>
+                {!archived ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="is-danger"
+                    disabled={houseBusy}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onArchive();
+                    }}
+                  >
+                    <Archive size={14} /> Arquivar projeto
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </header>
 
-        {previewLive && preview?.subdomain ? (
+      {mode === "preview" ? (
+        previewLive && preview?.subdomain ? (
           <CardPreviewStage
             subdomain={preview.subdomain}
             label={label}
@@ -237,134 +329,81 @@ function ProjectCard({
           />
         ) : (
           <div className="house-card-stage is-empty">
-            {status ? (
-              <p className={`house-card-status tone-${status.tone}`}>{status.text}</p>
-            ) : (
-              <p className="house-card-status is-spacer" aria-hidden>
-                &nbsp;
-              </p>
-            )}
+            <p className="house-card-status">
+              {briefFailed
+                ? "Ambiente com falha — abra o menu → Preview pra subir de novo"
+                : previewBusy
+                  ? "Subindo preview…"
+                  : "Sem preview ao vivo — menu → Abrir preview"}
+            </p>
           </div>
-        )}
-
-        <div className="house-card-meta">
-          {running > 0 ? (
-            <span className="fleet-card-state running">
-              <span className="fleet-run-dot" />
-              {running} run
-            </span>
-          ) : (
-            <span className="fleet-card-state idle">idle</span>
-          )}
-          <span className="house-card-counts" title="backlog / queued / review / gaps">
-            {backlog}
-            <em>bk</em> {queued}
-            <em>q</em> {review}
-            <em>pr</em>
-            {missing.length ? (
-              <>
-                {" "}
-                {missing.length}
-                <em>gap</em>
-              </>
-            ) : null}
-          </span>
-        </div>
-      </div>
-
-      <nav className="house-card-rail" aria-label={`Ações · ${label}`}>
-        <button type="button" className="house-ico" title="Objetivo" aria-label="Objetivo" onClick={onOpenObjective}>
-          <Target size={15} strokeWidth={1.75} />
-        </button>
-        <button type="button" className="house-ico" title="Chat" aria-label="Chat" onClick={onOpenChat}>
-          <MessageSquare size={15} strokeWidth={1.75} />
-        </button>
-        <Link href={`/projects/${project.id}`} className="house-ico" title="Board" aria-label="Board">
-          <Columns3 size={15} strokeWidth={1.75} />
-        </Link>
-        <button
-          type="button"
-          className={`house-ico house-preview-btn${previewBusy ? " is-busy" : ""}`}
-          title={previewLive ? "Abrir preview (já na telinha)" : "Preview"}
-          aria-label={previewLive ? "Abrir preview" : "Preview"}
-          disabled={previewBusy}
-          onClick={onOpenPreview}
-        >
-          <Eye size={15} strokeWidth={1.75} />
-          {previewLive ? (
-            <span className="house-preview-live" title="Ambiente disponível" aria-hidden />
+        )
+      ) : (
+        <div className="house-card-stats">
+          {life !== "undocumented" ? (
+            <button
+              type="button"
+              className={`house-life house-life-${life}`}
+              onClick={onOpenObjective}
+              title="Abrir objetivo desta rodada"
+            >
+              {LIFE_LABEL[life]}
+            </button>
+          ) : needObj ? (
+            <button
+              type="button"
+              className="house-life house-life-undocumented is-need"
+              onClick={onOpenObjective}
+              title="Definir objetivo"
+            >
+              Sem objetivo
+            </button>
           ) : null}
-        </button>
-      </nav>
 
-      <div className="house-card-corner" ref={menuRef}>
-        <button
-          type="button"
-          className="house-ico"
-          aria-label="Mais ações"
-          aria-expanded={menuOpen}
-          title="Mais ações"
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          <MoreHorizontal size={15} strokeWidth={1.75} />
-        </button>
-        {menuOpen ? (
-          <div className="house-menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                onOpenObjective();
-              }}
-            >
-              <Target size={14} /> Objetivo / rodada
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuOpen(false);
-                onOpenChat();
-              }}
-            >
-              <MessageSquare size={14} /> Chat
-            </button>
-            <Link
-              href={`/projects/${project.id}`}
-              role="menuitem"
-              onClick={() => setMenuOpen(false)}
-            >
-              <Columns3 size={14} /> Board
-            </Link>
-            <button
-              type="button"
-              role="menuitem"
-              disabled={previewBusy}
-              onClick={() => {
-                setMenuOpen(false);
-                onOpenPreview();
-              }}
-            >
-              <Eye size={14} /> Preview
-            </button>
-            {!archived ? (
-              <button
-                type="button"
-                role="menuitem"
-                className="is-danger"
-                disabled={houseBusy}
-                onClick={() => {
-                  setMenuOpen(false);
-                  onArchive();
-                }}
-              >
-                <Archive size={14} /> Arquivar projeto
-              </button>
-            ) : null}
+          <div className="house-card-meta">
+            {briefFailed ? (
+              <span className="fleet-card-state fail">fail</span>
+            ) : running > 0 ? (
+              <span className="fleet-card-state running">
+                <span className="fleet-run-dot" />
+                {running} run
+              </span>
+            ) : (
+              <span className="fleet-card-state idle">idle</span>
+            )}
+            <span className="house-card-counts" title="backlog / queued / review / done / gaps">
+              {backlog}
+              <em>bk</em> {queued}
+              <em>q</em> {review}
+              <em>pr</em> {done}
+              <em>ok</em>
+              {missing.length ? (
+                <>
+                  {" "}
+                  {missing.length}
+                  <em>gap</em>
+                </>
+              ) : null}
+            </span>
           </div>
-        ) : null}
-      </div>
+
+          {status ? (
+            <p className={`house-card-status tone-${status.tone}`}>{status.text}</p>
+          ) : needObj ? (
+            <p className="house-card-status">Próxima rodada ainda sem objetivo travado.</p>
+          ) : (
+            <p className="house-card-status tone-ok">Quiet — sem sinal forte.</p>
+          )}
+
+          {missing.length > 0 ? (
+            <ul className="house-card-gaps">
+              {missing.slice(0, 3).map((g) => (
+                <li key={g}>{g.length > 64 ? `${g.slice(0, 62)}…` : g}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
     </article>
   );
 }
