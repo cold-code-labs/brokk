@@ -50,7 +50,7 @@ function projectStem(name: string): string {
   return name
     .trim()
     .toLowerCase()
-    .replace(/_/g, "-")
+    .replace(/[\s_]+/g, "-")
     .replace(/-aio$/, "")
     .replace(/-all-in-one$/, "");
 }
