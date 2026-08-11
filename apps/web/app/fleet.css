@@ -1189,6 +1189,29 @@ main.forge-room.is-house {
   display: inline-grid;
   place-items: center;
 }
+
+.house-card-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 9.5rem;
+  display: flex;
+  flex-direction: column;
+}
+.house-preview-cache {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 0;
+  /* Keep iframe painted — display:none would drop the live session. */
+}
+.house-preview-cache.is-on {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  z-index: 1;
+}
 .house-card-status {
   margin: 0;
   font-size: 0.78rem;
@@ -1198,33 +1221,34 @@ main.forge-room.is-house {
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  padding: 0.55rem 0.6rem;
+  padding: 0;
 }
 .house-card-status.is-spacer {
   visibility: hidden;
   -webkit-line-clamp: 1;
   min-height: 1.1em;
 }
+/* Full-bleed to the card border (below header). */
 .house-card-stage {
-  position: relative;
+  position: absolute;
+  inset: 0;
   container-type: size;
-  flex: 1 1 auto;
-  width: calc(100% - 1.1rem);
-  margin: 0 0.55rem 0.55rem;
-  aspect-ratio: 16 / 10;
-  min-height: 8.25rem;
-  border-radius: 0.4rem;
-  border: 1px solid var(--line-soft);
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
   background: color-mix(in srgb, var(--fg) 4%, var(--panel));
   overflow: hidden;
 }
 .house-card-stage.is-empty {
+  position: relative;
   display: flex;
-  align-items: stretch;
-}
-.house-card-stage.is-empty .house-card-status {
-  flex: 1;
-  align-self: center;
+  align-items: center;
+  justify-content: center;
+  min-height: 9.5rem;
+  padding: 0.85rem 1rem;
+  text-align: center;
 }
 .house-card-frame {
   position: absolute;
@@ -1242,7 +1266,6 @@ main.forge-room.is-house {
   display: grid;
   place-items: center;
   height: 100%;
-  min-height: 8.25rem;
   font-size: 0.72rem;
   color: var(--fg-dim);
 }
@@ -1258,50 +1281,128 @@ main.forge-room.is-house {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 .house-card-stats {
+  position: relative;
+  z-index: 2;
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.15rem 0.7rem 0.7rem;
-  min-height: 8.25rem;
+  gap: 0.7rem;
+  padding: 0.75rem 0.85rem 0.85rem;
+  min-height: 9.5rem;
+  background: var(--panel);
+}
+.house-stats-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.house-stats-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--fg-soft);
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+.house-stats-pill.is-idle {
+  border-color: color-mix(in srgb, #e8a317 55%, var(--line));
+  color: color-mix(in srgb, #e8a317 90%, var(--fg));
+  background: color-mix(in srgb, #e8a317 12%, transparent);
+}
+.house-stats-pill.is-run {
+  border-color: color-mix(in srgb, #2fbf6b 55%, var(--line));
+  color: color-mix(in srgb, #2fbf6b 85%, var(--fg));
+  background: color-mix(in srgb, #2fbf6b 12%, transparent);
+}
+.house-stats-pill.is-fail {
+  border-color: color-mix(in srgb, #d44545 55%, var(--line));
+  color: color-mix(in srgb, #d44545 90%, var(--fg));
+  background: color-mix(in srgb, #d44545 12%, transparent);
+}
+.house-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+.house-stats-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--fg) 2.5%, transparent);
+  min-width: 0;
+}
+.house-stats-cell strong {
+  font-size: 1.05rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--fg);
+}
+.house-stats-cell span {
+  font-size: 0.62rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-dim);
+}
+.house-stats-cell.is-hot strong {
+  color: color-mix(in srgb, var(--ember) 80%, var(--fg));
+}
+.house-stats-cell.is-info strong {
+  color: var(--accent);
+}
+.house-stats-label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.62rem;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-dim);
+}
+.house-stats-label em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-soft);
+}
+.house-stats-signal .house-card-status {
+  -webkit-line-clamp: 3;
+}
+.house-stats-gaps ul {
+  margin: 0;
+  padding-left: 1.05rem;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--fg-soft);
+}
+.house-stats-gaps li + li { margin-top: 0.2rem; }
+.house-stats-quiet {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--fg-dim);
 }
 .house-card-status.tone-run { color: color-mix(in srgb, var(--ember) 85%, var(--fg)); font-weight: 650; }
 .house-card-status.tone-review { color: var(--accent); }
 .house-card-status.tone-gap { color: color-mix(in srgb, var(--ember) 70%, var(--fg)); }
 .house-card-status.tone-ok { color: var(--fg); }
-.house-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem 0.55rem;
-  font-size: 0.72rem;
-  color: var(--fg-dim);
+.house-card.mode-preview {
+  gap: 0;
 }
-.fleet-card-state.fail {
-  color: #d44545;
-  font-weight: 700;
+.house-card.mode-preview .house-card-head {
+  border-bottom-color: color-mix(in srgb, var(--fg) 8%, transparent);
 }
-.house-card-counts {
-  font-variant-numeric: tabular-nums;
-  font-weight: 650;
-  color: var(--fg-soft);
-}
-.house-card-counts em {
-  font-style: normal;
-  font-size: 0.58rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  color: var(--fg-dim);
-  margin-right: 0.25rem;
-}
-.house-card-gaps {
-  margin: 0;
-  padding-left: 1.05rem;
-  font-size: 0.74rem;
-  line-height: 1.35;
-  color: var(--fg-soft);
-}
-.house-card-gaps li + li { margin-top: 0.2rem; }
+
 .house-preview-live {
   position: absolute;
   top: -0.05rem;

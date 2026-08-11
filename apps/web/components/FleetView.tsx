@@ -86,22 +86,24 @@ function statusLine(input: {
   return null;
 }
 
-/** Mini LP — mounts iframe only when the card is near the viewport. */
+/** Mini LP — mounts once when visible, then stays cached across mode switches. */
 function CardPreviewStage({
   subdomain,
   label,
   onOpen,
+  interactive,
 }: {
   subdomain: string;
   label: string;
   onOpen: () => void;
+  interactive: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [mount, setMount] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || mount) return;
     const io = new IntersectionObserver(
       ([entry]) => {
         if (entry?.isIntersecting) setMount(true);
@@ -110,7 +112,7 @@ function CardPreviewStage({
     );
     io.observe(el);
     return () => io.disconnect();
-  }, []);
+  }, [mount]);
 
   return (
     <div className="house-card-stage" ref={ref}>
@@ -127,13 +129,15 @@ function CardPreviewStage({
       ) : (
         <span className="house-card-stage-ph">carregando LP…</span>
       )}
-      <button
-        type="button"
-        className="house-card-stage-hit"
-        onClick={onOpen}
-        aria-label={`Abrir preview · ${label}`}
-        title="Abrir o preview que está na telinha"
-      />
+      {interactive ? (
+        <button
+          type="button"
+          className="house-card-stage-hit"
+          onClick={onOpen}
+          aria-label={`Abrir preview · ${label}`}
+          title="Abrir o preview que está na telinha"
+        />
+      ) : null}
     </div>
   );
 }
@@ -217,7 +221,7 @@ function ProjectCard({
 
   return (
     <article
-      className={`house-card tone-${border}${archived ? " is-archived" : ""}${
+      className={`house-card tone-${border} mode-${mode}${archived ? " is-archived" : ""}${
         previewLive ? " has-preview" : ""
       }${needObj ? " needs-objective" : ""}`}
     >
@@ -320,90 +324,114 @@ function ProjectCard({
         </div>
       </header>
 
-      {mode === "preview" ? (
-        previewLive && preview?.subdomain ? (
-          <CardPreviewStage
-            subdomain={preview.subdomain}
-            label={label}
-            onOpen={onOpenPreview}
-          />
-        ) : (
+      <div className="house-card-body">
+        {/* Keep live iframe mounted (hidden) so stats↔preview doesn't reload the LP. */}
+        {previewLive && preview?.subdomain ? (
+          <div
+            className={`house-preview-cache${mode === "preview" ? " is-on" : ""}`}
+            aria-hidden={mode !== "preview"}
+          >
+            <CardPreviewStage
+              subdomain={preview.subdomain}
+              label={label}
+              onOpen={onOpenPreview}
+              interactive={mode === "preview"}
+            />
+          </div>
+        ) : null}
+
+        {mode === "preview" && !previewLive ? (
           <div className="house-card-stage is-empty">
             <p className="house-card-status">
               {briefFailed
-                ? "Ambiente com falha — abra o menu → Preview pra subir de novo"
+                ? "Ambiente com falha — menu → Abrir preview"
                 : previewBusy
                   ? "Subindo preview…"
                   : "Sem preview ao vivo — menu → Abrir preview"}
             </p>
           </div>
-        )
-      ) : (
-        <div className="house-card-stats">
-          {life !== "undocumented" ? (
-            <button
-              type="button"
-              className={`house-life house-life-${life}`}
-              onClick={onOpenObjective}
-              title="Abrir objetivo desta rodada"
-            >
-              {LIFE_LABEL[life]}
-            </button>
-          ) : needObj ? (
-            <button
-              type="button"
-              className="house-life house-life-undocumented is-need"
-              onClick={onOpenObjective}
-              title="Definir objetivo"
-            >
-              Sem objetivo
-            </button>
-          ) : null}
+        ) : null}
 
-          <div className="house-card-meta">
-            {briefFailed ? (
-              <span className="fleet-card-state fail">fail</span>
-            ) : running > 0 ? (
-              <span className="fleet-card-state running">
-                <span className="fleet-run-dot" />
-                {running} run
-              </span>
-            ) : (
-              <span className="fleet-card-state idle">idle</span>
-            )}
-            <span className="house-card-counts" title="backlog / queued / review / done / gaps">
-              {backlog}
-              <em>bk</em> {queued}
-              <em>q</em> {review}
-              <em>pr</em> {done}
-              <em>ok</em>
-              {missing.length ? (
-                <>
-                  {" "}
-                  {missing.length}
-                  <em>gap</em>
-                </>
+        {mode === "stats" ? (
+          <div className="house-card-stats">
+            <div className="house-stats-top">
+              {briefFailed ? (
+                <span className="house-stats-pill is-fail">Falha</span>
+              ) : running > 0 ? (
+                <span className="house-stats-pill is-run">
+                  <span className="fleet-run-dot" />
+                  {running} forjando
+                </span>
+              ) : (
+                <span className="house-stats-pill is-idle">Idle</span>
+              )}
+              {life !== "undocumented" ? (
+                <button
+                  type="button"
+                  className={`house-life house-life-${life}`}
+                  onClick={onOpenObjective}
+                  title="Abrir objetivo desta rodada"
+                >
+                  {LIFE_LABEL[life]}
+                </button>
+              ) : needObj ? (
+                <button
+                  type="button"
+                  className="house-life house-life-undocumented is-need"
+                  onClick={onOpenObjective}
+                  title="Definir objetivo"
+                >
+                  Sem objetivo
+                </button>
               ) : null}
-            </span>
+            </div>
+
+            <div className="house-stats-grid" aria-label="Contagens">
+              <div className="house-stats-cell">
+                <strong>{backlog}</strong>
+                <span>backlog</span>
+              </div>
+              <div className={`house-stats-cell${queued ? " is-hot" : ""}`}>
+                <strong>{queued}</strong>
+                <span>fila</span>
+              </div>
+              <div className={`house-stats-cell${review ? " is-info" : ""}`}>
+                <strong>{review}</strong>
+                <span>review</span>
+              </div>
+              <div className="house-stats-cell">
+                <strong>{done}</strong>
+                <span>feitos</span>
+              </div>
+            </div>
+
+            <div className="house-stats-signal">
+              <span className="house-stats-label">Sinal</span>
+              <p className={`house-card-status tone-${status?.tone ?? "ok"}`}>
+                {status?.text ??
+                  (needObj
+                    ? "Próxima rodada ainda sem objetivo travado."
+                    : "Quiet — sem sinal forte.")}
+              </p>
+            </div>
+
+            {missing.length > 0 ? (
+              <div className="house-stats-gaps">
+                <span className="house-stats-label">
+                  Gaps <em>{missing.length}</em>
+                </span>
+                <ul>
+                  {missing.slice(0, 3).map((g) => (
+                    <li key={g}>{g.length > 72 ? `${g.slice(0, 70)}…` : g}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="house-stats-quiet">Sem gaps Huginn no radar.</p>
+            )}
           </div>
-
-          {status ? (
-            <p className={`house-card-status tone-${status.tone}`}>{status.text}</p>
-          ) : needObj ? (
-            <p className="house-card-status">Próxima rodada ainda sem objetivo travado.</p>
-          ) : (
-            <p className="house-card-status tone-ok">Quiet — sem sinal forte.</p>
-          )}
-
-          {missing.length > 0 ? (
-            <ul className="house-card-gaps">
-              {missing.slice(0, 3).map((g) => (
-                <li key={g}>{g.length > 64 ? `${g.slice(0, 62)}…` : g}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      )}
+        ) : null}
+      </div>
     </article>
   );
 }
