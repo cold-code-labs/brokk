@@ -50,134 +50,120 @@ const icon = (paths) =>
 const FLAME = icon('<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>');
 const FOLDER = icon('<path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v3"/><circle cx="13" cy="17" r="3"/><path d="M13 14v-1.5M13 23v-2M19 17h2.5M5 17h2.5"/>');
 
-// ── canonical states (mirror of FleetView / House markup) ───────────────────
-const HERO = (running) => `
-<header class="fleet-hero">
-  <div class="fleet-aurora"></div>
-  <div class="fleet-hero-inner"><div class="fleet-hero-copy">
-    <span class="fleet-eyebrow">Brokk · CCL House</span>
-    <h1 class="fleet-title">House</h1>
-    <p class="fleet-subtitle">Macro view of every anvil. Pin clients, queue gaps, jump into chat — the forge burns in parallel.</p>
-  </div><div class="fleet-hero-actions">
+// ── canonical states (mirror of FleetView / House list markup) ──────────────
+const BAR = (running) => `
+<header class="house-bar">
+  <div class="house-bar-brand">
+    <span class="fleet-eyebrow">Brokk · CCL</span>
+    <h1 class="house-bar-title">House</h1>
     <span class="fleet-pulse${running ? "" : " is-quiet"}"><span class="fleet-ember"></span>${
-      running ? `Forging now · ${running} tasks in the fire` : "The forge is quiet"
+      running ? `${running} forging · 3 queued · 1 PR` : "quiet · 0 projects · 2 seats"
     }</span>
-    <a class="ygg-btn ygg-btn-solid">+ Connect repos</a>
-  </div></div>
+  </div>
+  <div class="house-bar-actions">
+    <div class="fleet-pin-strip house-bar-pins">
+      <button type="button" class="fleet-pin-chip is-running"><kbd class="fleet-pin-key">1</kbd><span class="fleet-pin-name">dekaprint</span><span class="fleet-run-dot"></span></button>
+      <button type="button" class="fleet-pin-chip is-active"><kbd class="fleet-pin-key">2</kbd><span class="fleet-pin-name">viken</span></button>
+      <button type="button" class="fleet-pin-chip"><kbd class="fleet-pin-key">3</kbd><span class="fleet-pin-name">arte-one</span></button>
+    </div>
+    <a class="ygg-btn ygg-btn-solid">+ Connect</a>
+  </div>
 </header>`;
 
-const PINS = `
-<section class="fleet-pins">
-  <div class="fleet-h"><span class="fleet-h-title">Pinned</span><span class="fleet-h-meta">3 · keys 1–3</span><span class="fleet-h-rule"></span></div>
-  <div class="fleet-pin-strip">
-    <button type="button" class="fleet-pin-chip is-running"><kbd class="fleet-pin-key">1</kbd><span class="fleet-pin-name">dekaprint</span><span class="fleet-run-dot"></span></button>
-    <button type="button" class="fleet-pin-chip is-active"><kbd class="fleet-pin-key">2</kbd><span class="fleet-pin-name">viken</span></button>
-    <button type="button" class="fleet-pin-chip"><kbd class="fleet-pin-key">3</kbd><span class="fleet-pin-name">arte-one</span></button>
+const BAR_EMPTY = `
+<header class="house-bar">
+  <div class="house-bar-brand">
+    <span class="fleet-eyebrow">Brokk · CCL</span>
+    <h1 class="house-bar-title">House</h1>
+    <span class="fleet-pulse is-quiet"><span class="fleet-ember"></span>quiet · 0 projects · 2 seats</span>
   </div>
-</section>`;
-
-const PINS_EMPTY = `
-<section class="fleet-pins">
-  <div class="fleet-h"><span class="fleet-h-title">Pinned</span><span class="fleet-h-meta">pin active clients</span><span class="fleet-h-rule"></span></div>
-  <div class="fleet-pins-empty">Pin up to 9 clients (Dekaprint, Viken, Arte One…) so you can switch anvils in one keystroke. Use the pin on any attention card below.</div>
-</section>`;
-
-const STATS = (r, q, pr) => `
-<div class="fleet-stats is-quiet">
-  <div class="fleet-stat${r ? " is-live" : ""}"><div class="fleet-stat-num">${r}</div><div class="fleet-stat-label">${
-    r ? '<span class="fleet-stat-dot"></span>' : ""
-  }Running now</div><span class="fleet-stat-spark"></span></div>
-  <div class="fleet-stat"><div class="fleet-stat-num">${q}</div><div class="fleet-stat-label">Queued</div><span class="fleet-stat-spark"></span></div>
-  <div class="fleet-stat${pr ? " is-live" : ""}"><div class="fleet-stat-num">${pr}</div><div class="fleet-stat-label">${
-    pr ? '<span class="fleet-stat-dot"></span>' : ""
-  }In review · PR</div><span class="fleet-stat-spark"></span></div>
-  <div class="fleet-stat"><div class="fleet-stat-num">2</div><div class="fleet-stat-label">Max seats</div><span class="fleet-stat-spark"></span></div>
-</div>`;
+  <div class="house-bar-actions">
+    <span class="house-bar-hint">Pin clients in the list · keys 1–9</span>
+    <a class="ygg-btn ygg-btn-solid">+ Connect</a>
+  </div>
+</header>`;
 
 const COMPOSER = `
-<form class="fleet-composer is-hotspot">
+<form class="fleet-composer is-hotspot house-composer">
   <div class="fleet-pick"><select><option>viken</option></select></div>
-  <input class="fleet-ask" placeholder="Prompt for the anvil — queues a forge card…">
+  <input class="fleet-ask" placeholder="Prompt for the selected anvil — queues a forge card…">
   <button type="button" class="fleet-send" disabled>Queue →</button>
 </form>`;
 
-const SECTION_H = (title, meta) =>
-  `<div class="fleet-h"><span class="fleet-h-title">${title}</span><span class="fleet-h-meta">${meta}</span><span class="fleet-h-rule"></span></div>`;
-
-const CARD = (name, repo, running, badges, missing) => `
-<div class="fleet-card${running ? " is-running" : ""} is-hot"><span class="fleet-card-rail"></span>
-  <div class="fleet-card-head"><span class="fleet-card-name">${name}</span>
-    <div class="fleet-card-head-actions">
-      <button type="button" class="fleet-pin-btn is-on" aria-label="Unpin">◆</button>
-      ${
-        running
-          ? `<span class="fleet-card-state running"><span class="fleet-run-dot"></span>${running} running</span>`
-          : '<span class="fleet-card-state idle">idle</span>'
-      }
-    </div>
-  </div>
-  <p class="fleet-card-repo">${repo}</p>
-  <div class="fleet-card-badges">${badges
-    .map((b) => `<span class="ygg-badge">${b}</span>`)
-    .join("")}</div>
-  ${
-    missing
-      ? `<ul class="fleet-missing"><li><button type="button" class="fleet-missing-item"><span class="fleet-missing-mark">+</span><span class="fleet-missing-text">${missing}</span></button></li></ul>`
-      : ""
-  }
-  <div class="fleet-card-ctas"><button type="button" class="fleet-cta">Chat</button><a class="fleet-cta">Board</a></div>
+const LIST_ROW = (name, repo, running, counts, gap, selected) => `
+<div class="house-row${running ? " is-running" : ""} is-hot${selected ? " is-selected" : ""}" role="row">
+  <div class="house-cell house-cell-pin"><button type="button" class="fleet-pin-btn is-on">◆<span class="house-pin-idx">1</span></button></div>
+  <div class="house-cell house-cell-name"><a class="house-name">${name}</a><span class="house-repo">${repo}</span></div>
+  <div class="house-cell house-cell-state">${
+    running
+      ? `<span class="fleet-card-state running"><span class="fleet-run-dot"></span>${running} run</span>`
+      : '<span class="fleet-card-state idle">idle</span>'
+  }</div>
+  <div class="house-cell house-cell-counts">${counts}</div>
+  <div class="house-cell house-cell-gap">${
+    gap
+      ? `<button type="button" class="house-gap"><span class="house-gap-mark">+</span><span class="house-gap-text">${gap}</span></button>`
+      : '<span class="house-gap-empty">—</span>'
+  }</div>
+  <div class="house-cell house-cell-cta"><button type="button" class="fleet-cta">Chat</button><a class="fleet-cta">Board</a></div>
 </div>`;
 
-const ROW = (title, repo, status, running) => `
-<a class="fleet-row${running ? " is-running" : ""}"><span class="fleet-row-dot" style="background:var(--accent)"></span>
-  <span class="fleet-row-title">${title}</span><span class="fleet-row-repo">${repo}</span>
-  <span class="fleet-row-status">${status}</span></a>`;
-
-const EMPTY_QUEUE = `
-<div class="fleet-empty"><span class="fleet-empty-mark">${FLAME}</span>
-  <span class="fleet-empty-title">The forge is quiet</span>
-  <p class="fleet-empty-sub">Queued and running tasks line up here, next-up first. Describe a task above to light it — or click a Huginn missing item.</p></div>`;
+const COUNTS = (bk, q, pr, gap) => `
+<span class="house-count">${bk}<em>bk</em></span>
+<span class="house-count${q ? " is-warn" : ""}">${q}<em>q</em></span>
+<span class="house-count${pr ? " is-info" : ""}">${pr}<em>pr</em></span>
+${gap ? `<span class="house-count is-warn">${gap}<em>gap</em></span>` : ""}`;
 
 const EMPTY_REPOS = `
 <div class="fleet-empty is-panel"><span class="fleet-empty-mark">${FOLDER}</span>
   <span class="fleet-empty-title">No repos at the house yet</span>
-  <p class="fleet-empty-sub">Connect a repository and Brokk can pick up tasks, open PRs, and forge previews for it.</p>
+  <p class="fleet-empty-sub">Connect a repository and Brokk can pick up tasks, open PRs, and forge previews.</p>
   <span class="fleet-empty-action"><a class="ygg-btn ygg-btn-solid">+ Connect a repo</a></span></div>`;
 
-const DOCK = `
-<section class="fleet-dock">
-  ${SECTION_H("Session dock", "resume without hunting")}
-  <div class="fleet-dock-strip">
-    <button type="button" class="fleet-dock-chip is-running"><span class="fleet-dock-proj">dekaprint</span><span class="fleet-dock-title">Checkout flow polish</span><span class="fleet-run-dot"></span></button>
-    <button type="button" class="fleet-dock-chip"><span class="fleet-dock-proj">viken</span><span class="fleet-dock-title">Reset senha edge</span></button>
+const FOOTER = `
+<footer class="house-footer">
+  <div class="house-footer-dock">
+    <span class="house-footer-label">Sessions</span>
+    <div class="fleet-dock-strip">
+      <button type="button" class="fleet-dock-chip is-running"><span class="fleet-dock-proj">dekaprint</span><span class="fleet-dock-title">Checkout flow polish</span><span class="fleet-run-dot"></span></button>
+      <button type="button" class="fleet-dock-chip"><span class="fleet-dock-proj">viken</span><span class="fleet-dock-title">Reset senha edge</span></button>
+    </div>
   </div>
-</section>`;
+  <div class="house-footer-queue">
+    <span class="house-footer-label">Queue<em>2</em></span>
+    <div class="house-queue-strip">
+      <a class="house-queue-chip is-running"><span class="fleet-row-dot" style="background:var(--ember)"></span><span class="house-queue-proj">dekaprint</span><span class="house-queue-title">Wire Vindi delinquency</span></a>
+      <a class="house-queue-chip"><span class="fleet-row-dot" style="background:var(--accent)"></span><span class="house-queue-proj">brokk</span><span class="house-queue-title">House list polish</span></a>
+    </div>
+  </div>
+</footer>`;
 
 const SAMPLES = {
-  // The everyday board: live work in the fire.
   populated: `
-    ${HERO(2)}${PINS}${COMPOSER}${STATS(2, 3, 1)}
-    <section style="margin-bottom:2.4rem">${SECTION_H("Attention", "3 · sorted by need")}
-      <div class="fleet-cards">
-        ${CARD("dekaprint", "cold-code-labs/dekaprint · main", 2, ["4 backlog", "3 queued", "1 PR", "2 missing"], "Wire Vindi delinquency banner")}
-        ${CARD("viken", "cold-code-labs/viken · main", 0, ["2 backlog", "0 queued", "1 PR"], "Unit-level slot interval")}
-        <a class="fleet-card is-add">+ Connect a repo</a>
-      </div></section>
-    ${DOCK}
-    <section>${SECTION_H("Global queue", "next up across the house")}
-      <div class="fleet-queue">
-        ${ROW("Wire Vindi delinquency banner", "dekaprint", "running", 1)}
-        ${ROW("House empty-state polish", "brokk", "queued", 0)}
-      </div></section>`,
-  // Both new zero states, on one page.
-  empty: `
-    ${HERO(0)}${PINS_EMPTY}${COMPOSER}${STATS(0, 0, 0)}
-    <section style="margin-bottom:2.4rem">${SECTION_H("Attention", "0")}${EMPTY_REPOS}</section>
-    <section class="fleet-dock">${SECTION_H("Session dock", "resume without hunting")}
-      <div class="fleet-dock-empty">Open a chat on a pinned project — it lands here for one-click resume.</div>
+    ${BAR(2)}${COMPOSER}
+    <section class="house-list-wrap">
+      <div class="house-list-head" role="row">
+        <span class="house-cell house-cell-pin"></span>
+        <span class="house-cell house-cell-name">Project<em class="house-list-meta">3 · by need</em></span>
+        <span class="house-cell house-cell-state">State</span>
+        <span class="house-cell house-cell-counts">bk / q / pr</span>
+        <span class="house-cell house-cell-gap">Next gap</span>
+        <span class="house-cell house-cell-cta"></span>
+      </div>
+      <div class="house-list" role="table">
+        ${LIST_ROW("dekaprint", "cold-code-labs/dekaprint · main", 2, COUNTS(4, 3, 1, 2), "Wire Vindi delinquency banner", false)}
+        ${LIST_ROW("viken", "cold-code-labs/viken · main", 0, COUNTS(2, 0, 1, 1), "Unit-level slot interval", true)}
+        ${LIST_ROW("arte-one", "cold-code-labs/arte-one · main", 0, COUNTS(1, 0, 0, 0), null, false)}
+      </div>
     </section>
-    <section>${SECTION_H("Global queue", "next up across the house")}
-      <div class="fleet-queue">${EMPTY_QUEUE}</div></section>`,
+    ${FOOTER}`,
+  empty: `
+    ${BAR_EMPTY}${COMPOSER}
+    <section class="house-list-wrap">${EMPTY_REPOS}</section>
+    <footer class="house-footer">
+      <div class="house-footer-dock"><span class="house-footer-label">Sessions</span><span class="house-footer-empty">open a chat — it lands here</span></div>
+      <div class="house-footer-queue"><span class="house-footer-label">Queue</span><span class="house-footer-empty">${FLAME} forge quiet</span></div>
+    </footer>`,
 };
 
 // Mini sidebar so the nav polish verifies in the same frame.
@@ -204,7 +190,7 @@ function page(theme, body) {
   .ygg-nav-link{display:flex;align-items:center;gap:.65rem;padding:.55rem .6rem;border-radius:.55rem;color:var(--fg-soft);font-size:.92rem;text-decoration:none}
   .ygg-nav-link[data-active="true"]{box-shadow:inset 2px 0 0 var(--accent);color:var(--fg)}
   .ygg-nav-link svg{width:1.05rem;height:1.05rem;opacity:.85;flex:0 0 auto}</style></head>
-<body><div class="shell">${SIDEBAR}<main class="fleet" style="flex:1;max-width:74rem;margin:0 auto;padding:1.6rem 1.5rem 4rem">${body}</main></div></body></html>`;
+<body><div class="shell">${SIDEBAR}<main class="fleet forge-room is-house" style="flex:1;margin:0;width:100%">${body}</main></div></body></html>`;
 }
 
 mkdirSync(outDir, { recursive: true });

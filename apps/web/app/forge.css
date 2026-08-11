@@ -126,6 +126,7 @@
   min-width: 0;
 }
 .forge-room.is-wide { --forge-room-max: 94rem; }
+.forge-room.is-house { --forge-room-max: min(100%, 140rem); }
 .forge-room.is-narrow { --forge-room-max: 52rem; }
 .forge-room.is-tight { --forge-room-max: 42rem; }
 .forge-room.is-crew { --forge-room-max: 54rem; }
