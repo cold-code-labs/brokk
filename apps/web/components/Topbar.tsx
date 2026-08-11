@@ -3,11 +3,12 @@
 /**
  * Forge lintel — brand · rooms · bench links · Anvil · user (extrema direita).
  * Sem ⌘K / Bench overflow. Menus Anvil/User portalizam sob o âncora.
+ * House pins: keys 1–9 jump to that anvil's chat (when focus is not in an input).
  */
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LayoutGrid,
   MessageSquare,
@@ -27,7 +28,7 @@ import { ComposerMenu } from "./ComposerMenu";
 type TopbarUserProps = { name: string; role?: string; authDisabled: boolean };
 
 const ROOMS = [
-  { href: "/fleet", label: "Projects", icon: LayoutGrid, match: (p: string) => p === "/fleet" },
+  { href: "/fleet", label: "House", icon: LayoutGrid, match: (p: string) => p === "/fleet" },
   { href: "/chat", label: "Chat", icon: MessageSquare, match: (p: string) => p.startsWith("/chat") },
   { href: "/mission", label: "Mission", icon: Columns3, match: (p: string) => p.startsWith("/mission") },
 ] as const;
@@ -49,7 +50,7 @@ function initials(name: string): string {
 }
 
 function AnvilMenu() {
-  const { projects, currentId, setCurrentId } = useProject();
+  const { projects, currentId, setCurrentId, pinnedIds, getLastSession } = useProject();
   const path = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -58,10 +59,27 @@ function AnvilMenu() {
   const current = projects.find((p) => p.id === currentId);
   const label = current?.name ?? (projects.length ? "Pick project" : "No project");
 
+  /** Pins first (House order), then the rest alphabetically. */
+  const ordered = useMemo(() => {
+    const pinSet = new Set(pinnedIds);
+    const pinned = pinnedIds
+      .map((id) => projects.find((p) => p.id === id))
+      .filter((p): p is NonNullable<typeof p> => !!p);
+    const rest = projects
+      .filter((p) => !pinSet.has(p.id))
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return [...pinned, ...rest];
+  }, [projects, pinnedIds]);
+
   function pick(id: string) {
     setCurrentId(id);
     setOpen(false);
     if (path.startsWith("/projects/")) router.push(`/projects/${id}`);
+    else if (path.startsWith("/chat")) {
+      const sid = getLastSession(id);
+      router.push(sid ? `/chat?session=${encodeURIComponent(sid)}` : "/chat");
+    }
   }
 
   return (
@@ -76,8 +94,8 @@ function AnvilMenu() {
         disabled={projects.length === 0}
         title={label}
         onClick={() => {
-          if (!projects.length) return;
-          setActive(Math.max(0, projects.findIndex((p) => p.id === currentId)));
+          if (!ordered.length) return;
+          setActive(Math.max(0, ordered.findIndex((p) => p.id === currentId)));
           setOpen((v) => !v);
         }}
       >
@@ -91,11 +109,15 @@ function AnvilMenu() {
         portal
         anchorRef={btnRef}
         align="start"
-        items={projects.map((p) => ({
+        items={ordered.map((p) => ({
           id: p.id,
           label: p.name,
-          hint: p.id === currentId ? "on the anvil" : undefined,
-          tag: p.id === currentId ? "live" : undefined,
+          hint: p.id === currentId
+            ? "on the anvil"
+            : pinnedIds.includes(p.id)
+              ? "pinned"
+              : undefined,
+          tag: p.id === currentId ? "live" : pinnedIds.includes(p.id) ? "pin" : undefined,
         }))}
         activeIndex={active}
         onActiveIndex={setActive}
@@ -105,6 +127,34 @@ function AnvilMenu() {
       />
     </div>
   );
+}
+
+/** Digits 1–9 → open pinned anvil chat (skip when typing in a field). */
+function useHousePinKeys() {
+  const { pinnedProjects, setCurrentId, getLastSession } = useProject();
+  const router = useRouter();
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t) {
+        const tag = t.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable) {
+          return;
+        }
+      }
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > 9) return;
+      const proj = pinnedProjects[n - 1];
+      if (!proj) return;
+      e.preventDefault();
+      setCurrentId(proj.id);
+      const sid = getLastSession(proj.id);
+      router.push(sid ? `/chat?session=${encodeURIComponent(sid)}` : "/chat");
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pinnedProjects, setCurrentId, getLastSession, router]);
 }
 
 function UserMenu({ user }: { user: TopbarUserProps }) {
@@ -153,6 +203,7 @@ function UserMenu({ user }: { user: TopbarUserProps }) {
 export default function Topbar({ user }: { user?: TopbarUserProps }) {
   const path = usePathname();
   const { currentId } = useProject();
+  useHousePinKeys();
 
   const boardHref = currentId ? `/projects/${currentId}` : "/fleet";
   const boardOn =

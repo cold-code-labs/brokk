@@ -50,22 +50,40 @@ const icon = (paths) =>
 const FLAME = icon('<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>');
 const FOLDER = icon('<path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v3"/><circle cx="13" cy="17" r="3"/><path d="M13 14v-1.5M13 23v-2M19 17h2.5M5 17h2.5"/>');
 
-// ── canonical states (mirror of FleetView markup) ───────────────────────────
+// ── canonical states (mirror of FleetView / House markup) ───────────────────
 const HERO = (running) => `
 <header class="fleet-hero">
-  <div class="fleet-aurora"></div><div class="fleet-grid"></div>
-  <div class="fleet-hero-inner"><div>
-    <span class="fleet-eyebrow">Brokk · the forge</span>
-    <h1 class="fleet-title">Fleet</h1>
-    <p class="fleet-subtitle">Every CCL repo, its queue, and the global forge — one board, live.</p>
+  <div class="fleet-aurora"></div>
+  <div class="fleet-hero-inner"><div class="fleet-hero-copy">
+    <span class="fleet-eyebrow">Brokk · CCL House</span>
+    <h1 class="fleet-title">House</h1>
+    <p class="fleet-subtitle">Macro view of every anvil. Pin clients, queue gaps, jump into chat — the forge burns in parallel.</p>
+  </div><div class="fleet-hero-actions">
     <span class="fleet-pulse${running ? "" : " is-quiet"}"><span class="fleet-ember"></span>${
       running ? `Forging now · ${running} tasks in the fire` : "The forge is quiet"
     }</span>
-  </div><a class="ygg-btn ygg-btn-solid">+ Connect repos</a></div>
+    <a class="ygg-btn ygg-btn-solid">+ Connect repos</a>
+  </div></div>
 </header>`;
 
+const PINS = `
+<section class="fleet-pins">
+  <div class="fleet-h"><span class="fleet-h-title">Pinned</span><span class="fleet-h-meta">3 · keys 1–3</span><span class="fleet-h-rule"></span></div>
+  <div class="fleet-pin-strip">
+    <button type="button" class="fleet-pin-chip is-running"><kbd class="fleet-pin-key">1</kbd><span class="fleet-pin-name">dekaprint</span><span class="fleet-run-dot"></span></button>
+    <button type="button" class="fleet-pin-chip is-active"><kbd class="fleet-pin-key">2</kbd><span class="fleet-pin-name">viken</span></button>
+    <button type="button" class="fleet-pin-chip"><kbd class="fleet-pin-key">3</kbd><span class="fleet-pin-name">arte-one</span></button>
+  </div>
+</section>`;
+
+const PINS_EMPTY = `
+<section class="fleet-pins">
+  <div class="fleet-h"><span class="fleet-h-title">Pinned</span><span class="fleet-h-meta">pin active clients</span><span class="fleet-h-rule"></span></div>
+  <div class="fleet-pins-empty">Pin up to 9 clients (Dekaprint, Viken, Arte One…) so you can switch anvils in one keystroke. Use the pin on any attention card below.</div>
+</section>`;
+
 const STATS = (r, q, pr) => `
-<div class="fleet-stats">
+<div class="fleet-stats is-quiet">
   <div class="fleet-stat${r ? " is-live" : ""}"><div class="fleet-stat-num">${r}</div><div class="fleet-stat-label">${
     r ? '<span class="fleet-stat-dot"></span>' : ""
   }Running now</div><span class="fleet-stat-spark"></span></div>
@@ -77,27 +95,37 @@ const STATS = (r, q, pr) => `
 </div>`;
 
 const COMPOSER = `
-<form class="fleet-composer">
-  <div class="fleet-pick"><select><option>heimdall</option></select></div>
-  <input class="fleet-ask" placeholder="Describe a task and queue it to the forge…">
+<form class="fleet-composer is-hotspot">
+  <div class="fleet-pick"><select><option>viken</option></select></div>
+  <input class="fleet-ask" placeholder="Prompt for the anvil — queues a forge card…">
   <button type="button" class="fleet-send" disabled>Queue →</button>
 </form>`;
 
 const SECTION_H = (title, meta) =>
   `<div class="fleet-h"><span class="fleet-h-title">${title}</span><span class="fleet-h-meta">${meta}</span><span class="fleet-h-rule"></span></div>`;
 
-const CARD = (name, repo, running, badges) => `
-<div class="fleet-card${running ? " is-running" : ""}"><span class="fleet-card-rail"></span>
-  <div class="fleet-card-head"><span class="fleet-card-name">${name}</span>${
-    running
-      ? `<span class="fleet-card-state running"><span class="fleet-run-dot"></span>${running} running</span>`
-      : '<span class="fleet-card-state idle">idle</span>'
-  }</div>
+const CARD = (name, repo, running, badges, missing) => `
+<div class="fleet-card${running ? " is-running" : ""} is-hot"><span class="fleet-card-rail"></span>
+  <div class="fleet-card-head"><span class="fleet-card-name">${name}</span>
+    <div class="fleet-card-head-actions">
+      <button type="button" class="fleet-pin-btn is-on" aria-label="Unpin">◆</button>
+      ${
+        running
+          ? `<span class="fleet-card-state running"><span class="fleet-run-dot"></span>${running} running</span>`
+          : '<span class="fleet-card-state idle">idle</span>'
+      }
+    </div>
+  </div>
   <p class="fleet-card-repo">${repo}</p>
   <div class="fleet-card-badges">${badges
     .map((b) => `<span class="ygg-badge">${b}</span>`)
     .join("")}</div>
-  <div class="fleet-card-foot"><a class="ygg-btn ygg-btn-outline ygg-btn-sm">Preview dev</a></div>
+  ${
+    missing
+      ? `<ul class="fleet-missing"><li><button type="button" class="fleet-missing-item"><span class="fleet-missing-mark">+</span><span class="fleet-missing-text">${missing}</span></button></li></ul>`
+      : ""
+  }
+  <div class="fleet-card-ctas"><button type="button" class="fleet-cta">Chat</button><a class="fleet-cta">Board</a></div>
 </div>`;
 
 const ROW = (title, repo, status, running) => `
@@ -108,34 +136,47 @@ const ROW = (title, repo, status, running) => `
 const EMPTY_QUEUE = `
 <div class="fleet-empty"><span class="fleet-empty-mark">${FLAME}</span>
   <span class="fleet-empty-title">The forge is quiet</span>
-  <p class="fleet-empty-sub">Queued and running tasks line up here, next-up first. Describe a task above to light it.</p></div>`;
+  <p class="fleet-empty-sub">Queued and running tasks line up here, next-up first. Describe a task above to light it — or click a Huginn missing item.</p></div>`;
 
 const EMPTY_REPOS = `
 <div class="fleet-empty is-panel"><span class="fleet-empty-mark">${FOLDER}</span>
-  <span class="fleet-empty-title">No repos at the forge yet</span>
+  <span class="fleet-empty-title">No repos at the house yet</span>
   <p class="fleet-empty-sub">Connect a repository and Brokk can pick up tasks, open PRs, and forge previews for it.</p>
   <span class="fleet-empty-action"><a class="ygg-btn ygg-btn-solid">+ Connect a repo</a></span></div>`;
+
+const DOCK = `
+<section class="fleet-dock">
+  ${SECTION_H("Session dock", "resume without hunting")}
+  <div class="fleet-dock-strip">
+    <button type="button" class="fleet-dock-chip is-running"><span class="fleet-dock-proj">dekaprint</span><span class="fleet-dock-title">Checkout flow polish</span><span class="fleet-run-dot"></span></button>
+    <button type="button" class="fleet-dock-chip"><span class="fleet-dock-proj">viken</span><span class="fleet-dock-title">Reset senha edge</span></button>
+  </div>
+</section>`;
 
 const SAMPLES = {
   // The everyday board: live work in the fire.
   populated: `
-    ${HERO(2)}${STATS(2, 3, 1)}${COMPOSER}
-    <section style="margin-bottom:2.4rem">${SECTION_H("Projects", "3")}
+    ${HERO(2)}${PINS}${COMPOSER}${STATS(2, 3, 1)}
+    <section style="margin-bottom:2.4rem">${SECTION_H("Attention", "3 · sorted by need")}
       <div class="fleet-cards">
-        ${CARD("heimdall", "cold-code-labs/heimdall · surtr", 2, ["4 backlog", "3 queued", "1 PR"])}
-        ${CARD("hauldr", "cold-code-labs/hauldr · main", 0, ["2 backlog", "0 queued", "0 PR"])}
+        ${CARD("dekaprint", "cold-code-labs/dekaprint · main", 2, ["4 backlog", "3 queued", "1 PR", "2 missing"], "Wire Vindi delinquency banner")}
+        ${CARD("viken", "cold-code-labs/viken · main", 0, ["2 backlog", "0 queued", "1 PR"], "Unit-level slot interval")}
         <a class="fleet-card is-add">+ Connect a repo</a>
       </div></section>
-    <section>${SECTION_H("Global queue", "next up across the fleet")}
+    ${DOCK}
+    <section>${SECTION_H("Global queue", "next up across the house")}
       <div class="fleet-queue">
-        ${ROW("Wire startRun facade into Huginn", "heimdall", "running", 1)}
-        ${ROW("Fleet empty-state polish", "brokk", "queued", 0)}
+        ${ROW("Wire Vindi delinquency banner", "dekaprint", "running", 1)}
+        ${ROW("House empty-state polish", "brokk", "queued", 0)}
       </div></section>`,
   // Both new zero states, on one page.
   empty: `
-    ${HERO(0)}${STATS(0, 0, 0)}${COMPOSER}
-    <section style="margin-bottom:2.4rem">${SECTION_H("Projects", "0")}${EMPTY_REPOS}</section>
-    <section>${SECTION_H("Global queue", "next up across the fleet")}
+    ${HERO(0)}${PINS_EMPTY}${COMPOSER}${STATS(0, 0, 0)}
+    <section style="margin-bottom:2.4rem">${SECTION_H("Attention", "0")}${EMPTY_REPOS}</section>
+    <section class="fleet-dock">${SECTION_H("Session dock", "resume without hunting")}
+      <div class="fleet-dock-empty">Open a chat on a pinned project — it lands here for one-click resume.</div>
+    </section>
+    <section>${SECTION_H("Global queue", "next up across the house")}
       <div class="fleet-queue">${EMPTY_QUEUE}</div></section>`,
 };
 
@@ -143,9 +184,9 @@ const SAMPLES = {
 const SIDEBAR = `
 <aside class="ygg-nav" style="width:220px;flex:0 0 auto;padding:1rem .5rem;border-right:1px solid var(--line)">
   <div class="ygg-nav-group"><div class="ygg-nav-group-label">Forge</div>
-    <a class="ygg-nav-link" data-active="true">${FOLDER}Fleet</a>
+    <a class="ygg-nav-link" data-active="true">${FOLDER}House</a>
     <a class="ygg-nav-link">${FLAME}Dashboard</a>
-    <a class="ygg-nav-link">${FLAME}Mímir</a>
+    <a class="ygg-nav-link">${FLAME}Chat</a>
   </div></aside>`;
 
 function page(theme, body) {
