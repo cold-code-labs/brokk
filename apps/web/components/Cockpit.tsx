@@ -52,7 +52,14 @@ function StageToolbar() {
           type="button"
           className={`cockpit-mode${chatOpen ? " is-on" : ""}`}
           aria-pressed={chatOpen}
-          title={chatOpen ? "Fechar chat" : "Abrir chat"}
+          title={
+            chatOpen
+              ? "Fechar chat"
+              : current
+                ? "Abrir chat"
+                : "Selecione um projeto na House"
+          }
+          disabled={!chatOpen && !current}
           onClick={() => (chatOpen ? closeChat() : setChatOpen(true))}
         >
           <MessageSquare size={14} strokeWidth={1.75} aria-hidden />

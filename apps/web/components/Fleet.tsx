@@ -146,7 +146,8 @@ export default function Fleet({ compact = false }: { compact?: boolean }) {
     [tasks],
   );
 
-  async function openPreview(projectId: string) {
+  async function openPreview(projectId: string, opts?: { openTab?: boolean }) {
+    const openTab = opts?.openTab !== false;
     setErr(null);
     setPreviewBusyId(projectId);
     setCurrentId(projectId);
@@ -162,12 +163,14 @@ export default function Fleet({ compact = false }: { compact?: boolean }) {
             subdomain: pv.subdomain,
           },
         }));
-        // Always via preview-gate (Logto → mint key) — never raw preview.url.
-        window.open(
-          `/preview-gate/${encodeURIComponent(pv.subdomain)}`,
-          "_blank",
-          "noopener,noreferrer",
-        );
+        if (openTab) {
+          // Always via preview-gate (Logto → mint key) — never raw preview.url.
+          window.open(
+            `/preview-gate/${encodeURIComponent(pv.subdomain)}`,
+            "_blank",
+            "noopener,noreferrer",
+          );
+        }
       }
     } catch (e) {
       setErr(String(e));

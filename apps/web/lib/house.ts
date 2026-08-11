@@ -82,6 +82,40 @@ export type BriefSnapshot = {
   running: boolean;
 };
 
+/** Operational status chip on a House card (textual, not border-as-alert). */
+export type OpStatus = "idle" | "forging" | "review" | "failed" | "objective";
+
+export type OpStatusInput = {
+  lifecycle?: import("@brokk/core").HouseLifecycle | null;
+  needObjective: boolean;
+  running: number;
+  review: number;
+  briefFailed: boolean;
+};
+
+export function opStatus(input: OpStatusInput): OpStatus {
+  if (input.briefFailed) return "failed";
+  if (input.needObjective) return "objective";
+  if (input.running > 0) return "forging";
+  if (input.review > 0) return "review";
+  return "idle";
+}
+
+export const OP_STATUS_LABEL: Record<OpStatus, string> = {
+  idle: "Idle",
+  forging: "Forjando",
+  review: "Review",
+  failed: "Falha",
+  objective: "Atenção",
+};
+
+/** Hot projects for the Atenção strip — falha, sem objetivo, forjando, review. */
+export function needsAttention(input: OpStatusInput & { archived?: boolean }): boolean {
+  if (input.archived) return false;
+  const s = opStatus(input);
+  return s === "failed" || s === "objective" || s === "forging" || s === "review";
+}
+
 export function readJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
   try {
