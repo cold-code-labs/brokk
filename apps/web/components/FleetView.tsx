@@ -17,7 +17,7 @@ import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
 import type { HouseLifecycle, HouseObjective } from "@brokk/core";
 import { STATUS_COLOR } from "../lib/theme";
 import { type BriefStatus } from "../lib/chat";
-import { prettyProjectName } from "../lib/house";
+import { houseGroup, prettyProjectName } from "../lib/house";
 import { useProject } from "../lib/project-context";
 import type { Project, Repository, Task } from "@brokk/sdk";
 import ObjectivePanel from "./ObjectivePanel";
@@ -416,6 +416,37 @@ export default function FleetView(p: FleetViewProps) {
     return [...active.sort(byName), ...archived.sort(byName)];
   }, [p.projects]);
 
+  const clientProjects = useMemo(
+    () => alphaProjects.filter((x) => houseGroup(x.name) === "clients"),
+    [alphaProjects],
+  );
+  const internalProjects = useMemo(
+    () => alphaProjects.filter((x) => houseGroup(x.name) === "internal"),
+    [alphaProjects],
+  );
+
+  function renderCard(proj: Project) {
+    const ts = p.tasksByProject.get(proj.id) ?? [];
+    const c = (s: string) => ts.filter((x) => x.status === s).length;
+    return (
+      <ProjectCard
+        key={proj.id}
+        project={proj}
+        repo={p.repoById.get(proj.repositoryId)}
+        running={c("running")}
+        counts={c}
+        brief={p.briefsByProject[proj.id]}
+        previewBusy={p.previewBusyId === proj.id}
+        preview={p.previewByProject[proj.id]}
+        houseBusy={p.houseBusyId === proj.id}
+        onOpenChat={() => openAnvilChat(proj.id)}
+        onOpenPreview={() => p.onOpenPreview(proj.id)}
+        onOpenObjective={() => setObjectiveId(proj.id)}
+        onArchive={() => void p.onArchiveProject(proj.id)}
+      />
+    );
+  }
+
   return (
     <main className={`fleet forge-room is-house${objectiveProject ? " has-obj" : ""}`}>
       <header className="house-bar">
@@ -463,17 +494,8 @@ export default function FleetView(p: FleetViewProps) {
       {p.err && <Banner tone="err">⚠ {p.err}</Banner>}
 
       <div className="house-body">
-        <section className="house-grid-wrap" aria-label="Projects A–Z">
-          <div className="house-grid-head">
-            <span>
-              Projetos
-              <em className="house-list-meta">
-                {alphaProjects.length} · A–Z
-              </em>
-            </span>
-          </div>
-
-          {alphaProjects.length === 0 ? (
+        {alphaProjects.length === 0 ? (
+          <section className="house-grid-wrap" aria-label="Projects">
             <div className="fleet-empty is-panel">
               <span className="fleet-empty-mark">
                 <FolderGit2 />
@@ -488,32 +510,40 @@ export default function FleetView(p: FleetViewProps) {
                 </Button>
               </span>
             </div>
-          ) : (
-            <div className="house-grid">
-              {alphaProjects.map((proj) => {
-                const ts = p.tasksByProject.get(proj.id) ?? [];
-                const c = (s: string) => ts.filter((x) => x.status === s).length;
-                return (
-                  <ProjectCard
-                    key={proj.id}
-                    project={proj}
-                    repo={p.repoById.get(proj.repositoryId)}
-                    running={c("running")}
-                    counts={c}
-                    brief={p.briefsByProject[proj.id]}
-                    previewBusy={p.previewBusyId === proj.id}
-                    preview={p.previewByProject[proj.id]}
-                    houseBusy={p.houseBusyId === proj.id}
-                    onOpenChat={() => openAnvilChat(proj.id)}
-                    onOpenPreview={() => p.onOpenPreview(proj.id)}
-                    onOpenObjective={() => setObjectiveId(proj.id)}
-                    onArchive={() => void p.onArchiveProject(proj.id)}
-                  />
-                );
-              })}
-            </div>
-          )}
-        </section>
+          </section>
+        ) : (
+          <div className="house-groups" aria-label="Projetos por grupo">
+            <section className="house-group is-clients" aria-labelledby="house-group-clients">
+              <header className="house-group-head">
+                <h2 id="house-group-clients" className="house-group-title">
+                  Clientes CCL
+                </h2>
+                <em className="house-list-meta">{clientProjects.length}</em>
+              </header>
+              {clientProjects.length === 0 ? (
+                <p className="house-group-empty">Nenhum cliente nesta House ainda</p>
+              ) : (
+                <div className="house-grid">{clientProjects.map(renderCard)}</div>
+              )}
+            </section>
+
+            <div className="house-groups-divider" aria-hidden />
+
+            <section className="house-group is-internal" aria-labelledby="house-group-internal">
+              <header className="house-group-head">
+                <h2 id="house-group-internal" className="house-group-title">
+                  Frota Interna
+                </h2>
+                <em className="house-list-meta">{internalProjects.length}</em>
+              </header>
+              {internalProjects.length === 0 ? (
+                <p className="house-group-empty">Nada na frota interna</p>
+              ) : (
+                <div className="house-grid">{internalProjects.map(renderCard)}</div>
+              )}
+            </section>
+          </div>
+        )}
 
         {objectiveProject ? (
           <ObjectivePanel
