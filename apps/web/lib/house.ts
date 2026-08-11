@@ -22,6 +22,48 @@ export function prettyProjectName(name: string): string {
     .join(" ");
 }
 
+/** House floor columns — client delivery vs CCL platform fleet. */
+export type HouseGroup = "clients" | "internal";
+
+/**
+ * Client apps (Edda frota · tags cliente / entrega).
+ * Everything else lands in Frota Interna (Brokk, Heimdall, Contorna*, logcheck, …).
+ */
+const CLIENT_STEMS = [
+  "arte-one",
+  "arteone",
+  "amazonie-one",
+  "zyramed",
+  "imagine-decor",
+  "imagine",
+  "ufc",
+  "calsavara",
+  "maglink",
+  "viken",
+  "dekaprint",
+  "markuplab",
+  "fidelyx",
+  "kelvin",
+] as const;
+
+function projectStem(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-")
+    .replace(/-aio$/, "")
+    .replace(/-all-in-one$/, "");
+}
+
+/** Which House column a project belongs to. */
+export function houseGroup(name: string): HouseGroup {
+  const stem = projectStem(name);
+  for (const c of CLIENT_STEMS) {
+    if (stem === c || stem.startsWith(`${c}-`)) return "clients";
+  }
+  return "internal";
+}
+
 /** Quiet threshold: no task activity for this many days → attention bump. */
 const QUIET_DAYS = 3;
 const STALE_REVIEW_DAYS = 2;

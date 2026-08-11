@@ -1005,6 +1005,76 @@ main.forge-room.is-house {
   gap: 0.75rem;
   align-items: stretch;
 }
+.house-groups {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr);
+  gap: 0;
+  overflow: hidden;
+}
+.house-groups-divider {
+  width: 2px;
+  margin: 0.15rem 0;
+  border-radius: 2px;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--fg) 22%, var(--line)) 12%,
+    color-mix(in srgb, var(--accent) 35%, var(--line)) 50%,
+    color-mix(in srgb, var(--fg) 22%, var(--line)) 88%,
+    transparent 100%
+  );
+}
+.house-group {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  overflow: auto;
+  padding: 0 0.85rem;
+}
+.house-group.is-clients {
+  padding-left: 0.15rem;
+  padding-right: 1rem;
+}
+.house-group.is-internal {
+  padding-left: 1rem;
+  padding-right: 0.15rem;
+}
+.house-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  padding: 0 0.1rem 0.35rem;
+  border-bottom: 1px solid var(--line-soft);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(6px);
+}
+.house-group-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg);
+}
+.house-group.is-clients .house-group-title {
+  color: color-mix(in srgb, #e8a317 75%, var(--fg));
+}
+.house-group.is-internal .house-group-title {
+  color: color-mix(in srgb, var(--accent) 70%, var(--fg));
+}
+.house-group-empty {
+  margin: 0.5rem 0.15rem;
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+}
 .house-grid-wrap {
   flex: 1 1 auto;
   min-height: 0;
@@ -1489,6 +1559,29 @@ main.forge-room.is-house {
     flex: 0 0 auto;
     max-width: none;
     max-height: 50vh;
+  }
+  .house-groups {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 2px auto;
+    overflow: auto;
+  }
+  .house-groups-divider {
+    width: auto;
+    height: 2px;
+    margin: 0.5rem 0.15rem;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in srgb, var(--fg) 22%, var(--line)) 12%,
+      color-mix(in srgb, var(--accent) 35%, var(--line)) 50%,
+      color-mix(in srgb, var(--fg) 22%, var(--line)) 88%,
+      transparent 100%
+    );
+  }
+  .house-group.is-clients,
+  .house-group.is-internal {
+    padding-left: 0.15rem;
+    padding-right: 0.15rem;
   }
 }
 .house-footer {
