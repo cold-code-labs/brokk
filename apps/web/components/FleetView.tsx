@@ -10,12 +10,6 @@ import { discovery, type BriefStatus } from "../lib/chat";
 import { useProject } from "../lib/project-context";
 import type { Project, Repository, Task } from "@brokk/sdk";
 
-/** A per-project "environment is being prepared" chip. Right after a repo is
- *  connected, Huginn clones it and detects its runtime (the discovery brief:
- *  pending → ready/failed). This surfaces that prep on the card so a just-
- *  connected project reads as "carregando", not "idle and empty". Self-contained:
- *  fetches its own brief and polls only while still preparing (so it costs
- *  nothing once the fleet is warm). Renders nothing when ready. */
 function EnvPrepBadge({ projectId }: { projectId: string }) {
   const [status, setStatus] = useState<BriefStatus | null>(null);
   const [running, setRunning] = useState(false);
@@ -34,7 +28,7 @@ function EnvPrepBadge({ projectId }: { projectId: string }) {
           res.running || res.brief?.status === "pending" || (!res.brief && tries < 4);
         if (keep) timer = setTimeout(tick, 5000);
       } catch {
-        /* ignore — the badge just won't show */
+        /* ignore */
       }
     };
     void tick();
@@ -47,62 +41,16 @@ function EnvPrepBadge({ projectId }: { projectId: string }) {
   if (running || status === "pending")
     return (
       <span className="ygg-badge" data-tone="info">
-        <span className="fleet-run-dot" /> preparando ambiente…
+        <span className="fleet-run-dot" /> prep…
       </span>
     );
   if (status === "failed")
     return (
       <span className="ygg-badge" data-tone="err">
-        ambiente falhou
+        env fail
       </span>
     );
   return null;
-}
-
-/** Count a number up on change (a tiny native number-ticker, no deps). Respects
- *  prefers-reduced-motion — jumps straight to the value. */
-function useCountUp(value: number, ms = 700): number {
-  const [n, setN] = useState(value);
-  const from = useRef(value);
-  const raf = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    const reduce =
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduce || from.current === value) {
-      from.current = value;
-      setN(value);
-      return;
-    }
-    const start = performance.now();
-    const a = from.current;
-    const tick = (t: number) => {
-      const p = Math.min(1, (t - start) / ms);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setN(Math.round(a + (value - a) * eased));
-      if (p < 1) raf.current = requestAnimationFrame(tick);
-      else from.current = value;
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => {
-      if (raf.current) cancelAnimationFrame(raf.current);
-    };
-  }, [value, ms]);
-  return n;
-}
-
-function Stat({ value, label, live }: { value: number; label: string; live?: boolean }) {
-  const n = useCountUp(value);
-  return (
-    <div className={`fleet-stat${live && value > 0 ? " is-live" : ""}`}>
-      <div className="fleet-stat-num">{n}</div>
-      <div className="fleet-stat-label">
-        {live && value > 0 && <span className="fleet-stat-dot" />}
-        {label}
-      </div>
-      <span className="fleet-stat-spark" />
-    </div>
-  );
 }
 
 export type HouseBrief = {
@@ -121,7 +69,7 @@ export type DockSession = {
   turnState: "idle" | "running";
 };
 
-function ProjectCard({
+function ProjectRow({
   project,
   repo,
   running,
@@ -129,9 +77,12 @@ function ProjectCard({
   brief,
   attention,
   pinned,
+  pinIndex,
+  selected,
   onTogglePin,
   onQueueMissing,
   onOpenChat,
+  onSelect,
 }: {
   project: Project;
   repo?: Repository;
@@ -140,93 +91,138 @@ function ProjectCard({
   brief?: HouseBrief;
   attention: number;
   pinned: boolean;
+  pinIndex: number | null;
+  selected: boolean;
   onTogglePin: () => void;
   onQueueMissing: (text: string) => void;
   onOpenChat: () => void;
+  onSelect: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  function move(e: React.MouseEvent) {
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    el.style.setProperty("--mx", `${e.clientX - r.left}px`);
-    el.style.setProperty("--my", `${e.clientY - r.top}px`);
-  }
-  const missing = brief?.missing?.slice(0, 3) ?? [];
+  const missing = brief?.missing ?? [];
+  const topMissing = missing[0];
   const hot = attention >= 40 || running > 0;
+  const queued = counts("queued");
+  const review = counts("review");
+  const backlog = counts("backlog");
 
   return (
     <div
-      ref={ref}
-      onMouseMove={move}
-      className={`fleet-card${running > 0 ? " is-running" : ""}${hot ? " is-hot" : ""}`}
+      className={`house-row${running > 0 ? " is-running" : ""}${hot ? " is-hot" : ""}${
+        selected ? " is-selected" : ""
+      }`}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      role="row"
+      tabIndex={0}
     >
-      <span className="fleet-card-rail" />
-      <div className="fleet-card-head">
+      <div className="house-cell house-cell-pin">
+        <button
+          type="button"
+          className={`fleet-pin-btn${pinned ? " is-on" : ""}`}
+          aria-label={pinned ? "Unpin" : "Pin"}
+          title={pinned ? (pinIndex != null ? `Pinned · key ${pinIndex}` : "Unpin") : "Pin"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onTogglePin();
+          }}
+        >
+          <Pin size={14} strokeWidth={pinned ? 2.25 : 1.75} />
+          {pinIndex != null ? <span className="house-pin-idx">{pinIndex}</span> : null}
+        </button>
+      </div>
+
+      <div className="house-cell house-cell-name">
         <Link
           href={`/projects/${project.id}`}
-          className="fleet-card-name"
-          style={{ textDecoration: "none", color: "inherit" }}
+          className="house-name"
+          onClick={(e) => e.stopPropagation()}
         >
           {project.name}
         </Link>
-        <div className="fleet-card-head-actions">
-          <button
-            type="button"
-            className={`fleet-pin-btn${pinned ? " is-on" : ""}`}
-            aria-label={pinned ? "Unpin from House" : "Pin to House"}
-            title={pinned ? "Unpin" : "Pin"}
-            onClick={onTogglePin}
-          >
-            {pinned ? <Pin size={14} strokeWidth={2.25} /> : <Pin size={14} strokeWidth={1.75} />}
-          </button>
-          {running > 0 ? (
-            <span className="fleet-card-state running">
-              <span className="fleet-run-dot" />
-              {running} running
-            </span>
-          ) : (
-            <span className="fleet-card-state idle">idle</span>
-          )}
-        </div>
-      </div>
-      <p className="fleet-card-repo">{repo ? `${repo.fullName} · ${project.baseBranch}` : "—"}</p>
-      {brief?.mission ? <p className="fleet-card-mission">{brief.mission}</p> : null}
-      <div className="fleet-card-badges">
-        <EnvPrepBadge projectId={project.id} />
-        <span className="ygg-badge">{counts("backlog")} backlog</span>
-        <span className="ygg-badge" data-tone={counts("queued") ? "warn" : undefined}>
-          {counts("queued")} queued
+        <span className="house-repo" title={repo?.fullName}>
+          {repo ? `${repo.fullName} · ${project.baseBranch}` : "—"}
         </span>
-        <span className="ygg-badge" data-tone={counts("review") ? "info" : undefined}>
-          {counts("review")} PR
+      </div>
+
+      <div className="house-cell house-cell-state">
+        {running > 0 ? (
+          <span className="fleet-card-state running">
+            <span className="fleet-run-dot" />
+            {running} run
+          </span>
+        ) : (
+          <span className="fleet-card-state idle">idle</span>
+        )}
+        <EnvPrepBadge projectId={project.id} />
+      </div>
+
+      <div className="house-cell house-cell-counts" aria-label="counts">
+        <span className="house-count" title="backlog">
+          {backlog}
+          <em>bk</em>
+        </span>
+        <span className={`house-count${queued ? " is-warn" : ""}`} title="queued">
+          {queued}
+          <em>q</em>
+        </span>
+        <span className={`house-count${review ? " is-info" : ""}`} title="in review">
+          {review}
+          <em>pr</em>
         </span>
         {missing.length > 0 ? (
-          <span className="ygg-badge" data-tone="warn">
-            {brief!.missing.length} missing
+          <span className="house-count is-warn" title="Huginn missing">
+            {missing.length}
+            <em>gap</em>
           </span>
         ) : null}
       </div>
-      {missing.length > 0 ? (
-        <ul className="fleet-missing">
-          {missing.map((m) => (
-            <li key={m}>
-              <button type="button" className="fleet-missing-item" onClick={() => onQueueMissing(m)} title="Queue this gap">
-                <span className="fleet-missing-mark">+</span>
-                <span className="fleet-missing-text">{m}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : brief?.status === "ready" ? (
-        <p className="fleet-missing-empty">Huginn: nothing flagged missing</p>
-      ) : null}
-      <div className="fleet-card-ctas">
-        <button type="button" className="fleet-cta" onClick={onOpenChat}>
+
+      <div className="house-cell house-cell-gap">
+        {topMissing ? (
+          <button
+            type="button"
+            className="house-gap"
+            title="Queue this gap"
+            onClick={(e) => {
+              e.stopPropagation();
+              onQueueMissing(topMissing);
+            }}
+          >
+            <span className="house-gap-mark">+</span>
+            <span className="house-gap-text">{topMissing}</span>
+            {missing.length > 1 ? (
+              <span className="house-gap-more">+{missing.length - 1}</span>
+            ) : null}
+          </button>
+        ) : brief?.status === "ready" ? (
+          <span className="house-gap-empty">—</span>
+        ) : (
+          <span className="house-gap-empty">{brief?.mission ? brief.mission : "…"}</span>
+        )}
+      </div>
+
+      <div className="house-cell house-cell-cta">
+        <button
+          type="button"
+          className="fleet-cta"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenChat();
+          }}
+        >
           <MessageSquare size={13} strokeWidth={2} aria-hidden />
           Chat
         </button>
-        <Link href={`/projects/${project.id}`} className="fleet-cta">
+        <Link
+          href={`/projects/${project.id}`}
+          className="fleet-cta"
+          onClick={(e) => e.stopPropagation()}
+        >
           Board
         </Link>
       </div>
@@ -256,12 +252,12 @@ export interface FleetViewProps {
   onQueueMissing: (projectId: string, missing: string) => void;
 }
 
-/** Pure presentational House. All data arrives as props so it renders identically
- *  under live data or a static screenshot harness (the `Litr` visual-verify loop). */
+/** House — full-bleed project list. Data via props (Litr harness can mirror markup). */
 export default function FleetView(p: FleetViewProps) {
   const running = p.counts.running;
   const router = useRouter();
   const { setCurrentId, getLastSession, pinnedProjects } = useProject();
+  const listRef = useRef<HTMLDivElement>(null);
 
   function openAnvilChat(projectId: string) {
     setCurrentId(projectId);
@@ -269,78 +265,56 @@ export default function FleetView(p: FleetViewProps) {
     router.push(sid ? `/chat?session=${encodeURIComponent(sid)}` : "/chat");
   }
 
+  const pinRank = new Map(p.pinnedIds.map((id, i) => [id, i + 1]));
+
   return (
-    <main className="fleet forge-room">
-      <header className="fleet-hero">
-        <div className="fleet-aurora" aria-hidden />
-        <div className="fleet-hero-inner">
-          <div className="fleet-hero-copy">
-            <span className="fleet-eyebrow">Brokk · CCL House</span>
-            <h1 className="fleet-title">House</h1>
-            <p className="fleet-subtitle">
-              Macro view of every anvil. Pin clients, queue gaps, jump into chat — the forge
-              burns in parallel.
-            </p>
-          </div>
-          <div className="fleet-hero-actions">
-            <span className={`fleet-pulse${running > 0 ? "" : " is-quiet"}`}>
-              <span className="fleet-ember" />
-              {running > 0
-                ? `Forging now · ${running} task${running > 1 ? "s" : ""} in the fire`
-                : "The forge is quiet"}
-            </span>
-            <Button asChild>
-              <Link href="/connect">+ Connect repos</Link>
-            </Button>
-          </div>
+    <main className="fleet forge-room is-house">
+      <header className="house-bar">
+        <div className="house-bar-brand">
+          <span className="fleet-eyebrow">Brokk · CCL</span>
+          <h1 className="house-bar-title">House</h1>
+          <span className={`fleet-pulse${running > 0 ? "" : " is-quiet"}`}>
+            <span className="fleet-ember" />
+            {running > 0
+              ? `${running} forging · ${p.counts.queued} queued · ${p.counts.review} PR`
+              : `quiet · ${p.projects.length} projects · ${p.counts.seats} seats`}
+          </span>
+        </div>
+        <div className="house-bar-actions">
+          {pinnedProjects.length > 0 ? (
+            <div className="fleet-pin-strip house-bar-pins" aria-label="Pinned">
+              {pinnedProjects.map((proj, i) => {
+                const ts = p.tasksByProject.get(proj.id) ?? [];
+                const run = ts.filter((t) => t.status === "running").length;
+                return (
+                  <button
+                    key={proj.id}
+                    type="button"
+                    className={`fleet-pin-chip${run > 0 ? " is-running" : ""}${
+                      p.pid === proj.id ? " is-active" : ""
+                    }`}
+                    onClick={() => openAnvilChat(proj.id)}
+                    title={`${proj.name} · ${i + 1}`}
+                  >
+                    <kbd className="fleet-pin-key">{i + 1}</kbd>
+                    <span className="fleet-pin-name">{proj.name}</span>
+                    {run > 0 ? <span className="fleet-run-dot" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <span className="house-bar-hint">Pin clients in the list · keys 1–9</span>
+          )}
+          <Button asChild>
+            <Link href="/connect">+ Connect</Link>
+          </Button>
         </div>
       </header>
 
       {p.err && <Banner tone="err">⚠ {p.err}</Banner>}
 
-      {/* Pinned clients — keyboard 1–9 handled in Topbar */}
-      <section className="fleet-pins" aria-label="Pinned projects">
-        <div className="fleet-h">
-          <span className="fleet-h-title">Pinned</span>
-          <span className="fleet-h-meta">
-            {pinnedProjects.length > 0
-              ? `${pinnedProjects.length} · keys 1–${Math.min(pinnedProjects.length, 9)}`
-              : "pin active clients"}
-          </span>
-          <span className="fleet-h-rule" />
-        </div>
-        {pinnedProjects.length === 0 ? (
-          <div className="fleet-pins-empty">
-            Pin up to 9 clients (Dekaprint, Viken, Arte One…) so you can switch anvils in one keystroke.
-            Use the pin on any attention card below.
-          </div>
-        ) : (
-          <div className="fleet-pin-strip">
-            {pinnedProjects.map((proj, i) => {
-              const ts = p.tasksByProject.get(proj.id) ?? [];
-              const run = ts.filter((t) => t.status === "running").length;
-              return (
-                <button
-                  key={proj.id}
-                  type="button"
-                  className={`fleet-pin-chip${run > 0 ? " is-running" : ""}${
-                    p.pid === proj.id ? " is-active" : ""
-                  }`}
-                  onClick={() => openAnvilChat(proj.id)}
-                  title={`${proj.name} · ${i + 1}`}
-                >
-                  <kbd className="fleet-pin-key">{i + 1}</kbd>
-                  <span className="fleet-pin-name">{proj.name}</span>
-                  {run > 0 ? <span className="fleet-run-dot" /> : null}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* Primary gesture: Queue → */}
-      <form onSubmit={p.onSubmit} className="fleet-composer is-hotspot">
+      <form onSubmit={p.onSubmit} className="fleet-composer is-hotspot house-composer">
         <div className="fleet-pick">
           <select value={p.pid} onChange={(e) => p.onPid(e.target.value)} aria-label="Project">
             {p.projects.length === 0 && <option value="">no project — connect a repo</option>}
@@ -355,29 +329,28 @@ export default function FleetView(p: FleetViewProps) {
           className="fleet-ask"
           value={p.title}
           onChange={(e) => p.onTitle(e.target.value)}
-          placeholder="Prompt for the anvil — queues a forge card…"
+          placeholder="Prompt for the selected anvil — queues a forge card…"
         />
         <button type="submit" className="fleet-send" disabled={p.busy || !p.pid || !p.title.trim()}>
           {p.busy ? "Forging…" : "Queue →"}
         </button>
       </form>
 
-      <div className="fleet-stats is-quiet">
-        <Stat value={p.counts.running} label="Running now" live />
-        <Stat value={p.counts.queued} label="Queued" />
-        <Stat value={p.counts.review} label="In review · PR" live />
-        <Stat value={p.counts.seats} label="Max seats" />
-      </div>
-
-      {/* Attention board */}
-      <section className="forge-section">
-        <div className="fleet-h">
-          <span className="fleet-h-title">Attention</span>
-          <span className="fleet-h-meta">
-            {p.projects.length} · sorted by need
+      <section className="house-list-wrap" aria-label="All projects">
+        <div className="house-list-head" role="row">
+          <span className="house-cell house-cell-pin" />
+          <span className="house-cell house-cell-name">
+            Project
+            <em className="house-list-meta">
+              {p.projects.length} · by need
+            </em>
           </span>
-          <span className="fleet-h-rule" />
+          <span className="house-cell house-cell-state">State</span>
+          <span className="house-cell house-cell-counts">bk / q / pr</span>
+          <span className="house-cell house-cell-gap">Next gap</span>
+          <span className="house-cell house-cell-cta" />
         </div>
+
         {p.projects.length === 0 ? (
           <div className="fleet-empty is-panel">
             <span className="fleet-empty-mark">
@@ -385,8 +358,7 @@ export default function FleetView(p: FleetViewProps) {
             </span>
             <span className="fleet-empty-title">No repos at the house yet</span>
             <p className="fleet-empty-sub">
-              Connect a repository and Brokk can pick up tasks, open PRs, and forge previews for
-              it.
+              Connect a repository and Brokk can pick up tasks, open PRs, and forge previews.
             </p>
             <span className="fleet-empty-action">
               <Button asChild>
@@ -395,12 +367,12 @@ export default function FleetView(p: FleetViewProps) {
             </span>
           </div>
         ) : (
-          <div className="fleet-cards">
+          <div className="house-list" ref={listRef} role="table">
             {p.projects.map((proj) => {
               const ts = p.tasksByProject.get(proj.id) ?? [];
               const c = (s: string) => ts.filter((x) => x.status === s).length;
               return (
-                <ProjectCard
+                <ProjectRow
                   key={proj.id}
                   project={proj}
                   repo={p.repoById.get(proj.repositoryId)}
@@ -409,92 +381,82 @@ export default function FleetView(p: FleetViewProps) {
                   brief={p.briefsByProject[proj.id]}
                   attention={p.attentionOf(proj.id)}
                   pinned={p.pinnedIds.includes(proj.id)}
+                  pinIndex={pinRank.get(proj.id) ?? null}
+                  selected={p.pid === proj.id}
                   onTogglePin={() => p.onTogglePin(proj.id)}
                   onQueueMissing={(text) => p.onQueueMissing(proj.id, text)}
                   onOpenChat={() => openAnvilChat(proj.id)}
+                  onSelect={() => p.onPid(proj.id)}
                 />
               );
             })}
-            <Link href="/connect" className="fleet-card is-add">
-              + Connect a repo
-            </Link>
           </div>
         )}
       </section>
 
-      {/* Session dock */}
-      <section className="fleet-dock" aria-label="Recent sessions">
-        <div className="fleet-h">
-          <span className="fleet-h-title">Session dock</span>
-          <span className="fleet-h-meta">resume without hunting</span>
-          <span className="fleet-h-rule" />
-        </div>
-        {p.dockSessions.length === 0 ? (
-          <div className="fleet-dock-empty">
-            Open a chat on a pinned project — it lands here for one-click resume.
-          </div>
-        ) : (
-          <div className="fleet-dock-strip">
-            {p.dockSessions.map((s) => (
-              <button
-                key={s.sessionId}
-                type="button"
-                className={`fleet-dock-chip${s.turnState === "running" ? " is-running" : ""}`}
-                onClick={() => {
-                  setCurrentId(s.projectId);
-                  router.push(`/chat?session=${encodeURIComponent(s.sessionId)}`);
-                }}
-              >
-                <span className="fleet-dock-proj">{s.projectName}</span>
-                <span className="fleet-dock-title">{s.title}</span>
-                {s.turnState === "running" ? <span className="fleet-run-dot" /> : null}
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Global queue */}
-      <section>
-        <div className="fleet-h">
-          <span className="fleet-h-title">Global queue</span>
-          <span className="fleet-h-meta">next up across the house</span>
-          <span className="fleet-h-rule" />
-        </div>
-        <div className="fleet-queue">
-          {p.queue.length === 0 && (
-            <div className="fleet-empty">
-              <span className="fleet-empty-mark">
-                <Flame />
-              </span>
-              <span className="fleet-empty-title">The forge is quiet</span>
-              <p className="fleet-empty-sub">
-                Queued and running tasks line up here, next-up first. Describe a task above to
-                light it — or click a Huginn missing item.
-              </p>
+      <footer className="house-footer">
+        <div className="house-footer-dock" aria-label="Recent sessions">
+          <span className="house-footer-label">Sessions</span>
+          {p.dockSessions.length === 0 ? (
+            <span className="house-footer-empty">open a chat — it lands here</span>
+          ) : (
+            <div className="fleet-dock-strip">
+              {p.dockSessions.map((s) => (
+                <button
+                  key={s.sessionId}
+                  type="button"
+                  className={`fleet-dock-chip${s.turnState === "running" ? " is-running" : ""}`}
+                  onClick={() => {
+                    setCurrentId(s.projectId);
+                    router.push(`/chat?session=${encodeURIComponent(s.sessionId)}`);
+                  }}
+                >
+                  <span className="fleet-dock-proj">{s.projectName}</span>
+                  <span className="fleet-dock-title">{s.title}</span>
+                  {s.turnState === "running" ? <span className="fleet-run-dot" /> : null}
+                </button>
+              ))}
             </div>
           )}
-          {p.queue.map((task) => {
-            const proj = p.projectById.get(task.projectId);
-            const repo = proj ? p.repoById.get(proj.repositoryId) : undefined;
-            const isRunning = task.status === "running";
-            return (
-              <Link
-                key={task.id}
-                href={`/projects/${task.projectId}`}
-                className={`fleet-row${isRunning ? " is-running" : ""}`}
-              >
-                <span className="fleet-row-dot" style={{ background: STATUS_COLOR[task.status] }} />
-                <span className="fleet-row-title">{task.title}</span>
-                <span className="fleet-row-repo">{repo?.name ?? proj?.name ?? ""}</span>
-                <span className="fleet-row-status" style={{ color: STATUS_COLOR[task.status] }}>
-                  {task.status}
-                </span>
-              </Link>
-            );
-          })}
         </div>
-      </section>
+
+        <div className="house-footer-queue" aria-label="Global queue">
+          <span className="house-footer-label">
+            Queue
+            {p.queue.length > 0 ? <em>{p.queue.length}</em> : null}
+          </span>
+          {p.queue.length === 0 ? (
+            <span className="house-footer-empty">
+              <Flame size={12} aria-hidden /> forge quiet
+            </span>
+          ) : (
+            <div className="house-queue-strip">
+              {p.queue.slice(0, 8).map((task) => {
+                const proj = p.projectById.get(task.projectId);
+                const isRunning = task.status === "running";
+                return (
+                  <Link
+                    key={task.id}
+                    href={`/projects/${task.projectId}`}
+                    className={`house-queue-chip${isRunning ? " is-running" : ""}`}
+                    title={task.title}
+                  >
+                    <span
+                      className="fleet-row-dot"
+                      style={{ background: STATUS_COLOR[task.status] }}
+                    />
+                    <span className="house-queue-proj">{proj?.name ?? "?"}</span>
+                    <span className="house-queue-title">{task.title}</span>
+                  </Link>
+                );
+              })}
+              {p.queue.length > 8 ? (
+                <span className="house-footer-empty">+{p.queue.length - 8}</span>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </footer>
     </main>
   );
 }
