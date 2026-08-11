@@ -614,6 +614,11 @@ export interface Store {
       houseObjective?: import("@brokk/core").HouseObjective | null;
     },
   ): Promise<typeof projects.$inferSelect | null>;
+  /** Link a Brokk project to its Heimdall registry id (fleet sync). */
+  setProjectHeimdallAppId(
+    id: string,
+    heimdallAppId: string | null,
+  ): Promise<typeof projects.$inferSelect | null>;
 
   // tasks
   listTasks(opts?: { projectId?: string; status?: TaskStatus }): Promise<Task[]>;
@@ -1229,6 +1234,14 @@ export function createStore(db: Db): Store {
           ...(patch.houseObjective !== undefined ? { houseObjective: patch.houseObjective } : {}),
           updatedAt: new Date(),
         })
+        .where(eq(projects.id, id))
+        .returning();
+      return rows[0] ?? null;
+    },
+    async setProjectHeimdallAppId(id, heimdallAppId) {
+      const rows = await db
+        .update(projects)
+        .set({ heimdallAppId, updatedAt: new Date() })
         .where(eq(projects.id, id))
         .returning();
       return rows[0] ?? null;

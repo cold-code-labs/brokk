@@ -4,12 +4,13 @@ import type { Project, Repository, Subscription, Task } from "@brokk/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { brokk } from "../lib/api";
 import { discovery, type ProjectBrief } from "../lib/chat";
+import { isSidecarProjectName } from "../lib/house";
 import { useProject } from "../lib/project-context";
 import "../app/fleet.css";
 import FleetView, { type HouseBrief } from "./FleetView";
 
 /** Brokk home — the House cockpit. Data here; FleetView renders the grid. */
-export default function Fleet() {
+export default function Fleet({ compact = false }: { compact?: boolean }) {
   const [repos, setRepos] = useState<Repository[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -44,9 +45,20 @@ export default function Fleet() {
   }
 
   useEffect(() => {
-    load();
+    let alive = true;
+    (async () => {
+      try {
+        await brokk.syncFleet();
+      } catch {
+        /* Heimdall down / not configured — still show local projects */
+      }
+      if (alive) await load();
+    })();
     const i = setInterval(load, 4000);
-    return () => clearInterval(i);
+    return () => {
+      alive = false;
+      clearInterval(i);
+    };
   }, []);
 
   useEffect(() => {
@@ -211,9 +223,12 @@ export default function Fleet() {
 
   if (!mounted) return null;
 
+  const visibleProjects = projects.filter((p) => !isSidecarProjectName(p.name));
+
   return (
     <FleetView
-      projects={projects}
+      projects={visibleProjects}
+      compact={compact}
       repoById={repoById}
       projectById={projectById}
       tasksByProject={tasksByProject}

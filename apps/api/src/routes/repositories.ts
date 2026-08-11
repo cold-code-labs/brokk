@@ -290,6 +290,8 @@ export async function connectOne(
     // Huginn Discovery (ADR 0067): brief always; QA only after Hero on prototypes
     // (devFirst) — cataloguing the empty template wastes the board.
     fireHuginnDiscovery(deps, project.id, { skipQa: opts?.devFirst ?? false });
+  } else if (project && opts?.heimdallAppId && !project.heimdallAppId) {
+    project = await deps.store.setProjectHeimdallAppId(project.id, opts.heimdallAppId);
   }
   return { repo, project };
 }
