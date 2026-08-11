@@ -2,21 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Columns3,
-  Eye,
-  Flame,
-  FolderGit2,
-  MessageSquare,
-  MoreHorizontal,
-  Pin,
-  Target,
-} from "lucide-react";
+import { useMemo, useState } from "react";
+import { Columns3, Flame, FolderGit2, MessageSquare, Target } from "lucide-react";
 import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
 import type { HouseLifecycle, HouseObjective } from "@brokk/core";
 import { STATUS_COLOR } from "../lib/theme";
-import { discovery, type BriefStatus } from "../lib/chat";
+import { type BriefStatus } from "../lib/chat";
+import { prettyProjectName } from "../lib/house";
 import { useProject } from "../lib/project-context";
 import type { Project, Repository, Task } from "@brokk/sdk";
 import ObjectivePanel from "./ObjectivePanel";
@@ -36,70 +28,17 @@ export function needsObjective(p: Project): boolean {
   return !projectObjective(p)?.summary;
 }
 
-const LIFE_LABEL: Record<HouseLifecycle, string> = {
+const LIFE_LABEL: Record<Exclude<HouseLifecycle, "undocumented">, string> = {
   prototype: "Protótipo",
-  undocumented: "Sem objetivo",
   working: "Trabalhando",
   archived: "Arquivado",
 };
-
-function EnvPrepBadge({ projectId }: { projectId: string }) {
-  const [status, setStatus] = useState<BriefStatus | null>(null);
-  const [running, setRunning] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let tries = 0;
-    const tick = async () => {
-      try {
-        const res = await discovery.get(projectId);
-        if (!alive) return;
-        setRunning(res.running);
-        setStatus(res.brief?.status ?? null);
-        tries += 1;
-        const keep =
-          res.running || res.brief?.status === "pending" || (!res.brief && tries < 4);
-        if (keep) timer = setTimeout(tick, 5000);
-      } catch {
-        /* ignore */
-      }
-    };
-    void tick();
-    return () => {
-      alive = false;
-      if (timer) clearTimeout(timer);
-    };
-  }, [projectId]);
-
-  if (running || status === "pending")
-    return (
-      <span className="ygg-badge" data-tone="info">
-        <span className="fleet-run-dot" /> prep…
-      </span>
-    );
-  if (status === "failed")
-    return (
-      <span className="ygg-badge" data-tone="err">
-        env fail
-      </span>
-    );
-  return null;
-}
 
 export type HouseBrief = {
   status: BriefStatus | null;
   missing: string[];
   running: boolean;
   mission: string | null;
-};
-
-export type DockSession = {
-  sessionId: string;
-  projectId: string;
-  projectName: string;
-  title: string;
-  updatedAt: string;
-  turnState: "idle" | "running";
 };
 
 function statusLine(input: {
@@ -110,8 +49,9 @@ function statusLine(input: {
   missing: string[];
   mission: string | null;
   objectiveSummary: string | null;
-}): { tone: "need" | "run" | "review" | "gap" | "ok" | "idle"; text: string } {
-  if (input.needObj) return { tone: "need", text: "Definir próximo objetivo" };
+}): { tone: "run" | "review" | "gap" | "ok" | "idle"; text: string } | null {
+  // Sem objetivo: a borda do card já basta — sem copy redundante.
+  if (input.needObj) return null;
   if (input.running > 0) return { tone: "run", text: `${input.running} forjando agora` };
   if (input.review > 0) return { tone: "review", text: `${input.review} em review` };
   if (input.queued > 0) return { tone: "run", text: `${input.queued} na fila` };
@@ -120,14 +60,15 @@ function statusLine(input: {
     return { tone: "gap", text: g.length > 72 ? `${g.slice(0, 70)}…` : g };
   }
   if (input.objectiveSummary) {
-    const first = input.objectiveSummary.split("\n")[0]?.replace(/^Próximo objetivo:\s*/i, "") ?? "";
+    const first =
+      input.objectiveSummary.split("\n")[0]?.replace(/^Próximo objetivo:\s*/i, "") ?? "";
     if (first) return { tone: "ok", text: first.length > 72 ? `${first.slice(0, 70)}…` : first };
   }
   if (input.mission) {
     const m = input.mission;
     return { tone: "idle", text: m.length > 72 ? `${m.slice(0, 70)}…` : m };
   }
-  return { tone: "idle", text: "Quiet — sem sinal recente" };
+  return null;
 }
 
 function ProjectCard({
@@ -136,13 +77,8 @@ function ProjectCard({
   running,
   counts,
   brief,
-  pinned,
-  pinIndex,
   previewBusy,
-  menuOpen,
-  onToggleMenu,
-  onTogglePin,
-  onQueueMissing,
+  previewLive,
   onOpenChat,
   onOpenPreview,
   onOpenObjective,
@@ -152,13 +88,8 @@ function ProjectCard({
   running: number;
   counts: (s: string) => number;
   brief?: HouseBrief;
-  pinned: boolean;
-  pinIndex: number | null;
   previewBusy: boolean;
-  menuOpen: boolean;
-  onToggleMenu: () => void;
-  onTogglePin: () => void;
-  onQueueMissing: (text: string) => void;
+  previewLive: boolean;
   onOpenChat: () => void;
   onOpenPreview: () => void;
   onOpenObjective: () => void;
@@ -180,16 +111,10 @@ function ProjectCard({
     mission: brief?.mission ?? null,
     objectiveSummary: obj?.summary ?? null,
   });
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDoc = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) onToggleMenu();
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [menuOpen, onToggleMenu]);
+  const label = prettyProjectName(project.name);
+  const repoLeaf = repo?.fullName?.split("/").pop() ?? "";
+  const showRepo =
+    Boolean(repoLeaf) && prettyProjectName(repoLeaf).toLowerCase() !== label.toLowerCase();
 
   return (
     <article
@@ -197,103 +122,63 @@ function ProjectCard({
         archived ? " is-archived" : ""
       }`}
     >
-      <header className="house-card-head">
-        <button
-          type="button"
-          className={`fleet-pin-btn${pinned ? " is-on" : ""}`}
-          aria-label={pinned ? "Unpin" : "Pin"}
-          title={pinned ? (pinIndex != null ? `Pinned · key ${pinIndex}` : "Unpin") : "Pin"}
-          onClick={onTogglePin}
-        >
-          <Pin size={13} strokeWidth={pinned ? 2.25 : 1.75} />
-          {pinIndex != null ? <span className="house-pin-idx">{pinIndex}</span> : null}
-        </button>
-        <div className="house-card-titles">
-          <Link href={`/projects/${project.id}`} className="house-card-name" title={project.name}>
-            {project.name}
-          </Link>
-          <span className="house-card-repo" title={repo?.fullName}>
-            {repo ? repo.fullName.split("/").pop() : "—"}
-          </span>
-        </div>
-        <div className="house-card-menu" ref={menuRef}>
+      <div className="house-card-main">
+        <header className="house-card-head">
+          <div className="house-card-titles">
+            <Link href={`/projects/${project.id}`} className="house-card-name" title={label}>
+              {label}
+            </Link>
+            {showRepo ? (
+              <span className="house-card-repo" title={repo?.fullName}>
+                {repoLeaf}
+              </span>
+            ) : null}
+          </div>
+        </header>
+
+        {life !== "undocumented" ? (
           <button
             type="button"
-            className="house-ico"
-            aria-label="Ações rápidas"
-            aria-expanded={menuOpen}
-            onClick={onToggleMenu}
+            className={`house-life house-life-${life}`}
+            onClick={onOpenObjective}
+            title="Abrir objetivo desta rodada"
           >
-            <MoreHorizontal size={15} strokeWidth={1.75} />
+            {LIFE_LABEL[life]}
           </button>
-          {menuOpen ? (
-            <div className="house-menu" role="menu">
-              <button type="button" role="menuitem" onClick={onOpenObjective}>
-                <Target size={14} /> Objetivo / próxima rodada
-              </button>
-              <button type="button" role="menuitem" onClick={onOpenChat}>
-                <MessageSquare size={14} /> Chat
-              </button>
-              <Link href={`/projects/${project.id}`} role="menuitem" onClick={onToggleMenu}>
-                <Columns3 size={14} /> Board
-              </Link>
-              <button type="button" role="menuitem" disabled={previewBusy} onClick={onOpenPreview}>
-                <Eye size={14} /> Preview
-              </button>
-              {missing[0] ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    onQueueMissing(missing[0]!);
-                    onToggleMenu();
-                  }}
-                >
-                  + Queue gap
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      </header>
+        ) : null}
 
-      <button
-        type="button"
-        className={`house-life house-life-${life}${needObj ? " is-need" : ""}`}
-        onClick={onOpenObjective}
-        title="Abrir objetivo desta rodada"
-      >
-        {LIFE_LABEL[life]}
-      </button>
-
-      <p className={`house-card-status tone-${status.tone}`}>{status.text}</p>
-
-      <div className="house-card-meta">
-        {running > 0 ? (
-          <span className="fleet-card-state running">
-            <span className="fleet-run-dot" />
-            {running} run
-          </span>
-        ) : (
-          <span className="fleet-card-state idle">idle</span>
+        {status ? <p className={`house-card-status tone-${status.tone}`}>{status.text}</p> : (
+          <p className="house-card-status is-spacer" aria-hidden>
+            &nbsp;
+          </p>
         )}
-        <EnvPrepBadge projectId={project.id} />
-        <span className="house-card-counts" title="backlog / queued / review / gaps">
-          {backlog}
-          <em>bk</em> {queued}
-          <em>q</em> {review}
-          <em>pr</em>
-          {missing.length ? (
-            <>
-              {" "}
-              {missing.length}
-              <em>gap</em>
-            </>
-          ) : null}
-        </span>
+
+        <div className="house-card-meta">
+          {running > 0 ? (
+            <span className="fleet-card-state running">
+              <span className="fleet-run-dot" />
+              {running} run
+            </span>
+          ) : (
+            <span className="fleet-card-state idle">idle</span>
+          )}
+          <span className="house-card-counts" title="backlog / queued / review / gaps">
+            {backlog}
+            <em>bk</em> {queued}
+            <em>q</em> {review}
+            <em>pr</em>
+            {missing.length ? (
+              <>
+                {" "}
+                {missing.length}
+                <em>gap</em>
+              </>
+            ) : null}
+          </span>
+        </div>
       </div>
 
-      <footer className="house-card-cta">
+      <nav className="house-card-rail" aria-label={`Ações · ${label}`}>
         <button type="button" className="house-ico" title="Objetivo" aria-label="Objetivo" onClick={onOpenObjective}>
           <Target size={15} strokeWidth={1.75} />
         </button>
@@ -305,15 +190,15 @@ function ProjectCard({
         </Link>
         <button
           type="button"
-          className={`house-ico${previewBusy ? " is-busy" : ""}`}
-          title="Preview"
-          aria-label="Preview"
+          className={`house-preview-dot${previewLive ? " is-live" : ""}${previewBusy ? " is-busy" : ""}`}
+          title={previewLive ? "Preview ao vivo" : "Abrir / subir preview"}
+          aria-label={previewLive ? "Preview ao vivo" : "Abrir preview"}
           disabled={previewBusy}
           onClick={onOpenPreview}
         >
-          <Eye size={15} strokeWidth={1.75} />
+          <span />
         </button>
-      </footer>
+      </nav>
     </article>
   );
 }
@@ -324,16 +209,12 @@ export interface FleetViewProps {
   projectById: Map<string, Project>;
   tasksByProject: Map<string, Task[]>;
   briefsByProject: Record<string, HouseBrief>;
-  attentionOf: (projectId: string) => number;
-  pinnedIds: string[];
-  onTogglePin: (projectId: string) => void;
-  dockSessions: DockSession[];
+  previewLiveByProject: Record<string, boolean>;
   queue: Task[];
   counts: { running: number; queued: number; review: number; seats: number };
   err: string | null;
   previewBusyId: string | null;
   houseBusyId: string | null;
-  onQueueMissing: (projectId: string, missing: string) => void;
   onOpenPreview: (projectId: string) => void;
   onSaveHouse: (
     projectId: string,
@@ -352,7 +233,6 @@ export default function FleetView(p: FleetViewProps) {
   const router = useRouter();
   const { setCurrentId, getLastSession, pinnedProjects } = useProject();
   const [objectiveId, setObjectiveId] = useState<string | null>(null);
-  const [menuId, setMenuId] = useState<string | null>(null);
 
   function openAnvilChat(projectId: string) {
     setCurrentId(projectId);
@@ -360,8 +240,6 @@ export default function FleetView(p: FleetViewProps) {
     router.push(sid ? `/chat?session=${encodeURIComponent(sid)}` : "/chat");
   }
 
-  const pinRank = new Map(p.pinnedIds.map((id, i) => [id, i + 1]));
-  const needCount = p.projects.filter(needsObjective).length;
   const objectiveProject = objectiveId
     ? p.projects.find((x) => x.id === objectiveId) ?? null
     : null;
@@ -370,7 +248,9 @@ export default function FleetView(p: FleetViewProps) {
     const active = p.projects.filter((x) => projectLifecycle(x) !== "archived");
     const archived = p.projects.filter((x) => projectLifecycle(x) === "archived");
     const byName = (a: Project, b: Project) =>
-      a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
+      prettyProjectName(a.name).localeCompare(prettyProjectName(b.name), "pt-BR", {
+        sensitivity: "base",
+      });
     return [...active.sort(byName), ...archived.sort(byName)];
   }, [p.projects]);
 
@@ -386,9 +266,6 @@ export default function FleetView(p: FleetViewProps) {
               ? `${running} forging · ${p.counts.queued} queued · ${p.counts.review} PR`
               : `quiet · ${p.projects.length} projects · ${p.counts.seats} seats`}
           </span>
-          {needCount > 0 ? (
-            <span className="house-need-count">{needCount} sem objetivo</span>
-          ) : null}
         </div>
         <div className="house-bar-actions">
           {pinnedProjects.length > 0 ? (
@@ -396,6 +273,7 @@ export default function FleetView(p: FleetViewProps) {
               {pinnedProjects.map((proj, i) => {
                 const ts = p.tasksByProject.get(proj.id) ?? [];
                 const run = ts.filter((t) => t.status === "running").length;
+                const label = prettyProjectName(proj.name);
                 return (
                   <button
                     key={proj.id}
@@ -404,18 +282,16 @@ export default function FleetView(p: FleetViewProps) {
                       needsObjective(proj) ? " needs-objective" : ""
                     }`}
                     onClick={() => openAnvilChat(proj.id)}
-                    title={`${proj.name} · ${i + 1}`}
+                    title={`${label} · ${i + 1}`}
                   >
                     <kbd className="fleet-pin-key">{i + 1}</kbd>
-                    <span className="fleet-pin-name">{proj.name}</span>
+                    <span className="fleet-pin-name">{label}</span>
                     {run > 0 ? <span className="fleet-run-dot" /> : null}
                   </button>
                 );
               })}
             </div>
-          ) : (
-            <span className="house-bar-hint">Pin · 1–9 · Objetivo = gate humano por projeto</span>
-          )}
+          ) : null}
           <Button asChild>
             <Link href="/connect">+ Connect</Link>
           </Button>
@@ -463,19 +339,11 @@ export default function FleetView(p: FleetViewProps) {
                     running={c("running")}
                     counts={c}
                     brief={p.briefsByProject[proj.id]}
-                    pinned={p.pinnedIds.includes(proj.id)}
-                    pinIndex={pinRank.get(proj.id) ?? null}
                     previewBusy={p.previewBusyId === proj.id}
-                    menuOpen={menuId === proj.id}
-                    onToggleMenu={() => setMenuId((cur) => (cur === proj.id ? null : proj.id))}
-                    onTogglePin={() => p.onTogglePin(proj.id)}
-                    onQueueMissing={(text) => p.onQueueMissing(proj.id, text)}
+                    previewLive={Boolean(p.previewLiveByProject[proj.id])}
                     onOpenChat={() => openAnvilChat(proj.id)}
                     onOpenPreview={() => p.onOpenPreview(proj.id)}
-                    onOpenObjective={() => {
-                      setMenuId(null);
-                      setObjectiveId(proj.id);
-                    }}
+                    onOpenObjective={() => setObjectiveId(proj.id)}
                   />
                 );
               })}
@@ -486,7 +354,7 @@ export default function FleetView(p: FleetViewProps) {
         {objectiveProject ? (
           <ObjectivePanel
             projectId={objectiveProject.id}
-            projectName={objectiveProject.name}
+            projectName={prettyProjectName(objectiveProject.name)}
             lifecycle={projectLifecycle(objectiveProject)}
             objective={projectObjective(objectiveProject)}
             tasks={p.tasksByProject.get(objectiveProject.id) ?? []}
@@ -507,68 +375,43 @@ export default function FleetView(p: FleetViewProps) {
         ) : null}
       </div>
 
-      <footer className="house-footer">
-        <div className="house-footer-dock" aria-label="Recent sessions">
-          <span className="house-footer-label">Sessions</span>
-          {p.dockSessions.length === 0 ? (
-            <span className="house-footer-empty">open a chat — it lands here</span>
-          ) : (
-            <div className="fleet-dock-strip">
-              {p.dockSessions.map((s) => (
-                <button
-                  key={s.sessionId}
-                  type="button"
-                  className={`fleet-dock-chip${s.turnState === "running" ? " is-running" : ""}`}
-                  onClick={() => {
-                    setCurrentId(s.projectId);
-                    router.push(`/chat?session=${encodeURIComponent(s.sessionId)}`);
-                  }}
-                >
-                  <span className="fleet-dock-proj">{s.projectName}</span>
-                  <span className="fleet-dock-title">{s.title}</span>
-                  {s.turnState === "running" ? <span className="fleet-run-dot" /> : null}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="house-footer-queue" aria-label="Global queue">
-          <span className="house-footer-label">
-            Queue
-            {p.queue.length > 0 ? <em>{p.queue.length}</em> : null}
+      <footer className="house-footer is-queue-only" aria-label="Global queue">
+        <span className="house-footer-label">
+          Queue
+          {p.queue.length > 0 ? <em>{p.queue.length}</em> : null}
+        </span>
+        {p.queue.length === 0 ? (
+          <span className="house-footer-empty">
+            <Flame size={12} aria-hidden /> forge quiet
           </span>
-          {p.queue.length === 0 ? (
-            <span className="house-footer-empty">
-              <Flame size={12} aria-hidden /> forge quiet
-            </span>
-          ) : (
-            <div className="house-queue-strip">
-              {p.queue.slice(0, 8).map((task) => {
-                const proj = p.projectById.get(task.projectId);
-                const isRunning = task.status === "running";
-                return (
-                  <Link
-                    key={task.id}
-                    href={`/projects/${task.projectId}`}
-                    className={`house-queue-chip${isRunning ? " is-running" : ""}`}
-                    title={task.title}
-                  >
-                    <span
-                      className="fleet-row-dot"
-                      style={{ background: STATUS_COLOR[task.status] }}
-                    />
-                    <span className="house-queue-proj">{proj?.name ?? "?"}</span>
-                    <span className="house-queue-title">{task.title}</span>
-                  </Link>
-                );
-              })}
-              {p.queue.length > 8 ? (
-                <span className="house-footer-empty">+{p.queue.length - 8}</span>
-              ) : null}
-            </div>
-          )}
-        </div>
+        ) : (
+          <div className="house-queue-strip">
+            {p.queue.slice(0, 16).map((task) => {
+              const proj = p.projectById.get(task.projectId);
+              const isRunning = task.status === "running";
+              return (
+                <Link
+                  key={task.id}
+                  href={`/projects/${task.projectId}`}
+                  className={`house-queue-chip${isRunning ? " is-running" : ""}`}
+                  title={task.title}
+                >
+                  <span
+                    className="fleet-row-dot"
+                    style={{ background: STATUS_COLOR[task.status] }}
+                  />
+                  <span className="house-queue-proj">
+                    {proj ? prettyProjectName(proj.name) : "?"}
+                  </span>
+                  <span className="house-queue-title">{task.title}</span>
+                </Link>
+              );
+            })}
+            {p.queue.length > 16 ? (
+              <span className="house-footer-empty">+{p.queue.length - 16}</span>
+            ) : null}
+          </div>
+        )}
       </footer>
     </main>
   );
