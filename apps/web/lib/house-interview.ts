@@ -1,233 +1,244 @@
-// House objective interview packs — clickable answers (or free text).
-// Human gate only: lock objective → lifecycle advances; Brokk/SRH handle the rest.
+// House objective round — per-project, not a global questionnaire.
+// Flow: recap (what recently happened) → next objective → micro-questions → lock → work + document.
+
+import type { HouseObjective } from "@brokk/core";
+import type { Task } from "@brokk/sdk";
 
 export type InterviewOption = { id: string; label: string };
 export type InterviewQuestion = {
   id: string;
   prompt: string;
   options?: InterviewOption[];
-  /** Allow a free-text answer in addition to (or instead of) options. */
   allowCustom?: boolean;
   multi?: boolean;
 };
 
-export type InterviewPack = {
-  id: string;
-  title: string;
-  blurb: string;
-  questions: InterviewQuestion[];
+export type ProjectRecap = {
+  mission: string | null;
+  missing: string[];
+  recentDone: string[];
+  recentRunning: string[];
+  recentReview: string[];
+  lastObjectiveSummary: string | null;
+  lastLockedAt: string | null;
+  hasSignal: boolean;
 };
 
-/** Generic pack for any project without a specialist questionnaire. */
-export const GENERIC_PACK: InterviewPack = {
-  id: "generic",
-  title: "Objetivo do produto",
-  blurb: "Respostas clicáveis — digite só o que não couber nas opções. Isso destrava a esteira.",
-  questions: [
-    {
-      id: "who",
-      prompt: "Quem é o usuário principal?",
-      options: [
-        { id: "internal", label: "Time interno CCL / ops" },
-        { id: "client_staff", label: "Staff do cliente" },
-        { id: "end_user", label: "Usuário final (B2C)" },
-        { id: "mixed", label: "Mistura (staff + usuários)" },
-      ],
-      allowCustom: true,
-    },
-    {
-      id: "job",
-      prompt: "Qual o trabalho principal que o produto deve fazer bem?",
-      allowCustom: true,
-    },
-    {
-      id: "stage",
-      prompt: "Onde estamos agora?",
-      options: [
-        { id: "spike", label: "Protótipo / spike — validar ideia" },
-        { id: "mvp", label: "MVP — primeiro uso real" },
-        { id: "hardening", label: "Já usado — endurecer / completar" },
-        { id: "maintain", label: "Manutenção / evolução contínua" },
-      ],
-    },
-    {
-      id: "done",
-      prompt: "O que significa “pronto” nesta fatia?",
-      options: [
-        { id: "preview_ok", label: "Preview usável + happy path" },
-        { id: "prod_ship", label: "Em produção com usuários reais" },
-        { id: "assurance", label: "Mapa Spec Rails + proofs verdes" },
-        { id: "archive", label: "Pode arquivar depois desta entrega" },
-      ],
-      allowCustom: true,
-      multi: true,
-    },
-    {
-      id: "out_of_scope",
-      prompt: "O que explicitamente NÃO entra agora?",
-      allowCustom: true,
-    },
-  ],
-};
+export function buildRecap(input: {
+  tasks: Task[];
+  mission: string | null;
+  missing: string[];
+  objective: HouseObjective | null;
+}): ProjectRecap {
+  const byUpdated = [...input.tasks].sort((a, b) =>
+    a.updatedAt < b.updatedAt ? 1 : -1,
+  );
+  const take = (status: string, n: number) =>
+    byUpdated
+      .filter((t) => t.status === status)
+      .slice(0, n)
+      .map((t) => t.title);
 
-/** Pilot: logcheck — logging/observability instance on the light web template. */
-export const LOGCHECK_PACK: InterviewPack = {
-  id: "logcheck",
-  title: "Logcheck — objetivo",
-  blurb:
-    "Instância de teste do pass de logging/observability. Trave o norte; Brokk + Spec Rails cuidam do resto.",
-  questions: [
-    {
-      id: "mission",
-      prompt: "Qual é a missão do Logcheck?",
-      options: [
-        {
-          id: "showroom_logging",
-          label: "Showroom: provar o padrão de logging CCL de ponta a ponta",
-        },
-        {
-          id: "ops_dashboard",
-          label: "Dashboard interno de saúde/logs da frota",
-        },
-        {
-          id: "client_tool",
-          label: "Ferramenta que um cliente usaria no dia a dia",
-        },
-        { id: "throwaway", label: "Sandbox descartável — só exercitar a esteira" },
-      ],
+  const recentDone = take("done", 5);
+  const recentRunning = take("running", 4);
+  const recentReview = take("review", 4);
+  const hasSignal =
+    recentDone.length +
+      recentRunning.length +
+      recentReview.length +
+      input.missing.length +
+      (input.mission ? 1 : 0) +
+      (input.objective?.summary ? 1 : 0) >
+    0;
+
+  return {
+    mission: input.mission,
+    missing: input.missing.slice(0, 6),
+    recentDone,
+    recentRunning,
+    recentReview,
+    lastObjectiveSummary: input.objective?.summary ?? null,
+    lastLockedAt: input.objective?.lockedAt ?? null,
+    hasSignal,
+  };
+}
+
+/** Micro-questions derived from THIS project's objective + signals — not a global pack. */
+export function buildMicroQuestions(input: {
+  projectName: string;
+  nextObjective: string;
+  recap: ProjectRecap;
+}): InterviewQuestion[] {
+  const obj = input.nextObjective.trim().toLowerCase();
+  const qs: InterviewQuestion[] = [];
+
+  // Always: slice the objective into delivery shape for this round.
+  qs.push({
+    id: "round_outcome",
+    prompt: `Para “${input.nextObjective.trim().slice(0, 80)}”, o que fecha esta rodada?`,
+    options: [
+      { id: "preview_demo", label: "Preview demoável do happy path" },
+      { id: "pr_merged", label: "PR na dev com Eitri ok" },
+      { id: "assurance", label: "assurance/ atualizado + proofs" },
+      { id: "doc_only", label: "Só documentar / mapear — ainda sem forge" },
+    ],
+    allowCustom: true,
+    multi: true,
+  });
+
+  qs.push({
+    id: "scope_cut",
+    prompt: "O que fica DE FORA desta rodada?",
+    options: [
+      { id: "polish", label: "Polish visual fino" },
+      { id: "edge", label: "Edge cases / raros" },
+      { id: "perf", label: "Performance / escala" },
+      { id: "integrations", label: "Integrações externas novas" },
+      { id: "nothing", label: "Nada óbvio — digito abaixo" },
+    ],
+    allowCustom: true,
+    multi: true,
+  });
+
+  // Contextual chips from Huginn missing.
+  if (input.recap.missing.length > 0) {
+    qs.push({
+      id: "pick_gaps",
+      prompt: "Quais gaps do projeto entram nesta rodada?",
+      options: input.recap.missing.slice(0, 6).map((m, i) => ({
+        id: `gap_${i}`,
+        label: m.length > 90 ? `${m.slice(0, 88)}…` : m,
+      })),
       allowCustom: true,
-    },
-    {
-      id: "audience",
-      prompt: "Quem olha a tela?",
+      multi: true,
+    });
+  }
+
+  // Keyword-triggered deep questions (only if the objective mentions them).
+  if (/\b(user|usu[aá]rio|rbac|papel|permiss|auth|login|acesso)\b/i.test(obj)) {
+    qs.push({
+      id: "auth_depth",
+      prompt: "Auth / usuários nesta rodada — até onde?",
       options: [
-        { id: "ccl_eng", label: "Engenharia CCL" },
-        { id: "ccl_ops", label: "Ops / plantão" },
-        { id: "client", label: "Cliente (não-eng)" },
-        { id: "demo", label: "Demo / sales walkthrough" },
+        { id: "login_only", label: "Só login / sessão" },
+        { id: "roles_read", label: "Papéis leitura vs escrita" },
+        { id: "roles_ui", label: "UI pra editar papéis e permissões" },
+        { id: "archive_user", label: "Arquivar/excluir contato ou usuário" },
       ],
       multi: true,
-    },
-    {
-      id: "data",
-      prompt: "De onde vêm os logs / sinais?",
-      options: [
-        { id: "synthetic", label: "Dados sintéticos / seed no app" },
-        { id: "otel", label: "OpenTelemetry / collectors reais" },
-        { id: "coolify", label: "Coolify / containers da frota" },
-        { id: "pocketbase", label: "Só o que o PocketBase/template já tem" },
-      ],
       allowCustom: true,
-      multi: true,
-    },
-    {
-      id: "must_have",
-      prompt: "O que precisa existir no first ship?",
+    });
+  }
+
+  if (/\b(log|observab|otel|trace|metric|alerta)\b/i.test(obj) || /logcheck/i.test(input.projectName)) {
+    qs.push({
+      id: "obs_depth",
+      prompt: "Observability nesta rodada — o que entra?",
       options: [
         { id: "list_filter", label: "Lista + filtro de eventos" },
-        { id: "detail", label: "Detalhe de um evento / trace" },
-        { id: "alerts", label: "Alertas / severidade" },
-        { id: "auth_rbac", label: "Auth + papéis (RBAC)" },
-        { id: "export", label: "Export / compartilhar" },
+        { id: "detail", label: "Detalhe de evento / trace" },
+        { id: "alerts", label: "Severidade / alertas" },
+        { id: "synthetic", label: "Dados sintéticos bastam" },
+        { id: "real_pipe", label: "Ligar pipe real (OTel/Coolify)" },
       ],
       multi: true,
       allowCustom: true,
-    },
-    {
-      id: "rbac",
-      prompt: "Precisa de RBAC agora?",
-      options: [
-        { id: "no", label: "Não — single admin basta" },
-        { id: "roles_read", label: "Sim — papéis só leitura vs escrita" },
-        { id: "roles_full", label: "Sim — editar papéis e permissões na UI" },
-      ],
-    },
-    {
-      id: "assurance",
-      prompt: "Spec Rails Horse nesta fatia?",
-      options: [
-        { id: "seed_map", label: "Sim — seed assurance/ e features iniciais" },
-        { id: "later", label: "Depois — primeiro o happy path no preview" },
-        { id: "full", label: "Já quero proofs (QA/sec/logging rails) no DoD" },
-      ],
-    },
-    {
-      id: "done",
-      prompt: "Quando arquivamos / damos como “esteira validada”?",
-      options: [
-        { id: "preview_demo", label: "Preview demoável em 1 clique" },
-        { id: "eitri_green", label: "PR mergeado com Eitri verde" },
-        { id: "rails_green", label: "STATUS Spec Rails sem gaps P0" },
-      ],
-      multi: true,
-      allowCustom: true,
-    },
-    {
-      id: "out_of_scope",
-      prompt: "Fora de escopo agora?",
-      options: [
-        { id: "billing", label: "Billing / multi-tenant comercial" },
-        { id: "mobile", label: "App mobile" },
-        { id: "realtime", label: "Realtime pesado / streaming contínuo" },
-        { id: "none", label: "Nada óbvio — digito abaixo se precisar" },
-      ],
-      multi: true,
-      allowCustom: true,
-    },
-  ],
-};
+    });
+  }
 
-export function packForProject(name: string): InterviewPack {
-  const n = name.trim().toLowerCase();
-  if (n.includes("logcheck")) return LOGCHECK_PACK;
-  return GENERIC_PACK;
+  if (/\b(ui|tela|p[aá]gina|dashboard|layout|design)\b/i.test(obj)) {
+    qs.push({
+      id: "ui_depth",
+      prompt: "UI nesta rodada — prioridade?",
+      options: [
+        { id: "one_screen", label: "Uma tela hero completa" },
+        { id: "flow", label: "Fluxo de 2–3 telas" },
+        { id: "reuse", label: "Reusar componentes do app" },
+        { id: "litr", label: "Pass Litr / visual gate" },
+      ],
+      multi: true,
+      allowCustom: true,
+    });
+  }
+
+  qs.push({
+    id: "srh",
+    prompt: "Spec Rails Horse nesta rodada?",
+    options: [
+      { id: "seed", label: "Seed/atualizar assurance/ junto com o código" },
+      { id: "after_preview", label: "Primeiro preview; mapa na sequência" },
+      { id: "full_proofs", label: "Já com proofs no DoD" },
+    ],
+  });
+
+  qs.push({
+    id: "micro_steps",
+    prompt: "Liste as micro-etapas (uma por linha) — a esteira ataca nessa ordem.",
+    allowCustom: true,
+  });
+
+  return qs;
 }
 
 export function composeObjectiveSummary(
-  pack: InterviewPack,
+  nextObjective: string,
   answers: Record<string, string | string[]>,
+  questions: InterviewQuestion[],
 ): string {
-  const lines: string[] = [];
-  for (const q of pack.questions) {
+  const lines: string[] = [`Próximo objetivo: ${nextObjective.trim()}`];
+  for (const q of questions) {
     const raw = answers[q.id];
-    if (raw == null || (Array.isArray(raw) && raw.length === 0) || raw === "") continue;
-    const labelOf = (id: string) => q.options?.find((o) => o.id === id)?.label ?? id;
-    const rendered = Array.isArray(raw)
-      ? raw.map(labelOf).join("; ")
-      : q.options?.some((o) => o.id === raw)
-        ? labelOf(raw)
-        : String(raw);
+    if (raw == null || (Array.isArray(raw) && !raw.length) || raw === "") continue;
+    const labelOf = (id: string) => {
+      if (id.startsWith("custom:")) return id.slice(7);
+      return q.options?.find((o) => o.id === id)?.label ?? id;
+    };
+    const rendered = Array.isArray(raw) ? raw.map(labelOf).join("; ") : labelOf(String(raw));
     lines.push(`${q.prompt} → ${rendered}`);
   }
-  return lines.join("\n") || "Objetivo travado sem detalhe.";
+  return lines.join("\n");
 }
 
-/** Prompt seed dropped into Chat after the human locks the objective. */
-export function composeChatBrief(
-  projectName: string,
-  pack: InterviewPack,
-  answers: Record<string, string | string[]>,
-  summary: string,
-): string {
+export function composeChatBrief(input: {
+  projectName: string;
+  nextObjective: string;
+  recap: ProjectRecap;
+  answers: Record<string, string | string[]>;
+  questions: InterviewQuestion[];
+  summary: string;
+}): string {
+  const recapLines: string[] = [];
+  if (input.recap.mission) recapLines.push(`Missão (Huginn): ${input.recap.mission}`);
+  if (input.recap.lastObjectiveSummary) {
+    recapLines.push(`Objetivo anterior:\n${input.recap.lastObjectiveSummary}`);
+  }
+  if (input.recap.recentDone.length) {
+    recapLines.push(`Feito recente:\n${input.recap.recentDone.map((t) => `- ${t}`).join("\n")}`);
+  }
+  if (input.recap.recentRunning.length || input.recap.recentReview.length) {
+    recapLines.push(
+      `Em voo:\n${[...input.recap.recentRunning, ...input.recap.recentReview].map((t) => `- ${t}`).join("\n")}`,
+    );
+  }
+
   return [
-    `# House objective — ${projectName}`,
+    `# House round — ${input.projectName}`,
     "",
-    "O operador travou o objetivo abaixo. Sua tarefa: operar em alto nível.",
-    "Use Spec Rails Horse como guia (assurance/, features, rails, proofs).",
-    "Cuide de UI/UX, QA, sec e libs em cada fase — sem pedir prompts genéricos.",
-    "Só volte ao humano se faltar uma decisão de produto (não de implementação).",
+    "O operador definiu a próxima rodada deste projeto (não um template genérico).",
+    "Leia o recap, ataque as micro-etapas, documente (assurance/ Spec Rails quando couber).",
+    "Só volte ao humano se faltar decisão de produto.",
     "",
-    "## Resumo",
-    summary,
+    "## Recap do projeto",
+    recapLines.length ? recapLines.join("\n\n") : "(Sem sinal recente — rodada começa do objetivo.)",
     "",
-    "## Respostas da entrevista",
-    composeObjectiveSummary(pack, answers),
+    "## Esta rodada",
+    input.summary,
     "",
-    "## Próximos passos esperados",
-    "1. Confirmar se o projeto está Pronto pra fatiar OU se ainda falta um doc/norte (já deveria estar ok).",
-    "2. Se pronto: propor fases (features) e começar Plan → Forge na primeira fatia.",
-    "3. Seed/atualizar assurance/ conforme a escolha de Spec Rails na entrevista.",
-    "4. Manter Preview vivo para validação contínua.",
+    "## Como operar",
+    "1. Quebrar micro-etapas em Plan → Forge (ou documentar se a rodada for só mapa).",
+    "2. Manter Preview vivo para validar.",
+    "3. Atualizar assurance/ conforme a escolha Spec Rails.",
+    "4. Não pedir prompt genérico — usar este brief.",
   ].join("\n");
 }
 
