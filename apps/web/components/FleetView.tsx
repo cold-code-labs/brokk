@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Flame, FolderGit2, MessageSquare, Pin } from "lucide-react";
+import { Columns3, Eye, Flame, FolderGit2, MessageSquare, Pin } from "lucide-react";
 import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
 import { STATUS_COLOR } from "../lib/theme";
 import { discovery, type BriefStatus } from "../lib/chat";
@@ -69,6 +69,50 @@ export type DockSession = {
   turnState: "idle" | "running";
 };
 
+function IconBtn({
+  label,
+  onClick,
+  href,
+  busy,
+  children,
+}: {
+  label: string;
+  onClick?: (e: React.MouseEvent) => void;
+  href?: string;
+  busy?: boolean;
+  children: React.ReactNode;
+}) {
+  const cls = `house-ico${busy ? " is-busy" : ""}`;
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className={cls}
+        title={label}
+        aria-label={label}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={cls}
+      title={label}
+      aria-label={label}
+      disabled={busy}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.(e);
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 function ProjectRow({
   project,
   repo,
@@ -78,11 +122,11 @@ function ProjectRow({
   attention,
   pinned,
   pinIndex,
-  selected,
+  previewBusy,
   onTogglePin,
   onQueueMissing,
   onOpenChat,
-  onSelect,
+  onOpenPreview,
 }: {
   project: Project;
   repo?: Repository;
@@ -92,11 +136,11 @@ function ProjectRow({
   attention: number;
   pinned: boolean;
   pinIndex: number | null;
-  selected: boolean;
+  previewBusy: boolean;
   onTogglePin: () => void;
   onQueueMissing: (text: string) => void;
   onOpenChat: () => void;
-  onSelect: () => void;
+  onOpenPreview: () => void;
 }) {
   const missing = brief?.missing ?? [];
   const topMissing = missing[0];
@@ -107,18 +151,8 @@ function ProjectRow({
 
   return (
     <div
-      className={`house-row${running > 0 ? " is-running" : ""}${hot ? " is-hot" : ""}${
-        selected ? " is-selected" : ""
-      }`}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
+      className={`house-row${running > 0 ? " is-running" : ""}${hot ? " is-hot" : ""}`}
       role="row"
-      tabIndex={0}
     >
       <div className="house-cell house-cell-pin">
         <button
@@ -126,10 +160,7 @@ function ProjectRow({
           className={`fleet-pin-btn${pinned ? " is-on" : ""}`}
           aria-label={pinned ? "Unpin" : "Pin"}
           title={pinned ? (pinIndex != null ? `Pinned · key ${pinIndex}` : "Unpin") : "Pin"}
-          onClick={(e) => {
-            e.stopPropagation();
-            onTogglePin();
-          }}
+          onClick={onTogglePin}
         >
           <Pin size={14} strokeWidth={pinned ? 2.25 : 1.75} />
           {pinIndex != null ? <span className="house-pin-idx">{pinIndex}</span> : null}
@@ -137,11 +168,7 @@ function ProjectRow({
       </div>
 
       <div className="house-cell house-cell-name">
-        <Link
-          href={`/projects/${project.id}`}
-          className="house-name"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <Link href={`/projects/${project.id}`} className="house-name">
           {project.name}
         </Link>
         <span className="house-repo" title={repo?.fullName}>
@@ -187,11 +214,8 @@ function ProjectRow({
           <button
             type="button"
             className="house-gap"
-            title="Queue this gap"
-            onClick={(e) => {
-              e.stopPropagation();
-              onQueueMissing(topMissing);
-            }}
+            title="Queue this gap to the forge"
+            onClick={() => onQueueMissing(topMissing)}
           >
             <span className="house-gap-mark">+</span>
             <span className="house-gap-text">{topMissing}</span>
@@ -207,24 +231,15 @@ function ProjectRow({
       </div>
 
       <div className="house-cell house-cell-cta">
-        <button
-          type="button"
-          className="fleet-cta"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenChat();
-          }}
-        >
-          <MessageSquare size={13} strokeWidth={2} aria-hidden />
-          Chat
-        </button>
-        <Link
-          href={`/projects/${project.id}`}
-          className="fleet-cta"
-          onClick={(e) => e.stopPropagation()}
-        >
-          Board
-        </Link>
+        <IconBtn label="Chat" onClick={onOpenChat}>
+          <MessageSquare size={15} strokeWidth={1.75} />
+        </IconBtn>
+        <IconBtn label="Board" href={`/projects/${project.id}`}>
+          <Columns3 size={15} strokeWidth={1.75} />
+        </IconBtn>
+        <IconBtn label="Preview" onClick={onOpenPreview} busy={previewBusy}>
+          <Eye size={15} strokeWidth={1.75} />
+        </IconBtn>
       </div>
     </div>
   );
@@ -243,16 +258,12 @@ export interface FleetViewProps {
   queue: Task[];
   counts: { running: number; queued: number; review: number; seats: number };
   err: string | null;
-  pid: string;
-  title: string;
-  busy: boolean;
-  onPid: (v: string) => void;
-  onTitle: (v: string) => void;
-  onSubmit: (e: React.FormEvent) => void;
+  previewBusyId: string | null;
   onQueueMissing: (projectId: string, missing: string) => void;
+  onOpenPreview: (projectId: string) => void;
 }
 
-/** House — full-bleed project list. Data via props (Litr harness can mirror markup). */
+/** House — full-bleed project list. Header + list + footer dock. */
 export default function FleetView(p: FleetViewProps) {
   const running = p.counts.running;
   const router = useRouter();
@@ -290,9 +301,7 @@ export default function FleetView(p: FleetViewProps) {
                   <button
                     key={proj.id}
                     type="button"
-                    className={`fleet-pin-chip${run > 0 ? " is-running" : ""}${
-                      p.pid === proj.id ? " is-active" : ""
-                    }`}
+                    className={`fleet-pin-chip${run > 0 ? " is-running" : ""}`}
                     onClick={() => openAnvilChat(proj.id)}
                     title={`${proj.name} · ${i + 1}`}
                   >
@@ -313,28 +322,6 @@ export default function FleetView(p: FleetViewProps) {
       </header>
 
       {p.err && <Banner tone="err">⚠ {p.err}</Banner>}
-
-      <form onSubmit={p.onSubmit} className="fleet-composer is-hotspot house-composer">
-        <div className="fleet-pick">
-          <select value={p.pid} onChange={(e) => p.onPid(e.target.value)} aria-label="Project">
-            {p.projects.length === 0 && <option value="">no project — connect a repo</option>}
-            {p.projects.map((proj) => (
-              <option key={proj.id} value={proj.id}>
-                {proj.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <input
-          className="fleet-ask"
-          value={p.title}
-          onChange={(e) => p.onTitle(e.target.value)}
-          placeholder="Prompt for the selected anvil — queues a forge card…"
-        />
-        <button type="submit" className="fleet-send" disabled={p.busy || !p.pid || !p.title.trim()}>
-          {p.busy ? "Forging…" : "Queue →"}
-        </button>
-      </form>
 
       <section className="house-list-wrap" aria-label="All projects">
         <div className="house-list-head" role="row">
@@ -382,11 +369,11 @@ export default function FleetView(p: FleetViewProps) {
                   attention={p.attentionOf(proj.id)}
                   pinned={p.pinnedIds.includes(proj.id)}
                   pinIndex={pinRank.get(proj.id) ?? null}
-                  selected={p.pid === proj.id}
+                  previewBusy={p.previewBusyId === proj.id}
                   onTogglePin={() => p.onTogglePin(proj.id)}
                   onQueueMissing={(text) => p.onQueueMissing(proj.id, text)}
                   onOpenChat={() => openAnvilChat(proj.id)}
-                  onSelect={() => p.onPid(proj.id)}
+                  onOpenPreview={() => p.onOpenPreview(proj.id)}
                 />
               );
             })}

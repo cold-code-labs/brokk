@@ -83,15 +83,8 @@ const BAR_EMPTY = `
   </div>
 </header>`;
 
-const COMPOSER = `
-<form class="fleet-composer is-hotspot house-composer">
-  <div class="fleet-pick"><select><option>viken</option></select></div>
-  <input class="fleet-ask" placeholder="Prompt for the selected anvil — queues a forge card…">
-  <button type="button" class="fleet-send" disabled>Queue →</button>
-</form>`;
-
-const LIST_ROW = (name, repo, running, counts, gap, selected) => `
-<div class="house-row${running ? " is-running" : ""} is-hot${selected ? " is-selected" : ""}" role="row">
+const LIST_ROW = (name, repo, running, counts, gap) => `
+<div class="house-row${running ? " is-running" : ""} is-hot" role="row">
   <div class="house-cell house-cell-pin"><button type="button" class="fleet-pin-btn is-on">◆<span class="house-pin-idx">1</span></button></div>
   <div class="house-cell house-cell-name"><a class="house-name">${name}</a><span class="house-repo">${repo}</span></div>
   <div class="house-cell house-cell-state">${
@@ -105,7 +98,11 @@ const LIST_ROW = (name, repo, running, counts, gap, selected) => `
       ? `<button type="button" class="house-gap"><span class="house-gap-mark">+</span><span class="house-gap-text">${gap}</span></button>`
       : '<span class="house-gap-empty">—</span>'
   }</div>
-  <div class="house-cell house-cell-cta"><button type="button" class="fleet-cta">Chat</button><a class="fleet-cta">Board</a></div>
+  <div class="house-cell house-cell-cta">
+    <button type="button" class="house-ico" aria-label="Chat">💬</button>
+    <button type="button" class="house-ico" aria-label="Board">▦</button>
+    <button type="button" class="house-ico" aria-label="Preview">◉</button>
+  </div>
 </div>`;
 
 const COUNTS = (bk, q, pr, gap) => `
@@ -140,7 +137,7 @@ const FOOTER = `
 
 const SAMPLES = {
   populated: `
-    ${BAR(2)}${COMPOSER}
+    ${BAR(2)}
     <section class="house-list-wrap">
       <div class="house-list-head" role="row">
         <span class="house-cell house-cell-pin"></span>
@@ -151,14 +148,14 @@ const SAMPLES = {
         <span class="house-cell house-cell-cta"></span>
       </div>
       <div class="house-list" role="table">
-        ${LIST_ROW("dekaprint", "cold-code-labs/dekaprint · main", 2, COUNTS(4, 3, 1, 2), "Wire Vindi delinquency banner", false)}
-        ${LIST_ROW("viken", "cold-code-labs/viken · main", 0, COUNTS(2, 0, 1, 1), "Unit-level slot interval", true)}
-        ${LIST_ROW("arte-one", "cold-code-labs/arte-one · main", 0, COUNTS(1, 0, 0, 0), null, false)}
+        ${LIST_ROW("dekaprint", "cold-code-labs/dekaprint · main", 2, COUNTS(4, 3, 1, 2), "Wire Vindi delinquency banner")}
+        ${LIST_ROW("viken", "cold-code-labs/viken · main", 0, COUNTS(2, 0, 1, 1), "Unit-level slot interval")}
+        ${LIST_ROW("arte-one", "cold-code-labs/arte-one · main", 0, COUNTS(1, 0, 0, 0), null)}
       </div>
     </section>
     ${FOOTER}`,
   empty: `
-    ${BAR_EMPTY}${COMPOSER}
+    ${BAR_EMPTY}
     <section class="house-list-wrap">${EMPTY_REPOS}</section>
     <footer class="house-footer">
       <div class="house-footer-dock"><span class="house-footer-label">Sessions</span><span class="house-footer-empty">open a chat — it lands here</span></div>

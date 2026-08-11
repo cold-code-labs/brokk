@@ -13,8 +13,7 @@ import { useProject } from "../lib/project-context";
 import "../app/fleet.css";
 import FleetView, { type DockSession, type HouseBrief } from "./FleetView";
 
-/** Brokk home — the House cockpit: pins, attention board, intake, global queue.
- *  Data lives here; FleetView renders it. */
+/** Brokk home — the House cockpit. Data here; FleetView renders the list. */
 export default function Fleet() {
   const [repos, setRepos] = useState<Repository[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -23,47 +22,11 @@ export default function Fleet() {
   const [briefsByProject, setBriefsByProject] = useState<Record<string, HouseBrief>>({});
   const [dockSessions, setDockSessions] = useState<DockSession[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [previewBusyId, setPreviewBusyId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const {
-    currentId,
-    pinnedIds,
-    togglePin,
-    getDraft,
-    setDraft,
-    getLastSession,
-    setCurrentId,
-  } = useProject();
-  const [pid, setPid] = useState("");
-  const [title, setTitle] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  // Sync composer project + draft when anvil / pin changes.
-  useEffect(() => {
-    if (!currentId) return;
-    setPid((prev) => {
-      if (prev === currentId) return prev;
-      return currentId;
-    });
-  }, [currentId]);
-
-  useEffect(() => {
-    if (!pid) return;
-    setTitle(getDraft(pid));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pid]);
-
-  function onPid(id: string) {
-    if (pid && title.trim()) setDraft(pid, title);
-    setPid(id);
-    setCurrentId(id);
-  }
-
-  function onTitle(v: string) {
-    setTitle(v);
-    if (pid) setDraft(pid, v);
-  }
+  const { pinnedIds, togglePin, getLastSession, setCurrentId } = useProject();
 
   async function load() {
     try {
@@ -77,10 +40,6 @@ export default function Fleet() {
       setProjects(p);
       setTasks(ts);
       setSeats(s);
-      if (!pid && p[0]) {
-        const active = currentId && p.some((x) => x.id === currentId) ? currentId : p[0].id;
-        setPid(active);
-      }
     } catch (e) {
       setErr(String(e));
     }
@@ -90,10 +49,8 @@ export default function Fleet() {
     load();
     const i = setInterval(load, 4000);
     return () => clearInterval(i);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Huginn briefs — refresh slower than the task poll (briefs change rarely).
   useEffect(() => {
     if (projects.length === 0) return;
     let alive = true;
@@ -126,7 +83,6 @@ export default function Fleet() {
     };
   }, [projects]);
 
-  // Session dock — last sessions for pinned projects (fall back to recent of each).
   useEffect(() => {
     const ids = pinnedIds.length > 0 ? pinnedIds : projects.slice(0, 6).map((p) => p.id);
     if (ids.length === 0) {
@@ -208,21 +164,39 @@ export default function Fleet() {
     [tasks],
   );
 
-  async function createTask(e: React.FormEvent) {
-    e.preventDefault();
-    if (!pid || !title.trim()) return;
-    setBusy(true);
+  async function queueMissing(projectId: string, missing: string) {
     setErr(null);
+    setCurrentId(projectId);
     try {
-      const task = await brokk.createTask({ projectId: pid, title: title.trim() });
+      const task = await brokk.createTask({ projectId, title: missing.trim() });
       await brokk.enqueueTask(task.id);
-      setTitle("");
-      setDraft(pid, "");
       await load();
     } catch (e) {
       setErr(String(e));
+    }
+  }
+
+  async function openPreview(projectId: string) {
+    setErr(null);
+    setPreviewBusyId(projectId);
+    setCurrentId(projectId);
+    try {
+      const existing = await brokk.listPreviews(projectId);
+      const active = existing.find((x) => x.status === "live" || x.status === "starting");
+      const pv = active ?? (await brokk.createPreview({ projectId }));
+      if (pv.status === "live" && pv.url) {
+        window.open(pv.url, "_blank", "noopener,noreferrer");
+      } else if (pv.subdomain) {
+        window.open(
+          `/preview-gate/${encodeURIComponent(pv.subdomain)}`,
+          "_blank",
+          "noopener,noreferrer",
+        );
+      }
+    } catch (e) {
+      setErr(String(e));
     } finally {
-      setBusy(false);
+      setPreviewBusyId(null);
     }
   }
 
@@ -247,19 +221,9 @@ export default function Fleet() {
         seats: seats.filter((s) => s.status === "active").length,
       }}
       err={err}
-      pid={pid}
-      title={title}
-      busy={busy}
-      onPid={onPid}
-      onTitle={onTitle}
-      onSubmit={createTask}
-      onQueueMissing={(projectId, missing) => {
-        if (pid && title.trim()) setDraft(pid, title);
-        setPid(projectId);
-        setCurrentId(projectId);
-        setTitle(missing);
-        setDraft(projectId, missing);
-      }}
+      previewBusyId={previewBusyId}
+      onQueueMissing={queueMissing}
+      onOpenPreview={openPreview}
     />
   );
 }
