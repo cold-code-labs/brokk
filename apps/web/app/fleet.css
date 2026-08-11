@@ -1029,10 +1029,11 @@ main.forge-room.is-house {
 }
 .house-card {
   display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  min-height: 10.5rem;
-  padding: 0.7rem 0.75rem 0.6rem;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-height: 8.5rem;
+  padding: 0.7rem 0.45rem 0.65rem 0.8rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
@@ -1053,6 +1054,13 @@ main.forge-room.is-house {
 .house-card.is-archived {
   opacity: 0.55;
 }
+.house-card-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
 .house-card-head {
   display: flex;
   align-items: flex-start;
@@ -1067,7 +1075,7 @@ main.forge-room.is-house {
   gap: 0.1rem;
 }
 .house-card-name {
-  font-size: 0.95rem;
+  font-size: 0.98rem;
   font-weight: 700;
   color: var(--fg);
   overflow: hidden;
@@ -1084,50 +1092,6 @@ main.forge-room.is-house {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.house-card-menu {
-  position: relative;
-  flex-shrink: 0;
-}
-.house-menu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: 20;
-  min-width: 12.5rem;
-  padding: 0.3rem;
-  border: 1px solid var(--line);
-  border-radius: 0.45rem;
-  background: var(--panel);
-  box-shadow: 0 8px 24px color-mix(in srgb, #000 28%, transparent);
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-}
-.house-menu button,
-.house-menu a {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  width: 100%;
-  text-align: left;
-  padding: 0.4rem 0.5rem;
-  border: 0;
-  border-radius: 0.3rem;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  font-size: 0.78rem;
-  text-decoration: none;
-  cursor: pointer;
-}
-.house-menu button:hover,
-.house-menu a:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-.house-menu button:disabled {
-  opacity: 0.45;
-  cursor: wait;
-}
 .house-card-status {
   margin: 0;
   flex: 1 1 auto;
@@ -1139,7 +1103,11 @@ main.forge-room.is-house {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.house-card-status.tone-need { color: color-mix(in srgb, #e8a317 90%, var(--fg)); font-weight: 650; }
+.house-card-status.is-spacer {
+  visibility: hidden;
+  -webkit-line-clamp: 1;
+  min-height: 1.1em;
+}
 .house-card-status.tone-run { color: color-mix(in srgb, var(--ember) 85%, var(--fg)); font-weight: 650; }
 .house-card-status.tone-review { color: var(--accent); }
 .house-card-status.tone-gap { color: color-mix(in srgb, var(--ember) 70%, var(--fg)); }
@@ -1151,6 +1119,7 @@ main.forge-room.is-house {
   gap: 0.35rem 0.55rem;
   font-size: 0.72rem;
   color: var(--fg-dim);
+  margin-top: auto;
 }
 .house-card-counts {
   font-variant-numeric: tabular-nums;
@@ -1165,13 +1134,45 @@ main.forge-room.is-house {
   color: var(--fg-dim);
   margin-right: 0.25rem;
 }
-.house-card-cta {
+.house-card-rail {
+  flex: 0 0 auto;
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
   gap: 0.15rem;
-  padding-top: 0.15rem;
-  border-top: 1px solid var(--line-soft);
-  margin-top: auto;
+  padding: 0 0.1rem;
+}
+.house-preview-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+.house-preview-dot span {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--fg-dim) 55%, transparent);
+  background: transparent;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.house-preview-dot.is-live span {
+  border-color: #2fbf6b;
+  background: #2fbf6b;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #2fbf6b 22%, transparent);
+}
+.house-preview-dot:hover span {
+  border-color: color-mix(in srgb, #2fbf6b 70%, var(--fg-dim));
+}
+.house-preview-dot.is-busy {
+  opacity: 0.45;
+  cursor: wait;
 }
 
 .house-obj {
@@ -1404,10 +1405,15 @@ main.forge-room.is-house {
   }
 }
 .house-footer {
-  display: grid;
-  grid-template-columns: 1fr 1.2fr;
-  gap: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
   flex-shrink: 0;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--fg) 2%, var(--panel));
 }
 .house-footer-dock,
 .house-footer-queue {
@@ -1482,7 +1488,6 @@ main.forge-room.is-house {
 .fleet-dock-title { font-size: 0.76rem; }
 
 @media (max-width: 960px) {
-  .house-footer { grid-template-columns: 1fr; }
   .house-grid {
     grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
   }

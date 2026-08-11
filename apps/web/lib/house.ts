@@ -10,6 +10,18 @@ export const HOUSE_PINS_KEY = "brokk.house.pins";
 export const HOUSE_SESSIONS_KEY = "brokk.house.lastSessionByProject";
 export const HOUSE_DRAFTS_KEY = "brokk.house.drafts";
 
+/** Display label: `arte-one` → `Arte One`. Keeps already-spaced names as-is. */
+export function prettyProjectName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return name;
+  if (/\s/.test(trimmed) && /[A-ZÁÉÍÓÚÂÊÔÃÕÇÀÈÌÒÙ]/.test(trimmed)) return trimmed;
+  return trimmed
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toLocaleUpperCase("pt-BR") + w.slice(1).toLocaleLowerCase("pt-BR"))
+    .join(" ");
+}
+
 /** Quiet threshold: no task activity for this many days → attention bump. */
 const QUIET_DAYS = 3;
 const STALE_REVIEW_DAYS = 2;

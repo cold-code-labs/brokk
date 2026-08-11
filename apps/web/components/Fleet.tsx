@@ -3,14 +3,10 @@
 import type { Project, Repository, Subscription, Task } from "@brokk/sdk";
 import { useEffect, useMemo, useState } from "react";
 import { brokk } from "../lib/api";
-import { chat, discovery, type ChatSessionWithStats, type ProjectBrief } from "../lib/chat";
-import {
-  attentionScore,
-  type BriefSnapshot,
-} from "../lib/house";
+import { discovery, type ProjectBrief } from "../lib/chat";
 import { useProject } from "../lib/project-context";
 import "../app/fleet.css";
-import FleetView, { type DockSession, type HouseBrief } from "./FleetView";
+import FleetView, { type HouseBrief } from "./FleetView";
 
 /** Brokk home — the House cockpit. Data here; FleetView renders the grid. */
 export default function Fleet() {
@@ -19,14 +15,14 @@ export default function Fleet() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [seats, setSeats] = useState<Subscription[]>([]);
   const [briefsByProject, setBriefsByProject] = useState<Record<string, HouseBrief>>({});
-  const [dockSessions, setDockSessions] = useState<DockSession[]>([]);
+  const [previewLiveByProject, setPreviewLiveByProject] = useState<Record<string, boolean>>({});
   const [err, setErr] = useState<string | null>(null);
   const [previewBusyId, setPreviewBusyId] = useState<string | null>(null);
   const [houseBusyId, setHouseBusyId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const { pinnedIds, togglePin, getLastSession, setCurrentId } = useProject();
+  const { setCurrentId } = useProject();
 
   async function load() {
     try {
@@ -84,46 +80,30 @@ export default function Fleet() {
   }, [projects]);
 
   useEffect(() => {
-    const ids = pinnedIds.length > 0 ? pinnedIds : projects.slice(0, 6).map((p) => p.id);
-    if (ids.length === 0) {
-      setDockSessions([]);
-      return;
-    }
+    if (projects.length === 0) return;
     let alive = true;
-    (async () => {
-      const rows: DockSession[] = [];
-      await Promise.all(
-        ids.map(async (projectId) => {
-          const proj = projects.find((p) => p.id === projectId);
-          if (!proj) return;
+    const tick = async () => {
+      const entries = await Promise.all(
+        projects.map(async (proj) => {
           try {
-            const list = await chat.listSessions(projectId);
-            const prefer = getLastSession(projectId);
-            const pick: ChatSessionWithStats | undefined =
-              (prefer ? list.find((s) => s.id === prefer) : undefined) ?? list[0];
-            if (!pick) return;
-            rows.push({
-              sessionId: pick.id,
-              projectId,
-              projectName: proj.name,
-              title: pick.title || "Untitled session",
-              updatedAt: pick.updatedAt,
-              turnState: pick.turnState,
-            });
+            const ps = await brokk.listPreviews(proj.id);
+            const live = ps.some((x) => x.status === "live");
+            return [proj.id, live] as const;
           } catch {
-            /* ignore */
+            return [proj.id, false] as const;
           }
         }),
       );
       if (!alive) return;
-      rows.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
-      setDockSessions(rows);
-    })();
+      setPreviewLiveByProject(Object.fromEntries(entries));
+    };
+    void tick();
+    const i = setInterval(tick, 20_000);
     return () => {
       alive = false;
+      clearInterval(i);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinnedIds, projects, tasks.length]);
+  }, [projects]);
 
   const repoById = useMemo(() => new Map(repos.map((r) => [r.id, r])), [repos]);
   const projectById = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects]);
@@ -137,19 +117,6 @@ export default function Fleet() {
     return m;
   }, [tasks]);
 
-  const scoreOf = useMemo(() => {
-    const scores = new Map<string, number>();
-    for (const proj of projects) {
-      const ts = tasksByProject.get(proj.id) ?? [];
-      const b = briefsByProject[proj.id];
-      const snap: BriefSnapshot | null = b
-        ? { status: b.status, missing: b.missing, running: b.running }
-        : null;
-      scores.set(proj.id, attentionScore(ts, snap, (proj as { houseLifecycle?: import("@brokk/core").HouseLifecycle }).houseLifecycle));
-    }
-    return (id: string) => scores.get(id) ?? 0;
-  }, [projects, tasksByProject, briefsByProject]);
-
   const count = (s: string) => tasks.filter((x) => x.status === s).length;
   const queue = useMemo(
     () =>
@@ -159,18 +126,6 @@ export default function Fleet() {
     [tasks],
   );
 
-  async function queueMissing(projectId: string, missing: string) {
-    setErr(null);
-    setCurrentId(projectId);
-    try {
-      const task = await brokk.createTask({ projectId, title: missing.trim() });
-      await brokk.enqueueTask(task.id);
-      await load();
-    } catch (e) {
-      setErr(String(e));
-    }
-  }
-
   async function openPreview(projectId: string) {
     setErr(null);
     setPreviewBusyId(projectId);
@@ -179,6 +134,9 @@ export default function Fleet() {
       const existing = await brokk.listPreviews(projectId);
       const active = existing.find((x) => x.status === "live" || x.status === "starting");
       const pv = active ?? (await brokk.createPreview({ projectId }));
+      if (pv.status === "live") {
+        setPreviewLiveByProject((prev) => ({ ...prev, [projectId]: true }));
+      }
       if (pv.status === "live" && pv.url) {
         window.open(pv.url, "_blank", "noopener,noreferrer");
       } else if (pv.subdomain) {
@@ -249,10 +207,7 @@ export default function Fleet() {
       projectById={projectById}
       tasksByProject={tasksByProject}
       briefsByProject={briefsByProject}
-      attentionOf={scoreOf}
-      pinnedIds={pinnedIds}
-      onTogglePin={togglePin}
-      dockSessions={dockSessions}
+      previewLiveByProject={previewLiveByProject}
       queue={queue}
       counts={{
         running: count("running"),
@@ -263,7 +218,6 @@ export default function Fleet() {
       err={err}
       previewBusyId={previewBusyId}
       houseBusyId={houseBusyId}
-      onQueueMissing={queueMissing}
       onOpenPreview={openPreview}
       onSaveHouse={saveHouse}
       onArchiveProject={archiveProject}
