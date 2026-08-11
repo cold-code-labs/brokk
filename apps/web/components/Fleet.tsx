@@ -23,6 +23,7 @@ export default function Fleet() {
   const [dockSessions, setDockSessions] = useState<DockSession[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [previewBusyId, setPreviewBusyId] = useState<string | null>(null);
+  const [houseBusyId, setHouseBusyId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -145,7 +146,7 @@ export default function Fleet() {
       const snap: BriefSnapshot | null = b
         ? { status: b.status, missing: b.missing, running: b.running }
         : null;
-      scores.set(proj.id, attentionScore(ts, snap));
+      scores.set(proj.id, attentionScore(ts, snap, (proj as { houseLifecycle?: import("@brokk/core").HouseLifecycle }).houseLifecycle));
     }
     return (id: string) => scores.get(id) ?? 0;
   }, [projects, tasksByProject, briefsByProject]);
@@ -200,6 +201,51 @@ export default function Fleet() {
     }
   }
 
+  async function saveHouse(
+    projectId: string,
+    next: {
+      houseLifecycle: import("@brokk/core").HouseLifecycle;
+      houseObjective: import("@brokk/core").HouseObjective;
+      chatBrief: string;
+    },
+  ) {
+    setHouseBusyId(projectId);
+    setErr(null);
+    try {
+      await brokk.patchProjectHouse(projectId, {
+        houseLifecycle: next.houseLifecycle,
+        houseObjective: next.houseObjective,
+      });
+      try {
+        sessionStorage.setItem(
+          "brokk.house.pendingBrief",
+          JSON.stringify({ projectId, brief: next.chatBrief }),
+        );
+      } catch {
+        /* ignore */
+      }
+      await load();
+    } catch (e) {
+      setErr(String(e));
+      throw e;
+    } finally {
+      setHouseBusyId(null);
+    }
+  }
+
+  async function archiveProject(projectId: string) {
+    setHouseBusyId(projectId);
+    setErr(null);
+    try {
+      await brokk.patchProjectHouse(projectId, { houseLifecycle: "archived" });
+      await load();
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setHouseBusyId(null);
+    }
+  }
+
   if (!mounted) return null;
 
   return (
@@ -222,8 +268,11 @@ export default function Fleet() {
       }}
       err={err}
       previewBusyId={previewBusyId}
+      houseBusyId={houseBusyId}
       onQueueMissing={queueMissing}
       onOpenPreview={openPreview}
+      onSaveHouse={saveHouse}
+      onArchiveProject={archiveProject}
     />
   );
 }

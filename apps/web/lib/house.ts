@@ -51,6 +51,7 @@ function daysSince(iso: string | null | undefined): number | null {
 export function attentionScore(
   tasks: Task[],
   brief: BriefSnapshot | null | undefined,
+  lifecycle?: import("@brokk/core").HouseLifecycle | null,
 ): number {
   let score = 0;
   const running = tasks.filter((t) => t.status === "running").length;
@@ -69,6 +70,11 @@ export function attentionScore(
   if (brief?.status === "ready" && brief.missing.length > 0) {
     score += Math.min(brief.missing.length, 6) * 15;
   }
+
+  // House lifecycle — undocumented / no objective jumps the queue for the human gate.
+  if (lifecycle === "undocumented") score += 80;
+  else if (lifecycle === "prototype") score += 25;
+  else if (lifecycle === "archived") score -= 200;
 
   const last =
     tasks.length === 0

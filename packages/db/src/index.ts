@@ -189,6 +189,8 @@ function rowToProject(row: typeof projects.$inferSelect): Project {
     published: row.published ?? false,
     logtoOrgId: row.logtoOrgId ?? null,
     runtime: row.runtime ?? null,
+    houseLifecycle: (row.houseLifecycle as import("@brokk/core").HouseLifecycle) ?? "undocumented",
+    houseObjective: (row.houseObjective as import("@brokk/core").HouseObjective | null) ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -603,6 +605,14 @@ export interface Store {
   setProjectPublished(
     id: string,
     published: boolean,
+  ): Promise<typeof projects.$inferSelect | null>;
+  /** House cockpit — lifecycle + locked objective interview. */
+  setProjectHouse(
+    id: string,
+    patch: {
+      houseLifecycle?: import("@brokk/core").HouseLifecycle;
+      houseObjective?: import("@brokk/core").HouseObjective | null;
+    },
   ): Promise<typeof projects.$inferSelect | null>;
 
   // tasks
@@ -1201,6 +1211,24 @@ export function createStore(db: Db): Store {
       const rows = await db
         .update(projects)
         .set({ published, updatedAt: new Date() })
+        .where(eq(projects.id, id))
+        .returning();
+      return rows[0] ?? null;
+    },
+    async setProjectHouse(
+      id: string,
+      patch: {
+        houseLifecycle?: import("@brokk/core").HouseLifecycle;
+        houseObjective?: import("@brokk/core").HouseObjective | null;
+      },
+    ) {
+      const rows = await db
+        .update(projects)
+        .set({
+          ...(patch.houseLifecycle !== undefined ? { houseLifecycle: patch.houseLifecycle } : {}),
+          ...(patch.houseObjective !== undefined ? { houseObjective: patch.houseObjective } : {}),
+          updatedAt: new Date(),
+        })
         .where(eq(projects.id, id))
         .returning();
       return rows[0] ?? null;
@@ -3352,6 +3380,10 @@ export async function ensureChatSchema(db: Db): Promise<void> {
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS dev_first boolean NOT NULL DEFAULT false;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS heimdall_app_id text;`);
     await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS published boolean NOT NULL DEFAULT false;`);
+    await db.execute(
+      sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS house_lifecycle text NOT NULL DEFAULT 'undocumented';`,
+    );
+    await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS house_objective jsonb;`);
     // Add the 'unsupported' preview status. ADD VALUE can't run inside a txn block,
     // so it's its own statement; IF NOT EXISTS makes it idempotent on reboot.
     await db.execute(sql`ALTER TYPE preview_status ADD VALUE IF NOT EXISTS 'unsupported';`);

@@ -22,6 +22,18 @@ const CreateProjectBody = z.object({
   logtoOrgId: z.string().min(1).nullable().optional(),
 });
 
+const HouseObjectiveSchema = z.object({
+  summary: z.string().min(1).max(2000),
+  answers: z.record(z.union([z.string(), z.array(z.string())])),
+  lockedAt: z.string().min(1),
+  pack: z.string().min(1).max(80),
+});
+
+const HousePatchBody = z.object({
+  houseLifecycle: z.enum(["prototype", "undocumented", "working", "archived"]).optional(),
+  houseObjective: HouseObjectiveSchema.nullable().optional(),
+});
+
 export function projectsRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
@@ -37,6 +49,21 @@ export function projectsRoutes(deps: AppDeps): Hono {
       return c.json({ error: "not found" }, 404);
     }
     return c.json(project);
+  });
+
+  // House cockpit — lock objective / set lifecycle (human gate).
+  r.patch("/:id/house", async (c) => {
+    const id = c.req.param("id");
+    const actor = requestActor(c, deps.runnerSecret);
+    const project = await deps.store.getProject(id);
+    if (!project || !canSeeProject(actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const parsed = HousePatchBody.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
+    const updated = await deps.store.setProjectHouse(id, parsed.data);
+    if (!updated) return c.json({ error: "not found" }, 404);
+    return c.json(updated);
   });
 
   r.post("/", async (c) => {
