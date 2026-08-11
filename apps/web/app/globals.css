@@ -430,6 +430,25 @@ body:has(.sindri) {
   overflow: hidden;
   z-index: 0;
 }
+
+/* Cockpit (House shell) — same edge-to-edge fill as Sindri */
+body:has(.cockpit) {
+  overflow: hidden;
+}
+.ygg-shell.forge-shell--lintel:has(.cockpit) {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+.ygg-shell.forge-shell--lintel:has(.cockpit) > .forge-canvas {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  max-height: calc(100vh - var(--forge-lintel-h));
+  overflow: hidden;
+  z-index: 0;
+}
+
 .sindri {
   display: flex;
   flex-direction: column;

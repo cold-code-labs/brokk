@@ -22,6 +22,14 @@ export function prettyProjectName(name: string): string {
     .join(" ");
 }
 
+/** Hauldr per-tenant sidecars — never House cards (mirror Coolify SIDECAR_RE). */
+const SIDECAR_RE = /^hauldr-(auth|rest|storage|realtime|db)-/i;
+
+export function isSidecarProjectName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return SIDECAR_RE.test(name.trim());
+}
+
 /** House floor columns — client delivery vs CCL platform fleet. */
 export type HouseGroup = "clients" | "internal";
 

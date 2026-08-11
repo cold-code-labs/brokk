@@ -123,6 +123,15 @@ export interface BrokkClient {
       houseObjective?: import("@brokk/core").HouseObjective | null;
     },
   ): Promise<Project>;
+  /** Ensure Brokk projects exist for every product app in Heimdall (no sidecars). */
+  syncFleet(): Promise<{
+    ok: boolean;
+    scanned: number;
+    created: number;
+    linked: number;
+    skipped: number;
+    errors: { slug: string; error: string }[];
+  }>;
   listTasks(projectId?: string): Promise<Task[]>;
   getTask(id: string): Promise<Task>;
   createTask(input: CreateTaskInput): Promise<Task>;
@@ -314,6 +323,16 @@ export function createBrokkClient(opts: BrokkClientOptions): BrokkClient {
       },
     ) {
       return req<Project>("PATCH", `/projects/${encodeURIComponent(id)}/house`, patch);
+    },
+    syncFleet() {
+      return req<{
+        ok: boolean;
+        scanned: number;
+        created: number;
+        linked: number;
+        skipped: number;
+        errors: { slug: string; error: string }[];
+      }>("POST", "/fleet/sync");
     },
     listTasks(projectId) {
       const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";

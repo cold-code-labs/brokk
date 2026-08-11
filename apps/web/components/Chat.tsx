@@ -379,10 +379,11 @@ function SessionRail({
   );
 }
 
-export default function Chat() {
+export default function Chat({ mode = "page" }: { mode?: "page" | "rail" }) {
   // Project selection is GLOBAL now (the sidebar AMBIENTE switcher) — Sindri reads
   // the same context, so the active environment drives which project Sindri works.
   const { projects, currentId: projectId, setLastSession, getLastSession } = useProject();
+  const rail = mode === "rail";
   // Projeto mobile (runtime Expo/Metro): o preview é a app RN-web num viewport
   // de celular — visualização EXCLUSIVA mobile (presets de aparelho, sem drag).
   const mobileOnly = projects.find((p) => p.id === projectId)?.runtime?.id === "expo";
@@ -439,17 +440,24 @@ export default function Chat() {
   }, []);
   // Layout triad: chat-full · split · preview-full (mutually exclusive). The
   // preview stays shut until you ask for it with the window switch — it never
-  // takes half the room on its own.
+  // takes half the room on its own. In cockpit rail mode the stage owns Preview.
   const [previewOpen, setPreviewOpen] = useState(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
+  useEffect(() => {
+    if (rail) {
+      setPreviewOpen(false);
+      setChatCollapsed(false);
+    }
+  }, [rail]);
   // Draggable split ratio (chat fraction) when both panes are open.
   const [split, setSplit] = useState(SPLIT_DEFAULT);
-  const layout: "chat" | "split" | "preview" = !previewOpen
+  const layout: "chat" | "split" | "preview" = rail || !previewOpen
     ? "chat"
     : chatCollapsed
       ? "preview"
       : "split";
   const setLayout = useCallback((mode: "chat" | "split" | "preview") => {
+    if (rail) return;
     if (mode === "chat") {
       setPreviewOpen(false);
       setChatCollapsed(false);
@@ -460,7 +468,7 @@ export default function Chat() {
       setPreviewOpen(true);
       setChatCollapsed(true);
     }
-  }, []);
+  }, [rail]);
   const [dragging, setDragging] = useState(false);
   // Preview viewport (lifted here so the gutter drag can flip it to mobile at the
   // narrow edge); the preview's own toggles also drive it.
@@ -1104,7 +1112,7 @@ export default function Chat() {
   const isWelcome = messages.length === 0 && !running;
 
   return (
-    <main className="sindri">
+    <main className={`sindri${rail ? " is-rail" : ""}`}>
       {error ? (
         <Banner tone="err" onClick={() => setError("")} style={{ cursor: "pointer" }}>
           {error}
@@ -1215,6 +1223,7 @@ export default function Chat() {
                 <PanelLeftOpen size={15} />
               </button>
             ) : null}
+            {!rail ? (
             <div className="sindri-layoutswitch" role="group" aria-label="Layout">
               <button
                 type="button"
@@ -1244,6 +1253,7 @@ export default function Chat() {
                 <PanelRight size={15} />
               </button>
             </div>
+            ) : null}
           </header>
 
           {/* ── chat column ── */}

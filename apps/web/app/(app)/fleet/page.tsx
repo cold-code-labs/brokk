@@ -1,7 +1,6 @@
-import Fleet from "../../../components/Fleet";
+import Cockpit from "../../../components/Cockpit";
 
-/** Brokk home — the Fleet: every connected CCL repo, its queue, the global
- *  queue, and Max seats. Click a project to open its board. */
+/** Brokk home — cockpit: Chat rail + palco House | Preview | Forge. */
 export default function FleetPage() {
-  return <Fleet />;
+  return <Cockpit />;
 }

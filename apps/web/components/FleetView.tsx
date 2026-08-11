@@ -19,6 +19,7 @@ import type { HouseLifecycle, HouseObjective } from "@brokk/core";
 import { STATUS_COLOR } from "../lib/theme";
 import { type BriefStatus } from "../lib/chat";
 import { houseGroup, prettyProjectName } from "../lib/house";
+import { useCockpitOptional } from "../lib/cockpit-context";
 import { useProject } from "../lib/project-context";
 import type { Project, Repository, Task } from "@brokk/sdk";
 import ObjectivePanel from "./ObjectivePanel";
@@ -438,6 +439,7 @@ function ProjectCard({
 
 export interface FleetViewProps {
   projects: Project[];
+  compact?: boolean;
   repoById: Map<string, Repository>;
   projectById: Map<string, Project>;
   tasksByProject: Map<string, Task[]>;
@@ -465,10 +467,15 @@ export default function FleetView(p: FleetViewProps) {
   const running = p.counts.running;
   const router = useRouter();
   const { setCurrentId, getLastSession, pinnedProjects } = useProject();
+  const cockpit = useCockpitOptional();
   const [objectiveId, setObjectiveId] = useState<string | null>(null);
 
   function openAnvilChat(projectId: string) {
     setCurrentId(projectId);
+    if (cockpit) {
+      cockpit.openProjectChat(projectId);
+      return;
+    }
     const sid = getLastSession(projectId);
     router.push(sid ? `/chat?session=${encodeURIComponent(sid)}` : "/chat");
   }
@@ -519,7 +526,11 @@ export default function FleetView(p: FleetViewProps) {
   }
 
   return (
-    <main className={`fleet forge-room is-house${objectiveProject ? " has-obj" : ""}`}>
+    <main
+      className={`fleet forge-room is-house${objectiveProject ? " has-obj" : ""}${
+        p.compact ? " is-compact" : ""
+      }`}
+    >
       <header className="house-bar">
         <div className="house-bar-brand">
           <span className="fleet-eyebrow">Brokk · CCL</span>
