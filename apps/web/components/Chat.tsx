@@ -382,7 +382,7 @@ function SessionRail({
 export default function Chat() {
   // Project selection is GLOBAL now (the sidebar AMBIENTE switcher) — Sindri reads
   // the same context, so the active environment drives which project Sindri works.
-  const { projects, currentId: projectId } = useProject();
+  const { projects, currentId: projectId, setLastSession, getLastSession } = useProject();
   // Projeto mobile (runtime Expo/Metro): o preview é a app RN-web num viewport
   // de celular — visualização EXCLUSIVA mobile (presets de aparelho, sem drag).
   const mobileOnly = projects.find((p) => p.id === projectId)?.runtime?.id === "expo";
@@ -508,11 +508,9 @@ export default function Chat() {
       .catch(() => setSkillOptions([]));
   }, []);
 
-  // On environment change: load the project's sessions into the rail — and stop
-  // there. The room opens with NO chat on the anvil (Claude Code / Cursor shape):
-  // a session becomes active only when you pick one from the rail or start a new
-  // one. Nothing is auto-opened, and an empty project no longer mints a session
-  // just for landing on it.
+  // On environment change: load sessions into the rail. Prefer `?session=`
+  // deep-links (House dock / pin switch); else restore the last session this
+  // browser used on that anvil. No memory → empty anvil until pick/new.
   useEffect(() => {
     if (!projectId) return;
     let active = true;
@@ -522,10 +520,25 @@ export default function Chat() {
       const list = await chat.listSessions(projectId).catch(() => null);
       if (!active) return;
       setSessions(list ?? []);
+      const deep =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("session")
+          : null;
+      const remembered = getLastSession(projectId);
+      const target =
+        deep && list?.some((s) => s.id === deep)
+          ? deep
+          : remembered && list?.some((s) => s.id === remembered)
+            ? remembered
+            : null;
+      if (target) await openSession(target);
     })();
     return () => {
       active = false;
     };
+    // openSession is stable enough for this mount-scoped deep-link; we only re-run
+    // when the project changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   // Restore the persisted split once on mount (client-only; the body isn't
@@ -632,6 +645,7 @@ export default function Chat() {
     setError("");
     setPendingFiles([]);
     liveSeqRef.current = -1;
+    if (projectId) setLastSession(projectId, id);
     const { messages: msgs, running: live } = await chat.getSession(id);
     setMessages(msgs);
     liveSeqRef.current = msgs.length ? msgs[msgs.length - 1]!.seq : -1;

@@ -2,16 +2,31 @@
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Global "current project" — Brokk treats each project as an ENVIRONMENT. One
-// selector (in the sidebar) drives every project-scoped page (Quadro, Sindri…),
-// so you pick the project once and the whole app follows. Persisted to
-// localStorage so the choice survives reloads.
+// selector (Anvil) drives every project-scoped page. House cockpit adds pins,
+// last-session-per-project, and intake drafts (localStorage, CCL staff v1).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { Project } from "@brokk/sdk";
 import { brokk } from "./api";
+import {
+  HOUSE_DRAFTS_KEY,
+  HOUSE_PINS_KEY,
+  HOUSE_SESSIONS_KEY,
+  readJson,
+  writeJson,
+} from "./house";
 
 const KEY = "brokk.currentProjectId";
+const MAX_PINS = 9;
 
 interface ProjectCtx {
   projects: Project[];
@@ -20,6 +35,17 @@ interface ProjectCtx {
   setCurrentId: (id: string) => void;
   loading: boolean;
   refresh: () => void;
+  /** Pinned project ids for the House strip (order = keyboard 1–9). */
+  pinnedIds: string[];
+  togglePin: (id: string) => void;
+  setPinnedIds: (ids: string[]) => void;
+  pinnedProjects: Project[];
+  lastSessionByProject: Record<string, string>;
+  setLastSession: (projectId: string, sessionId: string | null) => void;
+  getLastSession: (projectId: string) => string | null;
+  draftsByProject: Record<string, string>;
+  setDraft: (projectId: string, draft: string) => void;
+  getDraft: (projectId: string) => string;
 }
 
 const Ctx = createContext<ProjectCtx | null>(null);
@@ -39,6 +65,11 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
    * the two first renders agree, so the update is real and lands in the DOM.
    */
   const [currentId, setId] = useState<string>("");
+  const [pinnedIds, setPinnedIdsState] = useState<string[]>([]);
+  const [lastSessionByProject, setLastSessionByProject] = useState<Record<string, string>>({});
+  const [draftsByProject, setDraftsByProject] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     try {
       const stored = localStorage.getItem(KEY);
@@ -46,23 +77,93 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
+    setPinnedIdsState(readJson<string[]>(HOUSE_PINS_KEY, []));
+    setLastSessionByProject(readJson<Record<string, string>>(HOUSE_SESSIONS_KEY, {}));
+    setDraftsByProject(readJson<Record<string, string>>(HOUSE_DRAFTS_KEY, {}));
   }, []);
-  const [loading, setLoading] = useState(true);
 
-  const setCurrentId = (id: string) => {
+  const setCurrentId = useCallback((id: string) => {
     setId(id);
     try {
       localStorage.setItem(KEY, id);
     } catch {
       /* ignore */
     }
-  };
+  }, []);
+
+  const setPinnedIds = useCallback((ids: string[]) => {
+    const next = ids.slice(0, MAX_PINS);
+    setPinnedIdsState(next);
+    writeJson(HOUSE_PINS_KEY, next);
+  }, []);
+
+  const togglePin = useCallback(
+    (id: string) => {
+      setPinnedIdsState((prev) => {
+        const next = prev.includes(id)
+          ? prev.filter((x) => x !== id)
+          : prev.length >= MAX_PINS
+            ? prev
+            : [...prev, id];
+        writeJson(HOUSE_PINS_KEY, next);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const setLastSession = useCallback((projectId: string, sessionId: string | null) => {
+    setLastSessionByProject((prev) => {
+      const next = { ...prev };
+      if (!sessionId) delete next[projectId];
+      else next[projectId] = sessionId;
+      writeJson(HOUSE_SESSIONS_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const getLastSession = useCallback(
+    (projectId: string) => lastSessionByProject[projectId] ?? null,
+    [lastSessionByProject],
+  );
+
+  const setDraft = useCallback((projectId: string, draft: string) => {
+    setDraftsByProject((prev) => {
+      const next = { ...prev };
+      if (!draft.trim()) delete next[projectId];
+      else next[projectId] = draft;
+      writeJson(HOUSE_DRAFTS_KEY, next);
+      return next;
+    });
+  }, []);
+
+  const getDraft = useCallback(
+    (projectId: string) => draftsByProject[projectId] ?? "",
+    [draftsByProject],
+  );
 
   function load() {
     brokk
       .listProjects()
       .then((p) => {
         setProjects(p);
+        const valid = new Set(p.map((x) => x.id));
+        // Drop pins / sessions that no longer exist.
+        setPinnedIdsState((prev) => {
+          const next = prev.filter((id) => valid.has(id));
+          if (next.length !== prev.length) writeJson(HOUSE_PINS_KEY, next);
+          return next;
+        });
+        setLastSessionByProject((prev) => {
+          const next: Record<string, string> = {};
+          for (const [k, v] of Object.entries(prev)) {
+            if (valid.has(k)) next[k] = v;
+          }
+          if (Object.keys(next).length !== Object.keys(prev).length) {
+            writeJson(HOUSE_SESSIONS_KEY, next);
+          }
+          return next;
+        });
         // Keep the current pick if still valid; else fall back to stored, else first.
         setId((cur) => {
           if (cur && p.some((x) => x.id === cur)) return cur;
@@ -93,13 +194,55 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  const current = useMemo(() => projects.find((p) => p.id === currentId) ?? null, [projects, currentId]);
-
-  return (
-    <Ctx.Provider value={{ projects, currentId, current, setCurrentId, loading, refresh: load }}>
-      {children}
-    </Ctx.Provider>
+  const current = useMemo(
+    () => projects.find((p) => p.id === currentId) ?? null,
+    [projects, currentId],
   );
+
+  const pinnedProjects = useMemo(() => {
+    const byId = new Map(projects.map((p) => [p.id, p]));
+    return pinnedIds.map((id) => byId.get(id)).filter((p): p is Project => !!p);
+  }, [projects, pinnedIds]);
+
+  const value = useMemo<ProjectCtx>(
+    () => ({
+      projects,
+      currentId,
+      current,
+      setCurrentId,
+      loading,
+      refresh: load,
+      pinnedIds,
+      togglePin,
+      setPinnedIds,
+      pinnedProjects,
+      lastSessionByProject,
+      setLastSession,
+      getLastSession,
+      draftsByProject,
+      setDraft,
+      getDraft,
+    }),
+    [
+      projects,
+      currentId,
+      current,
+      setCurrentId,
+      loading,
+      pinnedIds,
+      togglePin,
+      setPinnedIds,
+      pinnedProjects,
+      lastSessionByProject,
+      setLastSession,
+      getLastSession,
+      draftsByProject,
+      setDraft,
+      getDraft,
+    ],
+  );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useProject(): ProjectCtx {
