@@ -1101,48 +1101,53 @@ main.forge-room.is-house {
 .house-card {
   position: relative;
   display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 0.35rem;
-  /* Same footprint with or without live preview — internal vs clients look even. */
+  flex-direction: column;
+  gap: 0.45rem;
   min-height: 14rem;
   height: 100%;
-  padding: 0.7rem 0.45rem 0.65rem 0.8rem;
-  border: 1px solid var(--line);
+  padding: 0;
+  border: 1.5px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
-  transition: border-color 0.12s ease, background 0.12s ease;
+  overflow: hidden;
+  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
 }
 .house-card.has-preview {
   min-height: 14rem;
 }
+.house-card.tone-idle {
+  border-color: color-mix(in srgb, #e8a317 70%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #e8a317 18%, transparent);
+}
+.house-card.tone-run {
+  border-color: color-mix(in srgb, #2fbf6b 75%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #2fbf6b 20%, transparent);
+}
+.house-card.tone-fail {
+  border-color: color-mix(in srgb, #d44545 75%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #d44545 18%, transparent);
+}
 .house-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
-  background: color-mix(in srgb, var(--accent) 4%, var(--panel));
+  background: color-mix(in srgb, var(--accent) 3%, var(--panel));
 }
-.house-card.is-running {
-  border-color: color-mix(in srgb, var(--ember) 40%, var(--line));
-  background: color-mix(in srgb, var(--ember) 5%, var(--panel));
+.house-card.tone-run:hover {
+  background: color-mix(in srgb, #2fbf6b 4%, var(--panel));
 }
-.house-card.needs-objective {
-  border-color: color-mix(in srgb, #e8a317 55%, var(--line));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #e8a317 25%, transparent);
+.house-card.tone-fail:hover {
+  background: color-mix(in srgb, #d44545 4%, var(--panel));
 }
 .house-card.is-archived {
   opacity: 0.55;
 }
-.house-card-main {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
 .house-card-head {
   display: flex;
   align-items: flex-start;
-  gap: 0.35rem;
+  justify-content: space-between;
+  gap: 0.45rem;
   min-width: 0;
+  padding: 0.65rem 0.55rem 0.55rem 0.8rem;
+  border-bottom: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--fg) 2.5%, var(--panel));
 }
 .house-card-titles {
   flex: 1 1 auto;
@@ -1152,8 +1157,9 @@ main.forge-room.is-house {
   gap: 0.1rem;
 }
 .house-card-name {
-  font-size: 0.98rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 750;
+  letter-spacing: -0.01em;
   color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1168,6 +1174,20 @@ main.forge-room.is-house {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.house-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  flex-shrink: 0;
+}
+.house-card-menu {
+  position: relative;
+}
+.house-mode-eye {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
 }
 .house-card-status {
   margin: 0;
@@ -1189,10 +1209,10 @@ main.forge-room.is-house {
   position: relative;
   container-type: size;
   flex: 1 1 auto;
-  width: 100%;
+  width: calc(100% - 1.1rem);
+  margin: 0 0.55rem 0.55rem;
   aspect-ratio: 16 / 10;
   min-height: 8.25rem;
-  margin: 0.1rem 0 0.15rem;
   border-radius: 0.4rem;
   border: 1px solid var(--line-soft);
   background: color-mix(in srgb, var(--fg) 4%, var(--panel));
@@ -1206,7 +1226,6 @@ main.forge-room.is-house {
   flex: 1;
   align-self: center;
 }
-/* Desktop viewport scaled to stage width — full hero fits without the old 200%/0.5 crop. */
 .house-card-frame {
   position: absolute;
   top: 0;
@@ -1238,6 +1257,14 @@ main.forge-room.is-house {
 .house-card-stage-hit:hover {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
+.house-card-stats {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.15rem 0.7rem 0.7rem;
+  min-height: 8.25rem;
+}
 .house-card-status.tone-run { color: color-mix(in srgb, var(--ember) 85%, var(--fg)); font-weight: 650; }
 .house-card-status.tone-review { color: var(--accent); }
 .house-card-status.tone-gap { color: color-mix(in srgb, var(--ember) 70%, var(--fg)); }
@@ -1249,7 +1276,10 @@ main.forge-room.is-house {
   gap: 0.35rem 0.55rem;
   font-size: 0.72rem;
   color: var(--fg-dim);
-  margin-top: auto;
+}
+.fleet-card-state.fail {
+  color: #d44545;
+  font-weight: 700;
 }
 .house-card-counts {
   font-variant-numeric: tabular-nums;
@@ -1264,22 +1294,18 @@ main.forge-room.is-house {
   color: var(--fg-dim);
   margin-right: 0.25rem;
 }
-.house-card-rail {
-  flex: 0 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 0.15rem;
-  padding: 0 0.1rem;
+.house-card-gaps {
+  margin: 0;
+  padding-left: 1.05rem;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  color: var(--fg-soft);
 }
-.house-preview-btn {
-  position: relative;
-}
+.house-card-gaps li + li { margin-top: 0.2rem; }
 .house-preview-live {
   position: absolute;
-  top: 0.15rem;
-  right: 0.15rem;
+  top: -0.05rem;
+  right: -0.1rem;
   width: 0.42rem;
   height: 0.42rem;
   border-radius: 50%;
@@ -1289,16 +1315,10 @@ main.forge-room.is-house {
     0 0 0 3px color-mix(in srgb, #2fbf6b 28%, transparent);
   pointer-events: none;
 }
-.house-card-corner {
+.house-menu {
   position: absolute;
-  right: 0.35rem;
-  bottom: 0.3rem;
-  z-index: 5;
-}
-.house-card-corner .house-menu {
-  position: absolute;
+  top: calc(100% + 0.25rem);
   right: 0;
-  bottom: calc(100% + 0.25rem);
   z-index: 20;
   min-width: 11.5rem;
   padding: 0.3rem;
@@ -1340,11 +1360,6 @@ main.forge-room.is-house {
 }
 .house-menu button.is-danger:hover {
   background: color-mix(in srgb, #d44545 12%, transparent);
-}
-/* Leave room so the corner menu doesn't collide with meta counts. */
-.house-card.has-preview .house-card-meta,
-.house-card .house-card-meta {
-  padding-right: 2rem;
 }
 
 .house-obj {
