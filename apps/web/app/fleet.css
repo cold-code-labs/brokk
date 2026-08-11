@@ -1028,6 +1028,7 @@ main.forge-room.is-house {
   padding-bottom: 0.35rem;
 }
 .house-card {
+  position: relative;
   display: flex;
   flex-direction: row;
   align-items: stretch;
@@ -1038,6 +1039,9 @@ main.forge-room.is-house {
   border-radius: var(--radius);
   background: var(--panel);
   transition: border-color 0.12s ease, background 0.12s ease;
+}
+.house-card.has-preview {
+  min-height: 11.5rem;
 }
 .house-card:hover {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
@@ -1108,6 +1112,47 @@ main.forge-room.is-house {
   -webkit-line-clamp: 1;
   min-height: 1.1em;
 }
+.house-card-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 5.5rem;
+  margin: 0.1rem 0 0.15rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--line-soft);
+  background: color-mix(in srgb, var(--fg) 4%, var(--panel));
+  overflow: hidden;
+}
+.house-card-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 200%;
+  height: 200%;
+  border: 0;
+  transform: scale(0.5);
+  transform-origin: 0 0;
+  pointer-events: none;
+  background: #fff;
+}
+.house-card-stage-ph {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 5.5rem;
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+}
+.house-card-stage-hit {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  z-index: 1;
+}
+.house-card-stage-hit:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
 .house-card-status.tone-run { color: color-mix(in srgb, var(--ember) 85%, var(--fg)); font-weight: 650; }
 .house-card-status.tone-review { color: var(--accent); }
 .house-card-status.tone-gap { color: color-mix(in srgb, var(--ember) 70%, var(--fg)); }
@@ -1158,6 +1203,63 @@ main.forge-room.is-house {
     0 0 0 1.5px var(--panel),
     0 0 0 3px color-mix(in srgb, #2fbf6b 28%, transparent);
   pointer-events: none;
+}
+.house-card-corner {
+  position: absolute;
+  right: 0.35rem;
+  bottom: 0.3rem;
+  z-index: 5;
+}
+.house-card-corner .house-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.25rem);
+  z-index: 20;
+  min-width: 11.5rem;
+  padding: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 0.45rem;
+  background: var(--panel);
+  box-shadow: 0 8px 24px color-mix(in srgb, #000 28%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.house-menu button,
+.house-menu a {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.78rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+.house-menu button:hover,
+.house-menu a:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.house-menu button:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+.house-menu button.is-danger {
+  color: color-mix(in srgb, #d44545 85%, var(--fg));
+}
+.house-menu button.is-danger:hover {
+  background: color-mix(in srgb, #d44545 12%, transparent);
+}
+/* Leave room so the corner menu doesn't collide with meta counts. */
+.house-card.has-preview .house-card-meta,
+.house-card .house-card-meta {
+  padding-right: 2rem;
 }
 
 .house-obj {

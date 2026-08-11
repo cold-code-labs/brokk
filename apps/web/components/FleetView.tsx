@@ -2,8 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
-import { Columns3, Eye, Flame, FolderGit2, MessageSquare, Target } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Archive,
+  Columns3,
+  Eye,
+  Flame,
+  FolderGit2,
+  MessageSquare,
+  MoreHorizontal,
+  Target,
+} from "lucide-react";
 import { Button, Banner } from "@cold-code-labs/yggdrasil-react";
 import type { HouseLifecycle, HouseObjective } from "@brokk/core";
 import { STATUS_COLOR } from "../lib/theme";
@@ -41,6 +50,12 @@ export type HouseBrief = {
   mission: string | null;
 };
 
+/** Live preview handle for a House card (subdomain → /preview-gate). */
+export type HousePreviewInfo = {
+  live: boolean;
+  subdomain: string | null;
+};
+
 function statusLine(input: {
   needObj: boolean;
   running: number;
@@ -50,7 +65,6 @@ function statusLine(input: {
   mission: string | null;
   objectiveSummary: string | null;
 }): { tone: "run" | "review" | "gap" | "ok" | "idle"; text: string } | null {
-  // Sem objetivo: a borda do card já basta — sem copy redundante.
   if (input.needObj) return null;
   if (input.running > 0) return { tone: "run", text: `${input.running} forjando agora` };
   if (input.review > 0) return { tone: "review", text: `${input.review} em review` };
@@ -71,6 +85,58 @@ function statusLine(input: {
   return null;
 }
 
+/** Mini LP — mounts iframe only when the card is near the viewport. */
+function CardPreviewStage({
+  subdomain,
+  label,
+  onOpen,
+}: {
+  subdomain: string;
+  label: string;
+  onOpen: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [mount, setMount] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) setMount(true);
+      },
+      { rootMargin: "120px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  return (
+    <div className="house-card-stage" ref={ref}>
+      {mount ? (
+        <iframe
+          className="house-card-frame"
+          title={`Preview · ${label}`}
+          src={`/preview-gate/${encodeURIComponent(subdomain)}`}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+          tabIndex={-1}
+        />
+      ) : (
+        <span className="house-card-stage-ph">carregando LP…</span>
+      )}
+      <button
+        type="button"
+        className="house-card-stage-hit"
+        onClick={onOpen}
+        aria-label={`Abrir preview · ${label}`}
+        title="Abrir o preview que está na telinha"
+      />
+    </div>
+  );
+}
+
 function ProjectCard({
   project,
   repo,
@@ -78,10 +144,12 @@ function ProjectCard({
   counts,
   brief,
   previewBusy,
-  previewLive,
+  preview,
+  houseBusy,
   onOpenChat,
   onOpenPreview,
   onOpenObjective,
+  onArchive,
 }: {
   project: Project;
   repo?: Repository;
@@ -89,10 +157,12 @@ function ProjectCard({
   counts: (s: string) => number;
   brief?: HouseBrief;
   previewBusy: boolean;
-  previewLive: boolean;
+  preview: HousePreviewInfo | undefined;
+  houseBusy: boolean;
   onOpenChat: () => void;
   onOpenPreview: () => void;
   onOpenObjective: () => void;
+  onArchive: () => void;
 }) {
   const missing = brief?.missing ?? [];
   const queued = counts("queued");
@@ -102,6 +172,7 @@ function ProjectCard({
   const obj = projectObjective(project);
   const needObj = needsObjective(project);
   const archived = life === "archived";
+  const previewLive = Boolean(preview?.live && preview.subdomain);
   const status = statusLine({
     needObj,
     running,
@@ -115,12 +186,23 @@ function ProjectCard({
   const repoLeaf = repo?.fullName?.split("/").pop() ?? "";
   const showRepo =
     Boolean(repoLeaf) && prettyProjectName(repoLeaf).toLowerCase() !== label.toLowerCase();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuOpen]);
 
   return (
     <article
       className={`house-card${running > 0 ? " is-running" : ""}${needObj ? " needs-objective" : ""}${
         archived ? " is-archived" : ""
-      }`}
+      }${previewLive ? " has-preview" : ""}`}
     >
       <div className="house-card-main">
         <header className="house-card-head">
@@ -147,7 +229,15 @@ function ProjectCard({
           </button>
         ) : null}
 
-        {status ? <p className={`house-card-status tone-${status.tone}`}>{status.text}</p> : (
+        {previewLive && preview?.subdomain ? (
+          <CardPreviewStage
+            subdomain={preview.subdomain}
+            label={label}
+            onOpen={onOpenPreview}
+          />
+        ) : status ? (
+          <p className={`house-card-status tone-${status.tone}`}>{status.text}</p>
+        ) : (
           <p className="house-card-status is-spacer" aria-hidden>
             &nbsp;
           </p>
@@ -191,8 +281,8 @@ function ProjectCard({
         <button
           type="button"
           className={`house-ico house-preview-btn${previewBusy ? " is-busy" : ""}`}
-          title={previewLive ? "Preview · ambiente disponível" : "Preview"}
-          aria-label={previewLive ? "Preview · ambiente disponível" : "Preview"}
+          title={previewLive ? "Abrir preview (já na telinha)" : "Preview"}
+          aria-label={previewLive ? "Abrir preview" : "Preview"}
           disabled={previewBusy}
           onClick={onOpenPreview}
         >
@@ -202,6 +292,75 @@ function ProjectCard({
           ) : null}
         </button>
       </nav>
+
+      <div className="house-card-corner" ref={menuRef}>
+        <button
+          type="button"
+          className="house-ico"
+          aria-label="Mais ações"
+          aria-expanded={menuOpen}
+          title="Mais ações"
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          <MoreHorizontal size={15} strokeWidth={1.75} />
+        </button>
+        {menuOpen ? (
+          <div className="house-menu" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onOpenObjective();
+              }}
+            >
+              <Target size={14} /> Objetivo / rodada
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                onOpenChat();
+              }}
+            >
+              <MessageSquare size={14} /> Chat
+            </button>
+            <Link
+              href={`/projects/${project.id}`}
+              role="menuitem"
+              onClick={() => setMenuOpen(false)}
+            >
+              <Columns3 size={14} /> Board
+            </Link>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={previewBusy}
+              onClick={() => {
+                setMenuOpen(false);
+                onOpenPreview();
+              }}
+            >
+              <Eye size={14} /> Preview
+            </button>
+            {!archived ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="is-danger"
+                disabled={houseBusy}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onArchive();
+                }}
+              >
+                <Archive size={14} /> Arquivar projeto
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </article>
   );
 }
@@ -212,7 +371,7 @@ export interface FleetViewProps {
   projectById: Map<string, Project>;
   tasksByProject: Map<string, Task[]>;
   briefsByProject: Record<string, HouseBrief>;
-  previewLiveByProject: Record<string, boolean>;
+  previewByProject: Record<string, HousePreviewInfo>;
   queue: Task[];
   counts: { running: number; queued: number; review: number; seats: number };
   err: string | null;
@@ -343,10 +502,12 @@ export default function FleetView(p: FleetViewProps) {
                     counts={c}
                     brief={p.briefsByProject[proj.id]}
                     previewBusy={p.previewBusyId === proj.id}
-                    previewLive={Boolean(p.previewLiveByProject[proj.id])}
+                    preview={p.previewByProject[proj.id]}
+                    houseBusy={p.houseBusyId === proj.id}
                     onOpenChat={() => openAnvilChat(proj.id)}
                     onOpenPreview={() => p.onOpenPreview(proj.id)}
                     onOpenObjective={() => setObjectiveId(proj.id)}
+                    onArchive={() => void p.onArchiveProject(proj.id)}
                   />
                 );
               })}

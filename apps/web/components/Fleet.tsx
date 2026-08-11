@@ -15,7 +15,9 @@ export default function Fleet() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [seats, setSeats] = useState<Subscription[]>([]);
   const [briefsByProject, setBriefsByProject] = useState<Record<string, HouseBrief>>({});
-  const [previewLiveByProject, setPreviewLiveByProject] = useState<Record<string, boolean>>({});
+  const [previewByProject, setPreviewByProject] = useState<
+    Record<string, import("./FleetView").HousePreviewInfo>
+  >({});
   const [err, setErr] = useState<string | null>(null);
   const [previewBusyId, setPreviewBusyId] = useState<string | null>(null);
   const [houseBusyId, setHouseBusyId] = useState<string | null>(null);
@@ -87,15 +89,21 @@ export default function Fleet() {
         projects.map(async (proj) => {
           try {
             const ps = await brokk.listPreviews(proj.id);
-            const live = ps.some((x) => x.status === "live");
-            return [proj.id, live] as const;
+            const live = ps.find((x) => x.status === "live") ?? null;
+            return [
+              proj.id,
+              {
+                live: Boolean(live),
+                subdomain: live?.subdomain ?? null,
+              },
+            ] as const;
           } catch {
-            return [proj.id, false] as const;
+            return [proj.id, { live: false, subdomain: null }] as const;
           }
         }),
       );
       if (!alive) return;
-      setPreviewLiveByProject(Object.fromEntries(entries));
+      setPreviewByProject(Object.fromEntries(entries));
     };
     void tick();
     const i = setInterval(tick, 20_000);
@@ -134,12 +142,15 @@ export default function Fleet() {
       const existing = await brokk.listPreviews(projectId);
       const active = existing.find((x) => x.status === "live" || x.status === "starting");
       const pv = active ?? (await brokk.createPreview({ projectId }));
-      if (pv.status === "live") {
-        setPreviewLiveByProject((prev) => ({ ...prev, [projectId]: true }));
-      }
-      if (pv.status === "live" && pv.url) {
-        window.open(pv.url, "_blank", "noopener,noreferrer");
-      } else if (pv.subdomain) {
+      if (pv.subdomain) {
+        setPreviewByProject((prev) => ({
+          ...prev,
+          [projectId]: {
+            live: pv.status === "live",
+            subdomain: pv.subdomain,
+          },
+        }));
+        // Always via preview-gate (Logto → mint key) — never raw preview.url.
         window.open(
           `/preview-gate/${encodeURIComponent(pv.subdomain)}`,
           "_blank",
@@ -207,7 +218,7 @@ export default function Fleet() {
       projectById={projectById}
       tasksByProject={tasksByProject}
       briefsByProject={briefsByProject}
-      previewLiveByProject={previewLiveByProject}
+      previewByProject={previewByProject}
       queue={queue}
       counts={{
         running: count("running"),
