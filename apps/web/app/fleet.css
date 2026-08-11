@@ -1002,8 +1002,9 @@ main.forge-room.is-house {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  flex-direction: column;
   gap: 0.75rem;
-  align-items: stretch;
+  overflow: auto;
 }
 .house-groups {
   flex: 1 1 auto;
@@ -1829,7 +1830,7 @@ main.forge-room.is-house {
   overflow: hidden;
 }
 .cockpit-chat {
-  flex: 0 0 min(26rem, 42vw);
+  flex: 0 0 min(25rem, 40vw);
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1986,5 +1987,411 @@ main.forge-room.is-house {
     border-bottom: 1px solid color-mix(in oklab, var(--fg) 12%, transparent);
   }
 }
+
+/* ── House v2 — mapa operacional (workshop) ──────────────────────────────── */
+.fleet.is-house.is-v2,
+.cockpit:has(.fleet.is-house.is-v2) {
+  --house-bg: #f3f1ec;
+  --house-surface: #faf9f6;
+  --house-surface-raised: #ffffff;
+  --house-ink: #18212b;
+  --house-ink-soft: #35414d;
+  --house-muted: #69737d;
+  --house-line: #dad8d1;
+  --house-line-strong: #c8c5bc;
+  --house-accent: #d95f32;
+  --house-accent-soft: #f3dfd5;
+  --house-success: #3f7657;
+  --house-warning: #ad7a25;
+  --house-danger: #bd493f;
+  --house-shadow-card:
+    0 1px 2px rgba(24, 33, 43, 0.04),
+    0 6px 20px rgba(24, 33, 43, 0.035);
+  --house-shadow-card-hover:
+    0 1px 2px rgba(24, 33, 43, 0.05),
+    0 10px 28px rgba(24, 33, 43, 0.07);
+  font-family: var(--font-house), var(--font-inter), system-ui, sans-serif;
+  color: var(--house-ink);
+}
+:root:not(.light) .fleet.is-house.is-v2,
+:root:not(.light) .cockpit:has(.fleet.is-house.is-v2) {
+  --house-bg: transparent;
+  --house-surface: color-mix(in srgb, var(--panel) 88%, #18212b);
+  --house-surface-raised: color-mix(in srgb, var(--panel) 96%, #fff);
+  --house-ink: var(--fg);
+  --house-ink-soft: var(--fg-soft);
+  --house-muted: var(--fg-dim);
+  --house-line: var(--line);
+  --house-line-strong: color-mix(in srgb, var(--fg) 22%, var(--line));
+}
+.fleet.is-house.is-v2 {
+  background:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--house-ink) 8%, transparent) 1px, transparent 0)
+      0 0 / 22px 22px,
+    var(--house-bg, transparent);
+  background-attachment: local;
+}
+:root.light .fleet.is-house.is-v2 {
+  background-color: var(--house-bg);
+}
+.fleet.is-house.is-v2 .house-bar {
+  border-bottom-color: var(--house-line);
+}
+.fleet.is-house.is-v2 .house-bar-title {
+  font-family: var(--font-house), inherit;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.fleet.is-house.is-v2 .house-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.4rem;
+  min-width: 0;
+  width: 100%;
+}
+.fleet.is-house.is-v2 .house-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+.fleet.is-house.is-v2 .house-section-title {
+  margin: 0;
+  font-family: var(--font-house-mono), var(--font-jetbrains), monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--house-muted);
+}
+.fleet.is-house.is-v2 .house-section.is-attention .house-section-title {
+  color: var(--house-accent);
+}
+.fleet.is-house.is-v2 .house-list-meta {
+  font-family: var(--font-house-mono), monospace;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--house-muted);
+}
+.fleet.is-house.is-v2 .house-group-empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--house-muted);
+}
+.fleet.is-house.is-v2 .house-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+  align-items: stretch;
+  max-width: 78rem;
+}
+.fleet.is-house.is-v2.is-compact .house-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  max-width: none;
+}
+.fleet.is-house.is-v2 .house-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 12px;
+  border: 1px solid var(--house-line);
+  background: var(--house-surface-raised);
+  box-shadow: var(--house-shadow-card);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.fleet.is-house.is-v2 .house-card:hover {
+  border-color: var(--house-line-strong);
+  box-shadow: var(--house-shadow-card-hover);
+}
+.fleet.is-house.is-v2 .house-card.is-selected {
+  border-color: color-mix(in srgb, var(--house-accent) 55%, var(--house-line));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--house-accent) 35%, transparent);
+}
+.fleet.is-house.is-v2 .house-card.op-failed {
+  border-left: 3px solid var(--house-danger);
+}
+.fleet.is-house.is-v2 .house-card.is-archived {
+  opacity: 0.55;
+}
+.fleet.is-house.is-v2 .house-card.tone-idle,
+.fleet.is-house.is-v2 .house-card.tone-run,
+.fleet.is-house.is-v2 .house-card.tone-fail {
+  /* neutralize legacy border tones */
+  border-color: var(--house-line);
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+}
+.fleet.is-house.is-v2 .house-card.op-failed.tone-fail,
+.fleet.is-house.is-v2 .house-card.op-failed {
+  border-left: 3px solid var(--house-danger);
+}
+.fleet.is-house.is-v2 .house-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.7rem 0.75rem 0.35rem;
+  background: transparent;
+}
+.fleet.is-house.is-v2 .house-card-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+.fleet.is-house.is-v2 .house-op {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-house-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--house-muted);
+}
+.fleet.is-house.is-v2 .house-op-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.75;
+}
+.fleet.is-house.is-v2 .house-op-forging { color: var(--house-accent); }
+.fleet.is-house.is-v2 .house-op-forging .house-op-dot {
+  animation: house-v2-pulse 1.2s ease-in-out infinite;
+}
+.fleet.is-house.is-v2 .house-op-review { color: var(--house-warning); }
+.fleet.is-house.is-v2 .house-op-failed { color: var(--house-danger); }
+.fleet.is-house.is-v2 .house-op-objective { color: var(--house-accent); }
+@keyframes house-v2-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+.fleet.is-house.is-v2 .house-card-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.fleet.is-house.is-v2 .house-card-name {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: var(--font-house), inherit;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--house-ink);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fleet.is-house.is-v2 .house-card-name:hover { color: var(--house-accent); }
+.fleet.is-house.is-v2 .house-card-repo {
+  font-size: 0.72rem;
+  color: var(--house-muted);
+}
+.fleet.is-house.is-v2 .house-card-body {
+  flex: 1;
+  min-height: 7.5rem;
+  display: flex;
+  flex-direction: column;
+  padding: 0 0.65rem;
+}
+.fleet.is-house.is-v2 .house-card-gate {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.85rem 0.75rem;
+  border-radius: 10px;
+  background: var(--house-accent-soft);
+  border: 1px dashed color-mix(in srgb, var(--house-accent) 40%, transparent);
+}
+.fleet.is-house.is-v2 .house-card-gate-kicker {
+  font-family: var(--font-house-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--house-accent);
+}
+.fleet.is-house.is-v2 .house-card-gate p {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: var(--house-ink-soft);
+}
+.fleet.is-house.is-v2 .house-card-signals {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--house-ink) 3.5%, transparent);
+}
+.fleet.is-house.is-v2 .house-signal-lead {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--house-ink-soft);
+}
+.fleet.is-house.is-v2 .house-signal-lead.is-fail { color: var(--house-danger); }
+.fleet.is-house.is-v2 .house-signal-list {
+  margin: 0;
+  padding-left: 1rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--house-muted);
+}
+.fleet.is-house.is-v2 .house-signal-list .is-quiet {
+  list-style: none;
+  margin-left: -1rem;
+}
+.fleet.is-house.is-v2 .house-card-stage {
+  position: relative;
+  flex: 1;
+  min-height: 9rem;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #111;
+  container-type: inline-size;
+}
+.fleet.is-house.is-v2 .house-card-frame {
+  position: absolute;
+  inset: 0;
+  width: 1280px;
+  height: 800px;
+  border: 0;
+  transform-origin: 0 0;
+  transform: scale(calc(100cqw / 1280));
+  pointer-events: none;
+}
+.fleet.is-house.is-v2 .house-card-stage-ph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #999;
+  font-size: 0.75rem;
+}
+.fleet.is-house.is-v2 .house-card-stage-hit {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.fleet.is-house.is-v2 .house-card-objective {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.55rem 0.75rem 0.35rem;
+  min-height: 3.1rem;
+}
+.fleet.is-house.is-v2 .house-life {
+  align-self: flex-start;
+  border: 1px solid var(--house-line);
+  background: transparent;
+  color: var(--house-muted);
+  font-family: var(--font-house-mono), monospace;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+}
+.fleet.is-house.is-v2 .house-obj-kicker {
+  display: block;
+  font-family: var(--font-house-mono), monospace;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--house-muted);
+  margin-bottom: 0.15rem;
+}
+.fleet.is-house.is-v2 .house-obj-text {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--house-ink-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.fleet.is-house.is-v2 .house-obj-text.is-muted {
+  color: var(--house-muted);
+  opacity: 0.9;
+}
+.fleet.is-house.is-v2 .house-card-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.25rem;
+  padding: 0.45rem 0.55rem 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--house-line) 85%, transparent);
+  background: color-mix(in srgb, var(--house-surface) 70%, transparent);
+}
+.fleet.is-house.is-v2 .house-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.35rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--house-ink-soft);
+  font-family: var(--font-house), inherit;
+  font-size: 0.78rem;
+  font-weight: 550;
+  cursor: pointer;
+}
+.fleet.is-house.is-v2 .house-act:hover {
+  background: color-mix(in srgb, var(--house-ink) 5%, transparent);
+  color: var(--house-ink);
+}
+.fleet.is-house.is-v2 .house-act:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.fleet.is-house.is-v2 .house-queue-chip {
+  border: 0;
+  background: color-mix(in srgb, var(--house-ink) 4%, transparent);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.fleet.is-house.is-v2 .cockpit-mode.is-on,
+.cockpit .cockpit-mode.is-on {
+  border-bottom: 2px solid var(--house-accent, #d95f32);
+  border-radius: 0.4rem 0.4rem 0 0;
+}
+
+@media (max-width: 1200px) {
+  .fleet.is-house.is-v2 .house-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .fleet.is-house.is-v2 .house-grid,
+  .fleet.is-house.is-v2.is-compact .house-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 
