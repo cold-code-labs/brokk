@@ -251,6 +251,11 @@ body {
   background: color-mix(in srgb, var(--fg) 3.5%, transparent);
   color: var(--fg-soft);
 }
+.forge-anvil-mark {
+  font-size: 0.95rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
 .forge-anvil .forge-ctrl-ico,
 .forge-anvil .forge-ctrl-caret {
   flex-shrink: 0;

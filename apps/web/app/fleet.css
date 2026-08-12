@@ -2211,8 +2211,20 @@ main.forge-room.is-house {
 .fleet.is-house.is-v2 .house-section.is-pending .house-section-title {
   color: var(--house-muted);
 }
-.fleet.is-house.is-v2 .house-card.is-compact-card {
+.fleet.is-house.is-v2 .house-card.is-pending-card {
   min-height: 0;
+}
+.fleet.is-house.is-v2 .house-card.is-pending-card .house-card-head {
+  padding-bottom: 0.15rem;
+}
+.fleet.is-house.is-v2 .house-card.is-pending-card .house-card-gate {
+  margin-bottom: 0.35rem;
+}
+.fleet.is-house.is-v2 .house-card.is-pending-card .house-card-gate p {
+  font-size: 0.78rem;
+}
+.fleet.is-house.is-v2 .house-card.is-attention-card .house-card-gate {
+  display: none;
 }
 .fleet.is-house.is-v2 .house-card-body {
   flex: 1;

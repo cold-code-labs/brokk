@@ -134,6 +134,7 @@ function ProjectCard({
   preview,
   houseBusy,
   selected,
+  variant = "full",
   onSelect,
   onOpenChat,
   onOpenPreview,
@@ -150,6 +151,8 @@ function ProjectCard({
   preview: HousePreviewInfo | undefined;
   houseBusy: boolean;
   selected: boolean;
+  /** `attention` = operational only (no objective gate). `pending` = slim gate. */
+  variant?: "full" | "attention" | "pending";
   onSelect: () => void;
   onOpenChat: () => void;
   onOpenPreview: () => void;
@@ -188,16 +191,21 @@ function ProjectCard({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
 
-  const showPreviewBody = previewLive && !needObj && status !== "failed";
+  const showPreviewBody =
+    variant !== "pending" && previewLive && !needObj && status !== "failed";
   const forgeBlocked = needObj && !archived;
-  const compact = !showPreviewBody;
+  const compact = variant === "pending" || !showPreviewBody;
+  const showGate = variant === "pending" || (needObj && variant !== "attention");
+  const chip: OpStatus = variant === "pending" ? "objective" : status;
 
   return (
     <article
-      className={`house-card op-${status}${archived ? " is-archived" : ""}${
-        previewLive ? " has-preview" : ""
+      className={`house-card op-${chip}${archived ? " is-archived" : ""}${
+        showPreviewBody ? " has-preview" : ""
       }${needObj ? " needs-objective" : ""}${selected ? " is-selected" : ""}${
         compact ? " is-compact-card" : ""
+      }${variant === "pending" ? " is-pending-card" : ""}${
+        variant === "attention" ? " is-attention-card" : ""
       }`}
       onClick={(e) => {
         const t = e.target as HTMLElement;
@@ -207,9 +215,9 @@ function ProjectCard({
     >
       <header className="house-card-head">
         <div className="house-card-status-row">
-          <span className={`house-op house-op-${status}`}>
+          <span className={`house-op house-op-${chip}`}>
             <span className="house-op-dot" aria-hidden />
-            {OP_STATUS_LABEL[status]}
+            {OP_STATUS_LABEL[chip]}
           </span>
           <div className="house-card-menu" ref={menuRef}>
             <button
@@ -264,10 +272,9 @@ function ProjectCard({
         </div>
       </header>
 
-      {needObj ? (
+      {showGate ? (
         <div className="house-card-gate">
-          <span className="house-card-gate-kicker">Objetivo não definido</span>
-          <p>A esteira fica bloqueada até o objetivo humano ser travado.</p>
+          <p>A esteira está bloqueada até o objetivo humano ser travado.</p>
           <button
             type="button"
             className="house-gate-act"
@@ -304,7 +311,7 @@ function ProjectCard({
         </div>
       )}
 
-      {!needObj ? (
+      {variant !== "pending" && !showGate ? (
       <div className="house-card-objective">
         {life !== "undocumented" && life !== "archived" ? (
           <span className={`house-life house-life-${life}`}>{LIFE_LABEL[life]}</span>
@@ -319,6 +326,8 @@ function ProjectCard({
             <span className="house-obj-kicker">Missão</span>
             {objectiveSnippet(brief.mission)}
           </p>
+        ) : needObj && variant === "attention" ? (
+          <p className="house-obj-text is-muted">Objetivo ainda não travado.</p>
         ) : (
           <p className="house-obj-text is-muted">Sem objetivo narrado nesta rodada.</p>
         )}
@@ -576,7 +585,10 @@ export default function FleetView(p: FleetViewProps) {
     [activeProjects, attentionIds, pendingIds],
   );
 
-  function renderCard(proj: Project) {
+  function renderCard(
+    proj: Project,
+    variant: "full" | "attention" | "pending" = "full",
+  ) {
     const ts = p.tasksByProject.get(proj.id) ?? [];
     const c = (s: string) => ts.filter((x) => x.status === s).length;
     return (
@@ -591,6 +603,7 @@ export default function FleetView(p: FleetViewProps) {
         preview={p.previewByProject[proj.id]}
         houseBusy={p.houseBusyId === proj.id}
         selected={currentId === proj.id}
+        variant={variant}
         onSelect={() => openAnvilChat(proj.id)}
         onOpenChat={() => openAnvilChat(proj.id)}
         onOpenPreview={() => openPreviewStage(proj.id)}
@@ -613,15 +626,16 @@ export default function FleetView(p: FleetViewProps) {
       <header className="house-bar">
         <div className="house-bar-brand">
           <h1 className="house-bar-title">House</h1>
-          <span className={`fleet-pulse${running > 0 ? "" : " is-quiet"}`}>
+          <span className={`fleet-pulse${attentionProjects.length > 0 ? "" : " is-quiet"}`}>
             <span className="fleet-ember" />
-            {running > 0
-              ? `${running} forjando · ${p.counts.queued} na fila · ${p.counts.review} review`
-              : attentionProjects.length > 0
-                ? `${attentionProjects.length} precisam de atenção`
-                : pendingObjectiveProjects.length > 0
-                  ? `${pendingObjectiveProjects.length} sem objetivo`
-                  : "oficina quiet"}
+            {`${activeProjects.length} projetos`}
+            {attentionProjects.length > 0
+              ? ` · ${attentionProjects.length} precisam de atenção`
+              : pendingObjectiveProjects.length > 0
+                ? ` · ${pendingObjectiveProjects.length} sem objetivo`
+                : running > 0
+                  ? ` · ${running} forjando`
+                  : ""}
           </span>
         </div>
         <div className="house-bar-actions">
@@ -677,11 +691,11 @@ export default function FleetView(p: FleetViewProps) {
             {attentionProjects.length > 0 ? (
               <Section
                 id="house-attention"
-                title="Precisa de atenção"
+                title="Atenção"
                 count={attentionProjects.length}
                 tone="attention"
               >
-                {attentionProjects.map(renderCard)}
+                {attentionProjects.map((proj) => renderCard(proj, "attention"))}
               </Section>
             ) : null}
 
@@ -692,7 +706,7 @@ export default function FleetView(p: FleetViewProps) {
                 count={pendingObjectiveProjects.length}
                 tone="pending"
               >
-                {pendingObjectiveProjects.map(renderCard)}
+                {pendingObjectiveProjects.map((proj) => renderCard(proj, "pending"))}
               </Section>
             ) : null}
 

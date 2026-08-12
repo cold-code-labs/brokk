@@ -80,14 +80,11 @@ describe("house op status", () => {
       needsAttention({ needObjective: false, running: 1, review: 0, briefFailed: false }),
       true,
     );
-    assert.equal(
-      needsObjectiveSection({
-        needObjective: true,
-        running: 1,
-        review: 0,
-        briefFailed: false,
-      }),
-      false,
-    );
+  });
+
+  it("a hot project never also lands in objective-pending", () => {
+    const hot = { needObjective: true, running: 0, review: 2, briefFailed: false };
+    assert.equal(needsAttention(hot), true);
+    assert.equal(needsObjectiveSection(hot), false);
   });
 });
