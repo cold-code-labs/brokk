@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { requestActor, canSeeProject, listScope, resolveLogtoOrgId } from "../actor.js";
 import type { AppDeps } from "../app.js";
+import { isSidecarProjectName } from "../fleet-product.js";
 
 const CreateProjectBody = z.object({
   name: z.string().min(1).max(120),
@@ -39,7 +40,9 @@ export function projectsRoutes(deps: AppDeps): Hono {
 
   r.get("/", async (c) => {
     const actor = requestActor(c, deps.runnerSecret);
-    return c.json(await deps.store.listProjects(listScope(actor)));
+    const all = await deps.store.listProjects(listScope(actor));
+    // House / anvil never see Hauldr sidecars or the data-plane product itself.
+    return c.json(all.filter((p) => !isSidecarProjectName(p.name)));
   });
 
   r.get("/:id", async (c) => {

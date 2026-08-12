@@ -20,6 +20,8 @@ type CockpitContextValue = {
   /** Select project and open the left chat rail (stay on House). */
   openProjectChat: (projectId: string) => void;
   closeChat: () => void;
+  /** True after the operator explicitly picks a project this session. */
+  hasPicked: boolean;
 };
 
 const CockpitContext = createContext<CockpitContextValue | null>(null);
@@ -28,10 +30,12 @@ export function CockpitProvider({ children }: { children: ReactNode }) {
   const { setCurrentId } = useProject();
   const [chatOpen, setChatOpen] = useState(false);
   const [stageMode, setStageMode] = useState<StageMode>("house");
+  const [hasPicked, setHasPicked] = useState(false);
 
   const openProjectChat = useCallback(
     (projectId: string) => {
       setCurrentId(projectId);
+      setHasPicked(true);
       setChatOpen(true);
     },
     [setCurrentId],
@@ -39,16 +43,22 @@ export function CockpitProvider({ children }: { children: ReactNode }) {
 
   const closeChat = useCallback(() => setChatOpen(false), []);
 
+  const setChatOpenSafe = useCallback((open: boolean) => {
+    if (open && !hasPicked) return;
+    setChatOpen(open);
+  }, [hasPicked]);
+
   const value = useMemo(
     () => ({
       chatOpen,
-      setChatOpen,
+      setChatOpen: setChatOpenSafe,
       stageMode,
       setStageMode,
       openProjectChat,
       closeChat,
+      hasPicked,
     }),
-    [chatOpen, stageMode, openProjectChat, closeChat],
+    [chatOpen, setChatOpenSafe, stageMode, openProjectChat, closeChat, hasPicked],
   );
 
   return <CockpitContext.Provider value={value}>{children}</CockpitContext.Provider>;

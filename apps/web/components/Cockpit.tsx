@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { Columns3, Eye, LayoutGrid, MessageSquare, X } from "lucide-react";
+import { Columns3, Eye, LayoutGrid, X } from "lucide-react";
 import { useCockpit, type StageMode } from "../lib/cockpit-context";
+import { prettyProjectName } from "../lib/house";
 import { useProject } from "../lib/project-context";
 import { brokk } from "../lib/api";
 import Fleet from "./Fleet";
@@ -11,60 +12,41 @@ import Chat from "./Chat";
 
 const Board = dynamic(() => import("./Board"), { ssr: false });
 
-const MODES: { id: StageMode; label: string; icon: typeof LayoutGrid }[] = [
-  { id: "house", label: "House", icon: LayoutGrid },
-  { id: "preview", label: "Preview", icon: Eye },
-  { id: "forge", label: "Forge", icon: Columns3 },
+const MODES: { id: StageMode; label: string }[] = [
+  { id: "house", label: "House" },
+  { id: "preview", label: "Preview" },
+  { id: "forge", label: "Forge" },
 ];
 
 function StageToolbar() {
-  const { stageMode, setStageMode, chatOpen, setChatOpen, closeChat } = useCockpit();
+  const { stageMode, setStageMode, hasPicked } = useCockpit();
   const { currentId, projects } = useProject();
-  const current = projects.find((p) => p.id === currentId);
+  const current = hasPicked ? projects.find((p) => p.id === currentId) : null;
 
   return (
-    <div className="cockpit-stage-bar" role="toolbar" aria-label="Modo do palco">
-      <div className="cockpit-stage-modes">
+    <div className="cockpit-stage-bar" role="toolbar" aria-label="Instrumentos do palco">
+      <div className="cockpit-stage-modes" role="tablist">
         {MODES.map((m) => {
-          const Icon = m.icon;
           const on = stageMode === m.id;
+          const locked = m.id !== "house" && !current;
           return (
             <button
               key={m.id}
               type="button"
+              role="tab"
               className={`cockpit-mode${on ? " is-on" : ""}`}
-              aria-pressed={on}
+              aria-selected={on}
+              disabled={locked}
+              title={locked ? "Selecione um projeto" : m.label}
               onClick={() => setStageMode(m.id)}
             >
-              <Icon size={14} strokeWidth={1.75} aria-hidden />
+              {m.id === "house" ? <LayoutGrid size={13} strokeWidth={1.75} aria-hidden /> : null}
+              {m.id === "preview" ? <Eye size={13} strokeWidth={1.75} aria-hidden /> : null}
+              {m.id === "forge" ? <Columns3 size={13} strokeWidth={1.75} aria-hidden /> : null}
               <span>{m.label}</span>
             </button>
           );
         })}
-      </div>
-      <div className="cockpit-stage-actions">
-        {current ? (
-          <span className="cockpit-stage-project" title={current.name}>
-            {current.name}
-          </span>
-        ) : null}
-        <button
-          type="button"
-          className={`cockpit-mode${chatOpen ? " is-on" : ""}`}
-          aria-pressed={chatOpen}
-          title={
-            chatOpen
-              ? "Fechar chat"
-              : current
-                ? "Abrir chat"
-                : "Selecione um projeto na House"
-          }
-          disabled={!chatOpen && !current}
-          onClick={() => (chatOpen ? closeChat() : setChatOpen(true))}
-        >
-          <MessageSquare size={14} strokeWidth={1.75} aria-hidden />
-          <span>Chat</span>
-        </button>
       </div>
     </div>
   );
@@ -72,18 +54,19 @@ function StageToolbar() {
 
 function PreviewStage() {
   const { currentId, projects } = useProject();
-  const project = projects.find((p) => p.id === currentId);
+  const { hasPicked } = useCockpit();
+  const project = hasPicked ? projects.find((p) => p.id === currentId) : null;
   const [sub, setSub] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentId) {
+    if (!project) {
       setSub(null);
       return;
     }
     let alive = true;
     (async () => {
       try {
-        const ps = await brokk.listPreviews(currentId);
+        const ps = await brokk.listPreviews(project.id);
         const live = ps.find((x) => x.status === "live");
         if (alive) setSub(live?.subdomain ?? null);
       } catch {
@@ -93,7 +76,7 @@ function PreviewStage() {
     return () => {
       alive = false;
     };
-  }, [currentId]);
+  }, [project]);
 
   if (!project) {
     return (
@@ -103,8 +86,7 @@ function PreviewStage() {
   if (!sub) {
     return (
       <div className="cockpit-empty">
-        Sem preview ao vivo para <strong>{project.name}</strong>. Abra o Preview pelo card
-        ou espere o status live.
+        Sem preview ao vivo para <strong>{prettyProjectName(project.name)}</strong>.
       </div>
     );
   }
@@ -121,7 +103,8 @@ function PreviewStage() {
 
 function ForgeStage() {
   const { currentId, projects } = useProject();
-  const project = projects.find((p) => p.id === currentId);
+  const { hasPicked } = useCockpit();
+  const project = hasPicked ? projects.find((p) => p.id === currentId) : null;
   if (!project || !currentId) {
     return (
       <div className="cockpit-empty">Selecione um projeto na House para abrir o Forge.</div>
@@ -135,14 +118,20 @@ function ForgeStage() {
 }
 
 function CockpitInner() {
-  const { chatOpen, closeChat, stageMode } = useCockpit();
+  const { chatOpen, closeChat, stageMode, hasPicked } = useCockpit();
+  const { currentId, projects } = useProject();
+  const current = hasPicked ? projects.find((p) => p.id === currentId) : null;
+  const showChat = chatOpen && Boolean(current);
 
   return (
-    <div className={`cockpit${chatOpen ? " is-chat" : ""}`}>
-      {chatOpen ? (
-        <aside className="cockpit-chat" aria-label="Chat">
+    <div className={`cockpit${showChat ? " is-chat" : ""}`}>
+      {showChat && current ? (
+        <aside className="cockpit-chat" aria-label="Sindri">
           <div className="cockpit-chat-head">
-            <span>Chat</span>
+            <div className="cockpit-chat-who">
+              <span className="cockpit-chat-kicker">Sindri</span>
+              <strong>{prettyProjectName(current.name)}</strong>
+            </div>
             <button
               type="button"
               className="cockpit-chat-close"
@@ -160,7 +149,7 @@ function CockpitInner() {
       <section className="cockpit-stage" aria-label="Palco">
         <StageToolbar />
         <div className="cockpit-stage-body">
-          {stageMode === "house" ? <Fleet compact={chatOpen} /> : null}
+          {stageMode === "house" ? <Fleet compact={showChat} /> : null}
           {stageMode === "preview" ? <PreviewStage /> : null}
           {stageMode === "forge" ? <ForgeStage /> : null}
         </div>
@@ -169,8 +158,7 @@ function CockpitInner() {
   );
 }
 
-/** House cockpit — Chat rail + adaptive stage (House | Preview | Forge).
- *  Provider lives in the app layout so Topbar shares the same state. */
+/** House cockpit — Chat rail + adaptive stage (House | Preview | Forge). */
 export default function Cockpit() {
   return <CockpitInner />;
 }

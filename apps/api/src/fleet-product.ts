@@ -1,14 +1,21 @@
-/** Hide Hauldr sidecars from Brokk House — only real product projects.
- *
- *  Mirrors Heimdall's Coolify `SIDECAR_RE` and agent list filter. Product apps
- *  named `hauldr` / `hauldr-panel` / `hauldr-mcp` stay; per-tenant
- *  `hauldr-auth-<project>` etc. do not. */
+/** Hide Hauldr / infra from Brokk House — only product projects.
+
+ *  Sidecars (`hauldr-auth-*` …) AND the Hauldr product itself (`hauldr`,
+ *  `hauldr-panel`, `hauldr-mcp`) stay out of the House floor. Brokk forges
+ *  client/internal apps, not the data plane. */
 
 const SIDECAR_RE = /^hauldr-(auth|rest|storage|realtime|db)-/i;
+const INFRA_EXACT = new Set(["hauldr", "hauldr-panel", "hauldr-mcp", "hauldr-engine"]);
+
+function key(name: string): string {
+  return name.trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
 
 export function isSidecarProjectName(name: string | null | undefined): boolean {
   if (!name) return false;
-  return SIDECAR_RE.test(name.trim());
+  const k = key(name);
+  if (INFRA_EXACT.has(k)) return true;
+  return SIDECAR_RE.test(k) || SIDECAR_RE.test(name.trim());
 }
 
 export function isProductHeimdallApp(app: {

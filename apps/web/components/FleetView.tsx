@@ -21,6 +21,7 @@ import {
   attentionScore,
   houseGroup,
   needsAttention,
+  needsObjectiveSection,
   OP_STATUS_LABEL,
   opStatus,
   prettyProjectName,
@@ -189,12 +190,15 @@ function ProjectCard({
 
   const showPreviewBody = previewLive && !needObj && status !== "failed";
   const forgeBlocked = needObj && !archived;
+  const compact = !showPreviewBody;
 
   return (
     <article
       className={`house-card op-${status}${archived ? " is-archived" : ""}${
         previewLive ? " has-preview" : ""
-      }${needObj ? " needs-objective" : ""}${selected ? " is-selected" : ""}`}
+      }${needObj ? " needs-objective" : ""}${selected ? " is-selected" : ""}${
+        compact ? " is-compact-card" : ""
+      }`}
       onClick={(e) => {
         const t = e.target as HTMLElement;
         if (t.closest("button, a, [role='menu'], [role='menuitem']")) return;
@@ -260,34 +264,32 @@ function ProjectCard({
         </div>
       </header>
 
-      <div className="house-card-body">
-        {needObj ? (
-          <div className="house-card-gate">
-            <span className="house-card-gate-kicker">Objetivo não definido</span>
-            <p>A esteira fica bloqueada até o objetivo humano ser travado.</p>
-            <Button size="sm" onClick={onOpenObjective} disabled={houseBusy}>
-              Definir objetivo
-            </Button>
-          </div>
-        ) : showPreviewBody && preview?.subdomain ? (
+      {needObj ? (
+        <div className="house-card-gate">
+          <span className="house-card-gate-kicker">Objetivo não definido</span>
+          <p>A esteira fica bloqueada até o objetivo humano ser travado.</p>
+          <button
+            type="button"
+            className="house-gate-act"
+            onClick={onOpenObjective}
+            disabled={houseBusy}
+          >
+            Definir objetivo →
+          </button>
+        </div>
+      ) : showPreviewBody && preview?.subdomain ? (
+        <div className="house-card-body">
           <CardPreviewStage
             subdomain={preview.subdomain}
             label={label}
             onOpen={onOpenPreview}
           />
-        ) : (
-          <div className="house-card-signals">
-            {status === "failed" ? (
-              <p className="house-signal-lead is-fail">Preview / ambiente com falha</p>
-            ) : (
-              <p className="house-signal-lead">
-                {previewBusy
-                  ? "Subindo preview…"
-                  : previewLive
-                    ? "Sinais da esteira"
-                    : "Preview offline"}
-              </p>
-            )}
+        </div>
+      ) : (
+        <div className="house-card-signals">
+          {status === "failed" ? (
+            <p className="house-signal-lead is-fail">Preview / ambiente com falha</p>
+          ) : running > 0 || queued > 0 || review > 0 || missing.length > 0 ? (
             <ul className="house-signal-list">
               {running > 0 ? <li>{running} forjando agora</li> : null}
               {queued > 0 ? <li>{queued} na fila</li> : null}
@@ -297,19 +299,17 @@ function ProjectCard({
                   {missing.length} gap{missing.length === 1 ? "" : "s"} Huginn
                 </li>
               ) : null}
-              {running === 0 && queued === 0 && review === 0 && missing.length === 0 ? (
-                <li className="is-quiet">Sem sinal forte — quiet</li>
-              ) : null}
             </ul>
-          </div>
-        )}
-      </div>
+          ) : null}
+        </div>
+      )}
 
+      {!needObj ? (
       <div className="house-card-objective">
         {life !== "undocumented" && life !== "archived" ? (
           <span className={`house-life house-life-${life}`}>{LIFE_LABEL[life]}</span>
         ) : null}
-        {needObj ? null : obj?.summary ? (
+        {obj?.summary ? (
           <p className="house-obj-text" title={obj.summary}>
             <span className="house-obj-kicker">Objetivo</span>
             {objectiveSnippet(obj.summary)}
@@ -323,6 +323,7 @@ function ProjectCard({
           <p className="house-obj-text is-muted">Sem objetivo narrado nesta rodada.</p>
         )}
       </div>
+      ) : null}
 
       <footer className="house-card-actions">
         <button type="button" className="house-act" onClick={onOpenChat}>
@@ -386,7 +387,7 @@ function Section({
   id: string;
   title: string;
   count: number;
-  tone?: "attention" | "clients" | "internal";
+  tone?: "attention" | "pending" | "clients" | "internal";
   children: ReactNode;
   empty?: string;
 }) {
@@ -523,6 +524,28 @@ export default function FleetView(p: FleetViewProps) {
     [attentionProjects],
   );
 
+  const pendingObjectiveProjects = useMemo(() => {
+    const pending = activeProjects.filter((proj) => {
+      const meta = projectMeta.get(proj.id)!;
+      return needsObjectiveSection({
+        needObjective: meta.needObj,
+        running: meta.running,
+        review: meta.review,
+        briefFailed: meta.briefFailed,
+      });
+    });
+    return pending.sort((a, b) =>
+      prettyProjectName(a.name).localeCompare(prettyProjectName(b.name), "pt-BR", {
+        sensitivity: "base",
+      }),
+    );
+  }, [activeProjects, projectMeta]);
+
+  const pendingIds = useMemo(
+    () => new Set(pendingObjectiveProjects.map((x) => x.id)),
+    [pendingObjectiveProjects],
+  );
+
   const byName = (a: Project, b: Project) =>
     prettyProjectName(a.name).localeCompare(prettyProjectName(b.name), "pt-BR", {
       sensitivity: "base",
@@ -531,16 +554,26 @@ export default function FleetView(p: FleetViewProps) {
   const clientProjects = useMemo(
     () =>
       activeProjects
-        .filter((x) => houseGroup(x.name) === "clients" && !attentionIds.has(x.id))
+        .filter(
+          (x) =>
+            houseGroup(x.name) === "clients" &&
+            !attentionIds.has(x.id) &&
+            !pendingIds.has(x.id),
+        )
         .sort(byName),
-    [activeProjects, attentionIds],
+    [activeProjects, attentionIds, pendingIds],
   );
   const internalProjects = useMemo(
     () =>
       activeProjects
-        .filter((x) => houseGroup(x.name) === "internal" && !attentionIds.has(x.id))
+        .filter(
+          (x) =>
+            houseGroup(x.name) === "internal" &&
+            !attentionIds.has(x.id) &&
+            !pendingIds.has(x.id),
+        )
         .sort(byName),
-    [activeProjects, attentionIds],
+    [activeProjects, attentionIds, pendingIds],
   );
 
   function renderCard(proj: Project) {
@@ -586,7 +619,9 @@ export default function FleetView(p: FleetViewProps) {
               ? `${running} forjando · ${p.counts.queued} na fila · ${p.counts.review} review`
               : attentionProjects.length > 0
                 ? `${attentionProjects.length} precisam de atenção`
-                : "oficina quiet"}
+                : pendingObjectiveProjects.length > 0
+                  ? `${pendingObjectiveProjects.length} sem objetivo`
+                  : "oficina quiet"}
           </span>
         </div>
         <div className="house-bar-actions">
@@ -647,6 +682,17 @@ export default function FleetView(p: FleetViewProps) {
                 tone="attention"
               >
                 {attentionProjects.map(renderCard)}
+              </Section>
+            ) : null}
+
+            {pendingObjectiveProjects.length > 0 ? (
+              <Section
+                id="house-pending-objective"
+                title="Objetivo pendente"
+                count={pendingObjectiveProjects.length}
+                tone="pending"
+              >
+                {pendingObjectiveProjects.map(renderCard)}
               </Section>
             ) : null}
 

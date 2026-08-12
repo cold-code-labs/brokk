@@ -1888,9 +1888,9 @@ main.forge-room.is-house {
 .cockpit-stage-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 0.75rem;
-  padding: 0.4rem 0.75rem;
+  padding: 0.2rem 0.75rem 0;
   border-bottom: 1px solid color-mix(in oklab, var(--fg) 10%, transparent);
   flex-shrink: 0;
 }
@@ -1898,27 +1898,36 @@ main.forge-room.is-house {
 .cockpit-stage-actions {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
+  justify-content: center;
+  gap: 0.15rem;
 }
 .cockpit-mode {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.3rem 0.55rem;
-  border: 1px solid transparent;
-  border-radius: 0.4rem;
+  padding: 0.45rem 0.85rem 0.4rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   background: transparent;
   color: var(--fg-dim, #888);
-  font-size: 0.78rem;
+  font-family: var(--font-house-mono, var(--font-jetbrains), monospace);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   cursor: pointer;
 }
-.cockpit-mode:hover {
-  background: color-mix(in oklab, var(--fg) 6%, transparent);
+.cockpit-mode:hover:not(:disabled) {
   color: var(--fg);
 }
+.cockpit-mode:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
 .cockpit-mode.is-on {
-  background: color-mix(in oklab, var(--fg) 10%, transparent);
-  border-color: color-mix(in oklab, var(--fg) 14%, transparent);
+  background: transparent;
+  border-bottom-color: var(--house-accent, #d95f32);
   color: var(--fg);
 }
 .cockpit-stage-project {
@@ -2199,23 +2208,32 @@ main.forge-room.is-house {
   font-size: 0.72rem;
   color: var(--house-muted);
 }
+.fleet.is-house.is-v2 .house-section.is-pending .house-section-title {
+  color: var(--house-muted);
+}
+.fleet.is-house.is-v2 .house-card.is-compact-card {
+  min-height: 0;
+}
 .fleet.is-house.is-v2 .house-card-body {
   flex: 1;
-  min-height: 7.5rem;
+  min-height: 9rem;
   display: flex;
   flex-direction: column;
   padding: 0 0.65rem;
 }
+.fleet.is-house.is-v2 .house-card.is-compact-card .house-card-body {
+  min-height: 0;
+  flex: 0;
+}
 .fleet.is-house.is-v2 .house-card-gate {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 0.45rem;
-  padding: 0.85rem 0.75rem;
+  gap: 0.35rem;
+  margin: 0 0.65rem 0.15rem;
+  padding: 0.65rem 0.7rem;
   border-radius: 10px;
-  background: var(--house-accent-soft);
-  border: 1px dashed color-mix(in srgb, var(--house-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--house-accent) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--house-accent) 22%, var(--house-line));
 }
 .fleet.is-house.is-v2 .house-card-gate-kicker {
   font-family: var(--font-house-mono), monospace;
@@ -2227,19 +2245,41 @@ main.forge-room.is-house {
 }
 .fleet.is-house.is-v2 .house-card-gate p {
   margin: 0;
-  font-size: 0.84rem;
-  line-height: 1.4;
+  font-size: 0.8rem;
+  line-height: 1.35;
   color: var(--house-ink-soft);
 }
+.fleet.is-house.is-v2 .house-gate-act {
+  align-self: flex-start;
+  margin-top: 0.15rem;
+  padding: 0.28rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--house-ink);
+  font-family: var(--font-house), inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fleet.is-house.is-v2 .house-gate-act:hover {
+  color: var(--house-accent);
+}
+.fleet.is-house.is-v2 .house-gate-act:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
 .fleet.is-house.is-v2 .house-card-signals {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 0.75rem;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--house-ink) 3.5%, transparent);
+  gap: 0.2rem;
+  padding: 0 0.85rem 0.15rem;
+}
+.fleet.is-house.is-v2 .house-card.is-compact-card .house-card-signals:empty {
+  display: none;
+}
+.fleet.is-house.is-v2 .house-card.is-compact-card .house-card-objective {
+  min-height: 0;
+  padding-top: 0.35rem;
 }
 .fleet.is-house.is-v2 .house-signal-lead {
   margin: 0;
@@ -2375,10 +2415,26 @@ main.forge-room.is-house {
   font: inherit;
   text-align: left;
 }
-.fleet.is-house.is-v2 .cockpit-mode.is-on,
-.cockpit .cockpit-mode.is-on {
-  border-bottom: 2px solid var(--house-accent, #d95f32);
-  border-radius: 0.4rem 0.4rem 0 0;
+.cockpit-chat-who {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+.cockpit-chat-kicker {
+  font-family: var(--font-house-mono, monospace);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+.cockpit-chat-who strong {
+  font-size: 0.88rem;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 1200px) {
