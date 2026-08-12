@@ -40,6 +40,10 @@ const Env = z.object({
   // there are scoped to apps this agent created (Heimdall 403s the rest).
   HEIMDALL_AGENT_URL: z.string().default(""),
   HEIMDALL_AGENT_TOKEN: z.string().default(""),
+
+  // Svalinn machine API (ADR 0087). Token stays in this process — not in forge.
+  SVALINN_API_URL: z.string().default("https://svalinn.coldcodelabs.com"),
+  SVALINN_MACHINE_TOKEN: z.string().default(""),
 });
 
 export type Config = z.infer<typeof Env>;

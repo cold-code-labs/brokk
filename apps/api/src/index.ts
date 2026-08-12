@@ -26,6 +26,8 @@ async function main() {
     heimdallAgentToken: cfg.HEIMDALL_AGENT_TOKEN,
     heimdallUrl: cfg.HEIMDALL_AGENT_URL,
     heimdallToken: cfg.HEIMDALL_AGENT_TOKEN,
+    svalinnApiUrl: cfg.SVALINN_API_URL,
+    svalinnMachineToken: cfg.SVALINN_MACHINE_TOKEN,
   });
 
   // Regin still ticks for in-flight missions; new planning is blocked (no Mímir).
