@@ -10,6 +10,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Anvil, ChevronDown } from "lucide-react";
 import { useProject } from "../lib/project-context";
+import { prettyProjectName } from "../lib/house";
 import { useCockpitOptional } from "../lib/cockpit-context";
 import { ComposerMenu } from "./ComposerMenu";
 
@@ -32,7 +33,12 @@ function AnvilMenu() {
   const [active, setActive] = useState(0);
   const btnRef = useRef<HTMLButtonElement>(null);
   const current = projects.find((p) => p.id === currentId);
-  const label = current?.name ?? (projects.length ? "Pick project" : "No project");
+  const picked = cockpit?.hasPicked ?? Boolean(currentId);
+  const label = picked && current
+    ? prettyProjectName(current.name)
+    : projects.length
+      ? "Selecionar projeto"
+      : "Sem projeto";
 
   const ordered = useMemo(() => {
     const pinSet = new Set(pinnedIds);
@@ -191,7 +197,7 @@ export default function Topbar({ user }: { user?: TopbarUserProps }) {
   useHousePinKeys();
 
   return (
-    <header className="forge-lintel" aria-label="Brokk forge lintel">
+    <header className="forge-lintel is-cockpit" aria-label="Brokk forge lintel">
       <div className="forge-lintel-inner">
         <Link href="/fleet" className="forge-brand" aria-label="Brokk">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -199,9 +205,10 @@ export default function Topbar({ user }: { user?: TopbarUserProps }) {
           <span className="forge-brand-word">Brokk</span>
         </Link>
 
-        <div className="forge-lintel-spacer" aria-hidden />
+        <div className="forge-lintel-center">
+          <AnvilMenu />
+        </div>
 
-        <AnvilMenu />
         {user ? <UserMenu user={user} /> : null}
       </div>
     </header>

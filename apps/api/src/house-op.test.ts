@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-// Mirror of apps/web/lib/house.ts op helpers — keep in sync for CI without web deps.
 type OpStatus = "idle" | "forging" | "review" | "failed" | "objective";
 
 function opStatus(input: {
@@ -11,9 +10,9 @@ function opStatus(input: {
   briefFailed: boolean;
 }): OpStatus {
   if (input.briefFailed) return "failed";
-  if (input.needObjective) return "objective";
   if (input.running > 0) return "forging";
   if (input.review > 0) return "review";
+  if (input.needObjective) return "objective";
   return "idle";
 }
 
@@ -25,33 +24,68 @@ function needsAttention(input: {
   briefFailed: boolean;
 }): boolean {
   if (input.archived) return false;
-  const s = opStatus(input);
-  return s === "failed" || s === "objective" || s === "forging" || s === "review";
+  if (input.briefFailed) return true;
+  if (input.running > 0) return true;
+  if (input.review > 0) return true;
+  return false;
+}
+
+function needsObjectiveSection(input: {
+  archived?: boolean;
+  needObjective: boolean;
+  running: number;
+  review: number;
+  briefFailed: boolean;
+}): boolean {
+  if (input.archived) return false;
+  if (needsAttention(input)) return false;
+  return input.needObjective;
 }
 
 describe("house op status", () => {
-  it("prioritizes fail over objective", () => {
+  it("fail / forge / review beat objective", () => {
     assert.equal(
-      opStatus({ needObjective: true, running: 1, review: 1, briefFailed: true }),
+      opStatus({ needObjective: true, running: 0, review: 0, briefFailed: true }),
       "failed",
     );
-  });
-  it("flags attention only for hot states", () => {
     assert.equal(
-      needsAttention({ needObjective: false, running: 0, review: 0, briefFailed: false }),
+      opStatus({ needObjective: true, running: 1, review: 0, briefFailed: false }),
+      "forging",
+    );
+    assert.equal(
+      opStatus({ needObjective: true, running: 0, review: 1, briefFailed: false }),
+      "review",
+    );
+    assert.equal(
+      opStatus({ needObjective: true, running: 0, review: 0, briefFailed: false }),
+      "objective",
+    );
+  });
+
+  it("attention is operational only — not missing objective", () => {
+    assert.equal(
+      needsAttention({ needObjective: true, running: 0, review: 0, briefFailed: false }),
       false,
     );
     assert.equal(
-      needsAttention({ needObjective: true, running: 0, review: 0, briefFailed: false }),
+      needsObjectiveSection({
+        needObjective: true,
+        running: 0,
+        review: 0,
+        briefFailed: false,
+      }),
       true,
     );
     assert.equal(
-      needsAttention({
-        archived: true,
+      needsAttention({ needObjective: false, running: 1, review: 0, briefFailed: false }),
+      true,
+    );
+    assert.equal(
+      needsObjectiveSection({
         needObjective: true,
-        running: 2,
-        review: 1,
-        briefFailed: true,
+        running: 1,
+        review: 0,
+        briefFailed: false,
       }),
       false,
     );

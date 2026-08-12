@@ -104,6 +104,19 @@ body {
   padding: 0 0.85rem;
   box-sizing: border-box;
 }
+.forge-lintel.is-cockpit .forge-lintel-inner {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+.forge-lintel-center {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+.forge-lintel.is-cockpit .forge-user-slot {
+  justify-self: end;
+}
 .forge-brand {
   display: inline-flex;
   align-items: center;

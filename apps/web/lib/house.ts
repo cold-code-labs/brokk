@@ -25,9 +25,33 @@ export function prettyProjectName(name: string): string {
 /** Hauldr per-tenant sidecars — never House cards (mirror Coolify SIDECAR_RE). */
 const SIDECAR_RE = /^hauldr-(auth|rest|storage|realtime|db)-/i;
 
+/** Data-plane / infra product names that are not Brokk House projects.
+ *  `hauldr` itself is the BaaS, not a client/internal app to forge. */
+const INFRA_EXACT = new Set([
+  "hauldr",
+  "hauldr-panel",
+  "hauldr-mcp",
+  "hauldr-engine",
+]);
+
+function normalizeProjectKey(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
+}
+
 export function isSidecarProjectName(name: string | null | undefined): boolean {
   if (!name) return false;
-  return SIDECAR_RE.test(name.trim());
+  const key = normalizeProjectKey(name);
+  if (INFRA_EXACT.has(key)) return true;
+  if (SIDECAR_RE.test(key) || SIDECAR_RE.test(name.trim())) return true;
+  return false;
+}
+
+/** True when this Brokk/Heimdall row is a product the House may show. */
+export function isHouseProductName(name: string | null | undefined): boolean {
+  return !isSidecarProjectName(name);
 }
 
 /** House floor columns — client delivery vs CCL platform fleet. */
@@ -95,9 +119,9 @@ export type OpStatusInput = {
 
 export function opStatus(input: OpStatusInput): OpStatus {
   if (input.briefFailed) return "failed";
-  if (input.needObjective) return "objective";
   if (input.running > 0) return "forging";
   if (input.review > 0) return "review";
+  if (input.needObjective) return "objective";
   return "idle";
 }
 
@@ -106,14 +130,25 @@ export const OP_STATUS_LABEL: Record<OpStatus, string> = {
   forging: "Forjando",
   review: "Review",
   failed: "Falha",
-  objective: "Atenção",
+  objective: "Sem objetivo",
 };
 
-/** Hot projects for the Atenção strip — falha, sem objetivo, forjando, review. */
+/** Hot operational states — falha / forjando / review. NOT “sem objetivo”. */
 export function needsAttention(input: OpStatusInput & { archived?: boolean }): boolean {
   if (input.archived) return false;
-  const s = opStatus(input);
-  return s === "failed" || s === "objective" || s === "forging" || s === "review";
+  if (input.briefFailed) return true;
+  if (input.running > 0) return true;
+  if (input.review > 0) return true;
+  return false;
+}
+
+/** Governance gate — undocumented / no locked objective, and not already hot. */
+export function needsObjectiveSection(
+  input: OpStatusInput & { archived?: boolean },
+): boolean {
+  if (input.archived) return false;
+  if (needsAttention(input)) return false;
+  return input.needObjective;
 }
 
 export function readJson<T>(key: string, fallback: T): T {
