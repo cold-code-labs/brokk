@@ -27,7 +27,7 @@ export interface AppDeps {
   store: Store;
   /** Shared secret guarding the runner endpoints. Empty = runner endpoints 503. */
   runnerSecret: string;
-  /** Bearer secret guarding mutating API calls (POST/PUT/PATCH/DELETE). The web
+  /** Bearer secret guarding API calls when set (GET included). The web
    *  proxy injects it server-side. Empty = open (local/dev). */
   apiSecret: string;
   /** GitHub webhook HMAC secret. Empty = skip signature check (local dev). */
@@ -55,32 +55,66 @@ export interface AppDeps {
   svalinnMachineToken?: string;
 }
 
+const PUBLIC_PROBES = new Set(["/health", "/ping", "/version"]);
+
+/** CORS allowlist: BROKK_WEB_URL + comma-separated BROKK_CORS_ORIGINS. Empty in
+ *  production → no browser cross-origin (BFF same-origin is enough). Dev without
+ *  a list keeps `*` so local tooling still works. */
+function corsOrigin(): string | string[] {
+  const list = [process.env.BROKK_WEB_URL, ...(process.env.BROKK_CORS_ORIGINS ?? "").split(",")]
+    .map((s) => (s ?? "").trim().replace(/\/$/, ""))
+    .filter(Boolean);
+  if (list.length > 0) return list.length === 1 ? list[0]! : list;
+  return process.env.NODE_ENV === "production" ? "" : "*";
+}
+
 /** Assemble the control-plane HTTP app from its dependencies. Pure wiring — no
  *  I/O at construction — so it can be exercised with a fake store. */
 export function buildApp(deps: AppDeps): Hono {
   const app = new Hono();
 
-  app.use("*", cors());
+  app.use(
+    "*",
+    cors({
+      origin: corsOrigin(),
+      allowHeaders: ["Content-Type", "Authorization"],
+      allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    }),
+  );
 
-  // Errors as JSON problem objects.
+  // Errors as JSON problem objects. Never echo exception text to clients.
   app.onError((err, c) => {
-    const message = err instanceof Error ? err.message : String(err);
-    return c.json({ error: message }, 500);
+    console.error("[api]", err instanceof Error ? err.stack || err.message : err);
+    return c.json({ error: "internal error" }, 500);
   });
 
   app.get("/health", (c) => c.json({ ok: true, service: "brokk-api" }));
   app.get("/ping", (c) => c.json({ pong: true }));
   app.get("/version", (c) => c.json({ version }));
 
-  // Guard mutating calls behind the API secret. The browser reaches the API only
-  // through the web's server-side proxy, which injects the bearer; a direct caller
-  // (e.g. a leaked origin port) can't create/enqueue tasks. /runner self-auths with
-  // its own secret, /webhooks with the GitHub HMAC, and reads stay open.
+  // Tenancy headers are only trusted on an authenticated hop (API or runner
+  // secret). Direct callers without a bearer cannot elevate via spoofed
+  // x-brokk-*; actorFrom reads brokkTrustedHop (see actor.ts).
+  app.use("*", async (c, next) => {
+    const token = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const trusted =
+      (!deps.apiSecret && !deps.runnerSecret) ||
+      (Boolean(deps.apiSecret) && secretEquals(token, deps.apiSecret)) ||
+      (Boolean(deps.runnerSecret) && secretEquals(token, deps.runnerSecret));
+    c.set("brokkTrustedHop", trusted);
+    return next();
+  });
+
+  // Guard ALL methods behind the API secret when set (including GET/HEAD). The
+  // browser reaches the API only through the web's server-side proxy, which
+  // injects the bearer; a direct caller can't read or mutate the control plane.
+  // Exemptions: public probes, and routes that self-authenticate (runner secret /
+  // GitHub HMAC).
   app.use("*", async (c, next) => {
     if (!deps.apiSecret) return next();
-    const method = c.req.method;
-    if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
+    if (c.req.method === "OPTIONS") return next();
     const path = c.req.path;
+    if (PUBLIC_PROBES.has(path)) return next();
     // /runner, /webhooks and /previews self-authenticate (runner secret / GitHub
     // HMAC), so they're exempt from the api-secret guard. /previews carries the
     // preview lifecycle that the gateway (wake POST) and runner (status PATCH)

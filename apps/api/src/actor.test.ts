@@ -11,11 +11,12 @@ import {
 const staff: Actor = { email: "v@ccl", orgIds: ["d5qacs8kwh79"], isStaff: true };
 const client: Actor = { email: "ti@acme", orgIds: ["org-acme"], isStaff: false };
 
-function fakeCtx(headers: Record<string, string>) {
+function fakeCtx(headers: Record<string, string>, trustedHop?: boolean) {
   return {
     req: {
       header: (name: string) => headers[name.toLowerCase()] ?? headers[name] ?? undefined,
     },
+    get: (key: string) => (key === "brokkTrustedHop" ? trustedHop : undefined),
   } as never;
 }
 
