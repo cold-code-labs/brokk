@@ -190,6 +190,39 @@ function actorOf(c: Context): string {
   return (c.req.header("x-brokk-actor") ?? "").trim().toLowerCase();
 }
 
+type ChatActor = { email: string; orgIds: string[]; isStaff: boolean };
+
+function chatActor(c: Context): ChatActor {
+  const email = actorOf(c);
+  const orgIds = (c.req.header("x-brokk-org-ids") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const isStaff = c.req.header("x-brokk-is-staff") === "1";
+  return { email, orgIds, isStaff };
+}
+
+const orgTenancyOn = (): boolean => process.env.BROKK_ORG_TENANCY === "1";
+
+function canSeeProjectOrg(actor: ChatActor, logtoOrgId: string | null | undefined): boolean {
+  if (!orgTenancyOn() || actor.isStaff) return true;
+  if (!logtoOrgId) return false;
+  return actor.orgIds.includes(logtoOrgId);
+}
+
+/** In-memory cooldown for expensive LLM scout POSTs (per actor+project). */
+const DISCOVER_COOLDOWN_MS = 60_000;
+const discoverHits = new Map<string, number>();
+
+function rateLimitDiscover(actorKey: string, projectId: string): boolean {
+  const key = `${actorKey}:${projectId}`;
+  const now = Date.now();
+  const prev = discoverHits.get(key) ?? 0;
+  if (now - prev < DISCOVER_COOLDOWN_MS) return false;
+  discoverHits.set(key, now);
+  return true;
+}
+
 /** Chat privacy: a human sees only their own sessions. Legacy sessions with no
  *  owner (created_by null) stay visible to everyone until backfilled. Internal
  *  callers (no actor header) see all. */
@@ -754,8 +787,14 @@ export function buildSindri(deps: SindriDeps): Hono {
   // brief row tracks pending → ready/failed. Idempotent while in flight.
   app.post("/discover/:projectId", async (c) => {
     const projectId = c.req.param("projectId");
+    const actor = chatActor(c);
     const project = await deps.store.getProject(projectId);
-    if (!project) return c.json({ error: "project not found" }, 404);
+    if (!project || !canSeeProjectOrg(actor, project.logtoOrgId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
+    if (!rateLimitDiscover(actor.email || actor.orgIds.join(",") || "anon", projectId)) {
+      return c.json({ error: "rate limited — wait before re-scouting" }, 429);
+    }
     if (scouting.has(projectId)) return c.json({ status: "pending", running: true }, 202);
     const repo = await deps.store.getRepository(project.repositoryId);
     if (!repo) return c.json({ error: "repository not found" }, 404);
@@ -842,6 +881,11 @@ export function buildSindri(deps: SindriDeps): Hono {
   // Fetch a project's brief (+ whether a scout is currently running).
   app.get("/discover/:projectId", async (c) => {
     const projectId = c.req.param("projectId");
+    const actor = chatActor(c);
+    const project = await deps.store.getProject(projectId);
+    if (!project || !canSeeProjectOrg(actor, project.logtoOrgId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
     const brief = await deps.store.getProjectBrief(projectId);
     return c.json({ brief, running: scouting.has(projectId) });
   });
@@ -872,8 +916,14 @@ export function buildSindri(deps: SindriDeps): Hono {
 
   app.post("/qa/:projectId/discover", async (c) => {
     const projectId = c.req.param("projectId");
+    const actor = chatActor(c);
     const project = await deps.store.getProject(projectId);
-    if (!project) return c.json({ error: "project not found" }, 404);
+    if (!project || !canSeeProjectOrg(actor, project.logtoOrgId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
+    if (!rateLimitDiscover(`qa:${actor.email || actor.orgIds.join(",") || "anon"}`, projectId)) {
+      return c.json({ error: "rate limited — wait before re-discovering QA" }, 429);
+    }
     if (qaScouting.has(projectId)) return c.json({ status: "pending", running: true }, 202);
     const repo = await deps.store.getRepository(project.repositoryId);
     if (!repo) return c.json({ error: "repository not found" }, 404);
@@ -947,8 +997,11 @@ export function buildSindri(deps: SindriDeps): Hono {
 
   app.get("/qa/:projectId", async (c) => {
     const projectId = c.req.param("projectId");
+    const actor = chatActor(c);
     const project = await deps.store.getProject(projectId);
-    if (!project) return c.json({ error: "project not found" }, 404);
+    if (!project || !canSeeProjectOrg(actor, project.logtoOrgId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
     const catalog = await deps.store.getQaCatalog(projectId);
     let stale = false;
     let currentFingerprint: string | null = null;
@@ -982,8 +1035,11 @@ export function buildSindri(deps: SindriDeps): Hono {
 
   app.get("/qa/:projectId/runs", async (c) => {
     const projectId = c.req.param("projectId");
+    const actor = chatActor(c);
     const project = await deps.store.getProject(projectId);
-    if (!project) return c.json({ error: "project not found" }, 404);
+    if (!project || !canSeeProjectOrg(actor, project.logtoOrgId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
     const limitRaw = Number(c.req.query("limit") ?? "20");
     const limit = Number.isFinite(limitRaw) ? limitRaw : 20;
     const runs = await deps.store.listQaRuns(projectId, limit);
@@ -992,8 +1048,11 @@ export function buildSindri(deps: SindriDeps): Hono {
 
   app.post("/qa/:projectId/runs", async (c) => {
     const projectId = c.req.param("projectId");
+    const actor = chatActor(c);
     const project = await deps.store.getProject(projectId);
-    if (!project) return c.json({ error: "project not found" }, 404);
+    if (!project || !canSeeProjectOrg(actor, project.logtoOrgId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
     const parsed = CreateQaRun.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const run = await deps.store.createQaRun({

@@ -25,10 +25,10 @@ export default function Discovery({ projectId }: { projectId?: string }) {
   const [genMsg, setGenMsg] = useState<string | null>(null);
   const [appBusy, setAppBusy] = useState(false);
 
-  // Viewing discovery IS selecting that environment — keep the global switcher in sync.
+  // Viewing discovery IS selecting that environment — only after ownership check.
   useEffect(() => {
-    if (projectId) setCurrentId(projectId);
-  }, [projectId, setCurrentId]);
+    if (project?.id) setCurrentId(project.id);
+  }, [project?.id, setCurrentId]);
 
   // Project (for the header name/model + the back link).
   useEffect(() => {

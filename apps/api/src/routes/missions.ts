@@ -9,6 +9,7 @@ import { MISSION_STATUSES, type MissionStatus } from "@brokk/core";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppDeps } from "../app.js";
+import { canSeeProject, listScope, requireActor } from "../actor.js";
 import { loadMissionCards } from "../missions.js";
 
 const CreateMissionBody = z.object({
@@ -25,16 +26,20 @@ export function missionsRoutes(deps: AppDeps): Hono {
   // Create a mission. It rests in `planning`; the reconciler picks it up on the
   // next tick (plans via Mímir, then dispatches / awaits board approval).
   r.post("/", async (c) => {
+    const who = requireActor(c, deps.runnerSecret);
+    if (!who.ok) return c.json({ error: who.error }, who.status);
     const parsed = CreateMissionBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     const project = await deps.store.getProject(parsed.data.projectId);
-    if (!project) return c.json({ error: "project not found" }, 404);
+    if (!project || !canSeeProject(who.actor, project.logtoOrgId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
     const mission = await deps.store.insertMission({
       projectId: parsed.data.projectId,
       goal: parsed.data.goal,
       autoApprove: parsed.data.autoApprove,
       chatSessionId: parsed.data.chatSessionId ?? null,
-      createdBy: parsed.data.createdBy ?? c.req.header("x-brokk-actor") ?? "human",
+      createdBy: parsed.data.createdBy ?? (who.actor.email || "human"),
     });
     await deps.store.addMissionEvent(mission.id, "created", {
       goal: mission.goal,
@@ -44,26 +49,50 @@ export function missionsRoutes(deps: AppDeps): Hono {
   });
 
   r.get("/", async (c) => {
+    const who = requireActor(c, deps.runnerSecret);
+    if (!who.ok) return c.json({ error: who.error }, who.status);
     const projectId = c.req.query("projectId") || undefined;
     const rawStatus = c.req.query("status") || undefined;
     const status = MISSION_STATUSES.includes(rawStatus as MissionStatus)
       ? (rawStatus as MissionStatus)
       : undefined;
-    return c.json(await deps.store.listMissions({ projectId, status }));
+    if (projectId) {
+      const project = await deps.store.getProject(projectId);
+      if (!project || !canSeeProject(who.actor, project.logtoOrgId)) {
+        return c.json({ error: "not found" }, 404);
+      }
+      return c.json(await deps.store.listMissions({ projectId, status }));
+    }
+    const missions = await deps.store.listMissions({ status });
+    const projects = await deps.store.listProjects(listScope(who.actor));
+    const ok = new Set(projects.map((p) => p.id));
+    return c.json(missions.filter((m) => ok.has(m.projectId)));
   });
 
   // Mission + its trail + (when planned) the cards with live statuses.
   r.get("/:id", async (c) => {
+    const who = requireActor(c, deps.runnerSecret);
+    if (!who.ok) return c.json({ error: who.error }, who.status);
     const mission = await deps.store.getMission(c.req.param("id"));
     if (!mission) return c.json({ error: "not found" }, 404);
+    const project = await deps.store.getProject(mission.projectId);
+    if (!project || !canSeeProject(who.actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
     const events = await deps.store.listMissionEvents(mission.id);
     const cards = await loadMissionCards(deps.store, mission);
     return c.json({ mission, events, cards });
   });
 
   r.post("/:id/cancel", async (c) => {
+    const who = requireActor(c, deps.runnerSecret);
+    if (!who.ok) return c.json({ error: who.error }, who.status);
     const mission = await deps.store.getMission(c.req.param("id"));
     if (!mission) return c.json({ error: "not found" }, 404);
+    const project = await deps.store.getProject(mission.projectId);
+    if (!project || !canSeeProject(who.actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
     if (mission.status === "done" || mission.status === "failed" || mission.status === "cancelled") {
       return c.json({ error: `mission is already ${mission.status}` }, 409);
     }
@@ -74,7 +103,7 @@ export function missionsRoutes(deps: AppDeps): Hono {
     await deps.store.addMissionEvent(mission.id, "status", {
       from: mission.status,
       to: "cancelled",
-      actor: c.req.header("x-brokk-actor") ?? "human",
+      actor: who.actor.email || "human",
     });
     return c.json(updated);
   });
@@ -82,8 +111,14 @@ export function missionsRoutes(deps: AppDeps): Hono {
   // Un-block after an escalation: back to `running` — the next tick re-runs the
   // watch/react logic against whatever the human fixed on the board.
   r.post("/:id/resume", async (c) => {
+    const who = requireActor(c, deps.runnerSecret);
+    if (!who.ok) return c.json({ error: who.error }, who.status);
     const mission = await deps.store.getMission(c.req.param("id"));
     if (!mission) return c.json({ error: "not found" }, 404);
+    const project = await deps.store.getProject(mission.projectId);
+    if (!project || !canSeeProject(who.actor, project.logtoOrgId)) {
+      return c.json({ error: "not found" }, 404);
+    }
     if (mission.status !== "blocked") {
       return c.json({ error: `only blocked missions can resume (status: ${mission.status})` }, 409);
     }
@@ -93,7 +128,7 @@ export function missionsRoutes(deps: AppDeps): Hono {
     await deps.store.addMissionEvent(mission.id, "status", {
       from: "blocked",
       to,
-      actor: c.req.header("x-brokk-actor") ?? "human",
+      actor: who.actor.email || "human",
     });
     return c.json(updated);
   });

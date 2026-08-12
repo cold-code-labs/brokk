@@ -48,6 +48,13 @@ export function shellEnv(opts?: { gh?: boolean; extra?: Record<string, string> }
   if (opts?.gh) for (const k of GH_KEYS) if (process.env[k]) out[k] = process.env[k];
   out.NODE_ENV = "development";
   out.GIT_TERMINAL_PROMPT = "0";
+  // Credentialed shells: ignore user/system gitconfig and never load checkout
+  // hooks/helpers from ambient config (ADR 0010 N4 cred boundary).
+  if (opts?.gh) {
+    out.GIT_CONFIG_GLOBAL = "/dev/null";
+    out.GIT_CONFIG_SYSTEM = "/dev/null";
+    out.GIT_CONFIG_NOSYSTEM = "1";
+  }
   return { ...out, ...opts?.extra };
 }
 
@@ -525,11 +532,24 @@ export class BrokeredEnclave implements ExecEnclave {
 
 /** git subcommands that talk to the remote and thus need credentials. Local git
  *  (status/log/diff/add/commit/checkout/branch/merge/rebase/stash/tag…) needs none
- *  and stays in the enclave. */
-const GIT_REMOTE_SUBCMDS = new Set(["push", "fetch", "pull", "clone", "ls-remote", "submodule"]);
-/** git global options that consume the FOLLOWING token as their value, so the
- *  subcommand scan skips both (e.g. `git -C <dir> push`). */
-const GIT_OPTS_WITH_ARG = new Set(["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"]);
+ *  and stays in the enclave. `submodule` is intentionally excluded — submodule
+ *  update=!command is a known code-exec vector on the credentialed worker. */
+const GIT_REMOTE_SUBCMDS = new Set(["push", "fetch", "pull", "clone", "ls-remote"]);
+/** Safe git global options that consume the FOLLOWING token as their value.
+ *  Deliberately excludes `-c` / `--config` / `--exec-path` / `--git-dir` /
+ *  `--work-tree` / `--namespace` — those are DISQUALIFYING (see below). */
+const GIT_OPTS_WITH_ARG = new Set(["-C"]);
+/** Options that can inject config/helpers, change executables, or retarget the
+ *  git dir. A command carrying any of these stays in the credential-free enclave
+ *  — never the worker. */
+const GIT_DISQUALIFYING_OPTS = new Set([
+  "-c",
+  "--config",
+  "--exec-path",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+]);
 /** `$` and backtick trigger command/variable substitution EVEN inside double quotes,
  *  so they disqualify a command wherever they appear — `gh … --body "$(evil)"` must
  *  not reach the worker. */
@@ -546,10 +566,18 @@ function stripQuoted(s: string): string {
   return s.replace(/'[^']*'/g, "").replace(/"[^"]*"/g, "");
 }
 
+/** Strip a trailing `=value` from a long option (`--exec-path=/x` → `--exec-path`). */
+function optBase(t: string): string {
+  if (t.startsWith("--") && t.includes("=")) return t.slice(0, t.indexOf("="));
+  if (t.startsWith("-c=") || t === "-c") return "-c";
+  return t;
+}
+
 /** Does this bash command need GitHub credentials / the private remote (→ run it on
  *  the worker)? True only for a single `gh …` or `git <remote-subcmd> …` that carries
- *  no shell substitution and no out-of-quote command chaining; everything else is
- *  false (→ enclave). Pure + side-effect-free. */
+ *  no shell substitution, no out-of-quote command chaining, and no disqualifying git
+ *  global opts (`-c` / `--exec-path` / `--git-dir` / …); everything else is false
+ *  (→ enclave). Pure + side-effect-free. */
 export function needsCreds(command: string): boolean {
   const cmd = command.trim();
   if (!cmd) return false;
@@ -558,17 +586,47 @@ export function needsCreds(command: string): boolean {
   const tok = cmd.split(/\s+/);
   if (tok[0] === "gh") return true; // every gh call authenticates with GH_TOKEN
   if (tok[0] !== "git") return false;
-  // First non-option token after `git` is the subcommand; skip global options,
-  // consuming the value of the ones that take one (-C <dir>, -c <kv>, …).
+  // First non-option token after `git` is the subcommand; skip safe global options,
+  // consuming the value of the ones that take one (-C <dir>). Disqualifying opts
+  // that can inject helpers/config abort → stay in the enclave.
   for (let i = 1; i < tok.length; i++) {
-    const t = tok[i];
+    const t = tok[i]!;
     if (t.startsWith("-")) {
-      if (GIT_OPTS_WITH_ARG.has(t)) i++;
+      const base = optBase(t);
+      if (GIT_DISQUALIFYING_OPTS.has(base)) return false;
+      if (GIT_OPTS_WITH_ARG.has(base) || GIT_OPTS_WITH_ARG.has(t)) {
+        // `--git-dir=foo` already carries its value; bare `-C` consumes next.
+        if (!t.includes("=") && (GIT_OPTS_WITH_ARG.has(t) || base === t)) i++;
+      }
       continue;
     }
     return GIT_REMOTE_SUBCMDS.has(t);
   }
   return false; // `git` with no subcommand
+}
+
+/** Safe `-c` overrides we inject ourselves on the credentialed worker (not
+ *  attacker-controlled). Disables hooks, credential helpers, and submodule
+ *  shell hooks so a checkout-planted payload cannot exfiltrate GH_TOKEN. */
+const CRED_WORKER_GIT_C = [
+  "core.hooksPath=/dev/null",
+  "credential.helper=",
+  "submodule.update=none",
+];
+
+/**
+ * Rewrite a needsCreds command for the credentialed worker, or null if it must
+ * not run with creds. For `git`, injects hook/helper-disabling `-c` flags; for
+ * `gh`, returns the trimmed command as-is (already vetted by needsCreds).
+ */
+export function hardenCredCommand(command: string): string | null {
+  if (!needsCreds(command)) return null;
+  const cmd = command.trim();
+  const tok = cmd.split(/\s+/);
+  if (tok[0] === "gh") return cmd;
+  if (tok[0] !== "git") return null;
+  const injected = CRED_WORKER_GIT_C.map((kv) => `-c ${kv}`).join(" ");
+  return `git ${injected} ${cmd.slice(3).trimStart()}`;
 }
 
 /** An `ExecEnclave` that splits the bash hand across two backends by command: the
@@ -586,7 +644,12 @@ export class SplitEnclave implements ExecEnclave {
     // Route to the credentialed worker only when creds are BOTH needed and permitted.
     // gh:false (reviewer) ⇒ stay fully in the enclave — a creds op would just fail
     // there, which is correct: that consumer must not push.
-    if ((opts.gh ?? true) && needsCreds(command)) return this.worker.exec(command, cwd, opts);
+    // hardenCredCommand refuses disqualified shapes and disables hooks/helpers on git.
+    if ((opts.gh ?? true) && needsCreds(command)) {
+      const hardened = hardenCredCommand(command);
+      if (!hardened) return this.inner.exec(command, cwd, opts);
+      return this.worker.exec(hardened, cwd, opts);
+    }
     return this.inner.exec(command, cwd, opts);
   }
 }

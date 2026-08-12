@@ -48,6 +48,9 @@ export function makeHauldrDataProvider(client: Hauldr, controlUrl: string): Data
       // role=anon — NOT the raw secret. Vite/SPA apps ship this to the browser as
       // the publishable key, so it must never be the signing secret itself.
       const anonKey = mintAnonToken(hp.jwtSecret);
+      // Long-lived service_role JWT for server-side clients — never the raw
+      // signing secret (those clients treat the value as a bearer apikey).
+      const serviceKey = mintServiceToken(hp.jwtSecret, 10 * 365 * 24 * 3600);
       // Public https base for a browser client: the internal gotrueUrl is
       // `http://<ns>.hauldr.coldcodelabs.com/auth`; a browser needs the https
       // namespace root (the gateway routes /auth/v1 + /rest/v1 under it).
@@ -59,10 +62,12 @@ export function makeHauldrDataProvider(client: Hauldr, controlUrl: string): Data
         DATABASE_URL: hp.dbUrl,
         DIRECT_URL: hp.dbUrl, // Prisma direct connection alias
         SUPABASE_URL: hp.gotrueUrl,
-        NEXT_PUBLIC_SUPABASE_URL: hp.gotrueUrl,
-        SUPABASE_SERVICE_ROLE_KEY: hp.jwtSecret,
-        SUPABASE_ANON_KEY: hp.jwtSecret,
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: hp.jwtSecret,
+        // Browser-inlined: public https namespace, never the internal gotrue URL.
+        NEXT_PUBLIC_SUPABASE_URL: publicUrl,
+        SUPABASE_SERVICE_ROLE_KEY: serviceKey,
+        // Browser-safe anon JWT — never the signing secret itself.
+        SUPABASE_ANON_KEY: anonKey,
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: anonKey,
         SUPABASE_JWT_SECRET: hp.jwtSecret,
         POSTGREST_URL: hp.postgrestUrl,
         // Brokk-namespaced aliases for apps that use BROKK_HAULDR_* vars
@@ -150,16 +155,17 @@ export function makeHauldrDataProvider(client: Hauldr, controlUrl: string): Data
 const DEMO_EMAIL = "demo@coldcodelabs.com";
 const DEMO_PASSWORD = "snowdemo123";
 
-/** Mint a short-lived service_role JWT (HS256) from the project's GoTrue secret,
- *  so we can call GoTrue's admin API. Server-side only — never reaches a browser. */
-function mintServiceToken(jwtSecret: string): string {
+/** Mint a service_role JWT (HS256) from the project's GoTrue secret.
+ *  Server-side only — never reaches a browser. Default exp is 5 minutes (admin
+ *  API seed); pass a longer TTL for SUPABASE_SERVICE_ROLE_KEY in the preview env. */
+function mintServiceToken(jwtSecret: string, expSeconds = 300): string {
   const now = Math.floor(Date.now() / 1000);
   const enc = (o: object) => Buffer.from(JSON.stringify(o)).toString("base64url");
   const data = `${enc({ alg: "HS256", typ: "JWT" })}.${enc({
     role: "service_role",
     iss: "brokk-preview",
     iat: now,
-    exp: now + 300,
+    exp: now + expSeconds,
   })}`;
   const sig = createHmac("sha256", jwtSecret).update(data).digest("base64url");
   return `${data}.${sig}`;

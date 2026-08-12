@@ -1,9 +1,21 @@
 import type { Context } from "hono";
 import { secretEquals } from "./secrets.js";
 
+declare module "hono" {
+  interface ContextVariableMap {
+    /** Set by app.ts: true only when Authorization matches api/runner secret
+     *  (or both secrets are empty in local/dev). */
+    brokkTrustedHop: boolean;
+  }
+}
+
 /**
  * Trusted actor from the web BFF (Logto session → headers). Never trust
  * client-supplied org claims — the proxy overwrites them (ADR 0064).
+ *
+ * TRUST BOUNDARY: `x-brokk-actor` / `x-brokk-org-ids` / `x-brokk-is-staff` are
+ * only trustworthy after the hop authenticated with BROKK_API_SECRET or
+ * BROKK_RUNNER_SECRET (`brokkTrustedHop`). Untrusted hops get an empty actor.
  */
 export type Actor = {
   email: string;
@@ -16,6 +28,10 @@ export type Actor = {
 export const orgTenancyEnabled = (): boolean => process.env.BROKK_ORG_TENANCY === "1";
 
 export function actorFrom(c: Context): Actor {
+  // Unset (unit tests that skip the middleware) → trust headers as before.
+  if (c.get("brokkTrustedHop") === false) {
+    return { email: "", orgIds: [], isStaff: false };
+  }
   const email = (c.req.header("x-brokk-actor") ?? "").trim().toLowerCase();
   const orgIds = (c.req.header("x-brokk-org-ids") ?? "")
     .split(",")
@@ -38,6 +54,22 @@ export function requestActor(c: Context, runnerSecret: string): Actor {
     return { ...actor, isStaff: true };
   }
   return actor;
+}
+
+/**
+ * When org tenancy is on, refuse an empty actor that would otherwise look
+ * unrestricted (no email, no staff). Runner bearer elevates to isStaff and is
+ * allowed without an email.
+ */
+export function requireActor(
+  c: Context,
+  runnerSecret: string,
+): { ok: true; actor: Actor } | { ok: false; error: string; status: 401 } {
+  const actor = requestActor(c, runnerSecret);
+  if (orgTenancyEnabled() && !actor.isStaff && !actor.email) {
+    return { ok: false, error: "actor required", status: 401 };
+  }
+  return { ok: true, actor };
 }
 
 /** Effective visibility for list/get. When tenancy is off, everyone sees the
