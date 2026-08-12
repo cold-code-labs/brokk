@@ -106,13 +106,19 @@ export type BriefSnapshot = {
   running: boolean;
 };
 
-/** Operational status chip on a House card (textual, not border-as-alert). */
-export type OpStatus = "idle" | "forging" | "review" | "failed" | "objective";
+/**
+ * Operational status on a House card.
+ * Border color = this chip: queue waiting, forge active, idle quiet.
+ * Svalinn/QA/UI are just kinds of ops that enqueue cards — same pulse.
+ */
+export type OpStatus = "idle" | "queued" | "forging" | "review" | "failed" | "objective";
 
 export type OpStatusInput = {
   lifecycle?: import("@brokk/core").HouseLifecycle | null;
   needObjective: boolean;
   running: number;
+  /** Cards waiting for a forge claim — must beat idle (was invisible before). */
+  queued?: number;
   review: number;
   briefFailed: boolean;
 };
@@ -120,6 +126,7 @@ export type OpStatusInput = {
 export function opStatus(input: OpStatusInput): OpStatus {
   if (input.briefFailed) return "failed";
   if (input.running > 0) return "forging";
+  if ((input.queued ?? 0) > 0) return "queued";
   if (input.review > 0) return "review";
   if (input.needObjective) return "objective";
   return "idle";
@@ -127,17 +134,19 @@ export function opStatus(input: OpStatusInput): OpStatus {
 
 export const OP_STATUS_LABEL: Record<OpStatus, string> = {
   idle: "Idle",
+  queued: "Na fila",
   forging: "Forjando",
   review: "Review",
   failed: "Falha",
   objective: "Objetivo pendente",
 };
 
-/** Hot operational states — falha / forjando / review. NOT “sem objetivo”. */
+/** Hot operational states — falha / forjando / fila / review. NOT “sem objetivo”. */
 export function needsAttention(input: OpStatusInput & { archived?: boolean }): boolean {
   if (input.archived) return false;
   if (input.briefFailed) return true;
   if (input.running > 0) return true;
+  if ((input.queued ?? 0) > 0) return true;
   if (input.review > 0) return true;
   return false;
 }

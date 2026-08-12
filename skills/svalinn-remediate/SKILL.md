@@ -124,6 +124,18 @@ Process clusters worst-first (`critical` → `high` → `bug` → `medium` → `
   policy says so).
 - Pin this skill in Chat (`/svalinn-remediate`) for the whole round.
 
+### Start + watch through Brokk (preferred)
+
+```http
+POST /api/ops/start
+{ "kind": "svalinn-smoke", "targetSlug": "<slug>" }
+```
+
+Returns `job` / `pulse` / `events`. Poll `GET /api/ops/jobs/:taskId` until
+`terminal`. House card border: amber (`queued`) → ember (`forging`) → idle/review.
+See `docs/OPS.md`. Do **not** SSH/psql; do **not** close findings until the PR
+lands — then `POST /api/svalinn/findings/:id/status`.
+
 ## Bragi-specific anchors (when target = bragi)
 
 - Prod is **Vite + Hono**; Next routes are not served — fix `server/*` and

@@ -2120,6 +2120,24 @@ main.forge-room.is-house {
   border-color: color-mix(in srgb, var(--house-accent) 55%, var(--house-line));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--house-accent) 35%, transparent);
 }
+/* Pulse borders — queue / active / idle (ops of any kind: Svalinn, QA, UI…) */
+.fleet.is-house.is-v2 .house-card.op-idle {
+  border-left: 3px solid color-mix(in srgb, var(--house-line-strong) 70%, transparent);
+}
+.fleet.is-house.is-v2 .house-card.op-queued {
+  border-left: 3px solid #d2a000;
+  box-shadow: inset 3px 0 0 color-mix(in srgb, #d2a000 35%, transparent);
+}
+.fleet.is-house.is-v2 .house-card.op-forging {
+  border-left: 3px solid var(--ember, #ff7a45);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--ember, #ff7a45) 28%, transparent);
+}
+.fleet.is-house.is-v2 .house-card.op-review {
+  border-left: 3px solid var(--house-warning);
+}
+.fleet.is-house.is-v2 .house-card.op-objective {
+  border-left: 3px solid color-mix(in srgb, var(--house-accent) 55%, var(--house-line));
+}
 .fleet.is-house.is-v2 .house-card.op-failed {
   border-left: 3px solid var(--house-danger);
 }
@@ -2129,8 +2147,7 @@ main.forge-room.is-house {
 .fleet.is-house.is-v2 .house-card.tone-idle,
 .fleet.is-house.is-v2 .house-card.tone-run,
 .fleet.is-house.is-v2 .house-card.tone-fail {
-  /* neutralize legacy border tones */
-  border-color: var(--house-line);
+  /* neutralize legacy border tones — op-* left border wins */
   border-top-width: 1px;
   border-right-width: 1px;
   border-bottom-width: 1px;
@@ -2170,8 +2187,15 @@ main.forge-room.is-house {
   background: currentColor;
   opacity: 0.75;
 }
-.fleet.is-house.is-v2 .house-op-forging { color: var(--house-accent); }
+.fleet.is-house.is-v2 .house-op-queued { color: #d2a000; }
+.fleet.is-house.is-v2 .house-op-queued .house-op-dot {
+  background: #d2a000;
+  animation: house-v2-pulse 1.6s ease-in-out infinite;
+}
+.fleet.is-house.is-v2 .house-op-forging { color: var(--ember, #ff7a45); }
 .fleet.is-house.is-v2 .house-op-forging .house-op-dot {
+  background: var(--ember, #ff7a45);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ember, #ff7a45) 25%, transparent);
   animation: house-v2-pulse 1.2s ease-in-out infinite;
 }
 .fleet.is-house.is-v2 .house-op-review { color: var(--house-warning); }
