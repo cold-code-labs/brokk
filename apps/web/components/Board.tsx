@@ -93,10 +93,12 @@ export default function Board({ projectId }: { projectId?: string }) {
 
   // Viewing a board IS selecting that environment — keep the global switcher
   // (and every other project-scoped page) in sync with the board you opened.
-  const { setCurrentId } = useProject();
+  // Only pin currentId after listProjects confirms ownership (tenancy ACL).
+  const { setCurrentId, projects } = useProject();
   useEffect(() => {
-    if (projectId) setCurrentId(projectId);
-  }, [projectId, setCurrentId]);
+    if (!projectId) return;
+    if (projects.some((p) => p.id === projectId)) setCurrentId(projectId);
+  }, [projectId, projects, setCurrentId]);
 
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);

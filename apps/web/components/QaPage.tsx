@@ -46,8 +46,8 @@ export default function QaPage({ projectId }: { projectId?: string }) {
   const toast = useToast();
 
   useEffect(() => {
-    if (projectId) setCurrentId(projectId);
-  }, [projectId, setCurrentId]);
+    if (project?.id) setCurrentId(project.id);
+  }, [project?.id, setCurrentId]);
 
   useEffect(() => {
     let alive = true;
