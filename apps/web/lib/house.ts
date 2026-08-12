@@ -124,10 +124,12 @@ export type OpStatusInput = {
 };
 
 export function opStatus(input: OpStatusInput): OpStatus {
-  if (input.briefFailed) return "failed";
+  // Live work beats history — same order as /ops/pulse. A failed brief must
+  // not paint the card red while a forge (any kind: Svalinn, QA, UI…) is hot.
   if (input.running > 0) return "forging";
   if ((input.queued ?? 0) > 0) return "queued";
   if (input.review > 0) return "review";
+  if (input.briefFailed) return "failed";
   if (input.needObjective) return "objective";
   return "idle";
 }
