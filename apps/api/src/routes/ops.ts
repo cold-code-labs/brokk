@@ -44,10 +44,12 @@ export type JobHandle = {
 }
 
 function opOf(counts: { queued: number; running: number; review: number; failed: number }): ProjectPulse["op"] {
-  if (counts.failed > 0) return "failed"
+  // Match House borders: live work beats history. Old `failed` cards must not
+  // paint the floor red while a forge run is active.
   if (counts.running > 0) return "forging"
   if (counts.queued > 0) return "queued"
   if (counts.review > 0) return "review"
+  if (counts.failed > 0) return "failed"
   return "idle"
 }
 
