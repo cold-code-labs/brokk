@@ -167,6 +167,8 @@ services:
       # Hauldr (~300s) and Cloudflare would cut it at ~100s.
       HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-http://heimdall-web:3000}
       HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+      SVALINN_API_URL: ${SVALINN_API_URL:-https://svalinn.coldcodelabs.com}
+      SVALINN_MACHINE_TOKEN: ${SVALINN_MACHINE_TOKEN:-}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8789/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 5s

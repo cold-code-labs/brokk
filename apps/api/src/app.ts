@@ -21,6 +21,7 @@ import { tasksRoutes } from "./routes/tasks.js";
 import { usersRoutes } from "./routes/users.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
 import { ingressRoutes } from "./routes/ingress.js";
+import { svalinnRoutes } from "./routes/svalinn.js";
 
 export interface AppDeps {
   store: Store;
@@ -49,6 +50,9 @@ export interface AppDeps {
    *  /conversations → 503. */
   heimdallUrl?: string;
   heimdallToken?: string;
+  /** Svalinn machine API (ADR 0087 federation). Empty token → /svalinn 503. */
+  svalinnApiUrl?: string;
+  svalinnMachineToken?: string;
 }
 
 /** Assemble the control-plane HTTP app from its dependencies. Pure wiring — no
@@ -121,6 +125,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/missions", missionsRoutes(deps));
   app.route("/runs", runsRoutes(deps));
   app.route("/ingress", ingressRoutes(deps));
+  app.route("/svalinn", svalinnRoutes(deps));
   app.route("/studio", studioRoutes(deps));
   app.route("/runner", runnerRoutes(deps));
   app.route("/webhooks", webhooksRoutes(deps));

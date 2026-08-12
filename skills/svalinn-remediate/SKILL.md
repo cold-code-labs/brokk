@@ -23,19 +23,15 @@ until they say **ativar esteira** / **seguir** / **smoke** / **remediar**.
 
 ## Non-negotiables
 
-1. Findings live in **`db_svalinn`** (Hauldr `hauldr-db-v17` on surtr) — not in
-   a markdown dump. Tables: `targets`, `runs`, `findings`, `reports`,
-   `finding_status_log`, `brokk_dispatches`.
-2. Class is `findings.analysis->>'class'`
-   (`code_bug` | `noise` | `process_policy` | `systemic_infra`). There is no
-   `meta` column.
-3. Every status change needs a **`resolution_note`** (and a `finding_status_log`
-   row). A dismissal without a reason is not a decision.
-4. Card `done` in Brokk ≠ `fixed` in Svalinn. Promote to `fixed` only after the
-   fix is in the product branch **and** the original sink is closed (or the
-   finding is honestly `wontfix`). Negative control when the finding was
-   exploit-class: see Svalinn `docs/LOOP.md`.
-5. Prefer **clusters** (same root cause) over one PR per finding.
+1. Findings live in Svalinn. Brokk **never** opens `db_svalinn`. Talk HTTP:
+   - House/Chat: `GET /api/svalinn/board` and `GET /api/svalinn/targets/:slug/findings` (Brokk proxies, Bearer already injected).
+   - Direct (ops): `GET https://svalinn.coldcodelabs.com/api/machine/board` with `Authorization: Bearer $SVALINN_MACHINE_TOKEN`.
+2. Class is `finding.class` (`code_bug` | `noise` | `process_policy` | `systemic_infra`).
+3. Every status change needs a **note** (≥10 chars) via `POST /api/svalinn/findings/:id/status` or bulk `POST /api/svalinn/findings/status`. A dismissal without a reason is not a decision.
+4. Card `done` in Brokk ≠ `fixed` in Svalinn. Promote to `fixed` only after the sink is closed. Exploit-class stays `awaiting_verification` until negative control (`docs/LOOP.md`).
+5. Prefer **clusters** (`clusterKey`) over one PR per finding. Optional: `POST /api/machine/dispatch` on Svalinn to hand the cluster to Forge.
+
+Do **not** SSH → psql. If the machine API 503s, stop and fix the token — do not fall back to SQL.
 
 ## Phase 0 — Scan status (the "button")
 
@@ -43,7 +39,7 @@ Collect one placard. Sources, in order:
 
 | # | Source | How |
 |---|--------|-----|
-| 1 | **Svalinn** | `targets.slug = <project>`; counts by `status` × `severity` × `class`; open list (id, title, file, class); latest `reports.body` (kind=internal) |
+| 1 | **Svalinn** | `GET /api/svalinn/board` + `GET /api/svalinn/targets/<slug>/findings?status=open` |
 | 2 | **Brokk House** | project card: queue / review / failed; locked `houseObjective`; open sec-related cards |
 | 3 | **GitHub** | open Dependabot / CodeQL / failing checks on default branch |
 | 4 | **Coolify / health** | `GET /api/health` on prod host when the project has one |
@@ -95,20 +91,14 @@ helper already in-tree — e.g. missing `sanitizeUrl` call).
    command from the runbook — Bragi: `pnpm build:vite`, never rely on broken
    `next build`).
 4. Commit on the fix branch.
-5. Close the finding in Svalinn:
+5. Close the finding via Brokk (or Svalinn machine API):
 
-```sql
-UPDATE findings
-SET status = 'fixed',
-    resolution_note = 'fixed on fix/svalinn-<slug> — <one-line why>',
-    resolution_ref = '<commit-or-pr>',
-    resolved_by = 'cursor-agent',
-    resolved_at = now()
-WHERE id = '<uuid>' AND status = 'open';
-
-INSERT INTO finding_status_log (finding_id, from_status, to_status, note, ref, actor)
-VALUES ('<uuid>', 'open', 'fixed', '<same note>', '<commit-or-pr>', 'cursor-agent');
+```http
+POST /api/svalinn/findings/<id>/status
+{ "status": "fixed", "note": "fixed on fix/svalinn-<slug> — <why>", "ref": "<commit>" }
 ```
+
+Do not UPDATE findings over SQL.
 
 6. Re-query: that id must not be `open`. Report smoke **PASS** with id + ref.
 7. Only then unlock Phase 3.
@@ -119,8 +109,7 @@ Process clusters worst-first (`critical` → `high` → `bug` → `medium` → `
 
 1. Implement the cluster on the same `fix/svalinn-<slug>` branch (or stacked
    PRs if the diff is huge — still one root cause per PR).
-2. After each cluster lands, batch-update the related finding ids to `fixed` /
-   `wontfix` with notes (same SQL pattern).
+2. After each cluster lands, `POST /api/svalinn/findings/status` with the ids + note.
 3. Keep the placard fresh (`Scan status` again) after every cluster.
 4. Exit when `open` count for the target is **0** (or only documented
    `awaiting_verification` waiting on human negative control).
@@ -153,4 +142,5 @@ Process clusters worst-first (`critical` → `high` → `bug` → `medium` → `
 - Bulk `wontfix` without per-finding (or per-cluster) notes.
 - Fixing only the Next path while the Hono path stays open.
 - Starting the full belt before smoke closes **one** finding in the DB.
-- Inventing findings from memory — always re-read `db_svalinn`.
+- Inventing findings from memory — always re-read the machine API.
+- SSH into Postgres because "the API isn't up yet".
