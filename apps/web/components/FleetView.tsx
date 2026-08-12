@@ -172,6 +172,7 @@ function ProjectCard({
   const status: OpStatus = opStatus({
     needObjective: needObj,
     running,
+    queued,
     review,
     briefFailed,
   });
@@ -474,12 +475,13 @@ export default function FleetView(p: FleetViewProps) {
   const projectMeta = useMemo(() => {
     const m = new Map<
       string,
-      { running: number; review: number; briefFailed: boolean; needObj: boolean }
+      { running: number; queued: number; review: number; briefFailed: boolean; needObj: boolean }
     >();
     for (const proj of p.projects) {
       const ts = p.tasksByProject.get(proj.id) ?? [];
       m.set(proj.id, {
         running: ts.filter((t) => t.status === "running").length,
+        queued: ts.filter((t) => t.status === "queued").length,
         review: ts.filter((t) => t.status === "review").length,
         briefFailed: p.briefsByProject[proj.id]?.status === "failed",
         needObj: needsObjective(proj),
@@ -494,6 +496,7 @@ export default function FleetView(p: FleetViewProps) {
       return needsAttention({
         needObjective: meta.needObj,
         running: meta.running,
+        queued: meta.queued,
         review: meta.review,
         briefFailed: meta.briefFailed,
       });
@@ -539,6 +542,7 @@ export default function FleetView(p: FleetViewProps) {
       return needsObjectiveSection({
         needObjective: meta.needObj,
         running: meta.running,
+        queued: meta.queued,
         review: meta.review,
         briefFailed: meta.briefFailed,
       });
