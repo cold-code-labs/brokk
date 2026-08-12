@@ -11,10 +11,11 @@ function opStatus(input: {
   review: number
   briefFailed: boolean
 }): OpStatus {
-  if (input.briefFailed) return "failed"
+  // Live work beats history — keep in sync with apps/web/lib/house.ts.
   if (input.running > 0) return "forging"
   if ((input.queued ?? 0) > 0) return "queued"
   if (input.review > 0) return "review"
+  if (input.briefFailed) return "failed"
   if (input.needObjective) return "objective"
   return "idle"
 }
@@ -69,6 +70,17 @@ describe("house op status", () => {
     assert.equal(
       opStatus({ needObjective: true, running: 0, queued: 0, review: 0, briefFailed: false }),
       "objective",
+    )
+  })
+
+  it("forging and queued beat a failed brief", () => {
+    assert.equal(
+      opStatus({ needObjective: false, running: 1, queued: 0, review: 0, briefFailed: true }),
+      "forging",
+    )
+    assert.equal(
+      opStatus({ needObjective: false, running: 0, queued: 1, review: 0, briefFailed: true }),
+      "queued",
     )
   })
 
