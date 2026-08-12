@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Anvil, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useProject } from "../lib/project-context";
 import { prettyProjectName } from "../lib/house";
 import { useCockpitOptional } from "../lib/cockpit-context";
@@ -83,7 +83,9 @@ function AnvilMenu() {
           setOpen((v) => !v);
         }}
       >
-        <Anvil size={15} strokeWidth={1.75} aria-hidden className="forge-ctrl-ico" />
+        <span className="forge-anvil-mark" aria-hidden>
+          ⚒
+        </span>
         <span className="forge-anvil-name">{label}</span>
         <ChevronDown size={14} strokeWidth={1.75} aria-hidden className="forge-ctrl-caret" />
       </button>

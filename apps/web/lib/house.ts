@@ -130,7 +130,7 @@ export const OP_STATUS_LABEL: Record<OpStatus, string> = {
   forging: "Forjando",
   review: "Review",
   failed: "Falha",
-  objective: "Sem objetivo",
+  objective: "Objetivo pendente",
 };
 
 /** Hot operational states — falha / forjando / review. NOT “sem objetivo”. */
