@@ -11,13 +11,10 @@
 // plan's sub-cards. Reuses @brokk/afl + the shared read-only bash hand, like Huginn.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
 import type { AflConfig } from "@brokk/afl";
-import { resolveModel, shellEnv, streamAssistant } from "@brokk/afl";
+import { makeFsExecutor, resolveEnclave, resolveModel, streamAssistant } from "@brokk/afl";
 import type { ChatTurnMessage, ContentBlock, ToolDef, ToolResultBlock, ToolUseBlock } from "@brokk/afl";
 
-const execAsync = promisify(exec);
 const MAX_OUT = 40_000;
 
 export interface ResolveStep {
@@ -195,20 +192,14 @@ function clip(s: string): string {
   return s.length > MAX_OUT ? `${s.slice(0, MAX_OUT)}\n…[truncado ${s.length - MAX_OUT} chars]` : s;
 }
 
-async function runBash(cwd: string, command: string, signal?: AbortSignal): Promise<string> {
-  try {
-    const { stdout, stderr } = await execAsync(command, {
-      cwd,
-      timeout: 60_000,
-      maxBuffer: 1024 * 1024 * 16,
-      env: shellEnv({ gh: false }),
-      signal,
-    });
-    return clip(`${stdout}${stderr ? `\n${stderr}` : ""}`.trim() || "(sem saída)");
-  } catch (e: any) {
-    const out = `${e?.stdout ?? ""}\n${e?.stderr ?? ""}`.trim();
-    return clip(`exit ${e?.code ?? "?"}\n${out || e?.message || String(e)}`);
-  }
+async function runBash(cwd: string, command: string): Promise<string> {
+  const exec = makeFsExecutor({
+    cwd,
+    gh: false,
+    enclave: resolveEnclave({ checkoutRoot: cwd }),
+  });
+  const r = await exec("bash", { command });
+  return clip(r?.content ?? "(sem saída)");
 }
 
 function coerce(input: Record<string, unknown>): ResolveAnalysis {
@@ -300,7 +291,7 @@ export async function runResolve(input: RunResolveInput): Promise<ResolveAnalysi
     const blocks: ToolResultBlock[] = [];
     for (const tu of toolUses) {
       onProgress?.(`bash: ${String((tu.input as { command?: string }).command ?? "").slice(0, 80)}`);
-      const out = tu.name === "bash" ? await runBash(cwd, String((tu.input as { command?: string }).command ?? ""), signal) : `unknown tool: ${tu.name}`;
+      const out = tu.name === "bash" ? await runBash(cwd, String((tu.input as { command?: string }).command ?? "")) : `unknown tool: ${tu.name}`;
       blocks.push({ type: "tool_result", tool_use_id: tu.id, content: out, is_error: false });
     }
     messages.push({ role: "user", content: blocks as ContentBlock[] });
