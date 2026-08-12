@@ -460,7 +460,7 @@ async function runQaDiscoveryAfl(
       onProgress?.(`bash: ${String((tu.input as { command?: string }).command ?? "").slice(0, 80)}`);
       const out =
         tu.name === "bash"
-          ? await runBash(cwd, String((tu.input as { command?: string }).command ?? ""), signal)
+          ? await runBash(cwd, String((tu.input as { command?: string }).command ?? ""))
           : `unknown tool: ${tu.name}`;
       resultBlocks.push({ type: "tool_result", tool_use_id: tu.id, content: out, is_error: false });
     }

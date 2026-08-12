@@ -69,4 +69,22 @@ describe("actor tenancy (ADR 0064)", () => {
     assert.equal(plain.isStaff, false);
     assert.equal(canSeeProject(plain, null), false);
   });
+
+  it("untrusted hop ignores spoofed x-brokk-* headers", async () => {
+    const { actorFrom } = await import("./actor.js");
+    process.env.BROKK_ORG_TENANCY = "1";
+    const spoofed = actorFrom(
+      fakeCtx(
+        {
+          "x-brokk-is-staff": "1",
+          "x-brokk-org-ids": "org-victim",
+          "x-brokk-actor": "evil@x",
+        },
+        false,
+      ),
+    );
+    assert.equal(spoofed.isStaff, false);
+    assert.deepEqual(spoofed.orgIds, []);
+    assert.equal(spoofed.email, "");
+  });
 });

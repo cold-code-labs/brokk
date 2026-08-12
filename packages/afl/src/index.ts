@@ -70,6 +70,7 @@ export {
   LocalEnclave,
   localEnclave,
   needsCreds,
+  hardenCredCommand,
   resolveEnclave,
   RunscEnclave,
   type RunscEnclaveOpts,
