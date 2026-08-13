@@ -648,17 +648,24 @@ export class PreviewSupervisor {
         .map(([k, ms]) => `${k}=${(ms / 1000).toFixed(1)}s`)
         .join(" ") + ` total=${((Date.now() - bootStart) / 1000).toFixed(1)}s`;
 
-    // Resolve project → repository from the control plane
-    const project = await this.controlGet<{
-      id: string;
-      repositoryId: string;
-      name: string;
-      baseBranch: string;
-      runtime?: RuntimeSpec | null;
-    }>(`/projects/${preview.projectId}`);
-    const repo = await this.controlGet<Repository>(
-      `/repositories/${project.repositoryId}`,
-    );
+    // Resolve project → repository from the control plane, in ONE read.
+    //
+    // This used to be two calls — GET /projects/:id + GET /repositories/:id —
+    // authenticated with the runner secret. The api-secret guard (1a66b69, "require
+    // bearer on GETs") closed both, and since the boot dies on the first read, every
+    // preview in the fleet went to `failed`. `/previews/:id/bootstrap` self-
+    // authenticates with the runner secret and returns exactly these two objects,
+    // without reopening the `/projects` and `/repositories` prefixes.
+    const { project, repository: repo } = await this.controlGet<{
+      project: {
+        id: string;
+        repositoryId: string;
+        name: string;
+        baseBranch: string;
+        runtime?: RuntimeSpec | null;
+      };
+      repository: Repository;
+    }>(`/previews/${preview.id}/bootstrap`);
 
     // Provision (or fetch) the preview's data backend via the provider seam.
     await this.controlPatch(`/previews/${preview.id}`, {
