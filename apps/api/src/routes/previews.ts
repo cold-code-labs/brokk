@@ -157,6 +157,39 @@ export function previewsRoutes(deps: AppDeps): Hono {
     return c.json(redactPreviewEnv(preview!));
   });
 
+  /** GET /previews/:id/bootstrap — everything the supervisor needs to boot this
+   *  preview, in one authenticated read: the project (repo id, base branch,
+   *  runtime) and the repository (clone url, installation).
+   *
+   *  WHY THIS EXISTS. The supervisor used to read `GET /projects/:id` +
+   *  `GET /repositories/:id` directly with the runner secret. Commit 1a66b69
+   *  ("require bearer on GETs") closed the open control-plane reads — correctly —
+   *  and those two calls started 401'ing, which froze the preview lane fleet-wide:
+   *  boot dies on the first read, so every preview lands in `failed` and none ever
+   *  goes live.
+   *
+   *  The fix is NOT to exempt `/projects` and `/repositories` from the api-secret
+   *  guard. That guard is prefix-based, so exempting a prefix opens every route
+   *  under it — including mutations, and including routes added later, which would
+   *  ship unauthenticated by default. Fail-open is the wrong default at an auth
+   *  boundary.
+   *
+   *  So: one narrow, read-only endpoint under `/previews`, which already
+   *  self-authenticates (requireRunnerOrApiSecret above). No existing route
+   *  changes who may call it, the runner gets exactly the two objects it needs,
+   *  and it stays scoped to a preview the caller can already see. */
+  r.get("/:id/bootstrap", async (c) => {
+    const preview = await deps.store.getPreview(c.req.param("id"));
+    if (!(await previewVisible(deps, c, preview))) {
+      return c.json({ error: "not found" }, 404);
+    }
+    const project = await deps.store.getProject(preview!.projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    const repository = await deps.store.getRepository(project.repositoryId);
+    if (!repository) return c.json({ error: "repository not found" }, 404);
+    return c.json({ project, repository });
+  });
+
   /** POST /previews/:id/ping — the idle-reaper heartbeat. The Brokk screen calls
    *  this on interaction while a preview is up; the supervisor rests it only after
    *  PREVIEW_IDLE_TTL_MS with no ping (and no respin). Cheap + idempotent. */
