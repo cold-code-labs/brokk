@@ -1,0 +1,15 @@
+# Gate da CCL — a definição do que valida este repo.
+# Fonte da verdade do CI: mora AQUI, não no GitHub Actions.
+#
+#   ccl ci brokk        roda este gate
+#   ccl gate-install brokk   liga como pre-push (bloqueia push vermelho)
+#
+# Migrado de .github/workflows/ci.yml em 2026-08-18.
+version: 1
+jobs:
+  check:
+    # herda do ambiente (era secret do Actions): NODE_AUTH_TOKEN
+    steps:
+      - pnpm install --no-frozen-lockfile
+      - pnpm typecheck
+      - pnpm build
