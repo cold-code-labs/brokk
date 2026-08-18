@@ -21,7 +21,15 @@ Ambos em `main`, **path-scoped**:
 | `brokk-forge` | `apps/forge/**`, `apps/chat/**`, `apps/reviewer/**`, `apps/enclave-manager/**`, `apps/preview-proxy/**`, `tools/**` |
 
 Quem serve `brokk.coldcodelabs.com` é o **`brokk-core`**. Um terceiro app (`brokk`), com
-build mal configurado e 25 falhas seguidas sem servir nada, foi **removido** em 18/08/2026.
+build mal configurado e 25 falhas seguidas sem servir nada, foi removido em 18/08/2026 —
+e **voltou sozinho 4h depois**, recriado por um push de documentação, porque o
+provisionamento do Gjallarhorn ignorava o `lifecycle` do registro. Corrigido no mesmo dia
+(`ensure-engine-for-push` passou a exigir `lifecycle=active`), e o registro do `brokk` foi
+marcado como `terminated`.
+
+⚠️ Este repo tem **três** registros no Heimdall (`brokk-core`, `brokk-forge` e o `brokk`
+desativado). Se um app do Coolify reaparecer aqui sem ninguém ter criado, é o registro
+`brokk` tendo voltado a `active` — não crie um app novo, verifique o lifecycle.
 
 Push que não toca os caminhos acima não deploya — comportamento esperado.
 
