@@ -296,9 +296,21 @@ export class BancadaService {
     const ws = await this.workspaceOf(bancada);
     let res = await this.deps.coder.agentSend(ws, content);
     if (!res.ok && /stabilize/i.test(res.reason ?? "")) {
-      console.warn(`[bancada] ${bancada.workspaceName}: agente parado numa tela — mandando Enter`);
-      await this.deps.coder.agentKey(ws);
-      res = await this.deps.coder.agentSend(ws, content);
+      // ⚠️ NUNCA mandar Enter às cegas aqui. A tela em que o CLI trava é um menu
+      // cuja opção destacada é "1. No, exit" — um Enter cego MATA o agente. Só
+      // respondemos a uma tela que reconhecemos, e respondemos o que ela pede.
+      const ultima = (await this.deps.coder.agentMessages(ws)).at(-1)?.content ?? "";
+      if (/Yes, I accept/i.test(ultima)) {
+        console.warn(`[bancada] ${bancada.workspaceName}: aviso de bypass na tela — aceitando`);
+        await this.deps.coder.agentKey(ws, "2");
+        await this.deps.coder.agentKey(ws, "\r");
+        res = await this.deps.coder.agentSend(ws, content);
+      } else {
+        console.warn(
+          `[bancada] ${bancada.workspaceName}: agente parado numa tela que não reconheço — ` +
+            `não vou digitar no escuro. Últimos 120 chars: ${ultima.slice(-120)}`,
+        );
+      }
     }
     if (res.ok) await this.deps.store.touchBancada(bancada.id);
     return res;
