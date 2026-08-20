@@ -1,21 +1,27 @@
 /**
  * O proxy da bancada — o ambiente QUENTE servido num host que o Brokk controla.
  *
- * Por que ele existe, já que o Coder publica o app da bancada por caminho: o
- * cookie de sessão do Coder é `SameSite=Lax`. Numa aba, isso funciona; dentro de
- * um `<iframe>` no `brokk.coldcodelabs.com` — que é outro site — o navegador
- * simplesmente NÃO manda o cookie, e o preview embutido vira uma tela de login.
- * Medido em 20/08/2026. Para o preview morar DENTRO do Brokk, o origin tem de
- * ser nosso e o portão também.
+ * Por que ele existe, já que o Coder publica o app da bancada por caminho: **o
+ * caminho quebra o app**. O Coder serve em
+ * `/@dono/<ws>.main/apps/bancada/`, mas o HTML de um dev server referencia
+ * asset por caminho ABSOLUTO (`/@vite/client`, `/src/main.tsx`, `/_next/...`).
+ * O navegador então pede `coder.coldcodelabs.com/@vite/client` — a raiz do
+ * Coder — e recebe o HTML do próprio dashboard do Coder. Medido em 20/08/2026:
+ * `content-type: text/html`, o dashboard inteiro no lugar do módulo. O app não
+ * roda, e o cliente do HMR nunca carrega.
  *
- * O que ele faz: `<workspace>.preview.<domínio>` → container da bancada, na
- * raiz. Serve na raiz de propósito — caminho absoluto de bundle e websocket de
- * HMR funcionam como o dev server espera, o que não acontece sob um prefixo.
+ * Servir na RAIZ de um host próprio resolve isso pela origem: o caminho
+ * absoluto passa a apontar para o dev server, e o websocket do HMR sobe.
  *
- * O portão é o mesmo `__bk` de sempre: a web do Brokk (que sabe quem você é)
- * assina uma chave curta para AQUELE subdomínio, o proxy troca por cookie, e daí
- * em diante os pedidos do próprio app carregam. A chave não diz quem você é —
- * diz "alguém com sessão no Brokk pediu esta bancada, há pouco".
+ * (Correção de um erro meu: a primeira versão disto dizia que o motivo era o
+ * cookie `SameSite=Lax` do Coder não sobreviver a um iframe. Não é verdade —
+ * `brokk.` e `coder.` dividem o mesmo domínio registrável, então são o MESMO
+ * site para efeito de SameSite e o cookie iria. O que quebra é o caminho.)
+ *
+ * O portão é o `__bk`: a web do Brokk (que sabe quem você é) assina uma chave
+ * curta para AQUELE subdomínio, o proxy troca por cookie, e daí em diante os
+ * pedidos do próprio app carregam. A chave não diz quem você é — diz "alguém
+ * com sessão no Brokk pediu esta bancada, há pouco".
  */
 
 import * as http from "node:http";
@@ -104,6 +110,9 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
     url.searchParams.delete(PREVIEW_KEY_PARAM);
     res.writeHead(302, {
+      // SameSite=None: hoje o Brokk e a bancada dividem o domínio registrável,
+      // então Lax bastaria — mas um Brokk hospedado noutro domínio passaria a
+      // ser cross-site e o cookie sumiria sem aviso. None+Secure vale nos dois.
       "set-cookie": `${PREVIEW_KEY_COOKIE}=${encodeURIComponent(portao.plantar)}; Path=/; Max-Age=${PREVIEW_KEY_TTL_S}; HttpOnly; Secure; SameSite=None`,
       location: `${url.pathname}${url.search}`,
       "cache-control": "no-store",

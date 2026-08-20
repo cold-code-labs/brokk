@@ -80,10 +80,11 @@ services:
     - default
     - coolify
     - litellm
-  # O ambiente QUENTE servido num host nosso (ADR 0100). O cookie do Coder é
-  # SameSite=Lax: numa aba funciona, dentro do iframe do Brokk o navegador não
-  # manda o cookie e o preview vira tela de login. Este proxy resolve
-  # `<workspace>.preview.<domínio>` → container da bancada, na raiz, com HMR.
+  # O ambiente QUENTE servido num host nosso (ADR 0100). O Coder publica a
+  # bancada por CAMINHO, e caminho quebra dev server: o HTML referencia asset
+  # absoluto (`/@vite/client`), o navegador pede na raiz do Coder e recebe o
+  # dashboard do Coder. Este proxy serve `<workspace>.preview.<domínio>` na
+  # RAIZ — asset e websocket de HMR passam a resolver.
   bancada-proxy:
     build:
       context: .
