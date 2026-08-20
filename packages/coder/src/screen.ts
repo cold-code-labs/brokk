@@ -61,6 +61,10 @@ export function parseAgentScreen(bruto: string): Bloco[] {
   const linhas = (bruto ?? "").split("\n").map(limpa);
   const blocos: Bloco[] = [];
   let bannerAcabou = false;
+  /** O eco do prompt do humano QUEBRA em várias linhas (o terminal tem 67
+   *  colunas). Descartar só a linha do `❯` deixava o resto da frase solto no
+   *  meio da resposta do agente, sem contexto nenhum. */
+  let dentroDoEco = false;
 
   const empurra = (tipo: BlocoTipo, linha: string) => {
     const ultimo = blocos[blocos.length - 1];
@@ -80,6 +84,12 @@ export function parseAgentScreen(bruto: string): Bloco[] {
       if (linha === "" || BANNER.test(linha)) continue;
       bannerAcabou = true;
     }
+    if (dentroDoEco) {
+      // A continuação do eco é uma linha indentada; qualquer marcador conhecido
+      // ou linha em branco encerra.
+      if (linha !== "" && /^\s{2,}\S/.test(linha) && !CODIGO.test(linha)) continue;
+      dentroDoEco = false;
+    }
     if (linha === "") {
       // Uma linha vazia FECHA o bloco corrente em vez de virar conteúdo — é o
       // que remove o mar de espaços do buffer do terminal.
@@ -88,7 +98,10 @@ export function parseAgentScreen(bruto: string): Bloco[] {
       }
       continue;
     }
-    if (ECO.test(linha)) continue;
+    if (ECO.test(linha)) {
+      dentroDoEco = true;
+      continue;
+    }
     if (STATUS.test(linha)) empurra("status", linha.replace(/^\s*[✻✳✽*]\s+/, ""));
     else if (PASSO.test(linha)) empurra("passo", linha.replace(PASSO, ""));
     else if (DETALHE.test(linha)) empurra("detalhe", linha.replace(DETALHE, ""));

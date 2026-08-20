@@ -14,6 +14,7 @@ const TELA = [
   " ▎ Fable 5 is now a standard part of your Max plan                 ",
   " ▎ You can use up to 50% of your weekly usage limit on Fable 5. If ",
   "❯ Em src/pages/Login.tsx, troque o texto do botao                  ",
+  "  \"Entrar\" por \"ENTRAR AGORA\". So isso, salve.                     ",
   "                                                                  ",
   "  Searched for 1 pattern, read 1 file                             ",
   "                                                                  ",
@@ -42,6 +43,9 @@ describe("tela do agente", () => {
   it("não repete o prompt do humano — ele já é uma bolha", () => {
     const tudo = blocos.flatMap((b) => b.linhas).join(" ");
     assert.ok(!tudo.includes("troque o texto do botao"), tudo.slice(0, 140));
+    // O eco quebra em 67 colunas: descartar só a primeira linha deixava o resto
+    // da frase solto no meio da resposta do agente.
+    assert.ok(!tudo.includes("ENTRAR AGORA\". So isso"), tudo.slice(0, 160));
   });
 
   it("tira o padding de 67 colunas — é ele que faz parecer log de servidor", () => {
