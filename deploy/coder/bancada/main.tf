@@ -240,20 +240,8 @@ resource "coder_agent" "main" {
     { "permissions": { "defaultMode": "acceptEdits" } }
     JSON
 
-    # ⚠️ O módulo roda o CLI com `--dangerously-skip-permissions`, que abre uma
-    # TELA DE AVISO esperando confirmação. Sem aceitar de antemão, o agente fica
-    # parado nela: a AgentAPI responde `stable` (parece pronto!) e todo envio de
-    # mensagem morre em 500 `failed to wait for screen to stabilize` — medido
-    # 20/08. A aceitação mora no ~/.claude.json, e é escrita ANTES do módulo subir.
-    node -e '
-      const fs = require("fs");
-      const f = process.env.HOME + "/.claude.json";
-      let j = {};
-      try { j = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
-      j.bypassPermissionsModeAccepted = true;
-      j.hasCompletedOnboarding = true;
-      fs.writeFileSync(f, JSON.stringify(j, null, 2));
-    '
+    # (A aceitação do modo bypass é escrita no `pre_install_script` do módulo —
+    # aqui seria TARDE DEMAIS: medido 20/08, o CLI subiu 11s antes deste ponto.)
 
     eval "$INSTALL_CMD"
 
@@ -351,6 +339,28 @@ module "claude_code" {
 
   claude_code_oauth_token = var.claude_oauth
   ai_prompt               = data.coder_task.me.prompt
+
+  # ⚠️ Com `report_tasks` ligado (exigido pelo `coder_ai_task`), o módulo passa
+  # `--dangerously-skip-permissions` CRAVADO — não há input que desligue. Esse
+  # flag abre uma tela de aviso esperando confirmação, e o CLI fica parado nela:
+  # a AgentAPI responde `stable` (parece pronto!) e todo envio morre em 500
+  # `failed to wait for screen to stabilize`.
+  #
+  # A aceitação mora no ~/.claude.json e precisa existir ANTES do CLI subir. No
+  # startup do agente é tarde: medido em 20/08, o `claude` começou às 17:17:22 e
+  # o arquivo só foi escrito às 17:17:33 — 11 segundos depois, corrida perdida.
+  # `pre_install_script` é o único gancho que roda antes.
+  pre_install_script = <<-EOT
+    #!/bin/bash
+    set -eu
+    f="$HOME/.claude.json"
+    if [ ! -f "$f" ]; then
+      printf '%s\n' '{"bypassPermissionsModeAccepted":true,"hasCompletedOnboarding":true}' > "$f"
+    elif ! grep -q bypassPermissionsModeAccepted "$f"; then
+      sed -i '0,/{/s//{"bypassPermissionsModeAccepted":true,"hasCompletedOnboarding":true,/' "$f"
+    fi
+    echo "modo bypass pré-aceito em $f"
+  EOT
 }
 
 # Exigido para a aba Tasks aceitar esta bancada. Sem ele: "Template does not have
