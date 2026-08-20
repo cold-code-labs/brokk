@@ -23,7 +23,10 @@ export interface Bloco {
 
 /** O banner que o CLI imprime ao subir — arte ASCII, versão, aviso de plano.
  *  Aparece SEMPRE no topo da tela e não diz nada sobre o trabalho. */
-const ARTE = "[\\s▐▛▜▝▘▖▗█▀▄▌▐│╭╮╰╯─]";
+// Faixa INTEIRA de block elements (U+2580–U+259F), não uma lista de glifos: a
+// primeira versão enumerava à mão e deixou passar o `▎` (U+258E) que o CLI usa
+// na barra lateral do aviso de plano — o banner vazava para a tela.
+const ARTE = "[\\s\\u2580-\\u259F│╭╮╰╯─]";
 const BANNER = new RegExp(
   // linha feita só de arte/espaço…
   `^${ARTE}*$` +
@@ -37,6 +40,11 @@ const STATUS = /^\s*[✻✳✽*]\s+\w.*\b(for|por)\s+\d+/;
 
 /** Linha de diff/código: número de linha (com + ou -) e depois conteúdo. */
 const CODIGO = /^\s{2,}\d+\s*[+-]?\s/;
+
+/** O eco do prompt do humano, que o CLI reimprime na tela. Some: a mensagem do
+ *  humano já é desenhada como bolha, e mostrar as duas é a mesma frase duas
+ *  vezes na mesma conversa. */
+const ECO = /^❯\s/;
 
 /** Passo do agente. */
 const PASSO = /^●\s+/;
@@ -80,6 +88,7 @@ export function parseAgentScreen(bruto: string): Bloco[] {
       }
       continue;
     }
+    if (ECO.test(linha)) continue;
     if (STATUS.test(linha)) empurra("status", linha.replace(/^\s*[✻✳✽*]\s+/, ""));
     else if (PASSO.test(linha)) empurra("passo", linha.replace(PASSO, ""));
     else if (DETALHE.test(linha)) empurra("detalhe", linha.replace(DETALHE, ""));
