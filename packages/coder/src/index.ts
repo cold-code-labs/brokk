@@ -11,6 +11,8 @@
 export { CoderClient, CoderError, AGENT_APP_SLUG, PREVIEW_APP_SLUG } from "./client.js";
 export type { CoderConfig } from "./client.js";
 export { bancadaParameters, devPort, workspaceName, UnrunnableProject } from "./bancada.js";
+export { parseAgentScreen, resumoDaTela } from "./screen.js";
+export type { Bloco, BlocoTipo } from "./screen.js";
 export type { BancadaRecipe } from "./bancada.js";
 export type {
   AgentLifecycle,

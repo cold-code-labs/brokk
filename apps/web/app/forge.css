@@ -1110,3 +1110,330 @@ main.forge-room:not(.ygg-main) {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ── Bancada (ADR 0100) ──────────────────────────────────────────────────────
+ * O painel do ambiente quente. Nasceu sem estilo: eu usei uma classe
+ * `forge-btn` que NÃO existe neste arquivo, então os botões caíam no desenho
+ * cru do navegador, e a fala do agente ia para um `<pre>` — que é o buffer do
+ * terminal, com padding de 67 colunas. Parecia log de servidor colado na
+ * página. Agora os botões são os do design system e cada tipo de bloco tem
+ * forma própria.
+ */
+.bancada {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 10px;
+}
+.bancada-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.bancada-erro {
+  margin: 0;
+  font-size: 13px;
+  color: var(--err, #b42318);
+}
+.bancada-corpo {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+.bancada-conversa {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 0 0 38%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  overflow: hidden;
+}
+.bancada-corpo.is-rail .bancada-conversa {
+  flex: 1;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.bancada-fluxo {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bancada-vazio {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-dim);
+  line-height: 1.55;
+}
+
+/* Mensagens ---------------------------------------------------------------- */
+.bancada-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: bancada-entra 220ms ease-out both;
+}
+.bancada-msg.is-voce {
+  align-items: flex-end;
+}
+.bancada-bolha {
+  background: var(--ember-soft, color-mix(in srgb, var(--ember, #ff7a45) 14%, transparent));
+  color: var(--fg);
+  border-radius: 12px 12px 3px 12px;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  max-width: 88%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bancada-texto {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--fg);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bancada-passo {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--fg);
+}
+.bancada-marcador {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ember, #ff7a45);
+  flex: 0 0 auto;
+  transform: translateY(-1px);
+}
+.bancada-detalhe {
+  margin-left: 14px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+  font-size: 12.5px;
+  color: var(--fg-soft);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.bancada-codigo {
+  margin: 2px 0 2px 14px;
+  padding: 8px 10px;
+  background: var(--bg-soft);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.bancada-codigo code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  white-space: pre;
+}
+.bancada-status {
+  font-size: 11.5px;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Composer ----------------------------------------------------------------- */
+.bancada-composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+.bancada-composer input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.bancada-composer input:focus {
+  border-color: var(--ember, #ff7a45);
+  box-shadow: 0 0 0 3px var(--ember-soft, rgba(255, 122, 69, 0.16));
+}
+
+/* Espera ------------------------------------------------------------------- */
+.bancada-subindo {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  color: var(--fg-soft);
+  animation: bancada-entra 220ms ease-out both;
+}
+.bancada-subindo strong {
+  color: var(--fg);
+}
+.bancada-subindo p {
+  margin: 2px 0 0;
+  line-height: 1.55;
+}
+.bancada-fila {
+  color: var(--ember, #ff7a45);
+}
+.bancada-spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+  border: 2px solid var(--line);
+  border-top-color: var(--ember, #ff7a45);
+  border-radius: 50%;
+  animation: bancada-gira 900ms linear infinite;
+}
+.bancada-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+  margin-right: 5px;
+  animation: bancada-pulsa 1.4s ease-in-out infinite;
+}
+
+/* Palco -------------------------------------------------------------------- */
+.bancada-palco {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--card);
+}
+.bancada-palco-barra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.bancada-palco-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-soft);
+}
+/* O iframe entra por opacidade quando TERMINA de carregar. Antes ele aparecia
+ * já montado e pintava preto por alguns segundos — parecia falha. */
+.bancada-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+  opacity: 0;
+  transform: scale(0.995);
+  transition: opacity 260ms ease, transform 260ms ease;
+}
+.bancada-iframe.is-visivel {
+  opacity: 1;
+  transform: none;
+}
+.bancada-esqueleto {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px;
+  color: var(--fg-dim);
+  font-size: 12.5px;
+}
+.bancada-esqueleto-barra,
+.bancada-esqueleto-bloco {
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--line-soft) 25%,
+    var(--line) 37%,
+    var(--line-soft) 63%
+  );
+  background-size: 400% 100%;
+  animation: bancada-brilha 1.6s ease-in-out infinite;
+}
+.bancada-esqueleto-barra {
+  height: 30px;
+  width: 45%;
+}
+.bancada-esqueleto-bloco {
+  height: 110px;
+}
+.bancada-esqueleto-bloco.is-curto {
+  height: 60px;
+  width: 70%;
+}
+
+@keyframes bancada-entra {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes bancada-gira {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes bancada-pulsa {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes bancada-brilha {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+/* Quem pediu menos movimento recebe menos movimento. */
+@media (prefers-reduced-motion: reduce) {
+  .bancada-msg,
+  .bancada-subindo,
+  .bancada-iframe,
+  .bancada-esqueleto-barra,
+  .bancada-esqueleto-bloco,
+  .bancada-spinner,
+  .bancada-pulse {
+    animation: none;
+    transition: none;
+    transform: none;
+  }
+}
