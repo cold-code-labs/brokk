@@ -259,6 +259,31 @@ resource "coder_agent" "main" {
       fi
     ) > /tmp/playwright.log 2>&1 &
 
+    # ── a tela de aviso do agente ─────────────────────────────────────────────
+    # Medido em 20/08: a flag `bypassPermissionsModeAccepted` no ~/.claude.json
+    # está `true` e o CLI 2.1.237 mostra o aviso MESMO ASSIM — pré-aceitar por
+    # arquivo não funciona. Então a bancada RESPONDE o diálogo: seleciona
+    # "2. Yes, I accept" e confirma.
+    #
+    # Enquanto ele estiver na tela, a AgentAPI responde `stable` (parece pronto!)
+    # e todo envio morre em 500 `failed to wait for screen to stabilize`.
+    (
+      for i in $(seq 1 90); do
+        curl -fsS http://127.0.0.1:3284/status >/dev/null 2>&1 && break
+        sleep 2
+      done
+      if curl -fsS http://127.0.0.1:3284/messages | grep -q "Yes, I accept"; then
+        printf '{"content":"2","type":"raw"}'  > /tmp/k1.json
+        printf '{"content":"\r","type":"raw"}' > /tmp/k2.json
+        curl -fsS -X POST http://127.0.0.1:3284/message -H 'Content-Type: application/json' -d @/tmp/k1.json >/dev/null
+        sleep 2
+        curl -fsS -X POST http://127.0.0.1:3284/message -H 'Content-Type: application/json' -d @/tmp/k2.json >/dev/null
+        echo "aviso de bypass aceito"
+      else
+        echo "sem tela de aviso"
+      fi
+    ) > /tmp/bypass.log 2>&1 &
+
     # ── dev server ────────────────────────────────────────────────────────────
     export PORT="$DEV_PORT"
     echo "comando: $DEV_CMD"
@@ -298,6 +323,14 @@ resource "coder_agent" "main" {
     key          = "dev"
     script       = "curl -fsS http://127.0.0.1:${data.coder_parameter.dev_port.value}/ >/dev/null && echo rodando || echo parado"
     interval     = 15
+    timeout      = 5
+  }
+
+  metadata {
+    display_name = "Agente"
+    key          = "agente"
+    script       = "curl -fsS http://127.0.0.1:3284/status 2>/dev/null | grep -oE 'stable|running' || echo fora"
+    interval     = 20
     timeout      = 5
   }
 
