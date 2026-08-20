@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Task } from "@brokk/core";
-import { briefing, cardBranch } from "./bancada-driver.js";
+import { briefing, cardBranch, valeAbrir } from "./bancada-driver.js";
 
 const task = {
   id: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
@@ -44,5 +44,32 @@ describe("branch do card", () => {
   it("não estoura o nome com um título quilométrico", () => {
     const longo = { ...task, title: "a".repeat(300) } as Task;
     assert.ok(cardBranch(longo).length <= 60, cardBranch(longo));
+  });
+});
+
+describe("quando vale pedir a bancada", () => {
+  const agora = Date.parse("2026-08-20T12:00:00Z");
+  const em = (min: number) => new Date(agora - min * 60_000).toISOString();
+
+  it("pede quando não existe nenhuma", () => {
+    assert.equal(valeAbrir(null, agora), true);
+  });
+
+  it("não pede de novo enquanto uma está subindo", () => {
+    assert.equal(valeAbrir({ status: "provisioning", updatedAt: em(1) }, agora), false);
+  });
+
+  it("segura a mão numa que ACABOU de falhar", () => {
+    // Sem isto o laço chamaria `ensure` a cada tick: segredo novo + build novo,
+    // três vezes por minuto, num projeto que já se sabe quebrado.
+    assert.equal(valeAbrir({ status: "failed", updatedAt: em(2) }, agora), false);
+  });
+
+  it("tenta de novo depois do intervalo", () => {
+    assert.equal(valeAbrir({ status: "failed", updatedAt: em(11) }, agora), true);
+  });
+
+  it("religa uma parada sem esperar nada", () => {
+    assert.equal(valeAbrir({ status: "stopped", updatedAt: em(0) }, agora), true);
   });
 });
