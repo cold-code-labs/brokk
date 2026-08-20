@@ -114,7 +114,12 @@ function fakeCoder(over: Record<string, unknown> = {}) {
   return { coder, calls };
 }
 
-function service(store: Store, coder: CoderClient, mint?: (r: string) => Promise<string | null>) {
+function service(
+  store: Store,
+  coder: CoderClient,
+  mint?: (r: string) => Promise<string | null>,
+  resolveRuntime?: (id: string) => Promise<typeof runtime | null>,
+) {
   return new BancadaService({
     store,
     coder,
@@ -122,8 +127,20 @@ function service(store: Store, coder: CoderClient, mint?: (r: string) => Promise
     template: "bancada",
     controlUrl: "http://brokk-api:8789",
     mintGitToken: mint,
+    resolveRuntime,
   });
 }
+
+const semRuntime = {
+  getProject: async () => ({
+    id: "p-1",
+    name: "asgard",
+    repositoryId: "r-1",
+    baseBranch: "main",
+    runtime: null,
+    logtoOrgId: null,
+  }),
+};
 
 describe("BancadaService.ensure", () => {
   it("adopts a workspace that is already running instead of forking a second one", async () => {
@@ -149,22 +166,22 @@ describe("BancadaService.ensure", () => {
     assert.deepEqual(calls, ["create"]);
   });
 
-  it("refuses a project with no runtime, with a reason a human can read", async () => {
-    const { store } = fakeStore({
-      getProject: async () => ({
-        id: "p-1",
-        name: "asgard",
-        repositoryId: "r-1",
-        baseBranch: "main",
-        runtime: null,
-        logtoOrgId: null,
-      }),
-    });
+  it("refuses a project whose runtime nobody can figure out", async () => {
+    const { store } = fakeStore(semRuntime);
     const { coder } = fakeCoder();
     await assert.rejects(
       () => service(store, coder).ensure("p-1"),
       (err: unknown) => err instanceof BancadaRefused && err.status === 422,
     );
+  });
+
+  it("descobre o runtime na hora em vez de recusar quem nunca teve um", async () => {
+    // 45 dos 55 projetos da frota não têm runtime fixado. Recusar todos eles
+    // transformaria duas leituras na API do GitHub em trabalho manual.
+    const { store } = fakeStore(semRuntime);
+    const { coder, calls } = fakeCoder();
+    await service(store, coder, undefined, async () => runtime).ensure("p-1");
+    assert.deepEqual(calls, ["create"]);
   });
 
   it("stores only the HASH of the bancada secret, never the secret", async () => {

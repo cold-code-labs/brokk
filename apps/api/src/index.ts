@@ -8,6 +8,7 @@ import { startBancadaReaper } from "./bancada-reaper.js";
 import { loadConfig } from "./config.js";
 import { loadAppAuth, getInstallationToken, openPullRequest } from "./github.js";
 import { makeHauldrDataProvider, passthroughProvider } from "./lanes/data-provider.js";
+import { resolveProjectRuntime } from "./runtime-detect.js";
 import { HeimdallLanes } from "./lanes/heimdall-lanes.js";
 import { startMissionReconciler } from "./missions.js";
 import { startReviewReconciler } from "./review-reconciler.js";
@@ -51,6 +52,7 @@ async function main() {
           template: cfg.CODER_TEMPLATE,
           controlUrl: cfg.BROKK_INTERNAL_URL,
           mintGitToken,
+          resolveRuntime: (projectId) => resolveProjectRuntime({ store, mintGitToken }, projectId),
         })
       : undefined;
   console.log(
