@@ -190,6 +190,11 @@ services:
       # e quem entrega credencial à bancada é a API, não mais o forge.
       EITRI_APP_ID: ${EITRI_APP_ID:-}
       EITRI_APP_PRIVATE_KEY_FILE: ${EITRI_APP_PRIVATE_KEY_FILE:-/home/brokk/eitri-app.pem}
+      # ⚠️ EM UMA LINHA, com `\n` escapado. O Coolify materializa as envs num
+      # arquivo .env para o container: uma PEM multi-linha faz cada linha da
+      # chave virar "variável" e o deploy morre em
+      # `unexpected character "/" in variable name "MIIEpQ..."`. Medido em
+      # 20/08/2026 — derrubou brokk.coldcodelabs.com. O loadAppAuth desescapa.
       EITRI_APP_PRIVATE_KEY: ${EITRI_APP_PRIVATE_KEY:-}
       BROKK_GITHUB_APP_ID: ${BROKK_GITHUB_APP_ID:-}
       BROKK_GITHUB_APP_PRIVATE_KEY: ${BROKK_GITHUB_APP_PRIVATE_KEY:-}
