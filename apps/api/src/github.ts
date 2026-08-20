@@ -17,10 +17,22 @@ export function loadAppAuth(env = process.env): AppAuth | null {
   // Prefer a DEDICATED public "Brokk connect" app (multi-tenant org installs);
   // fall back to the fleet's Eitri app so a single-app deploy still works. Keeping
   // them separable means the tenant-facing install app isn't the same one that
-  // runs the fleet's own forge/reviewer.
+  // runs the fleet's own reviewer.
   const appId = env.BROKK_GITHUB_APP_ID || env.EITRI_APP_ID;
+  if (!appId) return null;
+
+  // A chave pode vir INLINE ou por arquivo. O inline existe porque a API passou a
+  // ser quem assina (abre PR, entrega credencial à bancada) e ela roda num app do
+  // Coolify diferente do que tinha o volume com o .pem — exigir arquivo ali
+  // significaria semear um volume à mão, que é como um segredo vira folclore.
+  // `\n` escapado é aceito: é assim que uma chave PEM sobrevive a um campo de env.
+  const inline = env.BROKK_GITHUB_APP_PRIVATE_KEY || env.EITRI_APP_PRIVATE_KEY;
+  if (inline?.includes("PRIVATE KEY")) {
+    return { appId, privateKey: inline.replace(/\\n/g, "\n") };
+  }
+
   const keyFile = env.BROKK_GITHUB_APP_PRIVATE_KEY_FILE || env.EITRI_APP_PRIVATE_KEY_FILE;
-  if (!appId || !keyFile) return null;
+  if (!keyFile) return null;
   try {
     return { appId, privateKey: readFileSync(keyFile, "utf8") };
   } catch {

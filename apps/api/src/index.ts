@@ -35,6 +35,13 @@ async function main() {
       : passthroughProvider;
 
   const appAuth = loadAppAuth();
+  const mintGitToken = appAuth
+    ? async (fullName: string) => {
+        const repo = await store.getRepositoryByFullName(fullName);
+        if (!repo?.installationId) return null;
+        return getInstallationToken(appAuth, repo.installationId);
+      }
+    : undefined;
   const bancadas =
     cfg.CODER_URL && cfg.CODER_TOKEN
       ? new BancadaService({
@@ -43,13 +50,7 @@ async function main() {
           data: dataProvider,
           template: cfg.CODER_TEMPLATE,
           controlUrl: cfg.BROKK_INTERNAL_URL,
-          mintGitToken: appAuth
-            ? async (fullName: string) => {
-                const repo = await store.getRepositoryByFullName(fullName);
-                if (!repo?.installationId) return null;
-                return getInstallationToken(appAuth, repo.installationId);
-              }
-            : undefined,
+          mintGitToken,
         })
       : undefined;
   console.log(
@@ -61,12 +62,12 @@ async function main() {
   const app = buildApp({
     store,
     bancadas,
+    mintGitToken,
     runnerSecret: cfg.BROKK_RUNNER_SECRET,
     apiSecret: cfg.BROKK_API_SECRET,
     githubWebhookSecret: cfg.BROKK_GITHUB_WEBHOOK_SECRET,
     githubToken: cfg.GITHUB_TOKEN,
     eitriUrl: cfg.EITRI_URL || "http://reviewer:8796",
-    sindriUrl: cfg.BROKK_SINDRI_URL,
     heimdallAgentUrl: cfg.HEIMDALL_AGENT_URL,
     heimdallAgentToken: cfg.HEIMDALL_AGENT_TOKEN,
     heimdallUrl: cfg.HEIMDALL_AGENT_URL,
@@ -86,12 +87,10 @@ async function main() {
     startBancadaDriver({
       store,
       bancadas,
-      openPr: appAuth
+      openPr: mintGitToken
         ? async (input) => {
-            const repo = await store.getRepositoryByFullName(input.repoFullName);
-            if (!repo?.installationId) return null;
-            const token = await getInstallationToken(appAuth, repo.installationId);
-            return openPullRequest(token, input);
+            const token = await mintGitToken(input.repoFullName);
+            return token ? openPullRequest(token, input) : null;
           }
         : undefined,
     });

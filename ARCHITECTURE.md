@@ -23,20 +23,21 @@ Dependency direction is one-way: `afl ← agents ← apps` (NORTH-STAR §10).
 | `packages/sdk` | Typed client for the control-plane API. |
 | `packages/mcp` | **MCP bridge** (ADR 0027 §4.1): `BROKK_MCP_SERVERS` → connected servers → namespaced ToolDefs + a PartialExecutor mounted into Sindri turns. Fail-closed gating (read-only by default). |
 | `packages/repomap` | **Ranked symbol map** (ADR 0027 §4.2): exported symbols per file + PageRank over the import graph (TS compiler as parser). Feeds the forge's warm index. |
-| `packages/agents/forge` | **Brokkr** — autonomous card→worktree→verify→heal→PR engine. |
-| `packages/agents/chat` | **Chat** — conversational coding over a live checkout (OpenCode). |
+| `packages/coder` | **A porta do runtime** — cliente do Coder + a receita da bancada. |
 | `packages/agents/scout` | **Huginn/Muninn** — read-only discovery: repo brief, card resolution, meeting intake, runtime detection. |
 | `packages/agents/reviewer` | **Eitri** — PR review on read-only hands, no gh creds. |
 
 | App | Role |
 |---|---|
-| `apps/api` | Control plane (Hono): projects/tasks/runs/previews/chat/ingress routes, SSE logs. |
-| `apps/web` | Next.js workbench: kanban board + chat + live preview. |
-| `apps/chat` | Chat daemon (detached turns, checkout manager) — also hosts the scout. |
-| `apps/forge` | Runner: claims cards, runs the forge engine, supervises live previews. |
+| `apps/api` | Control plane (Hono): projects/tasks/runs/**bancadas**/ingress routes, SSE logs. Hospeda o driver de cards e o reaper de bancadas. |
+| `apps/web` | Next.js workbench: board + bancada (agente + preview ao vivo). |
 | `apps/reviewer` | Eitri daemon: polls PRs, semgrep+trivy scan, LLM review, verdict comment. |
-| `apps/preview-proxy` | `*.preview` reverse proxy (subdomain → live preview port). Not the AI gateway (that's LiteLLM/OmniRoute). |
-| `apps/enclave-manager` | Broker that owns the Docker socket for gVisor enclaves. |
+
+> **O runtime saiu daqui (ADR 0100).** `apps/forge`, `apps/chat`,
+> `apps/preview-proxy` e `apps/enclave-manager` foram removidos: quem mantém
+> checkout, roda dev server, isola execução e expõe preview é o **Coder**, num
+> workspace por projeto (a *bancada*). O template vive em `deploy/coder/bancada`
+> e o cliente tipado em `packages/coder`.
 
 ## Convention 1 — one loop, hooks for effects
 

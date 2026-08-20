@@ -11,6 +11,9 @@ interface AgentMessage {
 
 interface Props {
   projectId: string;
+  /** `rail` mostra só a conversa com o agente (a coluna lateral do cockpit);
+   *  `full` mostra conversa + preview lado a lado. */
+  variant?: "full" | "rail";
 }
 
 const LABEL: Record<string, string> = {
@@ -32,7 +35,7 @@ const LABEL: Record<string, string> = {
  * A tela só faz `POST /bancadas` quando alguém pede — abrir uma bancada é
  * ligar uma máquina, não um efeito colateral de navegar.
  */
-export default function BancadaPanel({ projectId }: Props) {
+export default function BancadaPanel({ projectId, variant = "full" }: Props) {
   const [bancada, setBancada] = useState<Bancada | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [agentStatus, setAgentStatus] = useState<string>("unknown");
@@ -186,7 +189,7 @@ export default function BancadaPanel({ projectId }: Props) {
         <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
           <section
             style={{
-              flex: "0 0 38%",
+              flex: variant === "rail" ? 1 : "0 0 38%",
               display: "flex",
               flexDirection: "column",
               minHeight: 0,
@@ -244,6 +247,7 @@ export default function BancadaPanel({ projectId }: Props) {
             </div>
           </section>
 
+          {variant === "full" && (
           <section
             style={{
               flex: 1,
@@ -287,6 +291,7 @@ export default function BancadaPanel({ projectId }: Props) {
               </p>
             )}
           </section>
+          )}
         </div>
       )}
     </div>

@@ -5,9 +5,7 @@ import { z } from "zod";
 import type { AppDeps } from "../app.js";
 import { triggerEitri } from "../trigger-eitri.js";
 import { repoFullNameFromPrUrl } from "../pr-close.js";
-import { fireQaDiscover, isHeroTask } from "../huginn-fire.js";
 import { connectOne } from "./repositories.js";
-import { requireRunnerSecret } from "./runner.js";
 
 const AppendEventsBody = z.object({
   events: z
@@ -177,152 +175,10 @@ export function runsRoutes(deps: AppDeps): Hono {
     });
   });
 
-  // ── Runner-facing (shared-secret) ──────────────────────────────────────────
-
-  // Batch-append events from the runner.
-  r.post("/:id/events", requireRunnerSecret(deps), async (c) => {
-    const parsed = AppendEventsBody.safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    // zod validated `type ∈ RUN_EVENT_TYPES`; cast back to the domain shape the store expects.
-    const events = parsed.data.events as { type: RunEventType; payload: unknown }[];
-    const appended = await deps.store.appendEvents(c.req.param("id"), events);
-    return c.json({ appended: appended.length }, 201);
-  });
-
-  // Runner reports terminal state for a run; moves the task accordingly.
-  r.post("/:id/complete", requireRunnerSecret(deps), async (c) => {
-    const id = c.req.param("id");
-    const parsed = CompleteBody.safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const { status, prUrl, prNumber, error, usage, landed } = parsed.data;
-
-    const run = await deps.store.updateRun(id, {
-      status,
-      prUrl: prUrl ?? null,
-      error: error ?? null,
-      endedAt: new Date(),
-      ...(usage
-        ? {
-            tokensIn: usage.tokensIn,
-            tokensOut: usage.tokensOut,
-            headroomSaved: usage.headroomSaved,
-          }
-        : {}),
-    });
-
-    // ADR 0017: free the app's dev-checkout lease this run held, so the next card
-    // for that app can claim. Idempotent (no-op if already reassigned/expired).
-    await deps.store.releaseLease(id).catch(() => {});
-
-    // Map run outcome → task column. Dev-lane (landed) pushes straight to dev → the
-    // card is done. Story QA (ADR 0069): commit on featureBranch without PR → done.
-    // Classic PR flow: open → review; merge (webhook) → done.
-    const prev = await deps.store.getTask(run.taskId);
-    let storyCommit = false;
-    if (
-      status === "succeeded" &&
-      !landed &&
-      !prUrl &&
-      prev?.planId
-    ) {
-      const plan = await deps.store.getPlan(prev.planId).catch(() => null);
-      storyCommit = Boolean(plan?.storyModule);
-    }
-    const taskStatus =
-      status === "succeeded"
-        ? landed || storyCommit
-          ? "done"
-          : "review"
-        : status === "failed"
-          ? "failed"
-          : "cancelled";
-    const resolvedPrNumber = prNumber ?? (prUrl ? prNumberFromUrl(prUrl) : null);
-    // Always persist the PR pointer on complete (BROKK-45): a re-forge that opens
-    // a successor PR must overwrite the stale # on the card, even when the column
-    // stays `review`.
-    const task = await deps.store.transitionTask(run.taskId, taskStatus, {
-      actor: "forge",
-      reason:
-        status === "succeeded"
-          ? landed
-            ? "pushed to dev"
-            : storyCommit
-              ? "committed to story branch"
-            : prev?.prNumber != null &&
-                resolvedPrNumber != null &&
-                prev.prNumber !== resolvedPrNumber
-              ? `PR replaced (#${prev.prNumber} → #${resolvedPrNumber})`
-              : "PR opened"
-          : status === "failed"
-            ? error
-              ? firstLine(error)
-              : "forge failed"
-            : "run cancelled",
-      extra: {
-        ...(prUrl ? { prUrl } : {}),
-        ...(resolvedPrNumber ? { prNumber: resolvedPrNumber } : {}),
-      },
-    });
-
-    // Plan-less cards (ingress/manual/revise) have no Story flow to kick Eitri,
-    // and their target repos may carry no GitHub webhook — so a fresh PR would sit
-    // in `review` forever. Auto-trigger the reviewer here (fire-and-forget): on a
-    // clean gate it auto-merges; on a blocking gate it enqueues the revise (with
-    // the bump plan), closing the Eitri↔Brokk loop without a webhook. Plan cards
-    // already trigger Eitri from the plans route, so skip them to avoid double-fire.
-    if (taskStatus === "review" && !task.planId && resolvedPrNumber != null) {
-      const eitriPrNumber = resolvedPrNumber;
-      const eitriProjectId = task.projectId;
-      void (async () => {
-        const project = await deps.store.getProject(eitriProjectId).catch(() => null);
-        const repo = project
-          ? await deps.store.getRepository(project.repositoryId).catch(() => null)
-          : null;
-        const repoFullName = repo?.fullName ?? (prUrl ? repoFullNameFromPrUrl(prUrl) : null);
-        if (!repoFullName) return;
-        const res = await triggerEitri(deps, repoFullName, eitriPrNumber);
-        if (!res.ok) {
-          console.error(
-            `[runs] eitri trigger for ${repoFullName}#${eitriPrNumber} failed: ${res.detail}`,
-          );
-        }
-      })();
-    }
-
-    // Plan bookkeeping. A failed card would otherwise stall its dependents in
-    // `queued` forever (the DAG never sees it reach review/done), so surface the
-    // stall by failing the plan. A succeeded card advances the plan once all its
-    // siblings have landed (every card in review/done) → the feature PR is ready.
-    // Story plans (storyModule): on advance, kick Targeted re-QA (ADR 0069).
-    if (task.planId) {
-      if (status === "failed") {
-        await deps.store
-          .updatePlan(task.planId, { status: "failed" })
-          .catch(() => {});
-      } else {
-        const advanced = await deps.store.maybeAdvancePlan(task.planId).catch(() => null);
-        if (advanced?.storyModule && deps.sindriUrl) {
-          const { fireStoryReQa } = await import("../story-reqa.js");
-          void fireStoryReQa(
-            {
-              store: deps.store,
-              sindriUrl: deps.sindriUrl,
-              runnerSecret: deps.runnerSecret,
-            },
-            advanced,
-          );
-        }
-      }
-    }
-
-    // Prototype Hero done → now catalog QA against the painted app (not the template).
-    // Fixes land on `dev` preview; no PR required for the improvement loop.
-    if (status === "succeeded" && isHeroTask(task)) {
-      fireQaDiscover(deps, task.projectId);
-    }
-
-    return c.json(run);
-  });
+  // As rotas do runner (POST /:id/events e /:id/complete) morreram com o forge:
+  // quem executa agora é o agente dentro da bancada, e quem escreve o desfecho é
+  // o driver do control plane, no mesmo processo — sem hop autenticado por
+  // segredo compartilhado.
 
   return r;
 }

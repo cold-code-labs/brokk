@@ -101,40 +101,6 @@ services:
     <<: *restart
 
   # ── forge workers (opt-in: --profile forge) ───────────────────────────────────
-  forge:
-    build:
-      context: .
-      dockerfile: apps/forge/Dockerfile
-      args:
-        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
-    image: brokk-forge:local
-    profiles: ["forge"]
-    environment:
-      BROKK_CONTROL_URL: http://api:8789
-      BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:?set BROKK_RUNNER_SECRET to run the forge}
-      BROKK_RUNNER_WORKDIR: /work
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
-      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      BROKK_GIT_NAME: ${BROKK_GIT_NAME:-Brokk}
-      BROKK_GIT_EMAIL: ${BROKK_GIT_EMAIL:-brokk@localhost}
-      BROKK_FORGE_ENGINE: ${BROKK_FORGE_ENGINE:-openhands}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-}
-      BROKK_OPENHANDS_BIN: ${BROKK_OPENHANDS_BIN:-}
-    volumes:
-      - brokk_work:/work
-      # DoD — uncomment (and add `docker-cli` to the runner image) to let the agent
-      # build/run target repos as sibling containers via the host Docker daemon.
-      # Root-equivalent on the host: single-tenant self-host only.
-      # - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      api:
-        condition: service_healthy
-    <<: *restart
-
   reviewer:
     build:
       context: .
@@ -153,53 +119,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    <<: *restart
-
-  preview-proxy:
-    build:
-      context: .
-      dockerfile: apps/preview-proxy/Dockerfile
-      args:
-        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
-    image: brokk-preview-proxy:local
-    profiles: ["forge"]
-    environment:
-      BROKK_GATEWAY_PORT: "3020"
-      BROKK_CONTROL_URL: http://api:8789
-      BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
-    expose:
-      - "3020"
-    <<: *restart
-
-  # Sindri — the interactive chat agent. Shares the runner's tools (git/gh) + work
-  # volume (session checkouts), drives the model over the native Messages API via
-  # the gateway. The control-plane API proxies /chat → here (BROKK_SINDRI_URL).
-  chat:
-    build:
-      context: .
-      dockerfile: apps/chat/Dockerfile
-      args:
-        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
-    image: brokk-chat:local
-    profiles: ["forge"]
-    environment:
-      SINDRI_PORT: "8795"
-      BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:-postgres://brokk:brokk@db:5432/brokk}
-      BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
-      BROKK_RUNNER_WORKDIR: /work
-      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
-      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
-      CURSOR_SEAT_URL: ${CURSOR_SEAT_URL:-}
-      CURSOR_SEAT_INGRESS: ${CURSOR_SEAT_INGRESS:-}
-      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
-      CURSOR_AUTH_TOKEN: ${CURSOR_AUTH_TOKEN:-}
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      BROKK_GIT_NAME: ${BROKK_GIT_NAME:-Brokk}
-      BROKK_GIT_EMAIL: ${BROKK_GIT_EMAIL:-brokk@localhost}
-    volumes:
-      - brokk_work:/work
-    expose:
-      - "8795"
     <<: *restart
 
 volumes:
