@@ -1,6 +1,8 @@
 import type {
   Agent,
   AnalysisEvidence,
+  Bancada,
+  BancadaStatus,
   AnalysisQuestion,
   AnalysisRevision,
   AnalysisStatus,
@@ -59,12 +61,13 @@ import type {
 } from "@brokk/core";
 import { randomUUID } from "node:crypto";
 import { forcaToModel } from "@brokk/core";
-import { and, asc, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, like, lt, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { fingerprint } from "./fingerprint.js";
 import {
   agents,
+  bancadas,
   chatMessages,
   chatSessions,
   findingEvents,
@@ -136,6 +139,7 @@ function rowToTask(row: typeof tasks.$inferSelect): Task {
   return {
     id: row.id,
     projectId: row.projectId,
+    dedupeKey: row.dedupeKey ?? null,
     title: row.title,
     body: row.body,
     status: row.status as TaskStatus,
@@ -413,6 +417,28 @@ function rowToPreview(row: typeof previews.$inferSelect): Preview {
     pid: row.pid,
     rssMb: row.rssMb ?? null,
     loadedEnv: row.loadedEnv ?? null,
+    lastActivityAt: row.lastActivityAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function rowToBancada(row: typeof bancadas.$inferSelect): Bancada {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    lane: row.lane,
+    branch: row.branch,
+    workspaceId: row.workspaceId ?? null,
+    workspaceName: row.workspaceName,
+    ownerName: row.ownerName ?? null,
+    hauldrProject: row.hauldrProject ?? null,
+    status: row.status as BancadaStatus,
+    detail: row.detail ?? null,
+    previewUrl: row.previewUrl ?? null,
+    agentUrl: row.agentUrl ?? null,
+    runtimeId: row.runtimeId ?? null,
+    commitSha: row.commitSha ?? null,
     lastActivityAt: row.lastActivityAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -822,6 +848,46 @@ export interface Store {
   touchPreview(id: string): Promise<Preview | null>;
   /** Mark a preview stopped and clear its pid. */
   stopPreview(id: string): Promise<Preview>;
+
+  // bancadas (hot environments on Coder — ADR 0100)
+  /** Claim the (project, lane) slot. Returns the existing row untouched when one
+   *  is already there — provisioning decides what to do with it, because only
+   *  Coder knows whether the workspace behind it still exists. */
+  ensureBancada(values: {
+    projectId: string;
+    lane: string;
+    branch: string;
+    workspaceName: string;
+    runtimeId?: string | null;
+  }): Promise<{ bancada: Bancada; created: boolean }>;
+  getBancada(id: string): Promise<Bancada | null>;
+  getBancadaByLane(projectId: string, lane: string): Promise<Bancada | null>;
+  listBancadas(opts?: { projectId?: string; status?: BancadaStatus }): Promise<Bancada[]>;
+  patchBancada(
+    id: string,
+    patch: {
+      status?: BancadaStatus;
+      detail?: string | null;
+      workspaceId?: string | null;
+      ownerName?: string | null;
+      previewUrl?: string | null;
+      agentUrl?: string | null;
+      commitSha?: string | null;
+      branch?: string;
+      runtimeId?: string | null;
+      tokenHash?: string | null;
+      hauldrProject?: string | null;
+    },
+  ): Promise<Bancada>;
+  /** Resolve a bancada by the sha256 of the secret its workspace presents. The
+   *  lookup is by hash so a leaked row never yields a usable credential. */
+  getBancadaByTokenHash(tokenHash: string): Promise<Bancada | null>;
+  /** Idle-reaper heartbeat. Null if the row is gone. */
+  touchBancada(id: string): Promise<Bancada | null>;
+  /** Ready bancadas whose last activity is older than the cutoff — candidates to
+   *  be stopped so a dev server never runs unattended. */
+  listIdleBancadas(olderThan: Date): Promise<Bancada[]>;
+  deleteBancada(id: string): Promise<void>;
 
   // sindri (interactive chat): per-project sessions + transcript
   listChatSessions(opts?: { projectId?: string; status?: ChatSessionStatus }): Promise<ChatSession[]>;
@@ -2417,6 +2483,95 @@ export function createStore(db: Db): Store {
       return rowToPreview(rows[0]);
     },
 
+    async ensureBancada(values) {
+      const existing = await db
+        .select()
+        .from(bancadas)
+        .where(and(eq(bancadas.projectId, values.projectId), eq(bancadas.lane, values.lane)))
+        .limit(1);
+      if (existing[0]) return { bancada: rowToBancada(existing[0]), created: false };
+      // Two callers can race here (a human opening the screen while the driver
+      // claims a card). The unique index is the arbiter; the loser re-reads.
+      const inserted = await db
+        .insert(bancadas)
+        .values({
+          projectId: values.projectId,
+          lane: values.lane,
+          branch: values.branch,
+          workspaceName: values.workspaceName,
+          runtimeId: values.runtimeId ?? null,
+        })
+        .onConflictDoNothing({ target: [bancadas.projectId, bancadas.lane] })
+        .returning();
+      if (inserted[0]) return { bancada: rowToBancada(inserted[0]), created: true };
+      const raced = await db
+        .select()
+        .from(bancadas)
+        .where(and(eq(bancadas.projectId, values.projectId), eq(bancadas.lane, values.lane)))
+        .limit(1);
+      if (!raced[0]) throw new Error(`bancada ${values.projectId}:${values.lane} vanished`);
+      return { bancada: rowToBancada(raced[0]), created: false };
+    },
+    async getBancada(id) {
+      const rows = await db.select().from(bancadas).where(eq(bancadas.id, id)).limit(1);
+      return rows[0] ? rowToBancada(rows[0]) : null;
+    },
+    async getBancadaByLane(projectId, lane) {
+      const rows = await db
+        .select()
+        .from(bancadas)
+        .where(and(eq(bancadas.projectId, projectId), eq(bancadas.lane, lane)))
+        .limit(1);
+      return rows[0] ? rowToBancada(rows[0]) : null;
+    },
+    async listBancadas(opts) {
+      const conds = [];
+      if (opts?.projectId) conds.push(eq(bancadas.projectId, opts.projectId));
+      if (opts?.status) conds.push(eq(bancadas.status, opts.status));
+      const rows = await db
+        .select()
+        .from(bancadas)
+        .where(conds.length ? and(...conds) : undefined)
+        .orderBy(desc(bancadas.updatedAt));
+      return rows.map(rowToBancada);
+    },
+    async patchBancada(id, patch) {
+      const rows = await db
+        .update(bancadas)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(bancadas.id, id))
+        .returning();
+      if (!rows[0]) throw new Error(`bancada ${id} not found`);
+      return rowToBancada(rows[0]);
+    },
+    async touchBancada(id) {
+      const now = new Date();
+      const rows = await db
+        .update(bancadas)
+        .set({ lastActivityAt: now, updatedAt: now })
+        .where(eq(bancadas.id, id))
+        .returning();
+      return rows[0] ? rowToBancada(rows[0]) : null;
+    },
+    async listIdleBancadas(olderThan) {
+      const rows = await db
+        .select()
+        .from(bancadas)
+        .where(and(eq(bancadas.status, "ready"), lt(bancadas.lastActivityAt, olderThan)));
+      return rows.map(rowToBancada);
+    },
+    async getBancadaByTokenHash(tokenHash) {
+      const rows = await db
+        .select()
+        .from(bancadas)
+        .where(eq(bancadas.tokenHash, tokenHash))
+        .limit(1);
+      return rows[0] ? rowToBancada(rows[0]) : null;
+    },
+    async deleteBancada(id) {
+      await db.delete(bancadas).where(eq(bancadas.id, id));
+    },
+
     async listChatSessions(opts) {
       const conds = [];
       if (opts?.projectId) conds.push(eq(chatSessions.projectId, opts.projectId));
@@ -3201,6 +3356,34 @@ export async function ensureSchema(db: Db): Promise<void> {
     .execute(
       sql`ALTER TABLE previews ADD COLUMN IF NOT EXISTS last_activity_at timestamptz NOT NULL DEFAULT now();`,
     )
+    .catch(() => {});
+
+  // Bancadas (ADR 0100) — the hot environments on Coder. Same self-heal rule as
+  // findings/work_leases: the table must exist on the API's own boot path, not
+  // depend on a db:push against the shared db_brokk.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS bancadas (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    lane text NOT NULL DEFAULT 'dev',
+    branch text NOT NULL,
+    workspace_id text,
+    workspace_name text NOT NULL,
+    owner_name text,
+    status text NOT NULL DEFAULT 'provisioning',
+    detail text,
+    preview_url text,
+    agent_url text,
+    token_hash text,
+    hauldr_project text,
+    runtime_id text,
+    commit_sha text,
+    last_activity_at timestamptz NOT NULL DEFAULT now(),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT bancadas_project_lane_uniq UNIQUE (project_id, lane)
+  );`);
+  await db
+    .execute(sql`CREATE INDEX IF NOT EXISTS bancadas_project_idx ON bancadas (project_id);`)
     .catch(() => {});
 
   // ADR 0064 / BROKK-47 — org tenancy columns (self-heal; drizzle push hangs on db_brokk).

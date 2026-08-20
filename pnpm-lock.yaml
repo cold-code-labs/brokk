@@ -30,6 +30,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@brokk/coder':
+        specifier: workspace:*
+        version: link:../../packages/coder
       '@brokk/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -372,6 +375,9 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -388,6 +394,24 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.0
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  packages/assurance: {}
+
+  packages/coder:
+    dependencies:
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -422,6 +446,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.1
         version: 0.31.10
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
