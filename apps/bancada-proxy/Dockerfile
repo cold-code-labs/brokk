@@ -3,7 +3,8 @@
 #
 # Proxy da bancada (ADR 0100) — serve o ambiente QUENTE num host que o Brokk
 # controla: `<workspace>.preview.<domínio>` → container da bancada (HTTP + WS).
-# Existe porque o cookie do Coder é SameSite=Lax e não sobrevive a um iframe.
+# Existe porque o Coder publica por CAMINHO, e o caminho quebra o dev server:
+# asset absoluto (`/@vite/client`) cai na raiz do Coder, não no app.
 FROM node:22-alpine AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH

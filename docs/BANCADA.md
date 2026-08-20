@@ -49,9 +49,11 @@ curl -X DELETE "$BROKK/bancadas/<id>"
    (`?__bk=`) que a web pede em `GET /bancadas/:id/link`. Um 403 ali é chave
    ausente/expirada (recarregue a tela); um 502 é bancada fora do ar.
 
-   ⚠️ **Não embuta a URL do Coder.** Ela funciona numa aba e falha dentro do
-   Brokk: o cookie de sessão do Coder é `SameSite=Lax` e o navegador não o manda
-   num iframe de outro site. Foi por isso que o proxy existe.
+   ⚠️ **Não embuta a URL do Coder.** O Coder serve a bancada por CAMINHO, e o
+   HTML de um dev server referencia asset ABSOLUTO: o navegador pede
+   `coder.coldcodelabs.com/@vite/client` e recebe o HTML do dashboard do Coder
+   (medido: `content-type: text/html`). O app não roda e o HMR não sobe. O
+   proxy existe para servir na RAIZ de um host próprio.
 4. **push recusado dentro da bancada** — o `credential.helper` troca o segredo da
    bancada por um token de instalação. Um 404 ali significa que a bancada foi
    recriada (segredo novo) ou apagada; um 503 significa GitHub App sem chave no
