@@ -31,7 +31,7 @@ Ambos em `main`, **path-scoped**:
 | app | observa |
 |---|---|
 | `brokk-core` | `apps/web/**`, `apps/api/**`, `packages/**`, lockfiles, `docker-compose.core.yml` |
-| `brokk-forge` | `apps/reviewer/**`, `tools/**` (só o Eitri sobrou aqui) |
+| `brokk-forge` | `apps/reviewer/**`, `tools/**` — **só o Eitri sobrou aqui**, e o compose dele é `docker-compose.reviewer.yml` (o app do Coolify mantém o nome antigo: renomear app é trocar o handle que a frota usa para deployar) |
 
 Quem serve `brokk.coldcodelabs.com` é o **`brokk-core`**. Um terceiro app (`brokk`), com
 build mal configurado e 25 falhas seguidas sem servir nada, foi removido em 18/08/2026 —
