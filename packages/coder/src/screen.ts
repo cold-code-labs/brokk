@@ -13,7 +13,7 @@
  * Um parser que engole o que não entendeu é pior que um `<pre>`.
  */
 
-export type BlocoTipo = "texto" | "passo" | "detalhe" | "codigo" | "status";
+export type BlocoTipo = "texto" | "passo" | "detalhe" | "codigo" | "status" | "eco";
 
 export interface Bloco {
   tipo: BlocoTipo;
@@ -41,9 +41,13 @@ const STATUS = /^\s*[✻✳✽*]\s+\w.*\b(for|por)\s+\d+/;
 /** Linha de diff/código: número de linha (com + ou -) e depois conteúdo. */
 const CODIGO = /^\s{2,}\d+\s*[+-]?\s/;
 
-/** O eco do prompt do humano, que o CLI reimprime na tela. Some: a mensagem do
- *  humano já é desenhada como bolha, e mostrar as duas é a mesma frase duas
- *  vezes na mesma conversa. */
+/** O eco do prompt do humano, que o CLI reimprime na tela.
+ *
+ *  Vira um bloco `eco` em vez de sumir. Descartá-lo parecia certo — a mensagem
+ *  já aparece como bolha ao ser enviada — mas a AgentAPI só guarda a TELA do
+ *  terminal: ao recarregar a página, o eco era o único vestígio do que a pessoa
+ *  tinha pedido, e a conversa voltava contando só um lado. Quem desenha decide
+ *  se mostra (e deduplica contra a bolha da sessão). */
 const ECO = /^❯\s/;
 
 /** Passo do agente. */
@@ -87,7 +91,13 @@ export function parseAgentScreen(bruto: string): Bloco[] {
     if (dentroDoEco) {
       // A continuação do eco é uma linha indentada; qualquer marcador conhecido
       // ou linha em branco encerra.
-      if (linha !== "" && /^\s{2,}\S/.test(linha) && !CODIGO.test(linha)) continue;
+      // A continuação pertence ao MESMO pedido: junta, em vez de virar fala
+      // solta do agente.
+      if (linha !== "" && /^\s{2,}\S/.test(linha) && !CODIGO.test(linha)) {
+        const eco = blocos[blocos.length - 1];
+        if (eco?.tipo === "eco") eco.linhas.push(linha.trim());
+        continue;
+      }
       dentroDoEco = false;
     }
     if (linha === "") {
@@ -100,6 +110,7 @@ export function parseAgentScreen(bruto: string): Bloco[] {
     }
     if (ECO.test(linha)) {
       dentroDoEco = true;
+      blocos.push({ tipo: "eco", linhas: [linha.replace(ECO, "")] });
       continue;
     }
     if (STATUS.test(linha)) empurra("status", linha.replace(/^\s*[✻✳✽*]\s+/, ""));
