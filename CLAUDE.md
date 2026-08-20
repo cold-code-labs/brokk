@@ -1,8 +1,21 @@
 # brokk
 
-Forja de agentes de código autônomos. Monorepo pnpm com vários apps (`apps/api`,
-`apps/web`, `apps/forge`, `apps/chat`, `apps/reviewer`, `apps/enclave-manager`,
-`apps/preview-proxy`).
+Control plane de agentes de código. Monorepo pnpm com três apps: `apps/api`
+(control plane), `apps/web` (workbench) e `apps/reviewer` (Eitri, revisão de PR).
+
+**O runtime não mora aqui.** Desde a ADR 0100 quem roda código é o **Coder**: uma
+*bancada* por projeto (checkout + dev server com HMR + agente + Playwright) num
+workspace provisionado na surtr. O Brokk decide, coordena e mostra.
+
+- quente: `coder.coldcodelabs.com/@brokk/<ws>.main/apps/bancada/` — onde se trabalha
+- frio: `<app>.preview.coldcodelabs.com` (branch `preview`) e `<app>.coldcodelabs.com`
+  (branch `main`) — build no push, com o BaaS montado junto
+
+O template da bancada é versionado em `deploy/coder/bancada`. Empurrar uma versão:
+
+```bash
+coder templates push bancada -d deploy/coder/bancada --yes
+```
 
 ## Rodar
 
@@ -18,7 +31,7 @@ Ambos em `main`, **path-scoped**:
 | app | observa |
 |---|---|
 | `brokk-core` | `apps/web/**`, `apps/api/**`, `packages/**`, lockfiles, `docker-compose.core.yml` |
-| `brokk-forge` | `apps/forge/**`, `apps/chat/**`, `apps/reviewer/**`, `apps/enclave-manager/**`, `apps/preview-proxy/**`, `tools/**` |
+| `brokk-forge` | `apps/reviewer/**`, `tools/**` — **só o Eitri sobrou aqui**, e o compose dele é `docker-compose.reviewer.yml` (o app do Coolify mantém o nome antigo: renomear app é trocar o handle que a frota usa para deployar) |
 
 Quem serve `brokk.coldcodelabs.com` é o **`brokk-core`**. Um terceiro app (`brokk`), com
 build mal configurado e 25 falhas seguidas sem servir nada, foi removido em 18/08/2026 —

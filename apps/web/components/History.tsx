@@ -27,7 +27,7 @@ export default function History() {
         ]);
         const userById = Object.fromEntries(users.map((u) => [u.id, u.name]));
         const map: Record<string, string> = {};
-        for (const s of subs) map[s.id] = userById[s.userId] ?? s.label;
+        for (const s of subs) map[s.id] = (s.userId ? userById[s.userId] : null) ?? s.label;
         const withRuns = await Promise.all(
           tasks.map(async (task) => ({ task, latest: (await brokk.listTaskRuns(task.id).catch(() => []))[0] })),
         );

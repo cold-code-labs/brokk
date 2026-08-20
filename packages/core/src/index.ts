@@ -320,6 +320,10 @@ export interface Task {
    *  created this card (the real quotes, incl. any live correction) — the immutable
    *  source the analyst curates citations from. Empty for non-meeting cards. */
   evidence: AnalysisEvidence[];
+  /** Idempotency key of the request that created this card (ADR 0087 ops face):
+   *  a caller that retries the same job gets the SAME card back instead of a
+   *  duplicate. Null for cards created by hand. */
+  dedupeKey: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1442,4 +1446,47 @@ export function missionCardsSettled(progress: MissionProgress): boolean {
     progress.review === 0 &&
     progress.backlog === 0
   );
+}
+
+// ── Bancada (ADR 0100) ──────────────────────────────────────────────────────────
+
+/** Lifecycle of a hot environment, as the control plane records it. Coder is
+ *  always the authority on whether the workspace is actually up — this is what
+ *  Brokk last observed, plus the reason when it went wrong. */
+export type BancadaStatus = "provisioning" | "ready" | "failed" | "stopped" | "deleting";
+
+export const BANCADA_STATUSES: readonly BancadaStatus[] = [
+  "provisioning",
+  "ready",
+  "failed",
+  "stopped",
+  "deleting",
+];
+
+/** A bancada: the project's live workbench — checkout, dev server with HMR, the
+ *  AI agent and the browser that verifies it, inside one Coder workspace. */
+export interface Bancada {
+  id: string;
+  projectId: string;
+  /** Working lane (`dev`, or `card-<id>` for an isolated one). */
+  lane: string;
+  /** Branch the workspace checks out and the agent pushes to. */
+  branch: string;
+  /** Coder workspace id — null while the row exists but nothing was provisioned. */
+  workspaceId: string | null;
+  workspaceName: string;
+  ownerName: string | null;
+  /** Hauldr lane (dev BaaS) this bancada is wired to, when it has one. */
+  hauldrProject: string | null;
+  status: BancadaStatus;
+  detail: string | null;
+  /** Hot preview URL (served by path off the Coder deployment). */
+  previewUrl: string | null;
+  /** AgentAPI URL. Proxied by Brokk; never handed to a browser. */
+  agentUrl: string | null;
+  runtimeId: string | null;
+  commitSha: string | null;
+  lastActivityAt: string;
+  createdAt: string;
+  updatedAt: string;
 }

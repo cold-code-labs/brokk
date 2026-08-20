@@ -26,7 +26,6 @@ services:
       BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:-}
       BROKK_API_SECRET: ${BROKK_API_SECRET:-}
       BROKK_GITHUB_WEBHOOK_SECRET: ${BROKK_GITHUB_WEBHOOK_SECRET:-}
-      BROKK_SINDRI_URL: ${BROKK_SINDRI_URL:-http://brokk-chat:8795}
       EITRI_URL: ${EITRI_URL:-http://reviewer:8796}
       BROKK_DEFAULT_REPO: ${BROKK_DEFAULT_REPO:-}
       BROKK_DEFAULT_BRANCH: ${BROKK_DEFAULT_BRANCH:-main}
@@ -48,6 +47,21 @@ services:
       HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
       SVALINN_API_URL: ${SVALINN_API_URL:-http://svalinn-web:3000}
       SVALINN_MACHINE_TOKEN: ${SVALINN_MACHINE_TOKEN:-}
+
+      # O runtime (ADR 0100). Sem CODER_URL/TOKEN o /bancadas responde 503.
+      CODER_URL: ${CODER_URL:-https://coder.coldcodelabs.com}
+      CODER_TOKEN: ${CODER_TOKEN:-}
+      CODER_TEMPLATE: ${CODER_TEMPLATE:-bancada}
+      BROKK_INTERNAL_URL: ${BROKK_INTERNAL_URL:-http://brokk-api:8789}
+      BANCADA_IDLE_MS: ${BANCADA_IDLE_MS:-2700000}
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
+      # ⚠️ Quem abre PR e entrega credencial de git à bancada agora é ESTE
+      # processo. A chave vai INLINE: este app do Coolify não é o que tinha o
+      # volume com o .pem, e semear volume à mão é como segredo vira folclore.
+      EITRI_APP_ID: ${EITRI_APP_ID:-}
+      EITRI_APP_PRIVATE_KEY: ${EITRI_APP_PRIVATE_KEY:-}
+      BROKK_GITHUB_APP_ID: ${BROKK_GITHUB_APP_ID:-}
+      BROKK_GITHUB_APP_PRIVATE_KEY: ${BROKK_GITHUB_APP_PRIVATE_KEY:-}
     healthcheck:
       test:
       - CMD-SHELL

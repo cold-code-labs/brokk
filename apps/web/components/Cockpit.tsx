@@ -8,7 +8,7 @@ import { prettyProjectName } from "../lib/house";
 import { useProject } from "../lib/project-context";
 import { brokk } from "../lib/api";
 import Fleet from "./Fleet";
-import Chat from "./Chat";
+import BancadaPanel from "./Bancada";
 
 const Board = dynamic(() => import("./Board"), { ssr: false });
 
@@ -66,9 +66,10 @@ function PreviewStage() {
     let alive = true;
     (async () => {
       try {
-        const ps = await brokk.listPreviews(project.id);
-        const live = ps.find((x) => x.status === "live");
-        if (alive) setSub(live?.subdomain ?? null);
+        const res = await fetch(`/api/bancadas?projectId=${project.id}`);
+        const rows: { status: string; previewUrl: string | null }[] = res.ok ? await res.json() : [];
+        const ready = rows.find((b) => b.status === "ready" && b.previewUrl);
+        if (alive) setSub(ready?.previewUrl ?? null);
       } catch {
         if (alive) setSub(null);
       }
@@ -86,7 +87,7 @@ function PreviewStage() {
   if (!sub) {
     return (
       <div className="cockpit-empty">
-        Sem preview ao vivo para <strong>{prettyProjectName(project.name)}</strong>.
+        Sem bancada no ar para <strong>{prettyProjectName(project.name)}</strong>.
       </div>
     );
   }
@@ -94,7 +95,7 @@ function PreviewStage() {
     <div className="cockpit-preview-frame">
       <iframe
         title={`Preview ${project.name}`}
-        src={`/preview-gate/${encodeURIComponent(sub)}`}
+        src={sub}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
       />
     </div>
@@ -126,23 +127,23 @@ function CockpitInner() {
   return (
     <div className={`cockpit${showChat ? " is-chat" : ""}`}>
       {showChat && current ? (
-        <aside className="cockpit-chat" aria-label="Sindri">
+        <aside className="cockpit-chat" aria-label="Bancada">
           <div className="cockpit-chat-head">
             <div className="cockpit-chat-who">
-              <span className="cockpit-chat-kicker">Sindri</span>
+              <span className="cockpit-chat-kicker">Bancada</span>
               <strong>{prettyProjectName(current.name)}</strong>
             </div>
             <button
               type="button"
               className="cockpit-chat-close"
               onClick={closeChat}
-              aria-label="Fechar chat"
+              aria-label="Fechar bancada"
             >
               <X size={16} />
             </button>
           </div>
           <div className="cockpit-chat-body">
-            <Chat mode="rail" />
+            <BancadaPanel projectId={current.id} variant="rail" />
           </div>
         </aside>
       ) : null}
@@ -158,7 +159,7 @@ function CockpitInner() {
   );
 }
 
-/** House cockpit — Chat rail + adaptive stage (House | Preview | Forge). */
+/** House cockpit — trilho da bancada + palco adaptativo (House | Preview | Forge). */
 export default function Cockpit() {
   return <CockpitInner />;
 }

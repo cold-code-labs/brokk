@@ -1,10 +1,9 @@
 import type { Store } from "@brokk/db";
+import type { BancadaService } from "./bancada.js";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { version } from "../package.json";
-import { chatRoutes } from "./routes/chat.js";
 import { conversationsRoutes } from "./routes/conversations.js";
-import { driverRunsRoutes } from "./routes/driver-runs.js";
 import { fleetRoutes } from "./routes/fleet.js";
 import { githubRoutes } from "./routes/github.js";
 import { missionsRoutes } from "./routes/missions.js";
@@ -12,7 +11,6 @@ import { plansRoutes } from "./routes/plans.js";
 import { previewsRoutes } from "./routes/previews.js";
 import { projectsRoutes } from "./routes/projects.js";
 import { repositoriesRoutes } from "./routes/repositories.js";
-import { runnerRoutes } from "./routes/runner.js";
 import { runsRoutes } from "./routes/runs.js";
 import { secretEquals } from "./secrets.js";
 import { studioRoutes } from "./routes/studio.js";
@@ -20,13 +18,19 @@ import { subscriptionsRoutes } from "./routes/subscriptions.js";
 import { tasksRoutes } from "./routes/tasks.js";
 import { usersRoutes } from "./routes/users.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
+import { bancadasRoutes } from "./routes/bancadas.js";
 import { ingressRoutes } from "./routes/ingress.js";
 import { opsRoutes } from "./routes/ops.js";
 import { svalinnRoutes } from "./routes/svalinn.js";
 
 export interface AppDeps {
   store: Store;
-  /** Shared secret guarding the runner endpoints. Empty = runner endpoints 503. */
+  /** The Coder runtime (ADR 0100). Absent = /bancadas answers 503; the control
+   *  plane still serves everything else. */
+  bancadas?: BancadaService;
+  /** Shared secret of the old runner hop. Kept only because `previews` writes
+   *  still accept it while the cold environments move to Heimdall; nothing in
+   *  this repo presents it anymore. */
   runnerSecret: string;
   /** Bearer secret guarding API calls when set (GET included). The web
    *  proxy injects it server-side. Empty = open (local/dev). */
@@ -37,9 +41,6 @@ export interface AppDeps {
   githubToken?: string;
   /** Base URL of Eitri HTTP trigger (e.g. http://reviewer:8796). Empty = skip. */
   eitriUrl?: string;
-  /** Base URL of the Sindri chat runtime (e.g. http://127.0.0.1:8795). Empty =
-   *  /chat returns 503. */
-  sindriUrl?: string;
   /** Hauldr control-plane base URL + bearer, for the read-only Studio (resolve a
    *  preview's Hauldr project → dbUrl → introspect). Both empty = /studio off. */
   /** Heimdall's WEB base — the Studio resolves a dev lane's db url through the
@@ -51,6 +52,9 @@ export interface AppDeps {
    *  /conversations → 503. */
   heimdallUrl?: string;
   heimdallToken?: string;
+  /** Mint a short-lived GitHub token for a repo (GitHub App). Used to read a
+   *  repository's manifests when deciding its runtime, and to open PRs. */
+  mintGitToken?: (repoFullName: string) => Promise<string | null>;
   /** Svalinn machine API (ADR 0087 federation). Empty token → /svalinn 503. */
   svalinnApiUrl?: string;
   svalinnMachineToken?: string;
@@ -116,28 +120,17 @@ export function buildApp(deps: AppDeps): Hono {
     if (c.req.method === "OPTIONS") return next();
     const path = c.req.path;
     if (PUBLIC_PROBES.has(path)) return next();
-    // /runner, /webhooks and /previews self-authenticate (runner secret / GitHub
-    // HMAC), so they're exempt from the api-secret guard. /previews carries the
-    // preview lifecycle that the gateway (wake POST) and runner (status PATCH)
-    // drive with the runner secret — guarding it here 401s those internal writes
-    // and freezes the whole preview lane.
-    // The runner ALSO reports run progress + completion via POST /runs/:id/events
-    // and /runs/:id/complete, authenticating with the runner secret (each route has
-    // its own requireRunnerSecret guard). Guarding them here 401s every forge's
-    // event stream + completion, so the run never leaves "running" and the PR is
-    // never recorded. Exempt exactly those two runner-driven /runs writes — NOT
-    // /runs/from-brief, which the web proxy drives with the api secret.
-    const isRunnerRunWrite =
-      path.startsWith("/runs/") && (path.endsWith("/events") || path.endsWith("/complete"));
+    // Só duas isenções sobrevivem, e cada uma se autentica sozinha:
+    //   • /webhooks  — HMAC do GitHub
+    //   • /bancadas/git-credential — o segredo daquela bancada
+    // As antigas (/runner, /driver-runs, /previews e as duas escritas de /runs)
+    // existiam para o forge, que morreu com a ADR 0100. Cada uma delas foi
+    // acrescentada DEPOIS de quebrar produção — a do PR #118 foi a quarta — e
+    // todas eram por PREFIXO, o que pré-autoriza qualquer rota futura embaixo
+    // daquele caminho. A de baixo é por caminho EXATO, de propósito.
     if (
-      path.startsWith("/runner") ||
       path.startsWith("/webhooks") ||
-      path.startsWith("/previews") ||
-      // /driver-runs (ADR 0054): the forge claims + reports with the runner
-      // secret; the route has its own requireRunnerOrApiSecret. Guarding here
-      // would 401 the forge's claim/status writes and freeze the driver lane.
-      path.startsWith("/driver-runs") ||
-      isRunnerRunWrite
+      path === "/bancadas/git-credential"
     )
       return next();
     const token = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
@@ -152,18 +145,16 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/projects", projectsRoutes(deps));
   app.route("/plans", plansRoutes(deps));
   app.route("/previews", previewsRoutes(deps));
-  app.route("/driver-runs", driverRunsRoutes(deps));
-  app.route("/chat", chatRoutes(deps));
   app.route("/users", usersRoutes(deps));
   app.route("/subscriptions", subscriptionsRoutes(deps));
   app.route("/tasks", tasksRoutes(deps));
   app.route("/missions", missionsRoutes(deps));
   app.route("/runs", runsRoutes(deps));
+  app.route("/bancadas", bancadasRoutes(deps));
   app.route("/ingress", ingressRoutes(deps));
   app.route("/ops", opsRoutes(deps));
   app.route("/svalinn", svalinnRoutes(deps));
   app.route("/studio", studioRoutes(deps));
-  app.route("/runner", runnerRoutes(deps));
   app.route("/webhooks", webhooksRoutes(deps));
 
   return app;

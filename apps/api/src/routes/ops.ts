@@ -302,7 +302,7 @@ export function opsRoutes(deps: AppDeps): Hono {
     const task = await deps.store.insertTask({
       projectId: project.id,
       title: title ?? brief.split("\n")[0]!.slice(0, 200),
-      brief,
+      body: brief,
       status: body.proposedOnly ? "backlog" : "queued",
       owner: "brokk",
       createdBy,

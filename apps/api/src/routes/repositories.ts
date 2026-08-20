@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { requestActor, canSeeProject, listScope, orgTenancyEnabled } from "../actor.js";
 import type { AppDeps } from "../app.js";
-import { fireHuginnDiscovery } from "../huginn-fire.js";
+import { resolveProjectRuntime } from "../runtime-detect.js";
 import { loadAppAuth, listInstallationRepositories } from "../github.js";
 
 const run = promisify(execFile);
@@ -287,9 +287,10 @@ export async function connectOne(
       heimdallAppId: opts?.heimdallAppId ?? null,
       logtoOrgId: logtoOrgId ?? repo.logtoOrgId ?? null,
     });
-    // Huginn Discovery (ADR 0067): brief always; QA only after Hero on prototypes
-    // (devFirst) — cataloguing the empty template wastes the board.
-    fireHuginnDiscovery(deps, project.id, { skipQa: opts?.devFirst ?? false });
+    // Como rodar este repositório é decidido AGORA, direto da API do GitHub —
+    // sem checkout e sem LLM (ADR 0100). Um projeto sem runtime não ganha
+    // bancada, então descobrir isso na conexão é o que evita a recusa depois.
+    void resolveProjectRuntime(deps, project.id).catch(() => {});
   } else if (project && opts?.heimdallAppId && !project.heimdallAppId) {
     project = await deps.store.setProjectHeimdallAppId(project.id, opts.heimdallAppId);
   }

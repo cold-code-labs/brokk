@@ -182,6 +182,27 @@ export function buildDetectCtx(dir: string): DetectCtx {
   return { dir, files, pkg, read };
 }
 
+/** Same context, from a source that is not the local disk — a tree listing plus
+ *  a `read` the caller already resolved. The control plane builds one straight
+ *  off the GitHub API, which is how a repo's runtime can be decided BEFORE any
+ *  machine exists to check it out. */
+export function buildDetectCtxFrom(input: {
+  dir?: string;
+  files: string[];
+  read: (rel: string) => string | null;
+}): DetectCtx {
+  let pkg: Record<string, unknown> | undefined;
+  const raw = input.read("package.json");
+  if (raw) {
+    try {
+      pkg = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      pkg = undefined;
+    }
+  }
+  return { dir: input.dir ?? ".", files: input.files, pkg, read: input.read };
+}
+
 // ── The fast-path — a canonical match emits the preset, no LLM pass ─────────────
 
 /** All declared dependency names from a package.json (deps + devDeps + peer). */

@@ -1,0 +1,86 @@
+# GENERATED from docker-compose.coolify.yml — deploy-type split (ADR 0034 / Phase 3).
+# Do not hand-edit; regenerate. See midgard compose/brokk/README.md.
+#
+# Depois da ADR 0100 sobrou UM serviço aqui: o Eitri (revisão de PR). O forge, o
+# chat, o enclave-manager e o preview-proxy foram removidos — quem roda código
+# agora é o Coder. O app do Coolify continua se chamando `brokk-forge` porque
+# renomear app é trocar o handle que a frota inteira usa para deployar.
+name: brokk-forge   # o nome do app no Coolify; o forge morreu, o Eitri ficou
+networks:
+  default: null
+  coolify:
+    external: true
+  litellm:
+    external: true
+    name: cbte3k2aufcrd3o664v33y7g
+volumes:
+  brokk_home: null
+services:
+  reviewer:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: apps/reviewer/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
+    image: brokk-reviewer:coolify
+    mem_limit: 2g
+    cpus: 1.5
+    cap_add:
+    - NET_ADMIN
+    environment:
+      HOME: /home/brokk
+      # Preview installs run as a dropped (non-root) uid; the image's default pnpm
+      # store (/pnpm) is root-owned, so a FRESH install (new app, ADR 0038 Nova
+      # Conversa) hits EPERM chmod'ing hardlinked store bins. Point the store +
+      # caches at the 1001-owned work volume so fresh installs own their files.
+      COREPACK_HOME: /home/brokk/work/.cache/corepack
+      XDG_CACHE_HOME: /home/brokk/work/.cache
+      XDG_DATA_HOME: /home/brokk/work/.local
+      npm_config_cache: /home/brokk/work/.cache/npm
+      npm_config_store_dir: /home/brokk/work/.pnpm-store
+      BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://brokk-api:8789}
+      BROKK_RUNNER_SECRET: ${BROKK_RUNNER_SECRET:?set in Coolify}
+      BROKK_RUNNER_WORKDIR: ${BROKK_RUNNER_WORKDIR:-/home/brokk/work}
+      BROKK_RUNNER_HOST: ${BROKK_RUNNER_HOST:-surtr}
+      BROKK_DATABASE_URL: ${BROKK_DATABASE_URL:?set in Coolify}
+      BROKK_SECRETS_KEY: ${BROKK_SECRETS_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      BROKK_GIT_NAME: ${BROKK_GIT_NAME:-Brokk}
+      BROKK_GIT_EMAIL: ${BROKK_GIT_EMAIL:-brokk@coldcodelabs.com}
+      BROKK_DEFAULT_REPO: ${BROKK_DEFAULT_REPO:-}
+      BROKK_DEFAULT_BRANCH: ${BROKK_DEFAULT_BRANCH:-main}
+      BROKK_BROWSER: ${BROKK_BROWSER:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      ANTHROPIC_AUTH_TOKEN: ${ANTHROPIC_AUTH_TOKEN:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      ANTHROPIC_DEFAULT_SONNET_MODEL: ${ANTHROPIC_DEFAULT_SONNET_MODEL:-}
+      ANTHROPIC_DEFAULT_OPUS_MODEL: ${ANTHROPIC_DEFAULT_OPUS_MODEL:-}
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: ${ANTHROPIC_DEFAULT_HAIKU_MODEL:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-}
+      BROKK_ENCLAVE_BACKEND: ${BROKK_ENCLAVE_BACKEND:-local}
+      BROKK_ENCLAVE_MANAGER_URL: ${BROKK_ENCLAVE_MANAGER_URL:-http://enclave-manager:8795}
+      BROKK_ENCLAVE_MANAGER_TOKEN: ${BROKK_ENCLAVE_MANAGER_TOKEN:-}
+      HEIMDALL_AGENT_URL: ${HEIMDALL_AGENT_URL:-}
+      HEIMDALL_AGENT_TOKEN: ${HEIMDALL_AGENT_TOKEN:-}
+      # Lane backend comes from Heimdall (scoped), not from HAULDR_TOKEN. This
+      # is a URL, not a credential: the preview applies its OWN migrations with
+      # its per-project migrate token.
+      HAULDR_CONTROL_URL: ${HAULDR_CONTROL_URL:-}
+      BROKK_EGRESS: '1'
+      EITRI_MODE: ${EITRI_MODE:-trigger}
+      EITRI_PORT: ${EITRI_PORT:-8796}
+      EITRI_APP_ID: ${EITRI_APP_ID:-}
+      EITRI_APP_PRIVATE_KEY_FILE: ${EITRI_APP_PRIVATE_KEY_FILE:-/home/brokk/eitri-app.pem}
+      EITRI_PROMOTE: ${EITRI_PROMOTE:-}
+      # APPROVE|COMMENT → squash-merge (not REQUEST_CHANGES). Default on unless "false".
+      EITRI_AUTO_MERGE: ${EITRI_AUTO_MERGE:-true}
+      BROKK_DEFAULT_MODEL: ${BROKK_DEFAULT_MODEL:-}
+    volumes:
+    - brokk_home:/home/brokk
+    networks:
+    - default
+    - coolify
+    - litellm

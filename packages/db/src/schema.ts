@@ -716,3 +716,66 @@ export const mimirTriage = pgTable("mimir_triage", {
   triageModel: text("triage_model"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Bancadas (ADR 0100) ─────────────────────────────────────────────────────────
+// The hot environment: one Coder workspace per (project, lane), holding the
+// checkout, the dev server with HMR, the AI agent and the browser that verifies
+// it. Brokk decides and records; Coder runs. The row is the control plane's
+// handle on a workspace — never the source of truth for whether it is up, which
+// is always re-read from Coder.
+
+export const bancadas = pgTable(
+  "bancadas",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** Working lane. `dev` is the shared one; a card that needs isolation gets
+     *  its own (`card-<id>`), which is also the branch the agent pushes. */
+    lane: text("lane").notNull().default("dev"),
+    branch: text("branch").notNull(),
+    /** Coder's ids. `workspaceId` is null between "row created" and "build
+     *  queued" — the window where provisioning can still fail with nothing to
+     *  clean up. */
+    workspaceId: text("workspace_id"),
+    workspaceName: text("workspace_name").notNull(),
+    /** Coder user that owns the workspace. Brokk is the only Coder client, so
+     *  today this is always the service account — kept explicit because the app
+     *  URL is addressed by owner. */
+    ownerName: text("owner_name"),
+    /** provisioning · ready · failed · stopped · deleting. Plain text (not an
+     *  enum) so the boot-time self-heal DDL stays a trivial CREATE IF NOT
+     *  EXISTS on the shared db_brokk — the same reason chat_sessions is. */
+    status: text("status").notNull().default("provisioning"),
+    /** Why, when status is failed/stopped. */
+    detail: text("detail"),
+    /** Hot preview, served BY PATH off the Coder deployment. */
+    previewUrl: text("preview_url"),
+    /** AgentAPI face of the agent living inside. Brokk proxies it; it is never
+     *  handed to a browser. */
+    agentUrl: text("agent_url"),
+    /** sha256 of the per-bancada secret the workspace presents to broker a git
+     *  credential. Only the hash is stored: the plaintext is handed to the
+     *  workspace once, at build time, as an ephemeral parameter. */
+    tokenHash: text("token_hash"),
+    /** Hauldr lane (dev BaaS project) this bancada is wired to. */
+    hauldrProject: text("hauldr_project"),
+    /** Runtime id the recipe was built from — enough to explain a bancada
+     *  without re-reading the project. */
+    runtimeId: text("runtime_id"),
+    /** Tip the workspace last checked out. */
+    commitSha: text("commit_sha"),
+    /** Bumped on every interaction. A bancada idle past the TTL is stopped —
+     *  a dev server must not run unattended on someone else's bill. */
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    /** One bancada per lane. Two workspaces on the same branch would fight over
+     *  the same push. */
+    laneUniq: unique("bancadas_project_lane_uniq").on(t.projectId, t.lane),
+    project: index("bancadas_project_idx").on(t.projectId),
+  }),
+);
