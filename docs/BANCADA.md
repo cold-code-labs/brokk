@@ -52,6 +52,25 @@ curl -X DELETE "$BROKK/bancadas/<id>"
    recriada (segredo novo) ou apagada; um 503 significa GitHub App sem chave no
    `brokk-api`.
 
+## O agente não responde
+
+Se `POST /bancadas/:id/agent` volta 502 com `failed to wait for screen to
+stabilize`, o CLI está **parado numa tela** — quase sempre o aviso do modo
+bypass. A AgentAPI responde `stable` nesse estado, então nenhum status
+distingue "pronto" de "travado"; a única leitura que conta é o texto da última
+mensagem.
+
+A bancada responde esse diálogo sozinha no boot (`/tmp/bypass.log` dentro do
+workspace conta o que aconteceu). Se aparecer OUTRA tela, o Brokk **não digita
+no escuro**: loga o que estava escrito e para. A opção destacada naquele menu é
+"1. No, exit" — um Enter cego mataria o agente.
+
+⚠️ Pré-aceitar por arquivo NÃO funciona: `bypassPermissionsModeAccepted` e
+`hasTrustDialogAccepted` ficam `true` no `~/.claude.json` e o CLI 2.1.237 mostra
+o aviso assim mesmo (medido 20/08). E o flag `--dangerously-skip-permissions`
+não é removível: com `report_tasks` ligado — exigido pelo `coder_ai_task` — o
+módulo o passa cravado.
+
 ## Segredo com quebra de linha
 
 ⚠️ A chave do GitHub App vai na env **em uma linha**, com `\n` escapado. O
