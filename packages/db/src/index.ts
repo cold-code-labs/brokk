@@ -592,6 +592,9 @@ export interface Store {
   insertRepository(values: typeof repositories.$inferInsert): Promise<Repository>;
   /** Refresh the warm repo map (#4) — called by the runner after a forge. */
   setRepoMap(id: string, map: string): Promise<void>;
+  /** Stamp the GitHub App installation that covers this repo. Cura linhas
+   *  legadas: a coluna nasceu depois de metade da frota já estar conectada. */
+  setRepositoryInstallation(id: string, installationId: string): Promise<void>;
 
   // repo memory (#2): facts learned about a repo, persisted across runs
   /** Top memories for a repo, highest-weight first (for planner + forge context). */
@@ -1179,6 +1182,12 @@ export function createStore(db: Db): Store {
     async insertRepository(values) {
       const rows = await db.insert(repositories).values(values).returning();
       return rowToRepository(rows[0]!);
+    },
+    async setRepositoryInstallation(id, installationId) {
+      await db
+        .update(repositories)
+        .set({ installationId, updatedAt: new Date() })
+        .where(eq(repositories.id, id));
     },
     async setRepoMap(id, map) {
       await db
