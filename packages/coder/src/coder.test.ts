@@ -108,8 +108,22 @@ describe("CoderClient", () => {
     const calls = fakeFetch({
       "POST /@brokk/arte-dev.main/apps/ccw/message": { body: { ok: true } },
     });
-    assert.equal(await client().agentSend(ws(), "olá"), true);
+    assert.deepEqual(await client().agentSend(ws(), "olá"), { ok: true });
     assert.deepEqual(calls[0]?.body, { content: "olá", type: "user" });
+  });
+
+  it("devolve o MOTIVO de uma recusa, não só um falso", async () => {
+    // Um envio recusado separa "o agente está pensando" de "o agente está parado
+    // numa tela esperando Enter" — e as duas exigem ações opostas.
+    fakeFetch({
+      "POST /@brokk/arte-dev.main/apps/ccw/message": {
+        status: 500,
+        body: { errors: [{ message: "failed to wait for screen to stabilize" }] },
+      },
+    });
+    const out = await client().agentSend(ws(), "olá");
+    assert.equal(out.ok, false);
+    assert.match(out.reason ?? "", /stabilize/);
   });
 
   it("reports `unknown` when the agent app does not answer", async () => {
