@@ -285,12 +285,23 @@ export class BancadaService {
   }
 
   /** Send a turn. Bumps activity so the idle reaper doesn't stop a bancada
-   *  someone is actively talking to. */
-  async agentSend(bancada: Bancada, content: string): Promise<boolean> {
+   *  someone is actively talking to.
+   *
+   *  Se o CLI estiver parado numa tela de confirmação, a AgentAPI recusa com
+   *  "failed to wait for screen to stabilize" — e reporta `stable` ao mesmo
+   *  tempo, então não dá para saber antes de tentar. Nesse caso a gente aperta
+   *  Enter e tenta UMA vez. Uma, não em laço: se a tela não é essa, insistir só
+   *  digita lixo no terminal do agente. */
+  async agentSend(bancada: Bancada, content: string): Promise<{ ok: boolean; reason?: string }> {
     const ws = await this.workspaceOf(bancada);
-    const ok = await this.deps.coder.agentSend(ws, content);
-    if (ok) await this.deps.store.touchBancada(bancada.id);
-    return ok;
+    let res = await this.deps.coder.agentSend(ws, content);
+    if (!res.ok && /stabilize/i.test(res.reason ?? "")) {
+      console.warn(`[bancada] ${bancada.workspaceName}: agente parado numa tela — mandando Enter`);
+      await this.deps.coder.agentKey(ws);
+      res = await this.deps.coder.agentSend(ws, content);
+    }
+    if (res.ok) await this.deps.store.touchBancada(bancada.id);
+    return res;
   }
 
   // ── git, brokered ───────────────────────────────────────────────────────────

@@ -146,8 +146,11 @@ export function bancadasRoutes(deps: AppDeps): Hono {
     const parsed = MessageBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: "invalid body" }, 400);
     try {
-      const ok = await deps.bancadas.agentSend(bancada!, parsed.data.content);
-      return ok ? c.json({ ok: true }) : c.json({ error: "o agente não aceitou a mensagem" }, 502);
+      const res = await deps.bancadas.agentSend(bancada!, parsed.data.content);
+      if (res.ok) return c.json({ ok: true });
+      // O motivo vai junto: "não aceitou a mensagem" sozinho manda a pessoa
+      // procurar no lugar errado.
+      return c.json({ error: `o agente não aceitou a mensagem: ${res.reason ?? "sem motivo"}` }, 502);
     } catch (err) {
       return refused(c, err);
     }

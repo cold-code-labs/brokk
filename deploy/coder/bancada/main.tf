@@ -240,6 +240,21 @@ resource "coder_agent" "main" {
     { "permissions": { "defaultMode": "acceptEdits" } }
     JSON
 
+    # ⚠️ O módulo roda o CLI com `--dangerously-skip-permissions`, que abre uma
+    # TELA DE AVISO esperando confirmação. Sem aceitar de antemão, o agente fica
+    # parado nela: a AgentAPI responde `stable` (parece pronto!) e todo envio de
+    # mensagem morre em 500 `failed to wait for screen to stabilize` — medido
+    # 20/08. A aceitação mora no ~/.claude.json, e é escrita ANTES do módulo subir.
+    node -e '
+      const fs = require("fs");
+      const f = process.env.HOME + "/.claude.json";
+      let j = {};
+      try { j = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
+      j.bypassPermissionsModeAccepted = true;
+      j.hasCompletedOnboarding = true;
+      fs.writeFileSync(f, JSON.stringify(j, null, 2));
+    '
+
     eval "$INSTALL_CMD"
 
     # ── o navegador que verifica ──────────────────────────────────────────────

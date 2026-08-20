@@ -278,17 +278,36 @@ export class CoderClient {
   }
 
   /** Send a turn to the agent. `type: "user"` is a prompt; `"raw"` is keystrokes
-   *  fed to the TTY (how you answer an interactive prompt without a terminal). */
+   *  fed to the TTY (how you answer an interactive prompt without a terminal).
+   *
+   *  Devolve `{ok:false, reason}` em vez de só `false`: um envio recusado é a
+   *  diferença entre "o agente está pensando" e "o agente está parado numa tela
+   *  esperando alguém apertar Enter", e essas duas coisas exigem ações opostas. */
   async agentSend(
     ws: CoderWorkspace,
     content: string,
     opts?: { slug?: string; type?: "user" | "raw" },
-  ): Promise<boolean> {
+  ): Promise<{ ok: boolean; reason?: string }> {
     const res = await this.raw(
       "POST",
       this.appPath(ws, opts?.slug ?? AGENT_APP_SLUG, "message"),
       { content, type: opts?.type ?? "user" },
       { timeoutMs: 30_000 },
+    );
+    if (res.ok) return { ok: true };
+    const body = await res.text().catch(() => "");
+    return { ok: false, reason: `${res.status} ${body.slice(0, 300)}` };
+  }
+
+  /** Manda uma tecla crua para o TTY do agente. Existe para UMA coisa: destravar
+   *  um CLI parado numa tela de confirmação — a AgentAPI reporta `stable` nesse
+   *  estado, então nenhuma leitura de status distingue "pronto" de "travado". */
+  async agentKey(ws: CoderWorkspace, key = "\r", slug = AGENT_APP_SLUG): Promise<boolean> {
+    const res = await this.raw(
+      "POST",
+      this.appPath(ws, slug, "message"),
+      { content: key, type: "raw" },
+      { timeoutMs: 15_000 },
     );
     return res.ok;
   }

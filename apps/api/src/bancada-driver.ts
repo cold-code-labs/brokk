@@ -157,8 +157,11 @@ async function dispatch(deps: BancadaDriverDeps, task: Task): Promise<void> {
 
   const base = task.baseBranch || project.baseBranch || "dev";
   const branch = cardBranch(task);
-  const ok = await deps.bancadas.agentSend(bancada, briefing(task, branch, base));
-  if (!ok) return;
+  const enviado = await deps.bancadas.agentSend(bancada, briefing(task, branch, base));
+  if (!enviado.ok) {
+    console.warn(`[driver] ${task.id}: agente recusou o briefing — ${enviado.reason ?? "sem motivo"}`);
+    return;
+  }
 
   const run = await deps.store.insertRun({
     taskId: task.id,
