@@ -23,6 +23,12 @@ import type { Task } from "@brokk/core";
 import type { Store } from "@brokk/db";
 import type { BancadaService } from "./bancada.js";
 
+/** Quanto tempo esperar antes de tentar de novo uma bancada que falhou ao subir.
+ *  Sem isto o laço chama `ensure` a cada tick: cada chamada cunha segredo novo e
+ *  manda o Coder buildar de novo — um projeto quebrado vira martelo em cima do
+ *  runtime, três vezes por minuto, sem ninguém pedir nada. */
+const RETRY_FALHA_MS = 10 * 60_000;
+
 /** O agente assina a conclusão com esta linha. Reconhecida em qualquer lugar da
  *  resposta — pedir "responda APENAS isto" é como se perde o relatório. */
 const DONE = /BROKK-DONE\s+(\S+)/;
@@ -81,6 +87,25 @@ export function cardBranch(task: Task): string {
   return `brokk/${slug || "card"}-${task.id.slice(0, 8)}`;
 }
 
+/** Vale a pena pedir a bancada agora?
+ *
+ *  Uma que está subindo já está subindo, e uma que acabou de falhar não sobe por
+ *  insistência. Sem este corte o laço chama `ensure` a cada tick: cada chamada
+ *  cunha segredo novo e manda o Coder buildar de novo — um projeto quebrado vira
+ *  martelo em cima do runtime, três vezes por minuto, sem ninguém ter pedido
+ *  nada. */
+export function valeAbrir(
+  bancada: { status: string; updatedAt: string } | null,
+  agora: number,
+): boolean {
+  if (!bancada) return true;
+  if (bancada.status === "provisioning" || bancada.status === "deleting") return false;
+  if (bancada.status === "failed") {
+    return agora - new Date(bancada.updatedAt).getTime() >= RETRY_FALHA_MS;
+  }
+  return true;
+}
+
 export function startBancadaDriver(deps: BancadaDriverDeps): { stop: () => void } {
   const interval = deps.intervalMs ?? 20_000;
   const timeoutMs = deps.timeoutMs ?? 60 * 60_000;
@@ -122,6 +147,10 @@ async function dispatch(deps: BancadaDriverDeps, task: Task): Promise<void> {
   // Uma bancada por projeto está trabalhando por vez.
   const inFlight = await deps.store.listTasks({ projectId: task.projectId, status: "running" });
   if (inFlight.length > 0) return;
+
+  // Só peça uma bancada quando pedir faz sentido.
+  const atual = await deps.store.getBancadaByLane(task.projectId, "dev");
+  if (!valeAbrir(atual, Date.now())) return;
 
   const bancada = await deps.bancadas.ensure(task.projectId);
   if (bancada.status !== "ready") return; // ainda subindo — tenta no próximo tick
