@@ -6,7 +6,12 @@ import { BancadaService } from "./bancada.js";
 import { startBancadaDriver } from "./bancada-driver.js";
 import { startBancadaReaper } from "./bancada-reaper.js";
 import { loadConfig } from "./config.js";
-import { loadAppAuth, getInstallationToken, openPullRequest } from "./github.js";
+import {
+  findInstallationForOwner,
+  getInstallationToken,
+  loadAppAuth,
+  openPullRequest,
+} from "./github.js";
 import { makeHauldrDataProvider, passthroughProvider } from "./lanes/data-provider.js";
 import { HeimdallLanes } from "./lanes/heimdall-lanes.js";
 import { startMissionReconciler } from "./missions.js";
@@ -35,11 +40,25 @@ async function main() {
       : passthroughProvider;
 
   const appAuth = loadAppAuth();
+  // Resolve a instalação do GitHub App para um repositório, curando a linha no
+  // caminho: a frota tem repos conectados antes de a coluna existir, e sem isto
+  // eles respondem 503 como se o App não estivesse configurado.
   const mintGitToken = appAuth
     ? async (fullName: string) => {
         const repo = await store.getRepositoryByFullName(fullName);
-        if (!repo?.installationId) return null;
-        return getInstallationToken(appAuth, repo.installationId);
+        if (!repo) return null;
+        let installationId = repo.installationId;
+        if (!installationId) {
+          installationId = await findInstallationForOwner(appAuth, fullName.split("/")[0] ?? "");
+          if (!installationId) return null;
+          await store
+            .setRepositoryInstallation(repo.id, installationId)
+            .catch(() => {
+              /* carimbar é otimização; o token já foi resolvido */
+            });
+          console.log(`[github] ${fullName}: installation ${installationId} (carimbada)`);
+        }
+        return getInstallationToken(appAuth, installationId);
       }
     : undefined;
   const bancadas =

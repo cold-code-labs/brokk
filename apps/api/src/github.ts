@@ -89,6 +89,28 @@ export async function getInstallationToken(auth: AppAuth, installationId: string
   return r.token;
 }
 
+/** Find the installation that covers a repo's OWNER.
+ *
+ *  Existe porque a frota tem repositórios conectados ANTES de a coluna
+ *  `installation_id` existir (ADR 0064): a linha vem nula e qualquer coisa que
+ *  dependa dela — abrir PR, entregar credencial para a bancada — morre com um
+ *  503 que parece "GitHub App não configurado" e não é. O forge escondia isso
+ *  caindo num `insts[0]` global, que é justamente o que a threading por-org
+ *  removeu. Aqui a busca é explícita e por dono. */
+export async function findInstallationForOwner(
+  auth: AppAuth,
+  owner: string,
+): Promise<string | null> {
+  const jwt = mintJwt(auth);
+  const list = await ghApi<{ id: number; account: { login: string } | null }[]>(
+    "/app/installations",
+    jwt,
+  );
+  const want = owner.toLowerCase();
+  const hit = list.find((i) => (i.account?.login ?? "").toLowerCase() === want);
+  return hit ? String(hit.id) : null;
+}
+
 export interface InstallationInfo {
   id: string;
   accountLogin: string | null;
