@@ -200,6 +200,71 @@ describe("BancadaService.ensure", () => {
   });
 });
 
+describe("BancadaService.refresh", () => {
+  const comApp = (health: string, lifecycle = "ready"): CoderWorkspace => ({
+    ...liveWorkspace,
+    latest_build: {
+      ...liveWorkspace.latest_build,
+      resources: [
+        {
+          id: "r",
+          type: "docker_container",
+          name: "workspace",
+          agents: [
+            {
+              id: "a",
+              name: "main",
+              status: "connected",
+              lifecycle_state: lifecycle as never,
+              apps: [
+                {
+                  id: "app",
+                  slug: "bancada",
+                  subdomain: false,
+                  sharing_level: "authenticated",
+                  health: health as never,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  it("não anuncia pronta enquanto o dev server ainda não responde", async () => {
+    // O agente conectar não é o dev server servir. Anunciar pronta aqui é
+    // mandar a pessoa abrir uma página que ainda não existe.
+    const { store, row } = fakeStore();
+    row.workspaceId = "ws-1";
+    const { coder } = fakeCoder({ workspace: async () => comApp("initializing") });
+    const out = await service(store, coder).refresh({ ...row } as never);
+    assert.equal(out.status, "provisioning");
+  });
+
+  it("anuncia pronta quando o dev server responde", async () => {
+    const { store, row } = fakeStore();
+    row.workspaceId = "ws-1";
+    const { coder } = fakeCoder({ workspace: async () => comApp("healthy") });
+    const out = await service(store, coder).refresh({ ...row } as never);
+    assert.equal(out.status, "ready");
+  });
+
+  it("falha DIZENDO o motivo quando o startup morre", async () => {
+    const { store, row } = fakeStore();
+    row.workspaceId = "ws-1";
+    const ws = comApp("unhealthy", "start_error");
+    ws.latest_build.resources[0]!.agents![0]!.health = {
+      healthy: false,
+      reason: "agent startup script exited with an error",
+    };
+    const { coder } = fakeCoder({ workspace: async () => ws });
+    const out = await service(store, coder).refresh({ ...row } as never);
+    assert.equal(out.status, "failed");
+    assert.match(out.detail ?? "", /startup script/);
+  });
+});
+
 describe("BancadaService.gitCredential", () => {
   it("hands a short-lived token to a workspace that proves its secret", async () => {
     const secret = "s".repeat(43);
