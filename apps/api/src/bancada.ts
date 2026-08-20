@@ -50,6 +50,10 @@ export interface BancadaDeps {
    *  in which case a bancada can boot read-only from a public repo but cannot
    *  push. */
   mintGitToken?: (repoFullName: string) => Promise<string | null>;
+  /** Decide (and pin) how a project runs, when it has no runtime yet. Reads the
+   *  repo's manifests off GitHub — no checkout, no LLM. Absent = a project with
+   *  no pinned runtime is simply refused. */
+  resolveRuntime?: (projectId: string) => Promise<RuntimeSpec | null>;
 }
 
 /** Hauldr project names allow only [a-z0-9_] and must start with a letter. Same
@@ -87,10 +91,16 @@ export class BancadaService {
 
     const lane = (opts?.lane ?? "dev").trim() || "dev";
     const branch = (opts?.branch ?? project.baseBranch ?? "dev").trim();
-    const runtime = project.runtime as RuntimeSpec | null;
+    // Um projeto sem runtime fixado não é uma recusa definitiva: descobrir como
+    // ele roda custa duas leituras na API do GitHub. Só 10 dos 55 projetos da
+    // frota tinham runtime quando isto foi escrito — recusar todos os outros
+    // seria transformar uma decisão barata em trabalho manual.
+    const runtime =
+      (project.runtime as RuntimeSpec | null) ?? (await this.deps.resolveRuntime?.(projectId)) ?? null;
     if (!runtime?.dev) {
       throw new BancadaRefused(
-        "este projeto ainda não tem runtime detectado — a bancada não adivinha o comando de dev",
+        "não consegui descobrir como rodar este projeto (nada canônico nos manifestos) — " +
+          "a bancada não adivinha o comando de dev",
       );
     }
 
