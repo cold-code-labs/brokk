@@ -124,6 +124,13 @@ O startup só grava `/tmp/bancada.done` depois de um `curl` bem-sucedido na port
 Processo vivo não prova que serve — é a mesma lição do 502 com container
 `healthy`.
 
+⚠️ E o control plane precisa LER esse sinal. O agente do Coder em modo
+`non-blocking` se declara `ready` assim que **conecta**, muito antes de o dev
+server existir; lendo só isso, o Brokk anunciava bancada pronta com a página
+fora do ar (medido 20/08). Por isso o startup é `blocking` — aí `ready` quer
+dizer "o script terminou" e `start_error` quer dizer "ele falhou" — e o
+`refresh` ainda confere o healthcheck do próprio app antes de dizer pronta.
+
 ### 6. Ociosa é PARADA, não apagada
 
 Uma bancada `ready` sem interação por mais que `BANCADA_IDLE_MS` é parada; o

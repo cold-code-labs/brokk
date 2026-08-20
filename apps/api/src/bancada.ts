@@ -215,6 +215,7 @@ export class BancadaService {
     }
 
     const agent = CoderClient.agentOf(ws);
+    const preview = CoderClient.appOf(ws, PREVIEW_APP_SLUG);
     const build = ws.latest_build.status;
     let status: BancadaStatus = "provisioning";
     let detail: string | null = null;
@@ -235,7 +236,13 @@ export class BancadaService {
       detail = agent.health?.reason ?? "o startup da bancada falhou (veja o log do workspace)";
     }
 
-    const preview = CoderClient.appOf(ws, PREVIEW_APP_SLUG);
+    // ⚠️ Cinto além do suspensório: `ready` do agente só vale como "serve" com
+    // o startup em modo blocking. Se um dia alguém voltar para non-blocking, o
+    // healthcheck do próprio dev server segura a mentira aqui.
+    if (status === "ready" && preview && preview.health === "initializing") {
+      status = "provisioning";
+    }
+
     return this.deps.store.patchBancada(bancada.id, {
       status,
       detail,

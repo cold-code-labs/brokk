@@ -166,9 +166,14 @@ data "coder_parameter" "git_token" {
 }
 
 resource "coder_agent" "main" {
-  arch                    = "amd64"
-  os                      = "linux"
-  startup_script_behavior = "non-blocking"
+  arch = "amd64"
+  os   = "linux"
+  # `blocking`, não `non-blocking`: com non-blocking o agente se declara `ready`
+  # assim que CONECTA, muito antes de o dev server existir — e o Brokk, que lê
+  # esse estado, anunciava a bancada como pronta com a página ainda fora do ar
+  # (medido 20/08). Blocking faz o `ready` significar "o startup terminou" e o
+  # `start_error` significar "ele falhou", que é o que a gente precisa ler.
+  startup_script_behavior = "blocking"
 
   # `set -e` de propósito: sem ele um clone recusado seguia adiante e a bancada
   # se declarava PRONTA com a pasta vazia (medido 20/08). Falha tem de gritar.
