@@ -41,6 +41,22 @@ const Env = z.object({
   HEIMDALL_AGENT_URL: z.string().default(""),
   HEIMDALL_AGENT_TOKEN: z.string().default(""),
 
+  // Coder — the runtime (ADR 0100). The control plane is the ONLY Coder client:
+  // humans reach a bancada through Brokk, never with a Coder account of their own.
+  // Empty URL/token = no runtime wired → /bancadas answers 503 instead of guessing.
+  // Hauldr control-plane base — the dev lane a bancada boots against. Empty =
+  // the bancada boots on whatever env the repo already carries (passthrough).
+  HAULDR_CONTROL_URL: z.string().default(""),
+  CODER_URL: z.string().default(""),
+  CODER_TOKEN: z.string().default(""),
+  CODER_TEMPLATE: z.string().default("bancada"),
+  // What a WORKSPACE calls to broker a git credential. Internal service name on
+  // the shared docker network — a workspace must never need the public host.
+  BROKK_INTERNAL_URL: z.string().default("http://brokk-api:8789"),
+  // Stop a ready bancada that nobody has touched for this long. A dev server
+  // running unattended is someone's bill.
+  BANCADA_IDLE_MS: z.coerce.number().int().positive().default(45 * 60_000),
+
   // Svalinn machine API (ADR 0087). Token stays in this process — not in forge.
   SVALINN_API_URL: z.string().default("https://svalinn.coldcodelabs.com"),
   SVALINN_MACHINE_TOKEN: z.string().default(""),

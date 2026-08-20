@@ -1,4 +1,5 @@
 import type { Store } from "@brokk/db";
+import type { BancadaService } from "./bancada.js";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { version } from "../package.json";
@@ -20,12 +21,16 @@ import { subscriptionsRoutes } from "./routes/subscriptions.js";
 import { tasksRoutes } from "./routes/tasks.js";
 import { usersRoutes } from "./routes/users.js";
 import { webhooksRoutes } from "./routes/webhooks.js";
+import { bancadasRoutes } from "./routes/bancadas.js";
 import { ingressRoutes } from "./routes/ingress.js";
 import { opsRoutes } from "./routes/ops.js";
 import { svalinnRoutes } from "./routes/svalinn.js";
 
 export interface AppDeps {
   store: Store;
+  /** The Coder runtime (ADR 0100). Absent = /bancadas answers 503; the control
+   *  plane still serves everything else. */
+  bancadas?: BancadaService;
   /** Shared secret guarding the runner endpoints. Empty = runner endpoints 503. */
   runnerSecret: string;
   /** Bearer secret guarding API calls when set (GET included). The web
@@ -137,6 +142,12 @@ export function buildApp(deps: AppDeps): Hono {
       // secret; the route has its own requireRunnerOrApiSecret. Guarding here
       // would 401 the forge's claim/status writes and freeze the driver lane.
       path.startsWith("/driver-runs") ||
+      // A bancada brokering its git credential (ADR 0100) proves itself with the
+      // per-workspace secret the route checks. EXACT path, deliberately: every
+      // exemption above is a prefix, and each one was added after it broke
+      // something in production (PR #118 was the fourth). A prefix here would
+      // pre-authorise every /bancadas route we add later.
+      path === "/bancadas/git-credential" ||
       isRunnerRunWrite
     )
       return next();
@@ -159,6 +170,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/tasks", tasksRoutes(deps));
   app.route("/missions", missionsRoutes(deps));
   app.route("/runs", runsRoutes(deps));
+  app.route("/bancadas", bancadasRoutes(deps));
   app.route("/ingress", ingressRoutes(deps));
   app.route("/ops", opsRoutes(deps));
   app.route("/svalinn", svalinnRoutes(deps));
