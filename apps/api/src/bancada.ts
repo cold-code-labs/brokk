@@ -164,7 +164,15 @@ export class BancadaService {
       // A stopped/failed workspace is restarted with the CURRENT recipe — that
       // is how a changed dev command or a rotated key reaches a bancada without
       // destroying its disk.
-      if (alive) await this.deps.coder.build(existing.id, "stop");
+      //
+      // ⚠️ O Coder recusa uma build enquanto a anterior está em voo (409). Parar
+      // e mandar subir na sequência parece certo e não é: o `stop` ainda está
+      // rodando quando o `start` chega, e a bancada morre com um 500 sem
+      // explicação — medido em 20/08/2026, no primeiro `restart` de verdade.
+      if (alive) {
+        await this.deps.coder.build(existing.id, "stop");
+        await this.deps.coder.waitForBuild(existing.id, { timeoutMs: 3 * 60_000 });
+      }
       await this.deps.coder.build(existing.id, "start", {
         parameters,
         templateVersionId: template.active_version_id,

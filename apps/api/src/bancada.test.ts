@@ -104,6 +104,10 @@ function fakeCoder(over: Record<string, unknown> = {}) {
       calls.push(`build:${transition}`);
       return { id: "b", status: "pending" };
     },
+    waitForBuild: async () => {
+      calls.push("wait");
+      return liveWorkspace;
+    },
     appUrl: () => "https://coder.test/@brokk/arte-dev.main/apps/bancada/",
     ...over,
   } as unknown as CoderClient;
@@ -133,7 +137,9 @@ describe("BancadaService.ensure", () => {
     const { store } = fakeStore();
     const { coder, calls } = fakeCoder({ workspaceByName: async () => liveWorkspace });
     await service(store, coder).ensure("p-1", { restart: true });
-    assert.deepEqual(calls, ["build:stop", "build:start"]);
+    // O `wait` no meio não é zelo: o Coder recusa com 409 uma build enquanto a
+    // anterior está em voo, e a bancada morria com um 500 sem explicação.
+    assert.deepEqual(calls, ["build:stop", "wait", "build:start"]);
   });
 
   it("provisions when Coder has nothing", async () => {
