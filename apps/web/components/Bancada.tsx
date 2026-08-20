@@ -235,7 +235,7 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
                 mudança e olhe ao lado.
               </p>
             )}
-            {messages.map((m) => (
+            {semDuplicata(messages).map((m) => (
               <Mensagem key={m.id} role={m.role} content={m.content} />
             ))}
             <div ref={bottom} />
@@ -292,6 +292,21 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
   );
 }
 
+/** Tira a bolha otimista cujo texto o terminal já devolveu como eco — senão o
+ *  mesmo pedido aparece duas vezes assim que o agente responde. */
+function semDuplicata(ms: AgentMessage[]): AgentMessage[] {
+  const noTerminal = new Set(
+    ms
+      .filter((m) => m.role === "agent")
+      .flatMap((m) =>
+        parseAgentScreen(m.content)
+          .filter((b) => b.tipo === "eco")
+          .map((b) => b.linhas.join(" ").trim()),
+      ),
+  );
+  return ms.filter((m) => !(m.role === "user" && noTerminal.has(m.content.trim())));
+}
+
 /** O que aparece enquanto a máquina liga. Antes era uma caixa de texto morta
  *  dizendo "bancada não está pronta" — que lê como erro, não como espera. */
 function Subindo({ status, naFila }: { status: string | null; naFila: string | null }) {
@@ -337,11 +352,22 @@ function Mensagem({ role, content }: { role: "user" | "agent"; content: string }
   }
 
   return (
-    <div className="bancada-msg is-agente">
-      {blocos.map((b, i) => (
-        <BlocoView key={i} bloco={b} />
-      ))}
-    </div>
+    <>
+      {blocos.map((b, i) =>
+        b.tipo === "eco" ? (
+          // O pedido recuperado da tela do terminal. É a MESMA coisa que a
+          // bolha otimista, então ele fica com a forma dela — e a deduplicação
+          // acontece na lista, não aqui.
+          <div key={i} className="bancada-msg is-voce">
+            <div className="bancada-bolha">{b.linhas.join(" ")}</div>
+          </div>
+        ) : (
+          <div key={i} className="bancada-msg is-agente">
+            <BlocoView bloco={b} />
+          </div>
+        ),
+      )}
+    </>
   );
 }
 

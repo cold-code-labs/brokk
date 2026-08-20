@@ -40,12 +40,19 @@ describe("tela do agente", () => {
     assert.ok(!tudo.includes("Fable 5"), "sobrou o aviso de plano");
   });
 
-  it("não repete o prompt do humano — ele já é uma bolha", () => {
-    const tudo = blocos.flatMap((b) => b.linhas).join(" ");
-    assert.ok(!tudo.includes("troque o texto do botao"), tudo.slice(0, 140));
-    // O eco quebra em 67 colunas: descartar só a primeira linha deixava o resto
-    // da frase solto no meio da resposta do agente.
-    assert.ok(!tudo.includes("ENTRAR AGORA\". So isso"), tudo.slice(0, 160));
+  it("guarda o pedido do humano como `eco`, inteiro e num bloco só", () => {
+    // Não pode virar fala do agente, e não pode sumir: a AgentAPI só guarda a
+    // TELA, então ao recarregar a página o eco é o único vestígio do pedido.
+    const eco = blocos.find((b) => b.tipo === "eco")!;
+    assert.ok(eco, "o pedido do humano sumiu da tela");
+    const texto = eco.linhas.join(" ");
+    assert.match(texto, /troque o texto do botao/);
+    // A continuação da linha (67 colunas) entra no MESMO bloco.
+    assert.match(texto, /ENTRAR AGORA/);
+    for (const b of blocos) {
+      if (b.tipo === "eco") continue;
+      assert.ok(!b.linhas.join(" ").includes("ENTRAR AGORA\". So isso"), b.tipo);
+    }
   });
 
   it("tira o padding de 67 colunas — é ele que faz parecer log de servidor", () => {
