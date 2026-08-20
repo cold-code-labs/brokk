@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@cold-code-labs/yggdrasil-react";
+import { parseAgentScreen, type Bloco } from "@brokk/coder/screen";
 import type { Bancada } from "@brokk/sdk";
 
 interface AgentMessage {
@@ -27,23 +29,27 @@ const LABEL: Record<string, string> = {
 /**
  * A bancada — o ambiente quente do projeto (ADR 0100).
  *
- * Duas metades na mesma tela: à esquerda a conversa com o agente que trabalha
- * DENTRO da bancada, à direita o que ele está construindo, ao vivo. O Brokk
- * proxia o agente (a face dele nunca é exposta ao navegador); o preview é
- * servido pelo Coder por caminho e entra por iframe.
- *
- * A tela só faz `POST /bancadas` quando alguém pede — abrir uma bancada é
- * ligar uma máquina, não um efeito colateral de navegar.
+ * A conversa NÃO é markdown: a AgentAPI devolve o buffer do terminal do CLI
+ * (67 colunas, padding, `●`, `⎿`, diffs com número de linha). `parseAgentScreen`
+ * transforma isso em blocos tipados e aqui cada tipo ganha a sua forma — sem
+ * isso o chat parecia um log de servidor colado numa página.
  */
 export default function BancadaPanel({ projectId, variant = "full" }: Props) {
   const [bancada, setBancada] = useState<Bancada | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [agentStatus, setAgentStatus] = useState<string>("unknown");
   const [previewLink, setPreviewLink] = useState<string | null>(null);
+  const [previewPronto, setPreviewPronto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  /** Mensagem escrita antes de a bancada ficar pronta. Fica guardada e sai
+   *  sozinha quando ela chega — travar a caixa fazia parecer que quebrou. */
+  const [naFila, setNaFila] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+
+  const status = bancada?.status ?? null;
+  const pronta = status === "ready";
 
   // Abrir esta tela É pedir a bancada. Quem chega aqui quer trabalhar; exigir um
   // clique a mais só adiciona um passo entre a pessoa e a máquina que ela já
@@ -73,12 +79,21 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
     };
   }, [projectId]);
 
-  // O link do preview carrega a chave assinada do host da bancada — o preview
-  // mora num domínio próprio (o cookie do Coder é SameSite=Lax e não sobrevive
-  // a um iframe), então quem abre a porta é esta chave.
   useEffect(() => {
-    if (!bancada?.id || bancada.status !== "ready") {
+    if (!bancada?.id || bancada.status !== "provisioning") return;
+    const t = setInterval(() => {
+      void fetch(`/api/bancadas/${bancada.id}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((b: Bancada | null) => b && setBancada(b))
+        .catch(() => {});
+    }, 4000);
+    return () => clearInterval(t);
+  }, [bancada?.id, bancada?.status]);
+
+  useEffect(() => {
+    if (!bancada?.id || !pronta) {
       setPreviewLink(null);
+      setPreviewPronto(false);
       return;
     }
     let alive = true;
@@ -91,25 +106,10 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
     return () => {
       alive = false;
     };
-  }, [bancada?.id, bancada?.status]);
+  }, [bancada?.id, pronta]);
 
-  // While a bancada is not `ready`, GET /bancadas/:id is what reconciles it —
-  // the endpoint re-reads Coder. Polling stops as soon as it settles.
   useEffect(() => {
-    if (!bancada?.id) return;
-    if (bancada.status !== "provisioning") return;
-    const t = setInterval(() => {
-      void fetch(`/api/bancadas/${bancada.id}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((b: Bancada | null) => b && setBancada(b))
-        .catch(() => {});
-    }, 4000);
-    return () => clearInterval(t);
-  }, [bancada?.id, bancada?.status]);
-
-  // The agent's conversation, read through Brokk.
-  useEffect(() => {
-    if (!bancada?.id || bancada.status !== "ready") return;
+    if (!bancada?.id || !pronta) return;
     let alive = true;
     const pull = () =>
       fetch(`/api/bancadas/${bancada.id}/agent`)
@@ -126,30 +126,49 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
       alive = false;
       clearInterval(t);
     };
-  }, [bancada?.id, bancada?.status]);
+  }, [bancada?.id, pronta]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
-  const act = useCallback(
-    async (path: string, init: RequestInit) => {
-      setBusy(true);
-      setError(null);
-      try {
-        const res = await fetch(path, init);
-        const body = await res.json().catch(() => null);
-        if (!res.ok) {
-          setError((body as { error?: string })?.error ?? `falhou (${res.status})`);
-          return null;
-        }
-        return body;
-      } finally {
-        setBusy(false);
+  const act = useCallback(async (path: string, init: RequestInit) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(path, init);
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError((body as { error?: string })?.error ?? `falhou (${res.status})`);
+        return null;
       }
+      return body;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const enviar = useCallback(
+    async (conteudo: string) => {
+      if (!bancada) return;
+      setMessages((m) => [...m, { id: Date.now(), role: "user", content: conteudo }]);
+      await act(`/api/bancadas/${bancada.id}/agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: conteudo }),
+      });
     },
-    [],
+    [act, bancada],
   );
+
+  // A mensagem escrita durante o boot sai sozinha assim que a bancada abre.
+  useEffect(() => {
+    if (pronta && naFila) {
+      const texto = naFila;
+      setNaFila(null);
+      void enviar(texto);
+    }
+  }, [pronta, naFila, enviar]);
 
   const open = (restart = false) =>
     act("/api/bancadas", {
@@ -164,146 +183,86 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
       (b) => b && setBancada(b as Bancada),
     );
 
-  const send = async () => {
-    const content = draft.trim();
-    if (!content || !bancada) return;
+  const submeter = () => {
+    const conteudo = draft.trim();
+    if (!conteudo) return;
     setDraft("");
-    // Optimistic: the agent's own transcript is the truth, but a turn can take
-    // seconds to appear there and a message that vanishes reads as a bug.
-    setMessages((m) => [...m, { id: Date.now(), role: "user", content }]);
-    await act(`/api/bancadas/${bancada.id}/agent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
-    });
+    if (pronta) void enviar(conteudo);
+    else setNaFila(conteudo);
   };
 
-  const status = bancada?.status ?? null;
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 12 }}>
-      <header style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+    <div className="bancada">
+      <header className="bancada-head">
         <strong>Bancada</strong>
         {status && (
-          <span className={status === "ready" ? "forge-chip is-accent" : "forge-chip is-ember"}>
+          <span className={`forge-chip${pronta ? " is-accent" : " is-ember"}`}>
             {LABEL[status] ?? status}
           </span>
         )}
-        {agentStatus === "running" && <span className="forge-chip is-ember">agente trabalhando</span>}
+        {agentStatus === "running" && (
+          <span className="forge-chip is-ember">
+            <span className="bancada-pulse" /> agente trabalhando
+          </span>
+        )}
         <span style={{ flex: 1 }} />
         {(!bancada || status === "stopped" || status === "failed") && (
-          <button className="forge-btn" disabled={busy} onClick={() => void open()}>
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => void open()}>
             {status === "stopped" ? "Religar" : "Abrir bancada"}
-          </button>
+          </Button>
         )}
-        {status === "ready" && (
+        {pronta && (
           <>
-            <button className="forge-btn" disabled={busy} onClick={() => void open(true)}>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void open(true)}>
               Recriar
-            </button>
-            <button className="forge-btn" disabled={busy} onClick={() => void stop()}>
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void stop()}>
               Parar
-            </button>
+            </Button>
           </>
         )}
       </header>
 
-      {(error || bancada?.detail) && (
-        <p style={{ color: "var(--err)", margin: 0, fontSize: 13 }}>{error ?? bancada?.detail}</p>
-      )}
+      {(error || bancada?.detail) && <p className="bancada-erro">{error ?? bancada?.detail}</p>}
 
-      {!bancada && (
-        <p style={{ opacity: 0.7, fontSize: 13, margin: 0 }}>
-          Ligando a bancada deste projeto — checkout, dev server, agente e navegador. Leva
-          alguns instantes na primeira vez.
-        </p>
-      )}
-
-      {bancada && (
-        <div style={{ display: "flex", gap: 12, flex: 1, minHeight: 0 }}>
-          <section
-            style={{
-              flex: variant === "rail" ? 1 : "0 0 38%",
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-              border: "1px solid var(--line)",
-              borderRadius: 8,
-            }}
-          >
-            <div style={{ flex: 1, overflowY: "auto", padding: 12, minHeight: 0 }}>
-              {messages.length === 0 && (
-                <p style={{ opacity: 0.6, fontSize: 13 }}>
-                  O agente está dentro da bancada. Peça uma mudança e olhe o preview ao lado.
-                </p>
-              )}
-              {messages.map((m) => (
-                <div key={m.id} style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 2 }}>
-                    {m.role === "user" ? "você" : "agente"}
-                  </div>
-                  <pre
-                    style={{
-                      margin: 0,
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                      fontSize: 13,
-                      fontFamily: "inherit",
-                    }}
-                  >
-                    {m.content}
-                  </pre>
-                </div>
-              ))}
-              <div ref={bottom} />
-            </div>
-            <div style={{ display: "flex", gap: 6, padding: 8, borderTop: "1px solid var(--line)" }}>
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}
-                placeholder={status === "ready" ? "o que fazer aqui…" : "bancada não está pronta"}
-                disabled={status !== "ready" || busy}
-                style={{ flex: 1 }}
-              />
-              <button
-                className="forge-btn"
-                disabled={status !== "ready" || busy || !draft.trim()}
-                onClick={() => void send()}
-              >
-                Enviar
-              </button>
-            </div>
-          </section>
-
-          {variant === "full" && (
-          <section
-            style={{
-              flex: 1,
-              minHeight: 0,
-              border: "1px solid var(--line)",
-              borderRadius: 8,
-              overflow: "hidden",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "6px 10px",
-                borderBottom: "1px solid var(--line)",
-                fontSize: 12,
+      <div className={`bancada-corpo${variant === "rail" ? " is-rail" : ""}`}>
+        <section className="bancada-conversa">
+          <div className="bancada-fluxo">
+            {!pronta && <Subindo status={status} naFila={naFila} />}
+            {pronta && messages.length === 0 && (
+              <p className="bancada-vazio">
+                O agente está dentro da bancada, na mesma máquina onde o preview roda. Peça uma
+                mudança e olhe ao lado.
+              </p>
+            )}
+            {messages.map((m) => (
+              <Mensagem key={m.id} role={m.role} content={m.content} />
+            ))}
+            <div ref={bottom} />
+          </div>
+          <div className="bancada-composer">
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submeter();
+                }
               }}
-            >
-              <span style={{ opacity: 0.7 }}>{bancada.branch}</span>
+              placeholder={pronta ? "o que fazer aqui…" : "pode escrever — vai assim que abrir"}
+              aria-label="Mensagem para o agente"
+            />
+            <Button size="sm" disabled={busy || !draft.trim()} onClick={submeter}>
+              Enviar
+            </Button>
+          </div>
+        </section>
+
+        {variant === "full" && (
+          <section className="bancada-palco">
+            <div className="bancada-palco-barra">
+              <span className="ygg-dim">{bancada?.branch ?? ""}</span>
               <span style={{ flex: 1 }} />
               {previewLink && (
                 <a href={previewLink} target="_blank" rel="noreferrer">
@@ -311,25 +270,102 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
                 </a>
               )}
             </div>
-            {previewLink && status === "ready" ? (
-              <iframe
-                src={previewLink}
-                title="preview"
-                style={{ flex: 1, border: 0, background: "#fff" }}
-              />
-            ) : (
-              <p style={{ padding: 12, opacity: 0.7, fontSize: 13 }}>
-                {status === "provisioning"
-                  ? "Subindo a bancada — ela só se declara pronta quando o dev server responde."
-                  : status === "ready"
-                    ? "Preparando o preview…"
-                    : "Sem preview no ar."}
-              </p>
-            )}
+            <div className="bancada-palco-frame">
+              {previewLink && pronta ? (
+                <>
+                  {!previewPronto && <Esqueleto />}
+                  <iframe
+                    src={previewLink}
+                    title="preview"
+                    className={`bancada-iframe${previewPronto ? " is-visivel" : ""}`}
+                    onLoad={() => setPreviewPronto(true)}
+                  />
+                </>
+              ) : (
+                <Esqueleto legenda={pronta ? "Preparando o preview…" : "Subindo a bancada…"} />
+              )}
+            </div>
           </section>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
+}
+
+/** O que aparece enquanto a máquina liga. Antes era uma caixa de texto morta
+ *  dizendo "bancada não está pronta" — que lê como erro, não como espera. */
+function Subindo({ status, naFila }: { status: string | null; naFila: string | null }) {
+  const falhou = status === "failed";
+  return (
+    <div className="bancada-subindo">
+      {!falhou && <span className="bancada-spinner" aria-hidden />}
+      <div>
+        <strong>{falhou ? "A bancada não subiu." : "Ligando a bancada…"}</strong>
+        <p>
+          {falhou
+            ? "Veja o motivo acima e tente recriar."
+            : "Checkout, dev server, agente e navegador. Na primeira vez leva cerca de um minuto."}
+        </p>
+        {naFila && <p className="bancada-fila">Sua mensagem sai assim que ela abrir.</p>}
+      </div>
+    </div>
+  );
+}
+
+function Esqueleto({ legenda }: { legenda?: string }) {
+  return (
+    <div className="bancada-esqueleto">
+      <div className="bancada-esqueleto-barra" />
+      <div className="bancada-esqueleto-bloco" />
+      <div className="bancada-esqueleto-bloco is-curto" />
+      {legenda && <span>{legenda}</span>}
+    </div>
+  );
+}
+
+/** Uma mensagem. A do humano é uma bolha; a do agente é a tela do CLI virada em
+ *  blocos — cada tipo com a sua forma. */
+function Mensagem({ role, content }: { role: "user" | "agent"; content: string }) {
+  const blocos = useMemo(() => (role === "agent" ? parseAgentScreen(content) : []), [role, content]);
+
+  if (role === "user") {
+    return (
+      <div className="bancada-msg is-voce">
+        <div className="bancada-bolha">{content}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bancada-msg is-agente">
+      {blocos.map((b, i) => (
+        <BlocoView key={i} bloco={b} />
+      ))}
+    </div>
+  );
+}
+
+function BlocoView({ bloco }: { bloco: Bloco }) {
+  const texto = bloco.linhas.join("\n");
+  switch (bloco.tipo) {
+    case "passo":
+      return (
+        <div className="bancada-passo">
+          <span className="bancada-marcador" aria-hidden />
+          <span>{texto}</span>
+        </div>
+      );
+    case "detalhe":
+      return <div className="bancada-detalhe">{texto}</div>;
+    case "codigo":
+      return (
+        <pre className="bancada-codigo">
+          <code>{texto}</code>
+        </pre>
+      );
+    case "status":
+      return <div className="bancada-status">{texto}</div>;
+    default:
+      return <p className="bancada-texto">{texto}</p>;
+  }
 }
