@@ -153,3 +153,33 @@ export async function getAppMeta(auth: AppAuth): Promise<{ slug: string; htmlUrl
   const r = await ghApi<{ slug: string; html_url: string }>("/app", jwt);
   return { slug: r.slug, htmlUrl: r.html_url };
 }
+
+/** Open a pull request with an installation token.
+ *
+ *  Returns the PR URL, or null when GitHub refuses because there is nothing to
+ *  compare (the agent signed off without pushing anything) — that is a normal
+ *  outcome of an honest "I couldn't do it", not an error to throw at the driver.
+ */
+export async function openPullRequest(
+  token: string,
+  input: { repoFullName: string; head: string; base: string; title: string; body: string },
+): Promise<string | null> {
+  const res = await fetch(`https://api.github.com/repos/${input.repoFullName}/pulls`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      title: input.title,
+      head: input.head,
+      base: input.base,
+      body: input.body,
+    }),
+  });
+  if (res.status === 422) return null; // no commits between base and head, or PR exists
+  if (!res.ok) throw new Error(`github pulls → ${res.status}`);
+  const pr = (await res.json()) as { html_url: string };
+  return pr.html_url;
+}

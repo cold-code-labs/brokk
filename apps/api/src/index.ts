@@ -3,9 +3,10 @@ import { CoderClient } from "@brokk/coder";
 import { createDb, createStore, ensureSchema } from "@brokk/db";
 import { buildApp } from "./app.js";
 import { BancadaService } from "./bancada.js";
+import { startBancadaDriver } from "./bancada-driver.js";
 import { startBancadaReaper } from "./bancada-reaper.js";
 import { loadConfig } from "./config.js";
-import { loadAppAuth, getInstallationToken } from "./github.js";
+import { loadAppAuth, getInstallationToken, openPullRequest } from "./github.js";
 import { makeHauldrDataProvider, passthroughProvider } from "./lanes/data-provider.js";
 import { HeimdallLanes } from "./lanes/heimdall-lanes.js";
 import { startMissionReconciler } from "./missions.js";
@@ -79,7 +80,22 @@ async function main() {
 
   startReviewReconciler({ store, githubToken: cfg.GITHUB_TOKEN });
 
-  if (bancadas) startBancadaReaper({ store, bancadas, idleMs: cfg.BANCADA_IDLE_MS });
+  if (bancadas) {
+    startBancadaReaper({ store, bancadas, idleMs: cfg.BANCADA_IDLE_MS });
+    // A esteira de cards: o card vai para o agente que já vive na bancada.
+    startBancadaDriver({
+      store,
+      bancadas,
+      openPr: appAuth
+        ? async (input) => {
+            const repo = await store.getRepositoryByFullName(input.repoFullName);
+            if (!repo?.installationId) return null;
+            const token = await getInstallationToken(appAuth, repo.installationId);
+            return openPullRequest(token, input);
+          }
+        : undefined,
+    });
+  }
 
   serve({ fetch: app.fetch, port: cfg.BROKK_API_PORT }, ({ port }) => {
     console.log(`brokk control-plane listening on :${port}`);
