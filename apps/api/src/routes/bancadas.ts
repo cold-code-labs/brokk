@@ -5,6 +5,7 @@ import { actorFrom, canSeeProject } from "../actor.js";
 import type { AppDeps } from "../app.js";
 import { BancadaRefused } from "../bancada.js";
 import type { Bancada } from "@brokk/core";
+import { PREVIEW_KEY_PARAM, mintPreviewKey } from "@brokk/core/preview-key";
 
 const OpenBody = z.object({
   projectId: z.string().uuid(),
@@ -53,6 +54,36 @@ export function bancadasRoutes(deps: AppDeps): Hono {
     } catch (err) {
       return refused(c, err);
     }
+  });
+
+  /** GET /bancadas/by-workspace/:name — o que o proxy da bancada pergunta para
+   *  saber PARA ONDE mandar um pedido. Devolve a linha + o runtime (a porta do
+   *  dev server sai dele). Guardada pelo api-secret como qualquer leitura: quem
+   *  chama é o proxy, um componente do nosso lado, não um navegador. */
+  r.get("/by-workspace/:name", async (c) => {
+    const rows = await deps.store.listBancadas({});
+    const bancada = rows.find((b) => b.workspaceName === c.req.param("name"));
+    if (!bancada) return c.json({ error: "not found" }, 404);
+    const project = await deps.store.getProject(bancada.projectId);
+    return c.json({ bancada, runtime: project?.runtime ?? null });
+  });
+
+  /** GET /bancadas/:id/link — a URL do preview COM a chave de acesso.
+   *
+   *  A chave é assinada aqui, no servidor, e vale só para aquele subdomínio: é
+   *  o que permite o preview morar num host próprio (necessário, porque o
+   *  cookie do Coder é SameSite=Lax e não sobrevive a um iframe) sem deixar o
+   *  app de dev de um cliente aberto para quem adivinhar o nome. */
+  r.get("/:id/link", async (c) => {
+    const bancada = await deps.store.getBancada(c.req.param("id"));
+    if (!(await visible(deps, c, bancada))) return c.json({ error: "not found" }, 404);
+    const suffix = process.env.BANCADA_HOST_SUFFIX ?? "";
+    const key = process.env.BROKK_PREVIEW_KEY ?? "";
+    if (!suffix || !key) return c.json({ error: "proxy da bancada não configurado" }, 503);
+    const sub = bancada!.workspaceName;
+    return c.json({
+      url: `https://${sub}.${suffix}/?${PREVIEW_KEY_PARAM}=${mintPreviewKey(key, sub)}`,
+    });
   });
 
   /** POST /bancadas — open (or adopt) the bancada of a project's lane. */

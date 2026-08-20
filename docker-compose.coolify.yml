@@ -218,6 +218,34 @@ services:
     networks: [default, coolify, litellm]
     <<: *restart
 
+  # O ambiente QUENTE servido num host nosso (ADR 0100). O cookie do Coder é
+  # SameSite=Lax: numa aba funciona, dentro do iframe do Brokk o navegador não
+  # manda o cookie e o preview vira tela de login. Este proxy resolve
+  # `<workspace>.preview.<domínio>` → container da bancada, na raiz, com HMR.
+  bancada-proxy:
+    build:
+      context: .
+      dockerfile: apps/bancada-proxy/Dockerfile
+      args:
+        NODE_AUTH_TOKEN: ${NODE_AUTH_TOKEN:-}
+    image: brokk-bancada-proxy:coolify
+    mem_limit: 256m
+    cpus: 0.3
+    environment:
+      BANCADA_PROXY_PORT: "3020"
+      BROKK_CONTROL_URL: ${BROKK_CONTROL_URL:-http://brokk-api:8789}
+      BROKK_API_SECRET: ${BROKK_API_SECRET:?set in Coolify}
+      # Sem esta chave o proxy RECUSA tudo — fecha, não abre.
+      BROKK_PREVIEW_KEY: ${BROKK_PREVIEW_KEY:-}
+      BANCADA_HOST_SUFFIX: ${BANCADA_HOST_SUFFIX:-preview.coldcodelabs.com}
+      BROKK_WEB_URL: ${BROKK_WEB_URL:-https://brokk.coldcodelabs.com}
+    expose:
+      - "3020"
+    depends_on:
+      brokk-api:
+        condition: service_healthy
+    networks: [default, coolify]
+
   web:
     build:
       context: .

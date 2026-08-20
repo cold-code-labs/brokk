@@ -65,6 +65,28 @@ importers:
         specifier: ^5.7.2
         version: 5.9.3
 
+  apps/bancada-proxy:
+    dependencies:
+      '@brokk/coder':
+        specifier: workspace:*
+        version: link:../../packages/coder
+      '@brokk/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.0
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.25)(tsx@4.22.4)(typescript@5.9.3)
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
   apps/reviewer:
     dependencies:
       '@brokk/core':
@@ -3414,7 +3436,7 @@ packages:
     engines: {node: '>= 18'}
     peerDependencies:
       jiti: '>=1.21.0'
-      postcss: '>=8.5.18'
+      postcss: '>=8.5.10'
       tsx: ^4.8.1
       yaml: ^2.4.2
     peerDependenciesMeta:

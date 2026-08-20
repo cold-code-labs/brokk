@@ -50,6 +50,9 @@ export interface BancadaDeps {
    *  in which case a bancada can boot read-only from a public repo but cannot
    *  push. */
   mintGitToken?: (repoFullName: string) => Promise<string | null>;
+  /** Janela de ociosidade do reaper, em ms. Usada só para derivar o TTL de
+   *  segurança do lado do Coder. */
+  idleMs?: number;
   /** Decide (and pin) how a project runs, when it has no runtime yet. Reads the
    *  repo's manifests off GitHub — no checkout, no LLM. Absent = a project with
    *  no pinned runtime is simply refused. */
@@ -169,6 +172,10 @@ export class BancadaService {
         name,
         templateId: template.id,
         parameters,
+        // Rede de segurança do lado do Coder: se o Brokk cair, o reaper cai
+        // junto — e sem isto a bancada ficaria de pé indefinidamente. Folga
+        // sobre o TTL do reaper, que é quem deve desligar no caso normal.
+        ttlMs: this.deps.idleMs ? this.deps.idleMs * 4 : undefined,
       });
     } else {
       // A stopped/failed workspace is restarted with the CURRENT recipe — that
