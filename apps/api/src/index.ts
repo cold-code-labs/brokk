@@ -70,6 +70,7 @@ async function main() {
           data: dataProvider,
           template: cfg.CODER_TEMPLATE,
           controlUrl: cfg.BROKK_INTERNAL_URL,
+          idleMs: cfg.BANCADA_IDLE_MS,
           mintGitToken,
           resolveRuntime: (projectId) => resolveProjectRuntime({ store, mintGitToken }, projectId),
         })

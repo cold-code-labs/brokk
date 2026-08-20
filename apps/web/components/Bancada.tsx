@@ -39,25 +39,59 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
   const [bancada, setBancada] = useState<Bancada | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [agentStatus, setAgentStatus] = useState<string>("unknown");
+  const [previewLink, setPreviewLink] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
 
-  // Existing bancada, if any — a list read, so opening the screen never boots a
-  // machine on its own.
+  // Abrir esta tela É pedir a bancada. Quem chega aqui quer trabalhar; exigir um
+  // clique a mais só adiciona um passo entre a pessoa e a máquina que ela já
+  // pediu. Uma bancada parada é religada; uma que já está de pé é adotada.
   useEffect(() => {
     let alive = true;
-    void fetch(`/api/bancadas?projectId=${projectId}`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((rows: Bancada[]) => {
-        if (alive) setBancada(rows.find((b) => b.lane === "dev") ?? rows[0] ?? null);
+    (async () => {
+      const rows: Bancada[] = await fetch(`/api/bancadas?projectId=${projectId}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []);
+      const atual = rows.find((b) => b.lane === "dev") ?? rows[0] ?? null;
+      if (!alive) return;
+      setBancada(atual);
+      if (!atual || atual.status === "stopped") {
+        const nova = await fetch("/api/bancadas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        if (alive && nova) setBancada(nova as Bancada);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+
+  // O link do preview carrega a chave assinada do host da bancada — o preview
+  // mora num domínio próprio (o cookie do Coder é SameSite=Lax e não sobrevive
+  // a um iframe), então quem abre a porta é esta chave.
+  useEffect(() => {
+    if (!bancada?.id || bancada.status !== "ready") {
+      setPreviewLink(null);
+      return;
+    }
+    let alive = true;
+    void fetch(`/api/bancadas/${bancada.id}/link`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { url?: string } | null) => {
+        if (alive && d?.url) setPreviewLink(d.url);
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [projectId]);
+  }, [bancada?.id, bancada?.status]);
 
   // While a bancada is not `ready`, GET /bancadas/:id is what reconciles it —
   // the endpoint re-reads Coder. Polling stops as soon as it settles.
@@ -178,10 +212,10 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
         <p style={{ color: "var(--err)", margin: 0, fontSize: 13 }}>{error ?? bancada?.detail}</p>
       )}
 
-      {!bancada && !busy && (
+      {!bancada && (
         <p style={{ opacity: 0.7, fontSize: 13, margin: 0 }}>
-          Nenhuma bancada aberta. Abrir uma liga uma máquina com o checkout, o dev server, o
-          agente e o navegador — e ela é descartável: apagar e recriar reconstrói tudo do git.
+          Ligando a bancada deste projeto — checkout, dev server, agente e navegador. Leva
+          alguns instantes na primeira vez.
         </p>
       )}
 
@@ -271,15 +305,15 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
             >
               <span style={{ opacity: 0.7 }}>{bancada.branch}</span>
               <span style={{ flex: 1 }} />
-              {bancada.previewUrl && (
-                <a href={bancada.previewUrl} target="_blank" rel="noreferrer">
+              {previewLink && (
+                <a href={previewLink} target="_blank" rel="noreferrer">
                   abrir em nova aba ↗
                 </a>
               )}
             </div>
-            {bancada.previewUrl && status === "ready" ? (
+            {previewLink && status === "ready" ? (
               <iframe
-                src={bancada.previewUrl}
+                src={previewLink}
                 title="preview"
                 style={{ flex: 1, border: 0, background: "#fff" }}
               />
@@ -287,7 +321,9 @@ export default function BancadaPanel({ projectId, variant = "full" }: Props) {
               <p style={{ padding: 12, opacity: 0.7, fontSize: 13 }}>
                 {status === "provisioning"
                   ? "Subindo a bancada — ela só se declara pronta quando o dev server responde."
-                  : "Sem preview no ar."}
+                  : status === "ready"
+                    ? "Preparando o preview…"
+                    : "Sem preview no ar."}
               </p>
             )}
           </section>

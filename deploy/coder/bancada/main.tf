@@ -8,12 +8,12 @@
  *
  * Push a new version:
  *   coder templates push bancada -d deploy/coder/bancada --yes \
- *     --variable claude_oauth=… --variable docker_host=… --variable ssh_key=…
+ *     --variable claude_oauth=…
  *
- * The workspaces run on the FLEET host (surtr), not on the Coder host: the
- * Coder server lives on the bastion, which has 4 vCPU and is the single way in
- * for the whole fleet. A dev server compiling there is a fleet-wide outage
- * waiting to happen.
+ * O Coder e as bancadas moram na SURTR (desde 20/08/2026). Antes o servidor
+ * ficava no ymir e provisionava a surtr por SSH; agora é o mesmo daemon, socket
+ * local. O ymir é o bastion de 4 vCPU e não é lugar de rodar dev server — nem o
+ * servidor que os provisiona.
  */
 
 terraform {
@@ -24,15 +24,9 @@ terraform {
 }
 
 variable "docker_host" {
-  description = "Docker endpoint the workspaces are provisioned on (ssh://root@10.10.0.2 = surtr over WireGuard)."
+  description = "Docker endpoint the workspaces are provisioned on. O Coder mora na surtr desde 20/08/2026, no mesmo daemon das bancadas — socket local."
   type        = string
-  default     = "ssh://root@10.10.0.2"
-}
-
-variable "ssh_key" {
-  description = "Private key inside the Coder container used to reach docker_host."
-  type        = string
-  default     = "/home/coder/.ssh/id_surtr"
+  default     = "unix:///var/run/docker.sock"
 }
 
 variable "workspace_network" {
@@ -62,11 +56,6 @@ variable "memory_mb" {
 
 provider "docker" {
   host = var.docker_host
-  ssh_opts = [
-    "-i", var.ssh_key,
-    "-o", "StrictHostKeyChecking=accept-new",
-    "-o", "BatchMode=yes",
-  ]
 }
 
 data "coder_workspace" "me" {}

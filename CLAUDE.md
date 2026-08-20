@@ -7,7 +7,12 @@ Control plane de agentes de código. Monorepo pnpm com três apps: `apps/api`
 *bancada* por projeto (checkout + dev server com HMR + agente + Playwright) num
 workspace provisionado na surtr. O Brokk decide, coordena e mostra.
 
-- quente: `coder.coldcodelabs.com/@brokk/<ws>.main/apps/bancada/` — onde se trabalha
+O **Coder mora na surtr** (migrado do ymir em 20/08/2026), no mesmo daemon das
+bancadas que provisiona — socket local, sem SSH no meio.
+
+- quente: `<workspace>.preview.coldcodelabs.com` — onde se trabalha (servido pelo
+  `bancada-proxy`, com HMR; o Coder também publica por caminho, mas aquele host
+  não serve para embutir no Brokk — cookie `SameSite=Lax`)
 - frio: `<app>.preview.coldcodelabs.com` (branch `preview`) e `<app>.coldcodelabs.com`
   (branch `main`) — build no push, com o BaaS montado junto
 
@@ -30,7 +35,7 @@ Ambos em `main`, **path-scoped**:
 
 | app | observa |
 |---|---|
-| `brokk-core` | `apps/web/**`, `apps/api/**`, `packages/**`, lockfiles, `docker-compose.core.yml` |
+| `brokk-core` | `apps/web/**`, `apps/api/**`, `apps/bancada-proxy/**`, `packages/**`, lockfiles, `docker-compose.core.yml` |
 | `brokk-forge` | `apps/reviewer/**`, `tools/**` — **só o Eitri sobrou aqui**, e o compose dele é `docker-compose.reviewer.yml` (o app do Coolify mantém o nome antigo: renomear app é trocar o handle que a frota usa para deployar) |
 
 Quem serve `brokk.coldcodelabs.com` é o **`brokk-core`**. Um terceiro app (`brokk`), com

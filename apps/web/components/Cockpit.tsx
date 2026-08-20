@@ -67,9 +67,16 @@ function PreviewStage() {
     (async () => {
       try {
         const res = await fetch(`/api/bancadas?projectId=${project.id}`);
-        const rows: { status: string; previewUrl: string | null }[] = res.ok ? await res.json() : [];
-        const ready = rows.find((b) => b.status === "ready" && b.previewUrl);
-        if (alive) setSub(ready?.previewUrl ?? null);
+        const rows: { id: string; status: string }[] = res.ok ? await res.json() : [];
+        const ready = rows.find((b) => b.status === "ready");
+        if (!ready) {
+          if (alive) setSub(null);
+          return;
+        }
+        // O link carrega a chave assinada do host da bancada: o preview mora num
+        // domínio próprio, e é ela que abre a porta.
+        const link = await fetch(`/api/bancadas/${ready.id}/link`).then((r) => (r.ok ? r.json() : null));
+        if (alive) setSub((link as { url?: string } | null)?.url ?? null);
       } catch {
         if (alive) setSub(null);
       }

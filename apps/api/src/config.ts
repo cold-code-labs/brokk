@@ -53,9 +53,10 @@ const Env = z.object({
   // What a WORKSPACE calls to broker a git credential. Internal service name on
   // the shared docker network — a workspace must never need the public host.
   BROKK_INTERNAL_URL: z.string().default("http://brokk-api:8789"),
-  // Stop a ready bancada that nobody has touched for this long. A dev server
-  // running unattended is someone's bill.
-  BANCADA_IDLE_MS: z.coerce.number().int().positive().default(45 * 60_000),
+  // Para uma bancada `ready` que ninguém tocou por este tempo. 30 min: sobra
+  // para uma tarefa longa do agente terminar sem que ninguém esteja olhando, e
+  // não deixa um dev server rodando a noite inteira na conta de alguém.
+  BANCADA_IDLE_MS: z.coerce.number().int().positive().default(30 * 60_000),
 
   // Svalinn machine API (ADR 0087). Token stays in this process — not in forge.
   SVALINN_API_URL: z.string().default("https://svalinn.coldcodelabs.com"),
