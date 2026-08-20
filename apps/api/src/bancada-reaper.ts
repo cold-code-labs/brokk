@@ -13,6 +13,12 @@ import type { BancadaService } from "./bancada.js";
  * Activity is bumped by the screen (poll), by a message to the agent, and by a
  * git credential being brokered — i.e. by someone actually using it, never by
  * the reaper's own reads.
+ *
+ * O tick também RECONCILIA. O registro no banco só era atualizado quando alguém
+ * abria a tela, então uma bancada que subiu sem ninguém olhando ficava eterna em
+ * `provisioning`: o proxy se recusava a servi-la e o próprio reaper não a
+ * enxergava para desligar. Estado que depende de alguém estar olhando não é
+ * estado — é boato.
  */
 export function startBancadaReaper(deps: {
   store: Store;
@@ -20,9 +26,22 @@ export function startBancadaReaper(deps: {
   idleMs: number;
   intervalMs?: number;
 }): { stop: () => void } {
-  const interval = deps.intervalMs ?? 5 * 60_000;
+  // 60s: o tick agora também é o que mantém o estado honesto para quem não é
+  // navegador (o proxy, o driver). 5 minutos deixava um preview recusando por
+  // até 5 minutos depois de a bancada estar pronta.
+  const interval = deps.intervalMs ?? 60_000;
   const tick = async () => {
     try {
+      // 1. Reconcilia o que ainda pode mudar sozinho.
+      for (const status of ["provisioning", "ready"] as const) {
+        for (const b of await deps.store.listBancadas({ status })) {
+          await deps.bancadas.refresh(b).catch(() => {
+            /* o Coder decide; um erro aqui é ruído, não estado */
+          });
+        }
+      }
+
+      // 2. Só então decide quem dormiu demais.
       const cutoff = new Date(Date.now() - deps.idleMs);
       const idle = await deps.store.listIdleBancadas(cutoff);
       for (const b of idle) {

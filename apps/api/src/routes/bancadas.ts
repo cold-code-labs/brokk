@@ -64,8 +64,13 @@ export function bancadasRoutes(deps: AppDeps): Hono {
     const rows = await deps.store.listBancadas({});
     const bancada = rows.find((b) => b.workspaceName === c.req.param("name"));
     if (!bancada) return c.json({ error: "not found" }, 404);
-    const project = await deps.store.getProject(bancada.projectId);
-    return c.json({ bancada, runtime: project?.runtime ?? null });
+    // Reconcilia ANTES de responder. O registro no banco é alça, não verdade:
+    // quem sobe e desce a bancada é o Coder. Sem este passo, o proxy recusava
+    // servir uma bancada que já estava de pé — porque a linha ainda dizia
+    // `provisioning` e ninguém tinha aberto a tela para atualizá-la.
+    const atual = deps.bancadas ? await deps.bancadas.refresh(bancada) : bancada;
+    const project = await deps.store.getProject(atual.projectId);
+    return c.json({ bancada: atual, runtime: project?.runtime ?? null });
   });
 
   /** GET /bancadas/:id/link — a URL do preview COM a chave de acesso.
