@@ -52,6 +52,14 @@ curl -X DELETE "$BROKK/bancadas/<id>"
    recriada (segredo novo) ou apagada; um 503 significa GitHub App sem chave no
    `brokk-api`.
 
+## Segredo com quebra de linha
+
+⚠️ A chave do GitHub App vai na env **em uma linha**, com `\n` escapado. O
+Coolify materializa as variáveis num `.env` para o container: uma PEM
+multi-linha faz cada linha da chave virar "variável" e o deploy morre em
+`unexpected character "/" in variable name "MIIEpQ..."` — depois de já ter
+removido os containers antigos. Ou seja: derruba o app.
+
 ## Template
 
 Mora em [`deploy/coder/bancada`](../deploy/coder/bancada/main.tf). Empurrar
