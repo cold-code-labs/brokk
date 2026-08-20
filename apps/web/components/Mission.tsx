@@ -138,7 +138,7 @@ export default function Mission() {
         </p>
       </header>
 
-      {err ? <Banner tone="danger">{err}</Banner> : null}
+      {err ? <Banner tone="err">{err}</Banner> : null}
 
       <section className="forge-section" aria-label="Start Regin mission">
         <h2 className="forge-subtitle">Regin mission (ops)</h2>

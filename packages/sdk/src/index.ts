@@ -14,7 +14,7 @@ import type {
 
 // Re-export the domain types so consumers (web) depend only on the SDK.
 export type {
-  Agent, Preview, PreviewStatus, Project, Repository, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
+  Agent, Bancada, BancadaStatus, Preview, PreviewStatus, Project, Repository, Run, RunEvent, Subscription, Task, TaskStatus, RunStatus, User,
   TaskOwner, TaskSource, TaskEvent, TaskEventType,
   ForcaLevel, MimirMode, MimirPrompt, MimirRevision, RefinoLevel,
   Plan, PlanDraft, PlannedCard, PlanMode, PlanStatus, ClarifyQuestion,

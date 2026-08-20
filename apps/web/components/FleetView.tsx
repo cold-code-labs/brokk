@@ -721,7 +721,7 @@ export default function FleetView(p: FleetViewProps) {
               tone="clients"
               empty="Nenhum cliente quiet neste momento"
             >
-              {clientProjects.map(renderCard)}
+              {clientProjects.map((p) => renderCard(p))}
             </Section>
 
             <Section
@@ -731,7 +731,7 @@ export default function FleetView(p: FleetViewProps) {
               tone="internal"
               empty="Nada quiet na frota interna"
             >
-              {internalProjects.map(renderCard)}
+              {internalProjects.map((p) => renderCard(p))}
             </Section>
 
             {archivedProjects.length > 0 ? (
@@ -740,7 +740,7 @@ export default function FleetView(p: FleetViewProps) {
                 title="Arquivados"
                 count={archivedProjects.length}
               >
-                {archivedProjects.map(renderCard)}
+                {archivedProjects.map((p) => renderCard(p))}
               </Section>
             ) : null}
           </div>

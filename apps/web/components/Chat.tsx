@@ -57,7 +57,6 @@ import { files, inboxRelPath } from "../lib/files";
 import { STATUS_COLOR, t as theme } from "../lib/theme";
 import { StudioPanel } from "./StudioPanel";
 import { FileViewer } from "./FileViewer";
-import { ContextRing } from "./ComposerChip";
 import { ComposerMenu } from "./ComposerMenu";
 import { QaControls, buildQaRunPrompt } from "./QaControls";
 import { DataFlowControls, buildDataFlowRunPrompt } from "./DataFlowControls";
