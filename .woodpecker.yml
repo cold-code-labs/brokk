@@ -1,0 +1,32 @@
+# Gate do brokk rodando no Woodpecker.
+#
+# Este arquivo é a definição ÚNICA do CI deste repo: o servidor roda depois do push, e
+# `ccl ci brokk` roda o MESMO arquivo aqui, no mesmo container, via `woodpecker-cli exec`.
+# Não há segunda definição para divergir.
+#
+# ⚠️ NÃO dispara deploy. O Gjallarhorn segue reagindo ao push por conta própria.
+#
+# Traduzido de .ccl/gate.yml em 2026-08-20.
+# Só `push`, de propósito. O `node_auth_token` é segredo de ORGANIZAÇÃO e a org tem repos
+# públicos (brokk, deepsec e outros 4): entregá-lo a pipeline disparado por PR de fork
+# deixaria qualquer um roubar um PAT com write:packages abrindo um PR que o imprime.
+#
+# Não se perde cobertura: PR de branch interna já foi validado quando a branch subiu — o
+# evento push pega. PR de fork fica sem CI, e precisa de revisão humana de qualquer jeito.
+when:
+  - event: push
+
+steps:
+  - name: check
+    # Mesma versão que o repo declara em packageManager — divergência de pnpm foi a causa
+    # nº 1 de vermelho falso quando o gate saiu do Actions.
+    image: node:22-alpine
+    environment:
+      NODE_AUTH_TOKEN:
+        from_secret: node_auth_token
+    commands:
+      - corepack enable
+      - corepack prepare pnpm@9.15.0 --activate
+      - pnpm install --no-frozen-lockfile
+      - pnpm typecheck
+      - pnpm build

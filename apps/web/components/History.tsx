@@ -27,7 +27,10 @@ export default function History() {
         ]);
         const userById = Object.fromEntries(users.map((u) => [u.id, u.name]));
         const map: Record<string, string> = {};
-        for (const s of subs) map[s.id] = userById[s.userId] ?? s.label;
+        // `userId` é nulável no schema (packages/db: sem .notNull()), então não serve
+        // como índice direto — sem a guarda o typecheck reprova e, em runtime, uma
+        // assinatura órfã cairia em `undefined` silencioso em vez do rótulo.
+        for (const s of subs) map[s.id] = (s.userId ? userById[s.userId] : undefined) ?? s.label;
         const withRuns = await Promise.all(
           tasks.map(async (task) => ({ task, latest: (await brokk.listTaskRuns(task.id).catch(() => []))[0] })),
         );
