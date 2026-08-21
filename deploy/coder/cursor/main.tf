@@ -200,9 +200,20 @@ resource "coder_agent" "main" {
       # O token só aparece na URL do clone e some do remoto no ato seguinte —
       # não fica no .git/config nem no history.
       if [ ! -d "$HOME/app/.git" ]; then
+        # O modulo do cursor escreve .cursor/ (mcp.json + rules) DENTRO da pasta
+        # de trabalho, e nao ha garantia de ordem entre esse script e o dele. Um
+        # `rm -rf` seco leva o mcp.json junto — e sem ele o agente perde a
+        # ferramenta coder_report_task, passa a falar JSON-RPC na mao e a task
+        # fica marcada como rodando para sempre. Medido em 21/08.
+        # `[ -d x ] && cp` com set -e aborta o script quando o teste da falso —
+        # e na primeira build .cursor nao existe. Por isso `if`, nao `&&`.
+        KEEP=$(mktemp -d)
+        if [ -d "$HOME/app/.cursor" ]; then cp -a "$HOME/app/.cursor" "$KEEP/"; fi
         rm -rf "$HOME/app"
         git clone --branch "$BRANCH" \
           "https://x-access-token:$GITHUB_TOKEN@github.com/$REPO.git" "$HOME/app"
+        if [ -d "$KEEP/.cursor" ]; then cp -a "$KEEP/.cursor" "$HOME/app/"; fi
+        rm -rf "$KEEP"
         git -C "$HOME/app" remote set-url origin "https://github.com/$REPO.git"
       else
         git -C "$HOME/app" fetch origin "$BRANCH" && git -C "$HOME/app" checkout "$BRANCH"
@@ -210,7 +221,7 @@ resource "coder_agent" "main" {
       git config --global --add safe.directory "$HOME/app"
 
       cd "$HOME/app/$APP_ROOT"
-      [ -n "$INSTALL_CMD" ] && eval "$INSTALL_CMD"
+      if [ -n "$INSTALL_CMD" ]; then eval "$INSTALL_CMD"; fi
       if [ -n "$DEV_CMD" ]; then
         nohup sh -c "$DEV_CMD" >/tmp/dev.log 2>&1 &
       fi
@@ -363,6 +374,14 @@ module "cursor_cli" {
       - NAO narre o passo a passo ("vou procurar...", "agora vou editar...").
         Trabalhe calado e responda no fim.
       - Se entregou, a ultima linha e a URL do PR, sozinha.
+
+      ## Fechar a task (obrigatorio)
+
+      A ULTIMA acao antes de responder e sempre `coder_report_task` com estado
+      `complete` (ou `failure`, se nao deu). Sem isso a task fica marcada como
+      rodando para sempre no painel — o agente termina, responde, e o Coder
+      continua exibindo o ultimo estado intermediario. Reportar `working` no
+      meio e opcional; reportar o estado final NAO e.
     RULES
   }
 

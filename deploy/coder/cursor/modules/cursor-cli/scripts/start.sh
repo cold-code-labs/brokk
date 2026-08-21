@@ -58,7 +58,12 @@ fi
 
 if [ -n "$ARG_AI_PROMPT" ]; then
   printf "AI prompt provided\n"
-  ARGS+=("Complete the task at hand in one go. Every step of the way, report your progress using coder_report_task tool with proper summary and statuses. Your task at hand: $ARG_AI_PROMPT")
+  # VENDORIZADO. O upstream so pede "report your progress", e na pratica o agente
+  # emite um `working` no meio e termina calado — a task fica marcada como
+  # rodando para sempre no painel, porque o Coder segue exibindo o ultimo estado
+  # reportado. A exigencia do estado FINAL precisa estar aqui, no prompt, e nao
+  # so no rules_files: e a primeira coisa que ele le. Medido em 21/08.
+  ARGS+=("Complete the task at hand in one go. Report progress with the coder_report_task tool as you go. YOUR FINAL ACTION, immediately before your closing message, MUST be a coder_report_task call with state=complete (or state=failure if you could not finish) and a one-line summary of what changed — do not end your turn without it. Your task at hand: $ARG_AI_PROMPT")
 fi
 
 # Log and run in background, redirecting all output to the log file
