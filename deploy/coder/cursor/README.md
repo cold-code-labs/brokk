@@ -93,6 +93,45 @@ Configuração viva: `CODER_WILDCARD_ACCESS_URL="*.coldcodelabs.com"` em
   por tamanho de regra e um regex longo passaria na frente dos `Host()` exatos
   da frota inteira.
 
+## Adicionar um projeto novo — o que custa de verdade
+
+O preset e oito linhas. O trabalho e descobrir **a credencial de build** do
+projeto. Medido ao adicionar o Bragi:
+
+- `pnpm install` morreu em 401 porque o `.npmrc` do repo aponta
+  `@cold-code-labs` para `npm.pkg.github.com` com `${NODE_AUTH_TOKEN}`;
+- com o PAT classico do Vault virou **403** no `/download/...` do pacote
+  `@cold-code-labs/yggdrasil-tokens`. Nenhum dos tres PATs do bucket `GitHub`
+  consegue baixa-lo — falta `read:packages` para esse pacote;
+- ⚠️ testar `GET /@escopo/pacote` (metadados) **nao** prova nada: da 200 com um
+  token que da 403 no `/download/`, que e o que o pnpm usa de verdade.
+- O fine-grained nunca serve para GitHub Packages: o registry npm responde 403.
+
+Ou seja: antes de fixar um projeto, rode o `install` dele numa bancada limpa e
+veja o que falta. O checklist e curto — registry privado, variavel de build,
+env de runtime.
+
+## Autenticacao no preview
+
+O preview da bancada serve para **ver a mudanca**, nao para exercitar login. Dois
+caminhos, conforme o app:
+
+- **App com modo de auth falso** — o Arte aceita `VITE_AUTH_MODE` em `stub` ou
+  `hauldr`. O preset do Arte ja passa `stub` via `dev_env`, entao o preview sobe
+  sem depender de sessao.
+- **App atras do Logto** (Bragi) — o host do preview
+  (`preview--<workspace>--<owner>.coldcodelabs.com`) **nao** esta nos redirect
+  URIs, e o login quebra com `redirect_uri mismatch`. Duas saidas:
+  1. `coder port-forward <workspace> --tcp 3000:3000` — o app aparece em
+     `http://localhost:3000` na sua maquina, que **ja e** um redirect URI
+     registrado. Zero configuracao.
+  2. registrar o host do preview como redirect URI na aplicacao do Logto. Vale
+     quando varias pessoas forem usar a mesma bancada.
+
+> ⚠️ `dev_env` e para valor **nao-secreto** (feature flag, modo de auth). Nao e
+> canal de segredo: parametro do Coder nao tem flag de sensivel e volta limpo
+> pela API — a mesma armadilha do `extra_env` descrita acima.
+
 ## Ruído no painel de chat
 
 O painel espelha a **tela do terminal do agente**, literalmente — o eco de cada

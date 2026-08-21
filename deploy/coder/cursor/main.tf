@@ -43,6 +43,13 @@ variable "github_token" {
   default     = ""
 }
 
+variable "node_auth_token" {
+  description = "PAT CLASSICO para o GitHub Packages (npm.pkg.github.com). Ice Vault, bucket `GitHub`, nome `PAT NODE_AUTH_TOKEN — brokk-forge + brokk-core`. O fine-grained NAO serve: o registry npm do GitHub responde 403 para ele."
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "cpus" {
   description = "CPU WEIGHT por bancada (cpu_shares, relativo — não é teto duro)."
   type        = number
@@ -109,6 +116,15 @@ data "coder_parameter" "dev_cmd" {
   mutable      = false
 }
 
+data "coder_parameter" "dev_env" {
+  name         = "dev_env"
+  display_name = "Env extra do dev server"
+  description  = "JSON plano, ex: {\"VITE_AUTH_MODE\":\"stub\"}. APENAS valor não-secreto: parâmetro do Coder não tem flag de sensível e volta limpo pela API — ver o README."
+  type         = "string"
+  default      = "{}"
+  mutable      = false
+}
+
 data "coder_parameter" "dev_port" {
   name         = "dev_port"
   display_name = "Porta do dev server"
@@ -131,6 +147,24 @@ data "coder_workspace_preset" "arte" {
     install_cmd = "pnpm install --no-frozen-lockfile"
     dev_cmd     = "pnpm exec vite --port 5173 --host 0.0.0.0"
     dev_port    = "5173"
+    # O app aceita VITE_AUTH_MODE "stub" ou "hauldr". Na bancada o preview serve
+    # para VER a mudança, não para exercitar login — stub evita depender de
+    # sessão do Hauldr dentro do workspace.
+    dev_env     = "{\"VITE_AUTH_MODE\":\"stub\"}"
+  }
+}
+
+data "coder_workspace_preset" "bragi" {
+  name = "Bragi"
+  parameters = {
+    repo        = "cold-code-labs/bragi"
+    # O Bragi não tem branch `dev` — só `main` e branches de feature.
+    branch      = "main"
+    app_root    = "."
+    install_cmd = "pnpm install --no-frozen-lockfile"
+    dev_cmd     = "pnpm exec next dev -p 3000 -H 0.0.0.0"
+    dev_port    = "3000"
+    dev_env     = "{}"
   }
 }
 
@@ -144,6 +178,7 @@ data "coder_workspace_preset" "limpa" {
     install_cmd = ""
     dev_cmd     = ""
     dev_port    = "3000"
+    dev_env     = "{}"
   }
 }
 
@@ -223,6 +258,11 @@ resource "coder_agent" "main" {
       cd "$HOME/app/$APP_ROOT"
       if [ -n "$INSTALL_CMD" ]; then eval "$INSTALL_CMD"; fi
       if [ -n "$DEV_CMD" ]; then
+        # dev_env vira .env.local, que Vite e Next leem sozinhos. Escrito depois
+        # do install para nao ser apagado por um `clean` do gerenciador.
+        if [ "$DEV_ENV" != "{}" ] && [ -n "$DEV_ENV" ]; then
+          node -e 'const e=JSON.parse(process.env.DEV_ENV);require("fs").appendFileSync(".env.local",Object.entries(e).map(([k,v])=>k+"="+v).join("\n")+"\n")'
+        fi
         nohup sh -c "$DEV_CMD" >/tmp/dev.log 2>&1 &
       fi
     else
@@ -246,8 +286,14 @@ resource "coder_agent" "main" {
     INSTALL_CMD  = data.coder_parameter.install_cmd.value
     DEV_CMD      = data.coder_parameter.dev_cmd.value
     DEV_PORT     = tostring(data.coder_parameter.dev_port.value)
+    DEV_ENV      = data.coder_parameter.dev_env.value
     GITHUB_TOKEN = var.github_token
     GH_TOKEN     = var.github_token
+    # Projeto que consome pacote privado do GitHub Packages (Bragi puxa
+    # @cold-code-labs/yggdrasil-tokens) tem um .npmrc com ${NODE_AUTH_TOKEN}.
+    # Sem esta variavel o `pnpm install` morre em 401 e o set -e derruba o
+    # startup inteiro — sem dev server, sem dev.log, sem pista. Medido em 21/08.
+    NODE_AUTH_TOKEN = var.node_auth_token
   }
 
   metadata {
