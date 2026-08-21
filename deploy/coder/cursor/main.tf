@@ -161,6 +161,22 @@ data "coder_workspace_preset" "bragi" {
   }
 }
 
+data "coder_workspace_preset" "esquilos" {
+  name = "Esquilos"
+  parameters = {
+    repo        = "cold-code-labs/esquilos"
+    # Só existe `main` — o repo não tem branch de integração.
+    branch      = "main"
+    app_root    = "."
+    # `package-lock.json`, não pnpm: o install tem que casar com o lockfile do
+    # repo, senão resolve versão diferente da que roda em produção.
+    install_cmd = "npm ci"
+    dev_cmd     = "npm run dev -- --port 5173 --host 0.0.0.0"
+    dev_port    = "5173"
+    dev_env     = "{}"
+  }
+}
+
 data "coder_workspace_preset" "limpa" {
   name    = "Bancada limpa"
   default = true
@@ -359,6 +375,10 @@ module "cursor_cli" {
   folder   = local.folder
 
   install_cursor_cli = true
+  # DECISAO, nao default: a conta Cursor fica SEMPRE em `auto`. O seat da conta
+  # da acesso a modelo frontier (Claude, GPT-5.x, Gemini, Grok...), e nao e para
+  # gastar por aqui. Nao transformar isto em parametro nem em preset: no dia que
+  # virar escolha, vira escolha errada em alguma bancada. (21/08/2026)
   model              = "auto"
   api_key            = var.cursor_api_key
   ai_prompt          = data.coder_task.me.prompt
@@ -408,6 +428,10 @@ module "cursor_cli" {
       - NAO narre o passo a passo ("vou procurar...", "agora vou editar...").
         Trabalhe calado e responda no fim.
       - Se entregou, a ultima linha e a URL do PR, sozinha.
+      - NAO troque o modelo (`/model`). Esta bancada roda em `auto` por decisao
+        de custo: o seat da conta alcanca modelo frontier e nao e para gastar
+        aqui. Se a tarefa parecer grande demais para o `auto`, diga isso na
+        resposta em vez de trocar por conta propria.
 
       ## Fechar a task (obrigatorio)
 
