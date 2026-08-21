@@ -93,6 +93,31 @@ Configuração viva: `CODER_WILDCARD_ACCESS_URL="*.coldcodelabs.com"` em
   por tamanho de regra e um regex longo passaria na frente dos `Host()` exatos
   da frota inteira.
 
+## Ruído no painel de chat
+
+O painel espelha a **tela do terminal do agente**, literalmente — o eco de cada
+comando, cada diff, cada saída. Isso não é filtrável:
+
+- o `cursor-agent` expõe só quatro booleanos de display
+  (`showLineNumbers`, `showThinkingBlocks`, `showStatusIndicators`,
+  `showStatusLineRunningTime`), **todos já em `false`** aqui, mais um
+  `mode: "zen"` não documentado. Nenhum esconde saída de ferramenta;
+- o `agentapi server --help` não tem flag de filtro, e o rodapé
+  *"Switch to Control mode…"* é parte da UI embutida dele.
+
+O que dá para fazer, e está feito:
+
+1. **`--term-width 110`** no `modules/cursor-cli/scripts/start.sh`. O upstream
+   crava **67**, e com 67 colunas todo diff quebra em linha curta e vira um muro.
+   É a diferença visual maior.
+2. **Regra de concisão** no `rules_files`: resposta final em até 3 linhas, sem
+   repetir diff nem narrar passo a passo — o terminal logo acima já mostrou.
+   Medido: a resposta final caiu de parágrafo com diffs para uma linha.
+
+Se o chat limpo passar a valer mais que usar o Cursor, o caminho é trocar o
+agente: o `agentapi` tem parser próprio por tipo de agente, e a `bancada` (Claude
+Code) não sofre disso do mesmo jeito.
+
 ## Dívida conhecida
 
 - **`github_token` é andaime.** É um PAT durável entregue a toda bancada deste

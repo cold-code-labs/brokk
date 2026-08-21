@@ -349,6 +349,20 @@ module "cursor_cli" {
         "Resource not accessible by personal access token".
       - Se o usuario nao pediu para entregar, apenas edite: o preview ao vivo
         na porta do dev server ja mostra o resultado.
+
+      ## Como responder
+
+      O painel de chat espelha seu terminal inteiro, entao o que voce escreve
+      aparece no meio do eco de cada comando. Escreva para quem so vai ler as
+      ultimas linhas:
+
+      - Resposta final em ATE 3 linhas, em portugues, dizendo o que mudou —
+        nao como voce descobriu.
+      - NAO repita diff, trecho de arquivo ou saida de comando na resposta:
+        isso ja apareceu no terminal logo acima.
+      - NAO narre o passo a passo ("vou procurar...", "agora vou editar...").
+        Trabalhe calado e responda no fim.
+      - Se entregou, a ultima linha e a URL do PR, sozinha.
     RULES
   }
 

@@ -64,4 +64,10 @@ fi
 # Log and run in background, redirecting all output to the log file
 printf "Running: %q %s\n" "$CURSOR_CMD" "$(printf '%q ' "${ARGS[@]}")"
 
-agentapi server --type cursor --term-width 67 --term-height 1190 -- "$CURSOR_CMD" "${ARGS[@]}"
+# VENDORIZADO. Upstream crava --term-width 67, e o painel de chat da task
+# espelha a tela do TUI literalmente: com 67 colunas todo diff e toda saida de
+# comando quebra em linha curta e vira um muro de texto. 110 e o suficiente para
+# um diff caber sem quebrar. Nao filtra o eco de ferramenta — nao ha opcao para
+# isso nem no cursor-agent (a doc so expoe 4 booleanos de display, todos ja em
+# false aqui) nem no agentapi.
+agentapi server --type cursor --term-width 110 --term-height 1190 -- "$CURSOR_CMD" "${ARGS[@]}"
