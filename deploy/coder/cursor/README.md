@@ -98,18 +98,21 @@ Configuração viva: `CODER_WILDCARD_ACCESS_URL="*.coldcodelabs.com"` em
 O preset e oito linhas. O trabalho e descobrir **a credencial de build** do
 projeto. Medido ao adicionar o Bragi:
 
-- `pnpm install` morreu em 401 porque o `.npmrc` do repo aponta
-  `@cold-code-labs` para `npm.pkg.github.com` com `${NODE_AUTH_TOKEN}`;
-- com o PAT classico do Vault virou **403** no `/download/...` do pacote
-  `@cold-code-labs/yggdrasil-tokens`. Nenhum dos tres PATs do bucket `GitHub`
-  consegue baixa-lo — falta `read:packages` para esse pacote;
-- ⚠️ testar `GET /@escopo/pacote` (metadados) **nao** prova nada: da 200 com um
-  token que da 403 no `/download/`, que e o que o pnpm usa de verdade.
-- O fine-grained nunca serve para GitHub Packages: o registry npm responde 403.
+No caso do Bragi o `pnpm install` morria, e a caca ao motivo rendeu duas licoes:
+
+- **403 no GitHub Packages e COTA, nao permissao.** O corpo do erro diz
+  `"Account has reached its billing limit"`. Os headers nao dizem nada, e os
+  metadados (`GET /@escopo/pacote`) respondem **200** enquanto so o `/download/`
+  falha — o que faz parecer escopo de token. Ler o body antes de culpar
+  credencial.
+- **Nao era preciso token nenhum.** A frota migrou do GitHub Packages para um
+  **Verdaccio proprio** em 21/08 (`http://10.10.0.2:4873`, so pela WireGuard,
+  **leitura anonima**). O `.npmrc` dos repos ja aponta para la. Como a bancada
+  roda na surtr, ela alcanca o registry direto: nada de `NODE_AUTH_TOKEN`.
+  Ver `docs/registry-npm.md` no midgard.
 
 Ou seja: antes de fixar um projeto, rode o `install` dele numa bancada limpa e
-veja o que falta. O checklist e curto — registry privado, variavel de build,
-env de runtime.
+veja o que falta. Quase sempre nao falta credencial — falta olhar o erro.
 
 ## Autenticacao no preview
 

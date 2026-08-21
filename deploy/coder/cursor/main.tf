@@ -43,13 +43,6 @@ variable "github_token" {
   default     = ""
 }
 
-variable "node_auth_token" {
-  description = "PAT CLASSICO para o GitHub Packages (npm.pkg.github.com). Ice Vault, bucket `GitHub`, nome `PAT NODE_AUTH_TOKEN — brokk-forge + brokk-core`. O fine-grained NAO serve: o registry npm do GitHub responde 403 para ele."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
 variable "cpus" {
   description = "CPU WEIGHT por bancada (cpu_shares, relativo — não é teto duro)."
   type        = number
@@ -289,11 +282,6 @@ resource "coder_agent" "main" {
     DEV_ENV      = data.coder_parameter.dev_env.value
     GITHUB_TOKEN = var.github_token
     GH_TOKEN     = var.github_token
-    # Projeto que consome pacote privado do GitHub Packages (Bragi puxa
-    # @cold-code-labs/yggdrasil-tokens) tem um .npmrc com ${NODE_AUTH_TOKEN}.
-    # Sem esta variavel o `pnpm install` morre em 401 e o set -e derruba o
-    # startup inteiro — sem dev server, sem dev.log, sem pista. Medido em 21/08.
-    NODE_AUTH_TOKEN = var.node_auth_token
   }
 
   metadata {
