@@ -779,3 +779,52 @@ export const bancadas = pgTable(
     project: index("bancadas_project_idx").on(t.projectId),
   }),
 );
+
+/**
+ * A fila serial de passadas.
+ *
+ * Uma passada = **um alvo × um ofício**, do começo ao fim: `sec` é o Svalinn
+ * cobrindo a varredura inteira de um repositório; `qa` é o catálogo inteiro de
+ * cenários de um app. A unidade é a passada, não a tarefa, porque o teto do
+ * Cursor não é tamanho de prompt — é peso estrutural × concorrência. Com a
+ * passada como unidade, "serial" deixa de ser disciplina a lembrar e vira
+ * consequência do desenho: não existe onde encaixar a segunda.
+ *
+ * O sequenciador não sabe o que uma passada faz. Ele pede (`iniciar`),
+ * pergunta (`estado`) e colhe (`colher`) — quem sabe é o ofício.
+ *
+ * `oficio` e `estado` são text, não enum, pela mesma razão de `bancadas`: a
+ * DDL de auto-cura no boot continua um CREATE IF NOT EXISTS trivial.
+ */
+export const passadas = pgTable(
+  "passadas",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    /** sec · qa · review · dev */
+    oficio: text("oficio").notNull(),
+    /** A chave natural do ofício: slug do repositório (sec/review) ou do projeto. */
+    alvo: text("alvo").notNull(),
+    /** pendente · rodando · concluida · falhou */
+    estado: text("estado").notNull().default("pendente"),
+    /** Maior primeiro. A ordenação é a única coisa que a priorização por LLM
+     *  escreve — e por isso ela pode falhar sem consequência: sem ela, FIFO. */
+    prioridade: integer("prioridade").notNull().default(0),
+    /** O identificador que o executor devolveu (ex.: o `passId` do Svalinn).
+     *  Null enquanto a passada está só enfileirada. */
+    passRef: text("pass_ref"),
+    /** O que ficou quando terminou. SEMPRE inerte: relatório, contagem,
+     *  caminho de artefato — nunca uma mutação já aplicada. */
+    artefato: jsonb("artefato"),
+    /** Por que falhou, quando falhou. */
+    erro: text("erro"),
+    iniciadaEm: timestamp("iniciada_em", { withTimezone: true }),
+    terminadaEm: timestamp("terminada_em", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    /** A fila: maior prioridade, depois mais antiga. */
+    fila: index("passadas_fila_idx").on(t.estado, t.prioridade, t.createdAt),
+    alvoIdx: index("passadas_alvo_idx").on(t.oficio, t.alvo),
+  }),
+);

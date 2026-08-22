@@ -68,6 +68,7 @@ import { fingerprint } from "./fingerprint.js";
 import {
   agents,
   bancadas,
+  passadas,
   chatMessages,
   chatSessions,
   findingEvents,
@@ -567,6 +568,22 @@ export interface ClaimResult {
   memory: RepoMemory[];
 }
 
+/** Uma passada da fila serial: um alvo × um ofício, do começo ao fim. */
+export type Passada = {
+  id: string;
+  oficio: string;
+  alvo: string;
+  estado: "pendente" | "rodando" | "concluida" | "falhou";
+  prioridade: number;
+  passRef: string | null;
+  artefato: unknown;
+  erro: string | null;
+  iniciadaEm: string | null;
+  terminadaEm: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export interface Store {
   // github installations (ADR 0064 · per-org GitHub connection)
   /** Bind (or refresh) a GitHub App installation to an org. Keyed by installationId. */
@@ -885,6 +902,29 @@ export interface Store {
   /** Resolve a bancada by the sha256 of the secret its workspace presents. The
    *  lookup is by hash so a leaked row never yields a usable credential. */
   getBancadaByTokenHash(tokenHash: string): Promise<Bancada | null>;
+
+  // ── Fila serial de passadas (alvo × ofício) ────────────────────────────────
+  /** A passada em voo. É UMA, no máximo: o serial é a razão de a fila existir. */
+  passadaEmVoo(): Promise<Passada | null>;
+  /** A próxima da fila: maior prioridade, depois mais antiga. */
+  proximaPassadaPendente(): Promise<Passada | null>;
+  /** Enfileira se não houver uma aberta (pendente/rodando) para o mesmo par.
+   *  Devolve null quando já havia — o gerador pode rodar a cada tick sem duplicar. */
+  enfileirarPassada(input: {
+    oficio: string;
+    alvo: string;
+    prioridade?: number;
+  }): Promise<Passada | null>;
+  marcarPassadaRodando(id: string, passRef: string): Promise<Passada>;
+  fecharPassada(
+    id: string,
+    estado: "concluida" | "falhou",
+    detalhe?: { artefato?: unknown; erro?: string },
+  ): Promise<Passada>;
+  /** Quando o par terminou pela última vez — é daqui que sai a cadência, sem
+   *  precisar que o executor exponha histórico. */
+  ultimaPassadaConcluida(oficio: string, alvo: string): Promise<Passada | null>;
+  listPassadas(opts?: { oficio?: string; estado?: string; limit?: number }): Promise<Passada[]>;
   /** Idle-reaper heartbeat. Null if the row is gone. */
   touchBancada(id: string): Promise<Bancada | null>;
   /** Ready bancadas whose last activity is older than the cutoff — candidates to
@@ -2577,6 +2617,97 @@ export function createStore(db: Db): Store {
         .limit(1);
       return rows[0] ? rowToBancada(rows[0]) : null;
     },
+
+    // ── Fila serial de passadas ───────────────────────────────────────────────
+    async passadaEmVoo() {
+      const rows = await db
+        .select().from(passadas)
+        .where(eq(passadas.estado, "rodando"))
+        .orderBy(passadas.iniciadaEm)
+        .limit(1);
+      return rows[0] ? rowToPassada(rows[0]) : null;
+    },
+    async proximaPassadaPendente() {
+      const rows = await db
+        .select().from(passadas)
+        .where(eq(passadas.estado, "pendente"))
+        .orderBy(desc(passadas.prioridade), passadas.createdAt)
+        .limit(1);
+      return rows[0] ? rowToPassada(rows[0]) : null;
+    },
+    async enfileirarPassada(input) {
+      // Uma aberta por par. Sem isto o gerador duplicaria a cada tick — e duas
+      // passadas do mesmo alvo brigariam pelo mesmo checkout.
+      const abertas = await db
+        .select().from(passadas)
+        .where(
+          and(
+            eq(passadas.oficio, input.oficio),
+            eq(passadas.alvo, input.alvo),
+            inArray(passadas.estado, ["pendente", "rodando"]),
+          ),
+        )
+        .limit(1);
+      if (abertas[0]) return null;
+      const rows = await db
+        .insert(passadas)
+        .values({
+          oficio: input.oficio,
+          alvo: input.alvo,
+          prioridade: input.prioridade ?? 0,
+        })
+        .returning();
+      return rowToPassada(rows[0]);
+    },
+    async marcarPassadaRodando(id, passRef) {
+      const rows = await db
+        .update(passadas)
+        .set({ estado: "rodando", passRef, iniciadaEm: new Date(), updatedAt: new Date() })
+        .where(eq(passadas.id, id))
+        .returning();
+      if (!rows[0]) throw new Error(`passada ${id} não encontrada`);
+      return rowToPassada(rows[0]);
+    },
+    async fecharPassada(id, estado, detalhe) {
+      const rows = await db
+        .update(passadas)
+        .set({
+          estado,
+          artefato: (detalhe?.artefato ?? null) as never,
+          erro: detalhe?.erro ?? null,
+          terminadaEm: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(passadas.id, id))
+        .returning();
+      if (!rows[0]) throw new Error(`passada ${id} não encontrada`);
+      return rowToPassada(rows[0]);
+    },
+    async ultimaPassadaConcluida(oficio, alvo) {
+      const rows = await db
+        .select().from(passadas)
+        .where(
+          and(
+            eq(passadas.oficio, oficio),
+            eq(passadas.alvo, alvo),
+            eq(passadas.estado, "concluida"),
+          ),
+        )
+        .orderBy(desc(passadas.terminadaEm))
+        .limit(1);
+      return rows[0] ? rowToPassada(rows[0]) : null;
+    },
+    async listPassadas(opts) {
+      const conds = [];
+      if (opts?.oficio) conds.push(eq(passadas.oficio, opts.oficio));
+      if (opts?.estado) conds.push(eq(passadas.estado, opts.estado));
+      const rows = await db
+        .select().from(passadas)
+        .where(conds.length ? and(...conds) : undefined)
+        .orderBy(desc(passadas.createdAt))
+        .limit(opts?.limit ?? 100);
+      return rows.map(rowToPassada);
+    },
     async deleteBancada(id) {
       await db.delete(bancadas).where(eq(bancadas.id, id));
     },
@@ -3116,6 +3247,23 @@ function rowToDriverRun(row: Record<string, unknown>): DriverRun {
   };
 }
 
+function rowToPassada(r: typeof passadas.$inferSelect): Passada {
+  return {
+    id: r.id,
+    oficio: r.oficio,
+    alvo: r.alvo,
+    estado: r.estado as Passada["estado"],
+    prioridade: r.prioridade,
+    passRef: r.passRef,
+    artefato: r.artefato ?? null,
+    erro: r.erro,
+    iniciadaEm: r.iniciadaEm ? r.iniciadaEm.toISOString() : null,
+    terminadaEm: r.terminadaEm ? r.terminadaEm.toISOString() : null,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+  };
+}
+
 /** Map a raw project_briefs row (self-healed table, not in drizzle) to the type.
  *  jsonb arrays come back already-parsed from node-postgres. */
 function rowToBrief(row: Record<string, unknown>): ProjectBrief {
@@ -3393,6 +3541,36 @@ export async function ensureSchema(db: Db): Promise<void> {
   );`);
   await db
     .execute(sql`CREATE INDEX IF NOT EXISTS bancadas_project_idx ON bancadas (project_id);`)
+    .catch(() => {});
+
+  // Fila serial de passadas (alvo × ofício). Auto-curada como bancadas: o
+  // `db:push` do drizzle pendura no db_brokk compartilhado.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS passadas (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    oficio text NOT NULL,
+    alvo text NOT NULL,
+    estado text NOT NULL DEFAULT 'pendente',
+    prioridade integer NOT NULL DEFAULT 0,
+    pass_ref text,
+    artefato jsonb,
+    erro text,
+    iniciada_em timestamptz,
+    terminada_em timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+  );`);
+  await db
+    .execute(sql`CREATE INDEX IF NOT EXISTS passadas_fila_idx ON passadas (estado, prioridade DESC, created_at);`)
+    .catch(() => {});
+  await db
+    .execute(sql`CREATE INDEX IF NOT EXISTS passadas_alvo_idx ON passadas (oficio, alvo);`)
+    .catch(() => {});
+  // Trava de banco para o serial e para a idempotência do gerador: uma passada
+  // ABERTA por par. O check no store evita a maioria; este índice é o que
+  // segura duas instâncias da API subindo ao mesmo tempo.
+  await db
+    .execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS passadas_abertas_uniq
+      ON passadas (oficio, alvo) WHERE estado IN ('pendente','rodando');`)
     .catch(() => {});
 
   // ADR 0064 / BROKK-47 — org tenancy columns (self-heal; drizzle push hangs on db_brokk).

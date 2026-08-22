@@ -103,3 +103,74 @@ export async function bulkSetFindingStatus(
   if (!ok) throw new Error(`svalinn bulk ${status}: ${JSON.stringify(body).slice(0, 200)}`)
   return (body as { updated?: number }).updated ?? 0
 }
+
+// ── Passada de varredura (ofício `sec`) ──────────────────────────────────────
+// O Svalinn passou a aceitar dois verbos de máquina: começar a varredura de um
+// alvo e dizer se ela terminou. É o que faz `sec` caber na fila serial sem o
+// Brokk reimplementar varredura nenhuma.
+
+export type PassadaSecInicio = {
+  passId: string
+  slug: string
+  enfileiradas: string[]
+  puladas: string[]
+}
+
+export type PassadaSecEstado = {
+  passId: string
+  slug: string | null
+  estado: "rodando" | "concluida" | "falhou" | "desconhecida"
+  ativos: number
+  runs: { engine: string; status: string; error: string | null }[]
+  findingsAbertos: number
+}
+
+/** Começa a passada de `sec` num alvo. 400 = alvo desconhecido, sem repo ou untrusted. */
+export async function iniciarPassadaSec(
+  opts: SvalinnClientOpts,
+  slug: string,
+): Promise<PassadaSecInicio> {
+  const { ok, status, body } = await svalinnFetch(opts, "/api/machine/scan", {
+    method: "POST",
+    body: JSON.stringify({ slug }),
+  })
+  if (!ok) {
+    const erro = (body as { error?: string }).error ?? `http ${status}`
+    throw new Error(`svalinn scan ${slug}: ${erro}`)
+  }
+  return body as PassadaSecInicio
+}
+
+/** Estado da passada. ⚠️ `rodando` até o ALVO ficar quieto — o Svalinn
+ *  auto-enfileira o `report` com owner próprio depois do último scan, e sem
+ *  essa espera colheríamos um alvo sem relatório. */
+export async function estadoPassadaSec(
+  opts: SvalinnClientOpts,
+  passId: string,
+): Promise<PassadaSecEstado> {
+  const { ok, status, body } = await svalinnFetch(
+    opts,
+    `/api/machine/scan/${encodeURIComponent(passId)}`,
+  )
+  if (!ok) throw new Error(`svalinn scan estado ${passId}: http ${status}`)
+  return body as PassadaSecEstado
+}
+
+/** Inventário de alvos varreáveis.
+ *
+ *  ⚠️ NÃO use `getBoard` para gerar fila: o board é a visão de TRIAGEM (só alvo
+ *  com achado aberto), então repositório limpo ou nunca varrido não aparece. */
+export type AlvoMaquina = {
+  slug: string
+  name: string
+  repoUrl: string | null
+  defaultBranch: string | null
+  ultimaVarreduraEm: string | null
+  abertos: number
+}
+
+export async function getTargets(opts: SvalinnClientOpts): Promise<AlvoMaquina[]> {
+  const { ok, status, body } = await svalinnFetch(opts, "/api/machine/targets")
+  if (!ok) throw new Error(`svalinn targets ${status}`)
+  return (body as { targets?: AlvoMaquina[] }).targets ?? []
+}

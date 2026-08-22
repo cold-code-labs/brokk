@@ -61,6 +61,11 @@ const Env = z.object({
   // Svalinn machine API (ADR 0087). Token stays in this process — not in forge.
   SVALINN_API_URL: z.string().default("https://svalinn.coldcodelabs.com"),
   SVALINN_MACHINE_TOKEN: z.string().default(""),
+  /** Liga a fila serial de passadas (alvo × ofício). Desligada por padrão: o
+   *  turno consome o seat do Cursor, e ligar isso é decisão de operação. */
+  BROKK_SEQUENCIADOR: z.coerce.number().int().default(0),
+  /** Intervalo do tick do sequenciador. */
+  BROKK_SEQUENCIADOR_INTERVALO_MS: z.coerce.number().int().positive().default(30_000),
 });
 
 export type Config = z.infer<typeof Env>;

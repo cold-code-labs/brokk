@@ -1,6 +1,8 @@
 import { serve } from "@hono/node-server";
 import { CoderClient } from "@brokk/coder";
 import { createDb, createStore, ensureSchema } from "@brokk/db";
+import { startSequenciador } from "./sequenciador.js";
+import { oficioSec } from "./oficios/sec.js";
 import { buildApp } from "./app.js";
 import { BancadaService } from "./bancada.js";
 import { startBancadaDriver } from "./bancada-driver.js";
@@ -116,6 +118,28 @@ async function main() {
           }
         : undefined,
     });
+  }
+
+  // A fila serial de passadas (alvo × ofício). Um ofício ligado — `sec`, que o
+  // Svalinn executa — já exercita o contrato inteiro: pedir, perguntar, colher.
+  // ⚠️ Serial de propósito: o teto do Cursor é peso estrutural × concorrência.
+  if (cfg.BROKK_SEQUENCIADOR === 1) {
+    if (!cfg.SVALINN_MACHINE_TOKEN) {
+      console.warn("[seq] SVALINN_MACHINE_TOKEN vazio — ofício sec não sobe");
+    } else {
+      startSequenciador({
+        store,
+        oficios: [
+          oficioSec({
+            baseUrl: cfg.SVALINN_API_URL,
+            token: cfg.SVALINN_MACHINE_TOKEN,
+            actor: "brokk-sequenciador",
+          }),
+        ],
+        intervalMs: cfg.BROKK_SEQUENCIADOR_INTERVALO_MS,
+      });
+      console.log("[seq] fila serial LIGADA — ofícios: sec");
+    }
   }
 
   serve({ fetch: app.fetch, port: cfg.BROKK_API_PORT }, ({ port }) => {
