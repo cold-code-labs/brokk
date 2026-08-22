@@ -29,7 +29,7 @@ function fakeStore(inicial: {
   const store = {
     async passadaEmVoo() { return inicial.emVoo ?? null; },
     async proximaPassadaPendente() { return inicial.proxima ?? null; },
-    async ultimaPassadaConcluida() { return inicial.ultima ?? null; },
+    async ultimaPassadaTerminal() { return inicial.ultima ?? null; },
     async enfileirarPassada(i: { oficio: string; alvo: string }) {
       const k = `${i.oficio}/${i.alvo}`;
       if (abertas.has(k)) return null;          // já há uma aberta para o par
@@ -65,18 +65,37 @@ function fakeOficio(over: Partial<Oficio> & { estadoDevolve?: EstadoPassada } = 
 
 describe("venceu", () => {
   const agora = Date.parse("2026-08-22T12:00:00Z");
+  const ok = (h: number) => ({ estado: "concluida", terminadaEm: new Date(agora - h * H).toISOString() });
+  const falha = (h: number) => ({ estado: "falhou", terminadaEm: new Date(agora - h * H).toISOString() });
+
   it("par que nunca rodou está vencido — é assim que a frota entra na 1ª noite", () => {
     assert.equal(venceu(null, 168, agora), true);
     assert.equal(venceu(undefined, 168, agora), true);
+    assert.equal(venceu({ estado: "concluida", terminadaEm: null }, 168, agora), true);
   });
   it("dentro da cadência não volta para a fila", () => {
-    assert.equal(venceu(new Date(agora - 10 * H).toISOString(), 168, agora), false);
+    assert.equal(venceu(ok(10), 168, agora), false);
   });
   it("passada a cadência, volta", () => {
-    assert.equal(venceu(new Date(agora - 169 * H).toISOString(), 168, agora), true);
+    assert.equal(venceu(ok(169), 168, agora), true);
   });
   it("data podre não trava o par para sempre", () => {
-    assert.equal(venceu("nao-e-data", 168, agora), true);
+    assert.equal(venceu({ estado: "concluida", terminadaEm: "nao-e-data" }, 168, agora), true);
+  });
+
+  // 🔴 A regressão que aconteceu em produção: o portifolio-lp (repo vazio)
+  // falhava instantaneamente, voltava para a fila no tick seguinte, e em 10
+  // minutos tinha 7 tentativas com o resto da fila parado atrás.
+  it("🔴 falha NÃO volta no tick seguinte — é o storm de retry", () => {
+    assert.equal(venceu(falha(0.01), 168, agora), false, "1 minuto depois não pode voltar");
+    assert.equal(venceu(falha(1), 168, agora), false);
+  });
+  it("falha espera menos que a cadência — problema transitório se resolve no mesmo dia", () => {
+    assert.equal(venceu(falha(7), 168, agora), true, "6h de backoff, então 7h já volta");
+    assert.equal(venceu(ok(7), 168, agora), false, "sucesso ainda espera a cadência inteira");
+  });
+  it("cadência curta manda no backoff — nunca espera mais que a própria cadência", () => {
+    assert.equal(venceu(falha(3), 2, agora), true);
   });
 });
 

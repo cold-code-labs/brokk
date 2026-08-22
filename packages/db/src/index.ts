@@ -921,9 +921,13 @@ export interface Store {
     estado: "concluida" | "falhou",
     detalhe?: { artefato?: unknown; erro?: string },
   ): Promise<Passada>;
-  /** Quando o par terminou pela última vez — é daqui que sai a cadência, sem
-   *  precisar que o executor exponha histórico. */
-  ultimaPassadaConcluida(oficio: string, alvo: string): Promise<Passada | null>;
+  /** A última passada TERMINAL do par (concluída OU falhou) — é daqui que sai a
+   *  cadência, sem precisar que o executor exponha histórico.
+   *
+   *  ⚠️ Terminal, não concluída. Olhar só para a concluída faz um alvo que
+   *  SEMPRE falha ficar eternamente vencido: ele volta para a fila a cada tick,
+   *  falha de novo, e o resto da fila fica atrás. */
+  ultimaPassadaTerminal(oficio: string, alvo: string): Promise<Passada | null>;
   listPassadas(opts?: { oficio?: string; estado?: string; limit?: number }): Promise<Passada[]>;
   /** Idle-reaper heartbeat. Null if the row is gone. */
   touchBancada(id: string): Promise<Bancada | null>;
@@ -2683,14 +2687,14 @@ export function createStore(db: Db): Store {
       if (!rows[0]) throw new Error(`passada ${id} não encontrada`);
       return rowToPassada(rows[0]);
     },
-    async ultimaPassadaConcluida(oficio, alvo) {
+    async ultimaPassadaTerminal(oficio, alvo) {
       const rows = await db
         .select().from(passadas)
         .where(
           and(
             eq(passadas.oficio, oficio),
             eq(passadas.alvo, alvo),
-            eq(passadas.estado, "concluida"),
+            inArray(passadas.estado, ["concluida", "falhou"]),
           ),
         )
         .orderBy(desc(passadas.terminadaEm))
