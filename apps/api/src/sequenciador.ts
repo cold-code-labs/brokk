@@ -150,7 +150,9 @@ async function gerar(deps: SequenciadorDeps): Promise<void> {
     }
     for (const c of candidatos) {
       const ultima = await deps.store.ultimaPassadaTerminal(oficio.id, c.alvo);
-      if (!venceu(ultima, oficio.cadenciaHoras, agora)) continue;
+      const seguidas =
+        ultima?.estado === "falhou" ? await deps.store.falhasSeguidas(oficio.id, c.alvo) : 0;
+      if (!venceu(ultima, oficio.cadenciaHoras, agora, seguidas)) continue;
       await deps.store.enfileirarPassada({
         oficio: oficio.id,
         alvo: c.alvo,
