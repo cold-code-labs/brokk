@@ -53,6 +53,12 @@ export interface Oficio {
  *  sozinho, evita storm"). */
 const RETRY_FALHA_HORAS = Number(process.env.BROKK_RETRY_FALHA_HORAS ?? 6) || 6;
 
+/** Falhas terminais seguidas antes de o par deixar de ser tratado como
+ *  transitório. Três: uma é ruído, duas é azar, três é padrão. */
+const FALHAS_ATE_FREAR = 3;
+/** Quanto a espera estica quando o freio entra. */
+const FATOR_FREIO = 20;
+
 /** Passou tempo suficiente desde a última TENTATIVA terminal deste par?
  *
  *  Par que nunca rodou está sempre vencido — é assim que a frota entra na fila
@@ -66,11 +72,22 @@ export function venceu(
   ultima: { estado?: string; terminadaEm?: string | null } | null | undefined,
   cadenciaHoras: number,
   agoraMs: number,
+  falhasSeguidas = 0,
 ): boolean {
   if (!ultima?.terminadaEm) return true;
   const t = new Date(ultima.terminadaEm).getTime();
   if (!Number.isFinite(t)) return true;
-  const esperaHoras =
-    ultima.estado === "falhou" ? Math.min(RETRY_FALHA_HORAS, cadenciaHoras) : cadenciaHoras;
+  let esperaHoras = cadenciaHoras;
+  if (ultima.estado === "falhou") {
+    esperaHoras = Math.min(RETRY_FALHA_HORAS, cadenciaHoras);
+    // Freio para alvo que não tem conserto. O `portifolio-lp` é repositório
+    // VAZIO: o clone falha, sempre vai falhar, e ele voltava à fila a cada 6h
+    // acumulando linha morta no histórico — o retry curto existe para problema
+    // TRANSITÓRIO, e três falhas seguidas dizem que este não é.
+    // Não é banimento: se o repositório ganhar conteúdo, o par volta sozinho.
+    if (falhasSeguidas >= FALHAS_ATE_FREAR) {
+      esperaHoras = Math.max(cadenciaHoras, RETRY_FALHA_HORAS) * FATOR_FREIO;
+    }
+  }
   return agoraMs - t >= esperaHoras * 3_600_000;
 }

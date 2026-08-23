@@ -929,6 +929,9 @@ export interface Store {
    *  falha de novo, e o resto da fila fica atrás. */
   ultimaPassadaTerminal(oficio: string, alvo: string): Promise<Passada | null>;
   listPassadas(opts?: { oficio?: string; estado?: string; limit?: number }): Promise<Passada[]>;
+  /** Quantas passadas TERMINAIS seguidas deste par falharam (para na primeira
+   *  concluída). Alimenta o freio de alvo que não tem conserto. */
+  falhasSeguidas(oficio: string, alvo: string): Promise<number>;
   /** Idle-reaper heartbeat. Null if the row is gone. */
   touchBancada(id: string): Promise<Bancada | null>;
   /** Ready bancadas whose last activity is older than the cutoff — candidates to
@@ -2700,6 +2703,26 @@ export function createStore(db: Db): Store {
         .orderBy(desc(passadas.terminadaEm))
         .limit(1);
       return rows[0] ? rowToPassada(rows[0]) : null;
+    },
+    async falhasSeguidas(oficio, alvo) {
+      const rows = await db
+        .select({ estado: passadas.estado })
+        .from(passadas)
+        .where(
+          and(
+            eq(passadas.oficio, oficio),
+            eq(passadas.alvo, alvo),
+            inArray(passadas.estado, ["concluida", "falhou"]),
+          ),
+        )
+        .orderBy(desc(passadas.terminadaEm))
+        .limit(20);
+      let n = 0;
+      for (const r of rows) {
+        if (r.estado !== "falhou") break;
+        n++;
+      }
+      return n;
     },
     async listPassadas(opts) {
       const conds = [];

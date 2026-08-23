@@ -99,6 +99,34 @@ describe("venceu", () => {
   });
 });
 
+describe("freio de alvo sem conserto", () => {
+  const agora = Date.parse("2026-08-23T12:00:00Z");
+  const falhou = (hAtras: number) => ({
+    estado: "falhou",
+    terminadaEm: new Date(agora - hAtras * H).toISOString(),
+  });
+
+  it("falha isolada volta rapido — pode ser transitorio", () => {
+    assert.equal(venceu(falhou(7), 168, agora, 1), true);
+  });
+
+  it("🔴 na 3a falha seguida o par para de voltar a cada 6h", () => {
+    // `portifolio-lp`: repositorio VAZIO. Voltava a cada ciclo acumulando
+    // linha morta. 7h depois ja voltaria com 1 falha; com 3, nao.
+    assert.equal(venceu(falhou(7), 168, agora, 3), false);
+    assert.equal(venceu(falhou(200), 168, agora, 3), false);
+  });
+
+  it("nao e banimento: passado o freio, tenta de novo", () => {
+    assert.equal(venceu(falhou(168 * 20 + 1), 168, agora, 3), true);
+  });
+
+  it("passada CONCLUIDA nao sofre freio, mesmo com falhas antigas", () => {
+    const ok = { estado: "concluida", terminadaEm: new Date(agora - 169 * H).toISOString() };
+    assert.equal(venceu(ok, 168, agora, 9), true);
+  });
+});
+
 describe("estourouTeto", () => {
   const agora = Date.parse("2026-08-22T12:00:00Z");
   it("passada recém-iniciada não estourou", () => {
