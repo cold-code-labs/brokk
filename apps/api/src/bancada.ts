@@ -101,8 +101,26 @@ export class BancadaService {
     const runtime =
       (project.runtime as RuntimeSpec | null) ?? (await this.deps.resolveRuntime?.(projectId)) ?? null;
     if (!runtime?.dev) {
+      // ⚠️ Separar "não LI o repositório" de "li e não achei nada canônico".
+      // A mensagem única culpava os manifestos, e a causa real costuma ser
+      // credencial: sem GitHub App configurado `mintGitToken` devolve null, a
+      // detecção nem chega a ler o package.json, e o operador vai procurar
+      // defeito num repo que está perfeitamente detectável. Custou uma hora.
+      if (!this.deps.mintGitToken) {
+        throw new BancadaRefused(
+          "sem credencial do GitHub: BROKK_GITHUB_APP_ID/BROKK_GITHUB_APP_PRIVATE_KEY " +
+            "não estão configurados, então nenhum projeto pode ser lido nem clonado",
+        );
+      }
+      const repo = await this.deps.store.getRepository(project.repositoryId);
+      if (repo && !(await this.deps.mintGitToken(repo.fullName))) {
+        throw new BancadaRefused(
+          `sem instalação do GitHub App em \`${repo.fullName.split("/")[0]}\` — ` +
+            "o repositório existe, mas o Brokk não tem acesso para ler nem clonar",
+        );
+      }
       throw new BancadaRefused(
-        "não consegui descobrir como rodar este projeto (nada canônico nos manifestos) — " +
+        "li os manifestos e não achei nada canônico para rodar este projeto — " +
           "a bancada não adivinha o comando de dev",
       );
     }
