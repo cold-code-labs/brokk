@@ -243,8 +243,19 @@ resource "coder_agent" "main" {
     # Cache no volume da home: instala uma vez, sobrevive a restart. Em background
     # porque o agente não precisa dele para começar a editar, e 150MB de download
     # não podem atrasar o "pronto".
+    #
+    # O PACOTE vai GLOBAL, não só os binários do navegador. Sem isso, um script
+    # do repo que faz `require('playwright')` não acha nada: `npx` baixa para o
+    # cache do npx, que não está no caminho de resolução de ninguém. Era o que
+    # travava a varredura de UI do Brokk — ela rodava na máquina de quem
+    # escreveu, emprestando a árvore de outro repo, e morreria aqui dentro.
+    #
+    # Global (com NODE_PATH abaixo) em vez de devDependency do app: um repo
+    # Expo carregaria isso para dentro do build do EAS sem precisar. O runtime
+    # provê a ferramenta, como já provê o CLI do agente.
     (
       export PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright"
+      sudo npm install -g playwright@1.50.1 yaml@2.9.0 >/dev/null 2>&1 || true
       if [ ! -d "$PLAYWRIGHT_BROWSERS_PATH" ]; then
         sudo -E npx --yes playwright@1.50.1 install --with-deps chromium \
           && echo "playwright pronto" > /tmp/playwright.done
@@ -310,6 +321,9 @@ resource "coder_agent" "main" {
     # responde "Not logged in · Please run /login" (medido 20/08).
     CLAUDE_CODE_OAUTH_TOKEN   = var.claude_oauth
     PLAYWRIGHT_BROWSERS_PATH  = "/home/coder/.cache/ms-playwright"
+    # Faz o `require('playwright')` de um script do repo enxergar o pacote
+    # global. Sem isto o pacote está instalado e mesmo assim não resolve.
+    NODE_PATH                 = "/usr/lib/node_modules"
   }
 
   metadata {
