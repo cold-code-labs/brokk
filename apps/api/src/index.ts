@@ -3,6 +3,7 @@ import { CoderClient } from "@brokk/coder";
 import { createDb, createStore, ensureSchema } from "@brokk/db";
 import { startSequenciador } from "./sequenciador.js";
 import { oficioSec } from "./oficios/sec.js";
+import { oficioUi } from "./oficios/ui.js";
 import { buildApp } from "./app.js";
 import { BancadaService } from "./bancada.js";
 import { startBancadaDriver } from "./bancada-driver.js";
@@ -127,18 +128,24 @@ async function main() {
     if (!cfg.SVALINN_MACHINE_TOKEN) {
       console.warn("[seq] SVALINN_MACHINE_TOKEN vazio — ofício sec não sobe");
     } else {
+      const oficios = [
+        oficioSec({
+          baseUrl: cfg.SVALINN_API_URL,
+          token: cfg.SVALINN_MACHINE_TOKEN,
+          actor: "brokk-sequenciador",
+        }),
+      ];
+      // `ui` roda na bancada, então só entra onde há bancada para rodar.
+      const uiAlvos = cfg.BROKK_UI_ALVOS.split(",").map((s) => s.trim()).filter(Boolean);
+      if (bancadas && uiAlvos.length) {
+        oficios.push(oficioUi({ store, bancadas, alvos: uiAlvos }));
+      }
       startSequenciador({
         store,
-        oficios: [
-          oficioSec({
-            baseUrl: cfg.SVALINN_API_URL,
-            token: cfg.SVALINN_MACHINE_TOKEN,
-            actor: "brokk-sequenciador",
-          }),
-        ],
+        oficios,
         intervalMs: cfg.BROKK_SEQUENCIADOR_INTERVALO_MS,
       });
-      console.log("[seq] fila serial LIGADA — ofícios: sec");
+      console.log(`[seq] fila serial LIGADA — ofícios: ${oficios.map((o) => o.id).join(", ")}`);
     }
   }
 

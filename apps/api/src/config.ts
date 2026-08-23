@@ -66,6 +66,9 @@ const Env = z.object({
   BROKK_SEQUENCIADOR: z.coerce.number().int().default(0),
   /** Intervalo do tick do sequenciador. */
   BROKK_SEQUENCIADOR_INTERVALO_MS: z.coerce.number().int().positive().default(30_000),
+  /** Projetos com spec + `design.prova_visual` que entram no ofício `ui`.
+   *  Lista explícita: a tabela `projects` ainda não sabe quais repos têm spec. */
+  BROKK_UI_ALVOS: z.string().default(""),
 });
 
 export type Config = z.infer<typeof Env>;
