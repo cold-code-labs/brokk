@@ -35,8 +35,14 @@ networks:
 volumes:
   brokk_home:
 
+# `init: true` põe o tini como PID 1 em vez do `node`. Sem ele, todo processo
+# que o serviço dispara e não colhe (o `gh` do review-reconciler, sobretudo)
+# vira zumbi preso ao PID 1 — 246 deles em ~3h no brokk-api em 2026-08-24,
+# levando a surtr a load 14 com a CPU em 50%. node não faz reap de processo
+# reparented; tini faz.
 x-restart: &restart
   restart: unless-stopped
+  init: true
 
 # Resource ceilings (fleet-deploy-isolation, 2026-07-11; tightened 2026-07-21):
 # caps, not reservations — a runaway service gets contained instead of squeezing
