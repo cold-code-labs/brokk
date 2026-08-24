@@ -16,10 +16,46 @@ import { promisify } from "node:util";
 import type { Plan, Task } from "@brokk/core";
 import type { Store } from "@brokk/db";
 import { applyMergedPr } from "./apply-merged-pr.js";
+import { findInstallationForOwner, getInstallationToken, loadAppAuth } from "./github.js";
 import { prNumberFromUrl, repoFullNameFromPrUrl } from "./pr-close.js";
 
 const run = promisify(execFile);
 const GH_BIN = process.env.BROKK_GH_BIN ?? "gh";
+/**
+ * Credencial morta nao pode virar loop. Em 2026-08-24 o PAT deste servico expirou
+ * e, como todo erro do `gh` caia no `catch { return null }` abaixo, o reconciler
+ * seguiu tentando: 2,45 `gh`/s, cada um morrendo com 401 e virando zumbi -- 246
+ * deles em 3h, com a surtr em load 14. Auth quebrada agora DESLIGA o poll e grita.
+ */
+class GhAuthError extends Error {}
+
+/** Erro do `gh` que e falta de credencial, e nao "PR nao encontrado". */
+function ehErroDeAuth(err: unknown): boolean {
+  const e = err as { stderr?: string; stdout?: string; message?: string };
+  const txt = `${e?.stderr ?? ""} ${e?.stdout ?? ""} ${e?.message ?? ""}`;
+  return /bad credentials|HTTP 401|HTTP 403|requires authentication/i.test(txt);
+}
+
+/**
+ * Token para falar com o GitHub. Prefere o GitHub App (o token de instalacao se
+ * renova sozinho e nao expira na nossa mao); o PAT fica so como ultimo recurso.
+ */
+async function tokenPara(deps: ReviewReconcilerDeps, repo: string): Promise<string> {
+  const owner = repo.split("/")[0] ?? "";
+  const auth = loadAppAuth();
+  if (auth && owner) {
+    try {
+      const inst = await findInstallationForOwner(auth, owner);
+      if (inst) return await getInstallationToken(auth, inst); // ja tem cache interno
+    } catch (err) {
+      if (deps.githubToken) return deps.githubToken;
+      throw new GhAuthError(`App nao deu token para ${owner}: ${String(err).slice(0, 120)}`);
+    }
+  }
+  if (deps.githubToken) return deps.githubToken;
+  throw new GhAuthError(`sem credencial para ${owner || repo}`);
+}
+
 const GH_OPTS = { maxBuffer: 8 * 1024 * 1024, timeout: 25_000, killSignal: "SIGKILL" as const };
 
 export interface ReviewReconcilerDeps {
@@ -41,9 +77,9 @@ export function startReviewReconciler(
   deps: ReviewReconcilerDeps,
   intervalMs = 60_000,
 ): () => void {
-  if (!deps.githubToken) {
+  if (!deps.githubToken && !loadAppAuth()) {
     console.warn(
-      "[review-reconciler] GITHUB_TOKEN unset — poll/backfill disabled (webhook-only)",
+      "[review-reconciler] sem GITHUB_TOKEN e sem GitHub App — poll/backfill disabled (webhook-only)",
     );
     return () => {};
   }
@@ -58,6 +94,15 @@ export function startReviewReconciler(
         console.log(`[review-reconciler] closed ${closed} card(s)/plan(s) stuck in review`);
       }
     } catch (err) {
+      if (err instanceof GhAuthError) {
+        // desliga em vez de girar em falso: foi o que produziu o storm de 2026-08-24
+        console.error(
+          "[review-reconciler] credencial invalida — poll DESLIGADO ate o proximo boot:",
+          err.message,
+        );
+        parar();
+        return;
+      }
       console.error("[review-reconciler] tick failed:", err);
     } finally {
       inFlight = false;
@@ -66,6 +111,7 @@ export function startReviewReconciler(
 
   const timer = setInterval(() => void tick(), intervalMs);
   timer.unref?.();
+  const parar = () => clearInterval(timer);
   void tick(); // boot backfill
   console.log(
     `[review-reconciler] started (every ${Math.round(intervalMs / 1000)}s) — heals missed merge webhooks`,
@@ -167,7 +213,7 @@ async function resolveStoredPr(
   if (n == null) return null;
   const fromUrl = prUrl ? repoFullNameFromPrUrl(prUrl) : null;
   const fullRepo = fromUrl ?? repo;
-  return fetchPr(deps.githubToken, fullRepo, n);
+  return fetchPr(await tokenPara(deps, fullRepo), fullRepo, n);
 }
 
 async function fetchPr(token: string, repo: string, number: number): Promise<GhPr | null> {
@@ -191,8 +237,9 @@ async function fetchPr(token: string, repo: string, number: number): Promise<GhP
       state: pr.state,
       body: pr.body ?? null,
     };
-  } catch {
-    return null;
+  } catch (err) {
+    if (ehErroDeAuth(err)) throw new GhAuthError(String(err).slice(0, 200));
+    return null; // PR sumido/renomeado e normal: segue o baile
   }
 }
 
@@ -208,6 +255,7 @@ async function findMergedPrByStamp(
   id: string,
 ): Promise<GhPr | null> {
   const needle = `${kind} \`${id}\``;
+  const tokenDoTick = await tokenPara(deps, repo);
   try {
     const { stdout } = await run(
       GH_BIN,
@@ -225,7 +273,10 @@ async function findMergedPrByStamp(
       ],
       {
         ...GH_OPTS,
-        env: { ...process.env, GH_TOKEN: deps.githubToken, GITHUB_TOKEN: deps.githubToken },
+        env: (() => {
+          const t = tokenDoTick ?? deps.githubToken;
+          return { ...process.env, GH_TOKEN: t, GITHUB_TOKEN: t };
+        })(),
       },
     );
     const prs = JSON.parse(stdout || "[]") as Array<{
@@ -242,7 +293,8 @@ async function findMergedPrByStamp(
       state: "closed",
       body: hit.body,
     };
-  } catch {
+  } catch (err) {
+    if (ehErroDeAuth(err)) throw new GhAuthError(String(err).slice(0, 200));
     return null;
   }
 }
