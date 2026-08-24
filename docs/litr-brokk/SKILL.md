@@ -1,3 +1,10 @@
+---
+name: litr-brokk
+description: >-
+  Passe de design das superfícies do BROKK (Fleet board, design-language.json).
+  Não é o método da casa — esse vive em cold-code-labs/galdr como `litr`.
+---
+
 # Litr — the Brokk design skill
 
 > Litr is the dwarf who fans Brokk's forge. This skill is how an agent turns a
