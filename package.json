@@ -17,7 +17,8 @@
     "dev:web": "pnpm --filter @brokk/web dev",
     "lint": "pnpm -r --if-present lint",
     "eval": "tsx evals/run.ts",
-    "test:isolation": "tsx --test packages/afl/src/enclave.test.ts"
+    "test:isolation": "tsx --test packages/afl/src/enclave.test.ts",
+    "lint:compose": "python3 scripts/lint-compose.py docker-compose*.yml"
   },
   "devDependencies": {
     "typescript": "^5.7.2",

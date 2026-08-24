@@ -5,6 +5,19 @@ APP_UUID="p3yhl41ww6sw00wqnezpppnu"
 COOLIFY_API="http://localhost:8000/api/v1"
 TOKEN_FILE="$HOME/.coolify_token"
 
+# Portao de compose antes do push. So HC001 (healthcheck rapido demais) reprova;
+# HC002/HC003 avisam, porque ambos tem excecao legitima -- node:22-slim nao traz
+# wget, e nem todo servico com healthcheck precisa de init.
+# Nasceu do incidente da surtr em 2026-08-24: 43 ocorrencias do mesmo `interval: 5s`
+# copiadas por 15 repos derrubaram o host a load 14.
+if command -v python3 >/dev/null 2>&1 && [ -f scripts/lint-compose.py ]; then
+  if ! python3 scripts/lint-compose.py docker-compose*.yml; then
+    echo "brokk: push barrado — healthcheck rapido demais (veja HC001 acima)." >&2
+    echo "       use interval: 30s + start_interval: 2s." >&2
+    exit 1
+  fi
+fi
+
 while read -r local_ref local_sha remote_ref remote_sha; do
   if [ "$remote_ref" = "refs/heads/main" ]; then
     if [ -r "$TOKEN_FILE" ]; then
