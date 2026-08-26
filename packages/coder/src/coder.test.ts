@@ -131,6 +131,56 @@ describe("CoderClient", () => {
     assert.equal(await client().agentStatus(ws()), "unknown");
   });
 
+  it("fala com cursorcli quando o workspace é do template cursor", async () => {
+    const { resolveAgentAppSlug, resolvePreviewAppSlug, CURSOR_AGENT_APP_SLUG, CURSOR_PREVIEW_APP_SLUG } =
+      await import("./client.js");
+    const forge = ws({
+      name: "esquilos-forge",
+      template_name: "cursor",
+      latest_build: {
+        ...ws().latest_build,
+        resources: [
+          {
+            id: "r-1",
+            type: "docker_container",
+            name: "workspace",
+            agents: [
+              {
+                id: "a-1",
+                name: "main",
+                status: "connected",
+                lifecycle_state: "ready",
+                apps: [
+                  {
+                    id: "app-c",
+                    slug: "cursorcli",
+                    subdomain: false,
+                    sharing_level: "authenticated",
+                    health: "healthy",
+                  },
+                  {
+                    id: "app-p",
+                    slug: "preview",
+                    subdomain: true,
+                    sharing_level: "authenticated",
+                    health: "healthy",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    assert.equal(resolveAgentAppSlug(forge), CURSOR_AGENT_APP_SLUG);
+    assert.equal(resolvePreviewAppSlug(forge), CURSOR_PREVIEW_APP_SLUG);
+    const calls = fakeFetch({
+      "POST /@brokk/esquilos-forge.main/apps/cursorcli/message": { body: { ok: true } },
+    });
+    assert.deepEqual(await client().agentSend(forge, "fix"), { ok: true });
+    assert.equal(calls[0]?.url, "/@brokk/esquilos-forge.main/apps/cursorcli/message");
+  });
+
   it("stops polling once the build settles", async () => {
     const calls = fakeFetch({ "GET /api/v2/workspaces/ws-1": { body: ws() } });
     const out = await client().waitForBuild("ws-1", { intervalMs: 1 });
