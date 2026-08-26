@@ -2,7 +2,7 @@ import { featureBranch, TASK_OWNERS, TASK_STATUSES } from "@brokk/core";
 import type { TaskOwner } from "@brokk/core";
 import { Hono } from "hono";
 import { z } from "zod";
-import { actorFrom, canSeeProject } from "../actor.js";
+import { actorFrom, canSeeProject, requestActor } from "../actor.js";
 import type { AppDeps } from "../app.js";
 
 // The actor recorded on a lifecycle event for a human-initiated API call. When the
@@ -90,7 +90,7 @@ export function tasksRoutes(deps: AppDeps): Hono {
   });
 
   r.get("/:id", async (c) => {
-    const actor = actorFrom(c);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const task = await deps.store.getTask(c.req.param("id"));
     if (!task) return c.json({ error: "not found" }, 404);
     const project = await deps.store.getProject(task.projectId);
