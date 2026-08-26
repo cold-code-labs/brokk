@@ -39,14 +39,14 @@ export function projectsRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
   r.get("/", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const all = await deps.store.listProjects(listScope(actor));
     // House / anvil never see Hauldr sidecars or the data-plane product itself.
     return c.json(all.filter((p) => !isSidecarProjectName(p.name)));
   });
 
   r.get("/:id", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const project = await deps.store.getProject(c.req.param("id"));
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -57,7 +57,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // House cockpit — lock objective / set lifecycle (human gate).
   r.patch("/:id/house", async (c) => {
     const id = c.req.param("id");
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -70,7 +70,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   });
 
   r.post("/", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const parsed = CreateProjectBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     // Non-staff must stamp their org; staff may leave null (CCL legado) or pick one.
@@ -87,7 +87,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // Idempotent: re-running skips items already carded (matched on the item text).
   r.post("/:id/backlog-from-brief", async (c) => {
     const id = c.req.param("id");
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -172,7 +172,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // Does NOT enqueue forge (that's H3 hero-forge). hero_set hard-capped at 4.
   r.post("/:id/prototype-pack", async (c) => {
     const id = c.req.param("id");
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -204,7 +204,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // ADR 0070 / H4 — deferred do Pack → cards PROPOSED (Muninn-shaped, label discovery).
   r.post("/:id/depth-from-pack", async (c) => {
     const id = c.req.param("id");
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -262,7 +262,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // Idempotent: dedup on card title (matched against prior Muninn cards).
   r.post("/:id/ajustes-from-meeting", async (c) => {
     const id = c.req.param("id");
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -324,7 +324,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // Idempotent via labels `qa-fail:<id>` / `qa-scenario:<id>`.
   r.post("/:id/backlog-from-qa", async (c) => {
     const id = c.req.param("id");
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -458,7 +458,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // gate, so this flips the whole proposed set into the forge in one click.
   r.post("/:id/approve-proposed", async (c) => {
     const id = c.req.param("id");
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -482,7 +482,7 @@ export function projectsRoutes(deps: AppDeps): Hono {
   // share featureBranch, enqueue — forge commits without per-card PR.
   r.post("/:id/approve-qa-stories", async (c) => {
     const id = c.req.param("id");
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const project = await deps.store.getProject(id);
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);

@@ -187,6 +187,7 @@ export function opsRoutes(deps: AppDeps): Hono {
     brief: z.string().min(1).optional(),
     title: z.string().min(1).max(200).optional(),
     proposedOnly: z.boolean().optional(),
+    labels: z.array(z.string()).default([]),
   })
 
   /**
@@ -306,6 +307,7 @@ export function opsRoutes(deps: AppDeps): Hono {
       status: body.proposedOnly ? "backlog" : "queued",
       owner: "brokk",
       createdBy,
+      labels: body.labels,
       dedupeKey: dedupeKey ?? null,
     })
 

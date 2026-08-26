@@ -71,7 +71,7 @@ export function githubRoutes(deps: AppDeps): Hono {
 
   // Is this org's GitHub connected? Lists its installations (account + status).
   r.get("/status", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const orgId = actorOrgId(c.req.query("orgId"), actor.isStaff, actor.orgIds);
     if (!orgId) return c.json({ ready: githubAppReady(), connected: false, installations: [] });
     const insts = await deps.store.listInstallationsForOrgs([orgId]);
@@ -92,7 +92,7 @@ export function githubRoutes(deps: AppDeps): Hono {
   r.post("/connect/start", async (c) => {
     const auth = loadAppAuth();
     if (!auth) return c.json({ error: "GitHub App não configurado" }, 503);
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const orgId = actorOrgId(c.req.query("orgId"), actor.isStaff, actor.orgIds);
     if (!orgId) return c.json({ error: "sem organização na sessão" }, 403);
     let slug: string;
@@ -134,7 +134,7 @@ export function githubRoutes(deps: AppDeps): Hono {
 
   // Disconnect: drop the mapping (the actual GitHub uninstall is done on github.com).
   r.delete("/installations/:id", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const id = c.req.param("id");
     const inst = await deps.store.getInstallation(id);
     if (!inst) return c.json({ ok: true });

@@ -41,16 +41,29 @@ export function actorFrom(c: Context): Actor {
   return { email, orgIds, isStaff };
 }
 
+export type ActorSecrets = { runnerSecret?: string; apiSecret?: string };
+
 /**
  * Forge supervisor authenticates with BROKK_RUNNER_SECRET (same idea as the
  * /previews runner bypass). Elevate to staff so GET /projects|/repositories
  * resolves legado rows (`logto_org_id` null) — otherwise preview boot 404s.
+ *
+ * Machine callers (Svalinn, scripts) use BROKK_API_SECRET without x-brokk-actor —
+ * treat as staff so tenancy não devolve `/projects` vazio.
  */
-export function requestActor(c: Context, runnerSecret: string): Actor {
+export function requestActor(c: Context, secrets: ActorSecrets | string = {}): Actor {
+  const opts = typeof secrets === "string" ? { runnerSecret: secrets } : secrets;
   const actor = actorFrom(c);
-  if (!runnerSecret) return actor;
   const token = (c.req.header("authorization") ?? "").replace(/^Bearer\s+/i, "");
-  if (secretEquals(token, runnerSecret)) {
+  if (opts.runnerSecret && secretEquals(token, opts.runnerSecret)) {
+    return { ...actor, isStaff: true };
+  }
+  if (
+    opts.apiSecret &&
+    secretEquals(token, opts.apiSecret) &&
+    c.get("brokkTrustedHop") !== false &&
+    !actor.email
+  ) {
     return { ...actor, isStaff: true };
   }
   return actor;
@@ -63,9 +76,9 @@ export function requestActor(c: Context, runnerSecret: string): Actor {
  */
 export function requireActor(
   c: Context,
-  runnerSecret: string,
+  secrets: ActorSecrets | string,
 ): { ok: true; actor: Actor } | { ok: false; error: string; status: 401 } {
-  const actor = requestActor(c, runnerSecret);
+  const actor = requestActor(c, secrets);
   if (orgTenancyEnabled() && !actor.isStaff && !actor.email) {
     return { ok: false, error: "actor required", status: 401 };
   }

@@ -60,14 +60,25 @@ describe("actor tenancy (ADR 0064)", () => {
     const secret = "runner-secret-for-test-32chars!!";
     const elevated = requestActor(
       fakeCtx({ authorization: `Bearer ${secret}` }),
-      secret,
+      { runnerSecret: secret },
     );
     assert.equal(elevated.isStaff, true);
     assert.equal(canSeeProject(elevated, null), true);
 
-    const plain = requestActor(fakeCtx({ authorization: "Bearer wrong" }), secret);
+    const plain = requestActor(fakeCtx({ authorization: "Bearer wrong" }), { runnerSecret: secret });
     assert.equal(plain.isStaff, false);
     assert.equal(canSeeProject(plain, null), false);
+  });
+
+  it("requestActor elevates API-secret machine caller to staff", () => {
+    process.env.BROKK_ORG_TENANCY = "1";
+    const api = "api-secret-for-test-32-chars!!!!";
+    const elevated = requestActor(
+      fakeCtx({ authorization: `Bearer ${api}` }, true),
+      { apiSecret: api },
+    );
+    assert.equal(elevated.isStaff, true);
+    assert.equal(canSeeProject(elevated, null), true);
   });
 
   it("untrusted hop ignores spoofed x-brokk-* headers", async () => {

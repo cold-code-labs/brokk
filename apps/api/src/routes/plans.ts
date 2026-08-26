@@ -37,7 +37,7 @@ export function plansRoutes(deps: AppDeps): Hono {
 
   r.get("/", async (c) => {
     const projectId = c.req.query("projectId");
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (projectId) {
       const project = await deps.store.getProject(projectId);
       if (!project || !canSeeProject(actor, project.logtoOrgId)) {
@@ -60,7 +60,7 @@ export function plansRoutes(deps: AppDeps): Hono {
     const plan = await deps.store.getPlan(c.req.param("id"));
     if (!plan) return c.json({ error: "not found" }, 404);
     const project = await deps.store.getProject(plan.projectId);
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
     }
@@ -73,7 +73,7 @@ export function plansRoutes(deps: AppDeps): Hono {
     const plan = await deps.store.getPlan(c.req.param("id"));
     if (!plan) return c.json({ error: "not found" }, 404);
     const project = await deps.store.getProject(plan.projectId);
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
     }
@@ -158,7 +158,7 @@ export function plansRoutes(deps: AppDeps): Hono {
     const plan = await deps.store.getPlan(c.req.param("id"));
     if (!plan) return c.json({ error: "not found" }, 404);
     const project = await deps.store.getProject(plan.projectId);
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
     }
@@ -178,7 +178,7 @@ export function plansRoutes(deps: AppDeps): Hono {
     const plan = await deps.store.getPlan(c.req.param("id"));
     if (!plan) return c.json({ error: "not found" }, 404);
     const project = await deps.store.getProject(plan.projectId);
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
     }
@@ -212,7 +212,7 @@ export function plansRoutes(deps: AppDeps): Hono {
     const plan = await deps.store.getPlan(c.req.param("id"));
     if (!plan) return c.json({ error: "not found" }, 404);
     const project = await deps.store.getProject(plan.projectId);
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!project || !canSeeProject(actor, project.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
     }

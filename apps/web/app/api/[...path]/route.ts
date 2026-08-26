@@ -90,6 +90,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
   // ADR 0064 — org claims from Logto session (never client-supplied).
   let orgIds = "";
   let isStaff = "0";
+  const incomingBearer = bearerToken(req);
   const mobileEmail = mobileActor(req);
   if (mobileEmail) {
     // Per-user mobile token → authenticated AS this user (identity carried).
@@ -99,6 +100,13 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path?: string[] 
     isStaff = "0";
   } else if (bearerOk(req)) {
     // Legacy shared mobile token — identity-less ops fallback (staff).
+    isStaff = "1";
+  } else if (
+    API_SECRET &&
+    incomingBearer.length === API_SECRET.length &&
+    timingSafeEqual(Buffer.from(incomingBearer), Buffer.from(API_SECRET))
+  ) {
+    // Machine caller (Svalinn, curl com BROKK_API_SECRET) — fleet view.
     isStaff = "1";
   } else {
     // Not the legacy shared mobile token either → require a Logto session for
