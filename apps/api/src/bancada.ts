@@ -15,11 +15,11 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Bancada, BancadaStatus, RuntimeSpec } from "@brokk/core";
 import type { Store } from "@brokk/db";
 import {
-  AGENT_APP_SLUG,
   CoderClient,
-  PREVIEW_APP_SLUG,
   UnrunnableProject,
   bancadaParameters,
+  resolveAgentAppSlug,
+  resolvePreviewAppSlug,
   workspaceName,
 } from "@brokk/coder";
 import type { CoderWorkspace } from "@brokk/coder";
@@ -241,7 +241,9 @@ export class BancadaService {
     }
 
     const agent = CoderClient.agentOf(ws);
-    const preview = CoderClient.appOf(ws, PREVIEW_APP_SLUG);
+    const previewSlug = resolvePreviewAppSlug(ws);
+    const agentSlug = resolveAgentAppSlug(ws);
+    const preview = CoderClient.appOf(ws, previewSlug);
     const build = ws.latest_build.status;
     let status: BancadaStatus = "provisioning";
     let detail: string | null = null;
@@ -273,9 +275,9 @@ export class BancadaService {
       status,
       detail,
       ownerName: ws.owner_name,
-      previewUrl: preview ? this.deps.coder.appUrl(ws, PREVIEW_APP_SLUG) : null,
-      agentUrl: CoderClient.appOf(ws, AGENT_APP_SLUG)
-        ? this.deps.coder.appUrl(ws, AGENT_APP_SLUG)
+      previewUrl: preview ? this.deps.coder.appUrl(ws, previewSlug) : null,
+      agentUrl: CoderClient.appOf(ws, agentSlug)
+        ? this.deps.coder.appUrl(ws, agentSlug)
         : null,
     });
   }
@@ -327,17 +329,18 @@ export class BancadaService {
    *  digita lixo no terminal do agente. */
   async agentSend(bancada: Bancada, content: string): Promise<{ ok: boolean; reason?: string }> {
     const ws = await this.workspaceOf(bancada);
-    let res = await this.deps.coder.agentSend(ws, content);
+    const slug = resolveAgentAppSlug(ws);
+    let res = await this.deps.coder.agentSend(ws, content, { slug });
     if (!res.ok && /stabilize/i.test(res.reason ?? "")) {
       // ⚠️ NUNCA mandar Enter às cegas aqui. A tela em que o CLI trava é um menu
       // cuja opção destacada é "1. No, exit" — um Enter cego MATA o agente. Só
       // respondemos a uma tela que reconhecemos, e respondemos o que ela pede.
-      const ultima = (await this.deps.coder.agentMessages(ws)).at(-1)?.content ?? "";
+      const ultima = (await this.deps.coder.agentMessages(ws, slug)).at(-1)?.content ?? "";
       if (/Yes, I accept/i.test(ultima)) {
         console.warn(`[bancada] ${bancada.workspaceName}: aviso de bypass na tela — aceitando`);
-        await this.deps.coder.agentKey(ws, "2");
-        await this.deps.coder.agentKey(ws, "\r");
-        res = await this.deps.coder.agentSend(ws, content);
+        await this.deps.coder.agentKey(ws, "2", slug);
+        await this.deps.coder.agentKey(ws, "\r", slug);
+        res = await this.deps.coder.agentSend(ws, content, { slug });
       } else {
         console.warn(
           `[bancada] ${bancada.workspaceName}: agente parado numa tela que não reconheço — ` +

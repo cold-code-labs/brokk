@@ -259,8 +259,9 @@ export class CoderClient {
 
   /** Ask the in-workspace agent what it is doing. `unknown` when the app is not
    *  answering — a bancada that is still booting, or one whose startup failed. */
-  async agentStatus(ws: CoderWorkspace, slug = AGENT_APP_SLUG): Promise<AgentStatus> {
-    const res = await this.raw("GET", this.appPath(ws, slug, "status"), undefined, {
+  async agentStatus(ws: CoderWorkspace, slug?: string): Promise<AgentStatus> {
+    const s = slug ?? resolveAgentAppSlug(ws);
+    const res = await this.raw("GET", this.appPath(ws, s, "status"), undefined, {
       timeoutMs: 10_000,
     });
     if (!res.ok) return "unknown";
@@ -268,8 +269,9 @@ export class CoderClient {
     return body.status === "stable" || body.status === "running" ? body.status : "unknown";
   }
 
-  async agentMessages(ws: CoderWorkspace, slug = AGENT_APP_SLUG): Promise<AgentMessage[]> {
-    const res = await this.raw("GET", this.appPath(ws, slug, "messages"), undefined, {
+  async agentMessages(ws: CoderWorkspace, slug?: string): Promise<AgentMessage[]> {
+    const s = slug ?? resolveAgentAppSlug(ws);
+    const res = await this.raw("GET", this.appPath(ws, s, "messages"), undefined, {
       timeoutMs: 20_000,
     });
     if (!res.ok) return [];
@@ -288,9 +290,10 @@ export class CoderClient {
     content: string,
     opts?: { slug?: string; type?: "user" | "raw" },
   ): Promise<{ ok: boolean; reason?: string }> {
+    const slug = opts?.slug ?? resolveAgentAppSlug(ws);
     const res = await this.raw(
       "POST",
-      this.appPath(ws, opts?.slug ?? AGENT_APP_SLUG, "message"),
+      this.appPath(ws, slug, "message"),
       { content, type: opts?.type ?? "user" },
       { timeoutMs: 30_000 },
     );
@@ -302,10 +305,11 @@ export class CoderClient {
   /** Manda uma tecla crua para o TTY do agente. Existe para UMA coisa: destravar
    *  um CLI parado numa tela de confirmação — a AgentAPI reporta `stable` nesse
    *  estado, então nenhuma leitura de status distingue "pronto" de "travado". */
-  async agentKey(ws: CoderWorkspace, key = "\r", slug = AGENT_APP_SLUG): Promise<boolean> {
+  async agentKey(ws: CoderWorkspace, key = "\r", slug?: string): Promise<boolean> {
+    const s = slug ?? resolveAgentAppSlug(ws);
     const res = await this.raw(
       "POST",
-      this.appPath(ws, slug, "message"),
+      this.appPath(ws, s, "message"),
       { content: key, type: "raw" },
       { timeoutMs: 15_000 },
     );
@@ -317,8 +321,26 @@ export class CoderClient {
  *  Code Web). Brokk talks to the agent only through this. */
 export const AGENT_APP_SLUG = "ccw";
 
+/** Slug do AgentAPI no template Coder `cursor` (módulo cursor-cli). */
+export const CURSOR_AGENT_APP_SLUG = "cursorcli";
+
 /** Slug of the dev-server app — the hot preview a human looks at. */
 export const PREVIEW_APP_SLUG = "bancada";
+
+/** Preview no template `cursor` (slug diferente da bancada Claude). */
+export const CURSOR_PREVIEW_APP_SLUG = "preview";
+
+/** Qual AgentAPI o workspace publica — cursor (`cursorcli`) ou Claude (`ccw`). */
+export function resolveAgentAppSlug(ws: CoderWorkspace): string {
+  if (CoderClient.appOf(ws, CURSOR_AGENT_APP_SLUG)) return CURSOR_AGENT_APP_SLUG;
+  return AGENT_APP_SLUG;
+}
+
+/** Qual app de preview o workspace publica. */
+export function resolvePreviewAppSlug(ws: CoderWorkspace): string {
+  if (CoderClient.appOf(ws, CURSOR_PREVIEW_APP_SLUG)) return CURSOR_PREVIEW_APP_SLUG;
+  return PREVIEW_APP_SLUG;
+}
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {

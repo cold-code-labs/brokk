@@ -8,7 +8,16 @@
  *
  * See docs/adr/0100-brokk-sobre-coder.md.
  */
-export { CoderClient, CoderError, AGENT_APP_SLUG, PREVIEW_APP_SLUG } from "./client.js";
+export {
+  CoderClient,
+  CoderError,
+  AGENT_APP_SLUG,
+  CURSOR_AGENT_APP_SLUG,
+  PREVIEW_APP_SLUG,
+  CURSOR_PREVIEW_APP_SLUG,
+  resolveAgentAppSlug,
+  resolvePreviewAppSlug,
+} from "./client.js";
 export type { CoderConfig } from "./client.js";
 export { bancadaParameters, devPort, workspaceName, UnrunnableProject } from "./bancada.js";
 export { parseAgentScreen, resumoDaTela } from "./screen.js";
