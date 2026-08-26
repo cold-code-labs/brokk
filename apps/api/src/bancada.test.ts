@@ -260,6 +260,15 @@ describe("BancadaService.refresh", () => {
     assert.equal(out.status, "ready");
   });
 
+  it("lane forge fica ready mesmo com preview ainda initializing", async () => {
+    const { store, row } = fakeStore();
+    row.workspaceId = "ws-1";
+    row.lane = "forge";
+    const { coder } = fakeCoder({ workspace: async () => comApp("initializing") });
+    const out = await service(store, coder).refresh({ ...row } as never);
+    assert.equal(out.status, "ready");
+  });
+
   it("falha DIZENDO o motivo quando o startup morre", async () => {
     const { store, row } = fakeStore();
     row.workspaceId = "ws-1";

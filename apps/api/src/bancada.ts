@@ -295,7 +295,17 @@ export class BancadaService {
     // ⚠️ Cinto além do suspensório: `ready` do agente só vale como "serve" com
     // o startup em modo blocking. Se um dia alguém voltar para non-blocking, o
     // healthcheck do próprio dev server segura a mentira aqui.
-    if (status === "ready" && preview && preview.health === "initializing") {
+    //
+    // Lane `forge` não embute preview no workbench — o card só precisa do
+    // AgentAPI (cursorcli). Esperar o app `preview` fica preso em
+    // `initializing` (Vite sem bind / health falho) e o driver nunca tira o
+    // card de `queued`. Medido no smoke washinn 26/08/2026.
+    if (
+      status === "ready" &&
+      bancada.lane !== "forge" &&
+      preview &&
+      preview.health === "initializing"
+    ) {
       status = "provisioning";
     }
 
