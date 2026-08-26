@@ -175,6 +175,16 @@ describe("BancadaService.ensure", () => {
     );
   });
 
+  it("na lane forge aceita projeto sem runtime canônico (sec-fix)", async () => {
+    const { store } = fakeStore(semRuntime);
+    const { coder, calls } = fakeCoder();
+    await service(store, coder, async () => "tok").ensure("p-1", {
+      lane: "forge",
+      template: "cursor",
+    });
+    assert.deepEqual(calls, ["create"], "deve provisionar em vez de recusar");
+  });
+
   it("descobre o runtime na hora em vez de recusar quem nunca teve um", async () => {
     // 45 dos 55 projetos da frota não têm runtime fixado. Recusar todos eles
     // transformaria duas leituras na API do GitHub em trabalho manual.

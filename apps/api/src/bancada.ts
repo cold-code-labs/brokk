@@ -25,6 +25,26 @@ import {
 import type { CoderWorkspace } from "@brokk/coder";
 import type { DataProvider } from "./lanes/data-provider.js";
 
+/**
+ * Runtime mínimo para a lane `forge` (template cursor / sec-fix).
+ * Achados de segurança vivem em Dockerfile, nginx, lockfile — muitas vezes
+ * sem app Node canônico. Sem isto o driver recusa litellm/mcp-gateway/… e o
+ * card fica queued para sempre. O cursor template já sobe preview estático
+ * se o dev server não responder.
+ */
+export const FORGE_FALLBACK_RUNTIME: RuntimeSpec = {
+  id: "forge-shell",
+  label: "Forge shell (sec-fix)",
+  appRoot: ".",
+  install: "true",
+  dev: "python3 -m http.server $PORT --directory .",
+  health: "/",
+  supported: true,
+  source: "override",
+  evidence: ["lane:forge"],
+  reason: "fallback: sem RuntimeSpec Node — só checkout + agente Cursor",
+};
+
 /** Refused for a reason the caller can show a human — a 4xx, not a 500. */
 export class BancadaRefused extends Error {
   constructor(
@@ -98,8 +118,16 @@ export class BancadaService {
     // ele roda custa duas leituras na API do GitHub. Só 10 dos 55 projetos da
     // frota tinham runtime quando isto foi escrito — recusar todos os outros
     // seria transformar uma decisão barata em trabalho manual.
-    const runtime =
+    let runtime =
       (project.runtime as RuntimeSpec | null) ?? (await this.deps.resolveRuntime?.(projectId)) ?? null;
+    // Lane forge (sec-fix / cursor): preferir forjar sem HMR a deixar o card
+    // preso. A bancada Claude (`dev`) continua exigindo runtime canônico.
+    if (!runtime?.dev && lane === "forge") {
+      console.warn(
+        `[bancada] ${project.name}: sem runtime canônico — usando forge-shell na lane forge`,
+      );
+      runtime = FORGE_FALLBACK_RUNTIME;
+    }
     if (!runtime?.dev) {
       // ⚠️ Separar "não LI o repositório" de "li e não achei nada canônico".
       // A mensagem única culpava os manifestos, e a causa real costuma ser
@@ -112,10 +140,10 @@ export class BancadaService {
             "não estão configurados, então nenhum projeto pode ser lido nem clonado",
         );
       }
-      const repo = await this.deps.store.getRepository(project.repositoryId);
-      if (repo && !(await this.deps.mintGitToken(repo.fullName))) {
+      const repoRow = await this.deps.store.getRepository(project.repositoryId);
+      if (repoRow && !(await this.deps.mintGitToken(repoRow.fullName))) {
         throw new BancadaRefused(
-          `sem instalação do GitHub App em \`${repo.fullName.split("/")[0]}\` — ` +
+          `sem instalação do GitHub App em \`${repoRow.fullName.split("/")[0]}\` — ` +
             "o repositório existe, mas o Brokk não tem acesso para ler nem clonar",
         );
       }
