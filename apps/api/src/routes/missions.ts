@@ -26,7 +26,7 @@ export function missionsRoutes(deps: AppDeps): Hono {
   // Create a mission. It rests in `planning`; the reconciler picks it up on the
   // next tick (plans via Mímir, then dispatches / awaits board approval).
   r.post("/", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     const parsed = CreateMissionBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
@@ -49,7 +49,7 @@ export function missionsRoutes(deps: AppDeps): Hono {
   });
 
   r.get("/", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     const projectId = c.req.query("projectId") || undefined;
     const rawStatus = c.req.query("status") || undefined;
@@ -71,7 +71,7 @@ export function missionsRoutes(deps: AppDeps): Hono {
 
   // Mission + its trail + (when planned) the cards with live statuses.
   r.get("/:id", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     const mission = await deps.store.getMission(c.req.param("id"));
     if (!mission) return c.json({ error: "not found" }, 404);
@@ -85,7 +85,7 @@ export function missionsRoutes(deps: AppDeps): Hono {
   });
 
   r.post("/:id/cancel", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     const mission = await deps.store.getMission(c.req.param("id"));
     if (!mission) return c.json({ error: "not found" }, 404);
@@ -111,7 +111,7 @@ export function missionsRoutes(deps: AppDeps): Hono {
   // Un-block after an escalation: back to `running` — the next tick re-runs the
   // watch/react logic against whatever the human fixed on the board.
   r.post("/:id/resume", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     const mission = await deps.store.getMission(c.req.param("id"));
     if (!mission) return c.json({ error: "not found" }, 404);

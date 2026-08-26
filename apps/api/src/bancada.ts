@@ -85,7 +85,7 @@ export class BancadaService {
    */
   async ensure(
     projectId: string,
-    opts?: { lane?: string; branch?: string; restart?: boolean },
+    opts?: { lane?: string; branch?: string; restart?: boolean; /** Coder template; default CODER_TEMPLATE. */ template?: string },
   ): Promise<Bancada> {
     const project = await this.deps.store.getProject(projectId);
     if (!project) throw new BancadaRefused("project not found", 404);
@@ -179,9 +179,10 @@ export class BancadaService {
       runtimeId: runtime.id,
     });
 
-    const template = await this.deps.coder.templateByName(this.deps.template);
+    const templateName = (opts?.template ?? this.deps.template).trim() || this.deps.template;
+    const template = await this.deps.coder.templateByName(templateName);
     if (!template) {
-      throw new BancadaRefused(`template '${this.deps.template}' não existe no Coder`, 503);
+      throw new BancadaRefused(`template '${templateName}' não existe no Coder`, 503);
     }
 
     let ws: CoderWorkspace;

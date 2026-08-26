@@ -174,3 +174,49 @@ export async function getTargets(opts: SvalinnClientOpts): Promise<AlvoMaquina[]
   if (!ok) throw new Error(`svalinn targets ${status}`)
   return (body as { targets?: AlvoMaquina[] }).targets ?? []
 }
+
+// ── Passada de remediação (ofício `sec-fix`) ────────────────────────────────
+// Depois do scan: board → dispatch+launch dos clusters critical/high.
+// Colher é inerte (PRs abertos / falhas) — merge e `fixed` ficam fora do turno.
+
+export type MachineDispatch = {
+  clusterKey: string
+  taskId: string | null
+  projectId: string | null
+  status: string
+  prUrl: string | null
+  title: string | null
+  note: string | null
+}
+
+/** Cria o card e lança (launch default true no Svalinn). */
+export async function dispatchCluster(
+  opts: SvalinnClientOpts,
+  clusterKey: string,
+  findingIds: string[],
+): Promise<MachineDispatch> {
+  const { ok, status, body } = await svalinnFetch(opts, "/api/machine/dispatch", {
+    method: "POST",
+    body: JSON.stringify({ clusterKey, findingIds, launch: true }),
+  })
+  if (!ok) {
+    const erro = (body as { error?: string }).error ?? `http ${status}`
+    throw new Error(`svalinn dispatch ${clusterKey}: ${erro}`)
+  }
+  const d = (body as { dispatch?: MachineDispatch }).dispatch
+  if (!d) throw new Error(`svalinn dispatch ${clusterKey}: sem dispatch no body`)
+  return d
+}
+
+export async function getDispatch(
+  opts: SvalinnClientOpts,
+  clusterKey: string,
+): Promise<MachineDispatch | null> {
+  const { ok, status, body } = await svalinnFetch(
+    opts,
+    `/api/machine/dispatches/${encodeURIComponent(clusterKey)}`,
+  )
+  if (status === 404) return null
+  if (!ok) throw new Error(`svalinn dispatch estado ${status}`)
+  return (body as { dispatch?: MachineDispatch }).dispatch ?? null
+}

@@ -51,6 +51,7 @@ const FromBriefBody = z
     // this key, its handle is returned instead of forging a duplicate. Caller owns
     // the namespace (e.g. "svalinn:<target>:<engine>:<rule>").
     dedupeKey: z.string().min(1).max(200).optional(),
+    labels: z.array(z.string()).default([]),
   })
   .refine((d) => Boolean(d.repoFullName) || Boolean(d.projectId), {
     message: "repoFullName or projectId is required",
@@ -65,7 +66,7 @@ export function runsRoutes(deps: AppDeps): Hono {
   r.post("/from-brief", async (c) => {
     const parsed = FromBriefBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
-    const { repoFullName, projectId, brief, title, defaultBranch, baseBranch, createdBy, dedupeKey } =
+    const { repoFullName, projectId, brief, title, defaultBranch, baseBranch, createdBy, dedupeKey, labels } =
       parsed.data;
 
     let project: Awaited<ReturnType<typeof deps.store.getProject>> = null;
@@ -102,6 +103,7 @@ export function runsRoutes(deps: AppDeps): Hono {
       body: brief,
       status: "queued",
       createdBy,
+      labels,
       ...(baseBranch ? { baseBranch } : {}),
       ...(dedupeKey ? { dedupeKey } : {}),
     });

@@ -12,6 +12,8 @@ const OpenBody = z.object({
   /** Working lane. `dev` is the shared one. */
   lane: z.string().max(40).optional(),
   branch: z.string().max(200).optional(),
+  /** Coder template (`bancada` | `cursor`). */
+  template: z.string().max(40).optional(),
   /** Rebuild with the current recipe even if the workspace is already up. */
   restart: z.boolean().optional(),
 });
@@ -104,6 +106,7 @@ export function bancadasRoutes(deps: AppDeps): Hono {
       const bancada = await deps.bancadas.ensure(parsed.data.projectId, {
         lane: parsed.data.lane,
         branch: parsed.data.branch,
+        template: parsed.data.template,
         restart: parsed.data.restart,
       });
       return c.json(bancada);

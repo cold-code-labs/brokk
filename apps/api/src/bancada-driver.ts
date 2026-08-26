@@ -33,6 +33,36 @@ const RETRY_FALHA_MS = 10 * 60_000;
  *  resposta — pedir "responda APENAS isto" é como se perde o relatório. */
 const DONE = /BROKK-DONE\s+(\S+)/;
 
+/** Lê a receita Forge dos labels do card (vocabulário Svalinn: engine+agent+model).
+ *  Default = bancada Claude (template `bancada`, lane `dev`).
+ *  sec-fix carimba engine:forge · agent:cursor · model:auto. */
+export function recipeDoCard(task: Pick<Task, "labels">): {
+  engine: string;
+  agent: string;
+  model: string;
+  /** Lane da bancada — `forge` isola cursor da bancada Claude do projeto. */
+  lane: string;
+  /** Template Coder. */
+  template: string;
+} {
+  const labels = task.labels ?? [];
+  const get = (k: string) => {
+    const hit = labels.find((l) => l.startsWith(`${k}:`));
+    return hit ? hit.slice(k.length + 1) : null;
+  };
+  const agent = get("agent") ?? "claude";
+  const model = get("model") ?? "auto";
+  const engine = get("engine") ?? "forge";
+  const cursor = agent === "cursor";
+  return {
+    engine,
+    agent,
+    model,
+    lane: cursor ? "forge" : "dev",
+    template: cursor ? "cursor" : "bancada",
+  };
+}
+
 export interface BancadaDriverDeps {
   store: Store;
   bancadas: BancadaService;
@@ -148,14 +178,19 @@ async function dispatch(deps: BancadaDriverDeps, task: Task): Promise<void> {
   const inFlight = await deps.store.listTasks({ projectId: task.projectId, status: "running" });
   if (inFlight.length > 0) return;
 
+  const recipe = recipeDoCard(task);
   // Só peça uma bancada quando pedir faz sentido.
-  const atual = await deps.store.getBancadaByLane(task.projectId, "dev");
+  const atual = await deps.store.getBancadaByLane(task.projectId, recipe.lane);
   if (!valeAbrir(atual, Date.now())) return;
 
-  const bancada = await deps.bancadas.ensure(task.projectId);
+  const base = task.baseBranch || project.baseBranch || "dev";
+  const bancada = await deps.bancadas.ensure(task.projectId, {
+    lane: recipe.lane,
+    branch: base,
+    template: recipe.template,
+  });
   if (bancada.status !== "ready") return; // ainda subindo — tenta no próximo tick
 
-  const base = task.baseBranch || project.baseBranch || "dev";
   const branch = cardBranch(task);
   const enviado = await deps.bancadas.agentSend(bancada, briefing(task, branch, base));
   if (!enviado.ok) {
@@ -168,18 +203,21 @@ async function dispatch(deps: BancadaDriverDeps, task: Task): Promise<void> {
     status: "running",
     branch,
     startedAt: new Date(),
-    model: project.model,
+    model: recipe.model || project.model,
   });
   await deps.store.transitionTask(task.id, "running", {
     actor: "bancada-driver",
-    reason: `briefing entregue ao agente da bancada ${bancada.workspaceName}`,
+    reason: `briefing entregue · ${recipe.engine}/${recipe.agent}/${recipe.model} · lane ${recipe.lane} · ${bancada.workspaceName}`,
     extra: { branch },
   });
-  console.log(`[driver] ${task.id} → ${bancada.workspaceName} (run ${run.id}, branch ${branch})`);
+  console.log(
+    `[driver] ${task.id} → ${bancada.workspaceName} (${recipe.engine}/${recipe.agent}/${recipe.model}, run ${run.id}, branch ${branch})`,
+  );
 }
 
 async function observe(deps: BancadaDriverDeps, task: Task, timeoutMs: number): Promise<void> {
-  const bancada = await deps.store.getBancadaByLane(task.projectId, "dev");
+  const recipe = recipeDoCard(task);
+  const bancada = await deps.store.getBancadaByLane(task.projectId, recipe.lane);
   if (!bancada) return;
 
   const runs = await deps.store.listRunsByTask(task.id);

@@ -21,6 +21,7 @@ const IngressCardBody = z
     dedupeKey: z.string().min(1).max(200).optional(),
     /** When true, leave card in `backlog` instead of `queued`. */
     proposedOnly: z.boolean().default(false),
+    labels: z.array(z.string()).default([]),
   })
   .refine((d) => Boolean(d.repoFullName) || Boolean(d.projectId), {
     message: "repoFullName or projectId is required",
@@ -69,6 +70,7 @@ export function ingressRoutes(deps: AppDeps): Hono {
       createdBy,
       dedupeKey,
       proposedOnly,
+      labels,
     } = parsed.data;
 
     let project: Awaited<ReturnType<typeof deps.store.getProject>> = null;
@@ -103,6 +105,7 @@ export function ingressRoutes(deps: AppDeps): Hono {
       body: brief,
       status: proposedOnly ? "backlog" : "queued",
       createdBy,
+      labels,
       ...(baseBranch ? { baseBranch } : {}),
       ...(dedupeKey ? { dedupeKey } : {}),
     });

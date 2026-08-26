@@ -42,7 +42,7 @@ export function subscriptionsRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
   r.get("/", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     const actor = who.actor;
     if (!orgTenancyEnabled() || actor.isStaff) {
@@ -63,7 +63,7 @@ export function subscriptionsRoutes(deps: AppDeps): Hono {
 
   // Step 1: start the Max OAuth — returns the authorize URL for the user.
   r.post("/connect/start", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     if (!who.actor.email && !who.actor.isStaff) return c.json({ error: "actor required" }, 401);
     try {
@@ -76,7 +76,7 @@ export function subscriptionsRoutes(deps: AppDeps): Hono {
 
   // Step 2: user pasted the code → exchange it, seal the token, store the seat.
   r.post("/connect/complete", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     const parsed = CompleteBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
@@ -115,7 +115,7 @@ export function subscriptionsRoutes(deps: AppDeps): Hono {
   // sidesteps needing the `claude` binary + a PTY in the API container.
   // Non-staff always bind to their own user row; staff may target userId.
   r.post("/connect/token", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     const parsed = TokenBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
@@ -146,7 +146,7 @@ export function subscriptionsRoutes(deps: AppDeps): Hono {
   // (uma OmniRoute key) — selada aqui, nunca guardada crua. Guardado por
   // BROKK_API_SECRET (middleware do app). Idempotente por org.
   r.put("/org-fuel", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     if (!who.actor.isStaff) return c.json({ error: "forbidden" }, 403);
     const parsed = OrgFuelBody.safeParse(await c.req.json().catch(() => ({})));
@@ -162,7 +162,7 @@ export function subscriptionsRoutes(deps: AppDeps): Hono {
   });
 
   r.delete("/org-fuel/:orgId", async (c) => {
-    const who = requireActor(c, deps.runnerSecret);
+    const who = requireActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!who.ok) return c.json({ error: who.error }, who.status);
     if (!who.actor.isStaff) return c.json({ error: "forbidden" }, 403);
     await deps.store.removeOrgFuelSeat(c.req.param("orgId"));

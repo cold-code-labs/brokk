@@ -19,7 +19,7 @@ export function fleetRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
   r.post("/sync", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     if (!deps.heimdallUrl || !deps.heimdallToken) {
       return c.json({ error: "provisioning disabled (no HEIMDALL_AGENT_URL/TOKEN)" }, 503);
     }

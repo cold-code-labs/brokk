@@ -82,7 +82,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
   const r = new Hono();
 
   r.get("/", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     return c.json(await deps.store.listRepositories(listScope(actor)));
   });
 
@@ -92,7 +92,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
   //  • fleet: `gh repo list <CCL org>` — staff-only when tenancy is on (the GH org
   //    is the fleet surface). An org with no installation is told to connect first.
   r.get("/import/candidates", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const auth = loadAppAuth();
     const orgIds = actor.isStaff ? [] : actor.orgIds;
     const insts =
@@ -163,7 +163,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
   // Single repo by id — the preview supervisor resolves a project's repo here.
   // Registered after the static "/import/candidates" route so it doesn't shadow it.
   r.get("/:id", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const repo = await deps.store.getRepository(c.req.param("id"));
     if (!repo || !canSeeProject(actor, repo.logtoOrgId)) {
       return c.json({ error: "not found" }, 404);
@@ -174,7 +174,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
   // Bulk-connect selected repos (and, by default, a project each). Org-aware:
   // a non-staff admin imports into their own org, stamping the org's installation.
   r.post("/import", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const parsed = ImportBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     let logtoOrgId: string | null = null;
@@ -196,7 +196,7 @@ export function repositoriesRoutes(deps: AppDeps): Hono {
 
   // Connect a single repo by full name (manual fallback to the importer).
   r.post("/", async (c) => {
-    const actor = requestActor(c, deps.runnerSecret);
+    const actor = requestActor(c, { runnerSecret: deps.runnerSecret, apiSecret: deps.apiSecret });
     const parsed = ConnectBody.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) return c.json({ error: parsed.error.flatten() }, 400);
     let logtoOrgId = parsed.data.logtoOrgId ?? null;
