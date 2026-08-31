@@ -109,6 +109,15 @@ data "coder_parameter" "dev_cmd" {
   mutable      = false
 }
 
+data "coder_parameter" "dev_env" {
+  name         = "dev_env"
+  display_name = "Env extra do dev server"
+  description  = "JSON plano, ex: {\"VITE_AUTH_MODE\":\"stub\"}. APENAS valor não-secreto: parâmetro do Coder não tem flag de sensível e volta limpo pela API — ver o README."
+  type         = "string"
+  default      = "{}"
+  mutable      = false
+}
+
 data "coder_parameter" "dev_port" {
   name         = "dev_port"
   display_name = "Porta do dev server"
@@ -131,6 +140,40 @@ data "coder_workspace_preset" "arte" {
     install_cmd = "pnpm install --no-frozen-lockfile"
     dev_cmd     = "pnpm exec vite --port 5173 --host 0.0.0.0"
     dev_port    = "5173"
+    # O app aceita VITE_AUTH_MODE "stub" ou "hauldr". Na bancada o preview serve
+    # para VER a mudança, não para exercitar login — stub evita depender de
+    # sessão do Hauldr dentro do workspace.
+    dev_env     = "{\"VITE_AUTH_MODE\":\"stub\"}"
+  }
+}
+
+data "coder_workspace_preset" "bragi" {
+  name = "Bragi"
+  parameters = {
+    repo        = "cold-code-labs/bragi"
+    # O Bragi não tem branch `dev` — só `main` e branches de feature.
+    branch      = "main"
+    app_root    = "."
+    install_cmd = "pnpm install --no-frozen-lockfile"
+    dev_cmd     = "pnpm exec next dev -p 3000 -H 0.0.0.0"
+    dev_port    = "3000"
+    dev_env     = "{}"
+  }
+}
+
+data "coder_workspace_preset" "esquilos" {
+  name = "Esquilos"
+  parameters = {
+    repo        = "cold-code-labs/esquilos"
+    # Só existe `main` — o repo não tem branch de integração.
+    branch      = "main"
+    app_root    = "."
+    # `package-lock.json`, não pnpm: o install tem que casar com o lockfile do
+    # repo, senão resolve versão diferente da que roda em produção.
+    install_cmd = "npm ci"
+    dev_cmd     = "npm run dev -- --port 5173 --host 0.0.0.0"
+    dev_port    = "5173"
+    dev_env     = "{}"
   }
 }
 
@@ -144,6 +187,7 @@ data "coder_workspace_preset" "limpa" {
     install_cmd = ""
     dev_cmd     = ""
     dev_port    = "3000"
+    dev_env     = "{}"
   }
 }
 
@@ -223,6 +267,11 @@ resource "coder_agent" "main" {
       cd "$HOME/app/$APP_ROOT"
       if [ -n "$INSTALL_CMD" ]; then eval "$INSTALL_CMD"; fi
       if [ -n "$DEV_CMD" ]; then
+        # dev_env vira .env.local, que Vite e Next leem sozinhos. Escrito depois
+        # do install para nao ser apagado por um `clean` do gerenciador.
+        if [ "$DEV_ENV" != "{}" ] && [ -n "$DEV_ENV" ]; then
+          node -e 'const e=JSON.parse(process.env.DEV_ENV);require("fs").appendFileSync(".env.local",Object.entries(e).map(([k,v])=>k+"="+v).join("\n")+"\n")'
+        fi
         nohup sh -c "$DEV_CMD" >/tmp/dev.log 2>&1 &
       fi
     else
@@ -246,6 +295,7 @@ resource "coder_agent" "main" {
     INSTALL_CMD  = data.coder_parameter.install_cmd.value
     DEV_CMD      = data.coder_parameter.dev_cmd.value
     DEV_PORT     = tostring(data.coder_parameter.dev_port.value)
+    DEV_ENV      = data.coder_parameter.dev_env.value
     GITHUB_TOKEN = var.github_token
     GH_TOKEN     = var.github_token
   }
@@ -325,6 +375,10 @@ module "cursor_cli" {
   folder   = local.folder
 
   install_cursor_cli = true
+  # DECISAO, nao default: a conta Cursor fica SEMPRE em `auto`. O seat da conta
+  # da acesso a modelo frontier (Claude, GPT-5.x, Gemini, Grok...), e nao e para
+  # gastar por aqui. Nao transformar isto em parametro nem em preset: no dia que
+  # virar escolha, vira escolha errada em alguma bancada. (21/08/2026)
   model              = "auto"
   api_key            = var.cursor_api_key
   ai_prompt          = data.coder_task.me.prompt
@@ -374,6 +428,10 @@ module "cursor_cli" {
       - NAO narre o passo a passo ("vou procurar...", "agora vou editar...").
         Trabalhe calado e responda no fim.
       - Se entregou, a ultima linha e a URL do PR, sozinha.
+      - NAO troque o modelo (`/model`). Esta bancada roda em `auto` por decisao
+        de custo: o seat da conta alcanca modelo frontier e nao e para gastar
+        aqui. Se a tarefa parecer grande demais para o `auto`, diga isso na
+        resposta em vez de trocar por conta propria.
 
       ## Fechar a task (obrigatorio)
 

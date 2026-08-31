@@ -93,6 +93,48 @@ Configuração viva: `CODER_WILDCARD_ACCESS_URL="*.coldcodelabs.com"` em
   por tamanho de regra e um regex longo passaria na frente dos `Host()` exatos
   da frota inteira.
 
+## Adicionar um projeto novo — o que custa de verdade
+
+O preset e oito linhas. O trabalho e descobrir **a credencial de build** do
+projeto. Medido ao adicionar o Bragi:
+
+No caso do Bragi o `pnpm install` morria, e a caca ao motivo rendeu duas licoes:
+
+- **403 no GitHub Packages e COTA, nao permissao.** O corpo do erro diz
+  `"Account has reached its billing limit"`. Os headers nao dizem nada, e os
+  metadados (`GET /@escopo/pacote`) respondem **200** enquanto so o `/download/`
+  falha — o que faz parecer escopo de token. Ler o body antes de culpar
+  credencial.
+- **Nao era preciso token nenhum.** A frota migrou do GitHub Packages para um
+  **Verdaccio proprio** em 21/08 (`http://10.10.0.2:4873`, so pela WireGuard,
+  **leitura anonima**). O `.npmrc` dos repos ja aponta para la. Como a bancada
+  roda na surtr, ela alcanca o registry direto: nada de `NODE_AUTH_TOKEN`.
+  Ver `docs/registry-npm.md` no midgard.
+
+Ou seja: antes de fixar um projeto, rode o `install` dele numa bancada limpa e
+veja o que falta. Quase sempre nao falta credencial — falta olhar o erro.
+
+## Autenticacao no preview
+
+O preview da bancada serve para **ver a mudanca**, nao para exercitar login. Dois
+caminhos, conforme o app:
+
+- **App com modo de auth falso** — o Arte aceita `VITE_AUTH_MODE` em `stub` ou
+  `hauldr`. O preset do Arte ja passa `stub` via `dev_env`, entao o preview sobe
+  sem depender de sessao.
+- **App atras do Logto** (Bragi) — o host do preview
+  (`preview--<workspace>--<owner>.coldcodelabs.com`) **nao** esta nos redirect
+  URIs, e o login quebra com `redirect_uri mismatch`. Duas saidas:
+  1. `coder port-forward <workspace> --tcp 3000:3000` — o app aparece em
+     `http://localhost:3000` na sua maquina, que **ja e** um redirect URI
+     registrado. Zero configuracao.
+  2. registrar o host do preview como redirect URI na aplicacao do Logto. Vale
+     quando varias pessoas forem usar a mesma bancada.
+
+> ⚠️ `dev_env` e para valor **nao-secreto** (feature flag, modo de auth). Nao e
+> canal de segredo: parametro do Coder nao tem flag de sensivel e volta limpo
+> pela API — a mesma armadilha do `extra_env` descrita acima.
+
 ## Ruído no painel de chat
 
 O painel espelha a **tela do terminal do agente**, literalmente — o eco de cada
