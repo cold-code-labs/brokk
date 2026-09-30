@@ -31,6 +31,14 @@ export {
   openCodeCliAvailable,
   runOpenCodeCliTurn,
 } from "./opencode-cli.js";
+export {
+  buildCodexArgs,
+  buildCodexCliEnv,
+  codexCliAvailable,
+  handleCodexJsonLine,
+  runCodexCliTurn,
+  type CodexJsonState,
+} from "./codex-cli.js";
 export { type CompactionResult, type CompactOptions, compactTranscript } from "./compact.js";
 export {
   type AflConfig,
