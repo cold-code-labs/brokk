@@ -84,6 +84,9 @@ export function buildApp(store: Store, cfg: Config) {
       const origin = c.req.header("origin");
       if (
         c.req.header("sec-fetch-site") === "cross-site" ||
+        (cfg.production &&
+          !origin &&
+          c.req.path !== "/api/integrations/var/handoff") ||
         (origin && origin !== cfg.origin)
       )
         return c.json({ error: "Origem não permitida." }, 403);

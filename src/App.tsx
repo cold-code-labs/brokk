@@ -1047,7 +1047,7 @@ function Records({
               Componente
             </button>
           )}
-          {editable && (
+          {editable && !(kind === "scope" && rows.length > 0) && (
             <button
               type="button"
               className="primary"
