@@ -12,6 +12,7 @@ const cfg = readConfig({
   BROKK_PREVIEW_ALIAS_DOMAIN: "example.test",
   BROKK_COOLIFY_URL: "https://engine.test/api",
   BROKK_HAULDR_URL: "https://backend.test",
+  BROKK_WOODPECKER_URL: "https://ci.test/api",
 });
 const env: EnvironmentRecord = {
   ...environmentRecipe(
@@ -138,16 +139,9 @@ test("red CI and changed heads block release; readiness requires the deployed co
       };
     else if (url.includes("/git/ref/heads/preview"))
       body = { object: { sha: current } };
-    else if (url.includes("/commits/"))
-      body = {
-        statuses: [
-          {
-            context: "ci/woodpecker/push/woodpecker",
-            state: "failure",
-            created_at: "2026-10-13",
-          },
-        ],
-      };
+    else if (url.includes("/repos/lookup/")) body = { id: 37, active: true };
+    else if (url.includes("/pipelines?"))
+      body = [{ number: 2, event: "push", commit: current, status: "failure" }];
     else if (url.includes("/v1/projects/")) body = { status: "live" };
     else if (url.includes("/deployments/deploy-ref"))
       body = { status: "finished", commit: "b".repeat(40) };
