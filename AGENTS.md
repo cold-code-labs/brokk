@@ -7,7 +7,7 @@
 - All artifacts and provider sessions inherit project organization access. Preserve versions, original feedback and audit trails.
 - Operators direct product work; clients review; only technical administrators configure memberships and repository allowlists.
 - Devin and Daily integrations are server-only, bounded, and fail visibly when unavailable. Never retry ambiguous paid session creation automatically.
-- Scope and review approval do not authorize deploying client code. Preview lanes and Coder are deferred.
+- Scope and review approval do not authorize production deployment of client code. Preview preparation, checked PR integration and preview publication use the bounded server recipe. Coder and production promotion remain separate.
 - Checks: pnpm typecheck, pnpm lint, pnpm test, pnpm build.
 - Release: PR, green Woodpecker CI, merge, official Coolify deployment and production verification. Never GitHub Actions.
 - Legacy code is preserved in Git history; reconstruction plan is docs/v2/PLANO.md.

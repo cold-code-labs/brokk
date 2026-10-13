@@ -19,6 +19,10 @@ import type {
   User,
 } from "../shared/domain.ts";
 import { canEdit, emptyData } from "../shared/domain.ts";
+import type {
+  EnvironmentRecord,
+  EnvironmentResources,
+} from "../shared/environment.ts";
 export class Problem extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -30,6 +34,26 @@ export const hash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 const iso = (v: unknown) => new Date(v as string).toISOString();
 type Row = Record<string, unknown>;
+const environmentOf = (r: Row): EnvironmentRecord => ({
+  projectId: String(r.project_id),
+  slug: String(r.slug),
+  repository: String(r.repository),
+  branch: "preview",
+  profile: r.profile as EnvironmentRecord["profile"],
+  previewUrl: String(r.preview_url),
+  productionUrl: String(r.production_url),
+  state: r.state as EnvironmentRecord["state"],
+  step: String(r.step),
+  detail: String(r.detail),
+  dataReady: Boolean(r.data_ready),
+  ciState: String(r.ci_state),
+  commit: String(r.commit),
+  deployedCommit: String(r.deployed_commit),
+  resources: r.resources as EnvironmentResources,
+  lease: String(r.lease),
+  version: Number(r.version),
+  updatedAt: iso(r.updated_at),
+});
 const projectOf = (r: Row): Project => ({
   id: String(r.id),
   organizationId: String(r.organization_id),
@@ -172,6 +196,12 @@ export function createStore(url: string) {
             "utf8",
           ),
         );
+        await db.unsafe(
+          await readFile(
+            new URL("../db/migrations/0002_environments.sql", import.meta.url),
+            "utf8",
+          ),
+        );
       });
     },
     async session(token: string) {
@@ -299,6 +329,13 @@ export function createStore(url: string) {
         const a = await access(db, id, user);
         if (a.organization.role !== "admin")
           throw new Problem(403, "Repositório exige administração técnica.");
+        const bound =
+          await db`select repository from brokk_v2.environments where project_id=${id}`;
+        if (bound.length && bound[0].repository !== repository)
+          throw new Problem(
+            409,
+            "O ambiente já está vinculado a este repositório.",
+          );
         await db`update brokk_v2.projects set repository=${repository || null},version=version+1,updated_at=now() where id=${id}`;
         await event(
           db,
@@ -307,6 +344,112 @@ export function createStore(url: string) {
           "repository.configured",
           repository || "Desconectado",
         );
+      });
+    },
+    async environment(id: string, user: User) {
+      return sql.begin(async (db) => {
+        await access(db, id, user);
+        const rows =
+          await db`select * from brokk_v2.environments where project_id=${id}`;
+        return rows.length ? environmentOf(rows[0]) : null;
+      });
+    },
+    async configureEnvironment(
+      id: string,
+      input: {
+        slug: string;
+        repository: string;
+        previewUrl: string;
+        productionUrl: string;
+        profile: "static" | "application";
+      },
+      user: User,
+      limit: number,
+      automatic = false,
+    ) {
+      return sql.begin(async (db) => {
+        const a = await access(db, id, user, true);
+        if (!automatic && a.organization.role !== "admin")
+          throw new Problem(403, "A administração configura a receita.");
+        await db`select pg_advisory_xact_lock(42902383)`;
+        const old =
+          await db`select * from brokk_v2.environments where project_id=${id}`;
+        if (old.length) {
+          const r = environmentOf(old[0]);
+          if (
+            r.slug !== input.slug ||
+            r.repository !== input.repository ||
+            r.previewUrl !== input.previewUrl ||
+            r.productionUrl !== input.productionUrl ||
+            r.profile !== input.profile
+          )
+            throw new Problem(
+              409,
+              "A receita já está vinculada. A administração deve revisar a migração.",
+            );
+          return r;
+        }
+        const counts =
+          await db`select count(*)::int as n from brokk_v2.environments`;
+        if (counts[0].n >= limit)
+          throw new Problem(429, "Limite de ambientes atingido.");
+        const collisions =
+          await db`select project_id from brokk_v2.environments where slug=${input.slug} or repository=${input.repository} or preview_url=${input.previewUrl}`;
+        if (collisions.length)
+          throw new Problem(409, "Este ambiente pertence a outro projeto.");
+        if (a.project.repository && a.project.repository !== input.repository)
+          throw new Problem(409, "Use o repositório já autorizado.");
+        if (automatic && a.project.repository)
+          throw new Problem(
+            409,
+            "A administração precisa vincular o ambiente ao repositório existente.",
+          );
+        const rows =
+          await db`insert into brokk_v2.environments(project_id,slug,repository,preview_url,production_url,profile,resources) values (${id},${input.slug},${input.repository},${input.previewUrl},${input.productionUrl},${input.profile},${db.json({ application: "", dataProject: "", deployment: "", createRepository: !a.project.repository })}) returning *`;
+        await db`update brokk_v2.projects set repository=${input.repository},version=version+1,updated_at=now() where id=${id}`;
+        await event(db, id, user, "environment.configured", input.previewUrl);
+        return environmentOf(rows[0]);
+      });
+    },
+    async reserveEnvironment(id: string, user: User) {
+      return sql.begin(async (db) => {
+        await access(db, id, user, true);
+        const rows =
+          await db`select * from brokk_v2.environments where project_id=${id} for update`;
+        if (!rows.length)
+          throw new Problem(409, "Prepare a receita do ambiente.");
+        const r = environmentOf(rows[0]);
+        if (
+          r.state === "preparing" &&
+          rows[0].lease_until &&
+          new Date(rows[0].lease_until).getTime() > Date.now()
+        )
+          return { created: false, environment: r };
+        const lease = randomUUID();
+        const updated =
+          await db`update brokk_v2.environments set state='preparing',lease=${lease},lease_until=now()+interval '10 minutes',version=version+1,updated_at=now() where project_id=${id} returning *`;
+        await event(db, id, user, "environment.preparing", r.previewUrl);
+        return { created: true, environment: environmentOf(updated[0]) };
+      });
+    },
+    async environmentUpdate(
+      id: string,
+      lease: string,
+      patch: Partial<EnvironmentRecord>,
+      user: User,
+    ) {
+      return sql.begin(async (db) => {
+        await access(db, id, user, true);
+        const rows =
+          await db`select * from brokk_v2.environments where project_id=${id} and lease=${lease} for update`;
+        if (!rows.length)
+          throw new Problem(409, "A preparação mudou. Atualize o projeto.");
+        const r = { ...environmentOf(rows[0]), ...patch };
+        const updated =
+          await db`update brokk_v2.environments set state=${r.state},step=${r.step},detail=${r.detail},data_ready=${r.dataReady},ci_state=${r.ciState},commit=${r.commit},deployed_commit=${r.deployedCommit},resources=${db.json(r.resources)},version=version+1,updated_at=now(),lease_until=now()+interval '10 minutes' where project_id=${id} and lease=${lease} returning *`;
+        if (patch.state && patch.state !== rows[0].state)
+          await event(db, id, user, `environment.${patch.state}`, r.previewUrl);
+        return environmentOf(updated[0]);
       });
     },
     async create(
@@ -622,6 +765,7 @@ export function createStore(url: string) {
       user: User,
       dailyLimit: number,
       context = "",
+      expected?: { project: Project; records: Artifact[] },
     ) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
@@ -629,11 +773,48 @@ export function createStore(url: string) {
         const old =
           await db`select * from brokk_v2.artifacts where project_id=${id} and kind='run' and data->>'requestKey'=${key}`;
         if (old.length) return { created: false, run: artifactOf(old[0]) };
+        if (expected) {
+          const projects =
+            await db`select version,repository from brokk_v2.projects where id=${id} for update`;
+          const current =
+            await db`select id,version,status from brokk_v2.artifacts where project_id=${id} and (kind in ('scope','screen','component','token') or id=${taskId})`;
+          const specs = expected.records.filter(
+            (r) =>
+              ["scope", "screen", "component", "token"].includes(r.kind) ||
+              r.id === taskId,
+          );
+          const valid =
+            projects[0].version === expected.project.version &&
+            projects[0].repository === expected.project.repository &&
+            current.length === specs.length &&
+            specs.every((r) =>
+              current.some(
+                (c) =>
+                  c.id === r.id &&
+                  c.version === r.version &&
+                  c.status === r.status,
+              ),
+            );
+          if (
+            !valid ||
+            !current.some(
+              (r) =>
+                r.status === "approved" &&
+                expected.records.some(
+                  (e) => e.id === r.id && e.kind === "scope",
+                ),
+            )
+          )
+            throw new Problem(
+              409,
+              "O contexto ou a aprovação mudou. Prepare a entrega novamente.",
+            );
+        }
         const task =
           await db`select * from brokk_v2.artifacts where id=${taskId} and project_id=${id} and kind='task'`;
         if (!task.length) throw new Problem(404, "Tarefa não encontrada.");
         const active =
-          await db`select id from brokk_v2.artifacts where project_id=${id} and kind='run' and data->>'targetId'=${taskId} and status in ('launching','active','uncertain')`;
+          await db`select id from brokk_v2.artifacts where project_id=${id} and kind='run' and data->>'targetId'=${taskId} and status in ('launching','active','uncertain','review')`;
         if (active.length)
           throw new Problem(
             409,

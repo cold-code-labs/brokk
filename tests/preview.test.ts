@@ -1,0 +1,126 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { readConfig } from "../server/config.ts";
+import { createPreviewProvider, environmentRecipe } from "../server/preview.ts";
+import type { EnvironmentRecord } from "../shared/environment.ts";
+
+const cfg = readConfig({
+  NODE_ENV: "test",
+  BROKK_DATABASE_URL: "postgres://unused/db_test",
+  BROKK_REPOSITORY_OWNER: "cold-code-labs",
+  BROKK_PREVIEW_DOMAIN: "preview.example.test",
+  BROKK_PREVIEW_ALIAS_DOMAIN: "example.test",
+  BROKK_COOLIFY_URL: "https://engine.test/api",
+  BROKK_HAULDR_URL: "https://backend.test",
+});
+const env: EnvironmentRecord = {
+  ...environmentRecipe(
+    cfg,
+    "12345678-1234-1234-1234-123456789012",
+    "cold-code-labs/nfcs",
+    {
+      slug: "nfcs",
+      hostname: "nfcs-preview.example.test",
+      productionUrl: "https://nfcs.example.test",
+      profile: "static",
+    },
+  ),
+  projectId: "12345678-1234-1234-1234-123456789012",
+  branch: "preview",
+  state: "waiting",
+  step: "prepared",
+  detail: "",
+  dataReady: true,
+  ciState: "pending",
+  commit: "",
+  deployedCommit: "",
+  version: 1,
+  updatedAt: "",
+  lease: "private-lease",
+  resources: {
+    application: "app-ref",
+    dataProject: "nfcs_dev",
+    deployment: "deploy-ref",
+  },
+};
+test("recipes cannot redirect credentials or take over protected fleet names", () => {
+  assert.equal(env.previewUrl, "https://nfcs-preview.example.test");
+  assert.throws(() =>
+    environmentRecipe(cfg, env.projectId, null, { slug: "brokk" }),
+  );
+  assert.throws(() =>
+    environmentRecipe(cfg, env.projectId, null, {
+      slug: "nfcs",
+      hostname: "attacker.example",
+    }),
+  );
+  assert.throws(() =>
+    environmentRecipe(cfg, env.projectId, "another-owner/nfcs", {
+      slug: "nfcs",
+    }),
+  );
+  assert.throws(() =>
+    environmentRecipe(cfg, env.projectId, null, {
+      slug: "nfcs",
+      productionUrl: "https://user:password@nfcs.example.test",
+    }),
+  );
+});
+test("red CI and changed heads block release; readiness requires the deployed commit", async () => {
+  const original = globalThis.fetch;
+  let mutations = 0;
+  const current = "a".repeat(40);
+  globalThis.fetch = async (input, options) => {
+    if (options?.method && options.method !== "GET") mutations++;
+    const url = String(input);
+    let body: unknown = {};
+    if (url.endsWith("/applications"))
+      body = [{ name: "nfcs-preview", uuid: "app-ref" }];
+    else if (url.endsWith("/applications/app-ref"))
+      body = {
+        name: "nfcs-preview",
+        uuid: "app-ref",
+        description: `Brokk project ${env.projectId} preview`,
+        git_repository: env.repository,
+        git_branch: "preview",
+      };
+    else if (url.includes("/git/ref/heads/preview"))
+      body = { object: { sha: current } };
+    else if (url.includes("/commits/"))
+      body = {
+        statuses: [
+          {
+            context: "ci/woodpecker/push/woodpecker",
+            state: "failure",
+            created_at: "2026-10-13",
+          },
+        ],
+      };
+    else if (url.includes("/v1/projects/")) body = { status: "ready" };
+    else if (url.includes("/deployments/deploy-ref"))
+      body = { status: "finished", commit: "b".repeat(40) };
+    else if (url.includes("/pulls/1"))
+      body = {
+        base: { ref: "preview" },
+        head: { sha: current, repo: { full_name: env.repository } },
+        draft: false,
+        state: "open",
+      };
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const p = createPreviewProvider(cfg);
+    await assert.rejects(() => p.deploy(env), /Woodpecker/);
+    await assert.rejects(() => p.merge(env, 1, "b".repeat(40)), /mudou/);
+    await assert.rejects(() => p.merge(env, 1, current), /Woodpecker/);
+    const status = await p.inspect(env);
+    assert.notEqual(status.state, "ready");
+    assert.equal(status.commit, current);
+    assert.equal(mutations, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

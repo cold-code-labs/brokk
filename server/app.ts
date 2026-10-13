@@ -5,15 +5,22 @@ import { secureHeaders } from "hono/secure-headers";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { designSchema, manifestSchema } from "../shared/design.ts";
-import type { Kind } from "../shared/domain.ts";
+import type { Kind, User } from "../shared/domain.ts";
 import { canEdit, emptyData, kinds, roles } from "../shared/domain.ts";
+import { publicEnvironment } from "../shared/environment.ts";
 import type { Env } from "./auth.ts";
 import { installAuth, secretOk } from "./auth.ts";
 import type { Config } from "./config.ts";
 import { designContract } from "./design.ts";
+import {
+  createPreviewProvider,
+  environmentRecipe,
+  type PreviewProvider,
+  previewConfigured,
+} from "./preview.ts";
 import { contextFor, daily, devin, sessionId } from "./providers.ts";
 import type { Store } from "./store.ts";
-import { Problem } from "./store.ts";
+import { hash, Problem } from "./store.ts";
 
 const text = z.string().trim().max(12000),
   title = z.string().trim().min(1).max(200),
@@ -62,8 +69,25 @@ const states: Record<string, string[]> = {
   call: ["scheduled"],
   feedback: ["draft"],
 };
-export function buildApp(store: Store, cfg: Config) {
+export function buildApp(
+  store: Store,
+  cfg: Config,
+  providers: { preview?: PreviewProvider } = {},
+) {
   const app = new Hono<Env>();
+  const preview = providers.preview || createPreviewProvider(cfg);
+  const previewEnabled = () => previewConfigured(cfg);
+  const previewAccess = async (id: string, user: User) => {
+    const ws = await store.workspace(id, user);
+    if (!canEdit(ws.organization.role))
+      throw new Problem(403, "A equipe prepara e publica a preview.");
+    if (!previewEnabled())
+      throw new Problem(
+        503,
+        "A administração ainda precisa conectar os ambientes.",
+      );
+    return ws;
+  };
   app.use(
     "*",
     secureHeaders({
@@ -493,15 +517,28 @@ export function buildApp(store: Store, cfg: Config) {
       (x) => x.id === input.taskId && x.kind === "task",
     );
     if (!task) throw new Problem(404, "Tarefa não encontrada.");
+    const prompt = contextFor(
+      ws,
+      task,
+      await store.environment(ws.project.id, c.get("user")),
+    );
     return c.json({
-      prompt: contextFor(ws, task),
+      prompt,
+      contextHash: hash(prompt),
       maxAcu: cfg.devin.maxAcu,
       repository: ws.project.repository,
     });
   });
   app.post("/api/projects/:id/development", async (c) => {
     const input = z
-      .object({ taskId: uuid, requestKey: uuid })
+      .object({
+        taskId: uuid,
+        requestKey: uuid,
+        contextHash: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
+      })
       .strict()
       .parse(await c.req.json());
     const id = uuid.parse(c.req.param("id")),
@@ -525,13 +562,26 @@ export function buildApp(store: Store, cfg: Config) {
       (x) => x.id === input.taskId && x.kind === "task",
     );
     if (!task) throw new Problem(404, "Tarefa não encontrada.");
+    const environment = await store.environment(id, c.get("user"));
+    if (environment && !environment.resources.application)
+      throw new Problem(
+        409,
+        "Prepare a preview antes de iniciar o desenvolvimento.",
+      );
+    const prompt = contextFor(ws, task, environment);
+    if (input.contextHash && input.contextHash !== hash(prompt))
+      throw new Problem(
+        409,
+        "O contexto mudou. Prepare o desenvolvimento novamente.",
+      );
     const reserved = await store.reserveRun(
       id,
       input.taskId,
       input.requestKey,
       c.get("user"),
       cfg.devin.dailyLimit,
-      contextFor(ws, task),
+      prompt,
+      ws,
     );
     if (!reserved.created) return c.json(reserved.run);
     try {
@@ -580,12 +630,210 @@ export function buildApp(store: Store, cfg: Config) {
       devin(cfg, `/${sid}`),
       devin(cfg, `/${sid}/messages?first=50`),
     ]);
+    const prs = Array.isArray(remote.pull_requests) ? remote.pull_requests : [];
+    const pr = prs.find(
+      (p: Record<string, string>) =>
+        typeof p.pr_url === "string" &&
+        p.pr_url.startsWith(
+          `https://github.com/${ws.project.repository}/pull/`,
+        ),
+    );
+    if (pr && canEdit(ws.organization.role) && run.data.resultUrl !== pr.pr_url)
+      await store.providerUpdate(id, run.id, c.get("user"), "review", {
+        resultUrl: pr.pr_url,
+        providerStatus: String(remote.status_detail || remote.status || ""),
+      });
     return c.json({
       status: remote.status,
       statusDetail: remote.status_detail,
       messages: messages.items || [],
       url: `https://app.devin.ai/sessions/${sid.replace("devin-", "")}`,
+      pullRequests: prs.map((p: Record<string, string>) => ({
+        url: p.pr_url,
+        state: p.pr_state,
+      })),
     });
+  });
+  app.get("/api/projects/:id/environment", async (c) => {
+    const env = await store.environment(
+      uuid.parse(c.req.param("id")),
+      c.get("user"),
+    );
+    return c.json({
+      connected: previewEnabled(),
+      environment: env ? publicEnvironment(env) : null,
+    });
+  });
+  app.put("/api/projects/:id/environment", async (c) => {
+    const id = uuid.parse(c.req.param("id")),
+      user = c.get("user"),
+      ws = await previewAccess(id, user);
+    if (ws.organization.role !== "admin")
+      throw new Problem(403, "A administração configura a receita.");
+    const input = z
+      .object({
+        slug: z.string().max(48),
+        hostname: z.string().max(200).optional(),
+        productionUrl: z.union([z.url(), z.literal("")]).optional(),
+        profile: z.enum(["static", "application"]).optional(),
+      })
+      .strict()
+      .parse(await c.req.json());
+    const env = await store.configureEnvironment(
+      id,
+      environmentRecipe(cfg, id, ws.project.repository, input),
+      user,
+      cfg.preview.maxProjects,
+    );
+    return c.json(publicEnvironment(env));
+  });
+  app.post("/api/projects/:id/environment/prepare", async (c) => {
+    z.object({})
+      .strict()
+      .parse(await c.req.json());
+    const id = uuid.parse(c.req.param("id")),
+      user = c.get("user"),
+      ws = await previewAccess(id, user);
+    let env = await store.environment(id, user);
+    if (!env)
+      env = await store.configureEnvironment(
+        id,
+        environmentRecipe(cfg, id, ws.project.repository),
+        user,
+        cfg.preview.maxProjects,
+        true,
+      );
+    if (
+      env.state === "ready" ||
+      (env.state === "waiting" && env.step === "prepared" && env.dataReady)
+    )
+      return c.json(publicEnvironment(env));
+    const reserved = await store.reserveEnvironment(id, user);
+    if (reserved.created) {
+      const lease = reserved.environment.lease;
+      void preview
+        .prepare(reserved.environment, (patch) =>
+          store.environmentUpdate(id, lease, patch, user),
+        )
+        .catch(async () => {
+          try {
+            await store.environmentUpdate(
+              id,
+              lease,
+              {
+                state: "uncertain",
+                detail:
+                  "A preparação não foi confirmada. A equipe pode verificar os recursos existentes sem duplicar a criação.",
+              },
+              user,
+            );
+          } catch {
+            console.error("environment_update_unconfirmed");
+          }
+        });
+    }
+    return c.json(publicEnvironment(reserved.environment), 202);
+  });
+  app.post("/api/projects/:id/environment/refresh", async (c) => {
+    z.object({})
+      .strict()
+      .parse(await c.req.json());
+    const id = uuid.parse(c.req.param("id")),
+      user = c.get("user");
+    await previewAccess(id, user);
+    const env = await store.environment(id, user);
+    if (!env) throw new Problem(409, "Prepare o ambiente primeiro.");
+    if (env.state === "preparing") return c.json(publicEnvironment(env));
+    const patch = await preview.inspect(env);
+    return c.json(
+      publicEnvironment(
+        await store.environmentUpdate(id, env.lease, patch, user),
+      ),
+    );
+  });
+  app.get("/api/projects/:id/environment/deliveries", async (c) => {
+    const env = await store.environment(
+      uuid.parse(c.req.param("id")),
+      c.get("user"),
+    );
+    if (!env || !previewEnabled()) return c.json([]);
+    return c.json(await preview.pullRequests(env));
+  });
+  app.post("/api/projects/:id/environment/integrate", async (c) => {
+    const input = z
+      .object({ runId: uuid, head: z.string().regex(/^[a-f0-9]{40}$/) })
+      .strict()
+      .parse(await c.req.json());
+    const id = uuid.parse(c.req.param("id")),
+      user = c.get("user"),
+      ws = await previewAccess(id, user);
+    const run = ws.records.find(
+      (r) => r.id === input.runId && r.kind === "run",
+    );
+    const env = await store.environment(id, user);
+    if (!run || !env || !run.data.sessionId)
+      throw new Problem(409, "A entrega ainda não está vinculada à execução.");
+    const expected = `https://github.com/${env.repository}/pull/`,
+      url = run.data.resultUrl;
+    if (!url.startsWith(expected) || !/^\d+$/.test(url.slice(expected.length)))
+      throw new Problem(
+        409,
+        "Esta entrega não pertence ao repositório do projeto.",
+      );
+    await preview.merge(env, Number(url.slice(expected.length)), input.head);
+    await store.providerUpdate(id, run.id, user, "done", {
+      providerStatus: "integrated_to_preview",
+    });
+    return c.json({ ok: true });
+  });
+  app.post("/api/projects/:id/environment/publish", async (c) => {
+    z.object({})
+      .strict()
+      .parse(await c.req.json());
+    const id = uuid.parse(c.req.param("id")),
+      user = c.get("user");
+    await previewAccess(id, user);
+    const current = await store.environment(id, user);
+    if (!current?.resources.application)
+      throw new Problem(409, "Prepare o ambiente antes de publicar.");
+    if (current.state === "preparing")
+      throw new Problem(409, "Aguarde a preparação atual.");
+    const reserved = await store.reserveEnvironment(id, user);
+    if (!reserved.created)
+      return c.json(publicEnvironment(reserved.environment), 202);
+    const env = reserved.environment;
+    try {
+      const deployment = await preview.deploy(env);
+      return c.json(
+        publicEnvironment(
+          await store.environmentUpdate(
+            id,
+            env.lease,
+            {
+              state: "waiting",
+              step: "deployment",
+              detail: "Publicando a revisão aprovada na preview.",
+              resources: { ...env.resources, deployment },
+            },
+            user,
+          ),
+        ),
+        202,
+      );
+    } catch (e) {
+      await store.environmentUpdate(
+        id,
+        env.lease,
+        {
+          state: "uncertain",
+          step: "deployment.unconfirmed",
+          detail:
+            "A publicação não foi confirmada. Verifique o ambiente antes de repetir.",
+        },
+        user,
+      );
+      throw e;
+    }
   });
   app.post("/api/projects/:id/development/:item/messages", async (c) => {
     const input = z

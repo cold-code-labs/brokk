@@ -1,0 +1,47 @@
+.preview-panel {
+  margin-bottom: 1.5rem;
+}
+.preview-checks {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+.preview-checks span {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: var(--surface-2, #f5f4f1);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.preview-actions a {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.preview-panel form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  max-width: 34rem;
+}
+.preview-deliveries {
+  margin-top: 1.5rem;
+}
+.preview-deliveries .run-row {
+  cursor: default;
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+@media (max-width: 640px) {
+  .preview-checks {
+    grid-template-columns: 1fr;
+  }
+}
