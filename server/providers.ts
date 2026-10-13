@@ -80,6 +80,16 @@ const clean = (text: string) =>
   text
     .replace(/(?:apk_|cog_)[A-Za-z0-9_-]+/g, "[redigido]")
     .replace(/Bearer\s+[^\s"']+/gi, "[redigido]");
+export class DevinRejection extends Problem {
+  upstreamStatus: number;
+  constructor(upstreamStatus: number) {
+    super(
+      422,
+      `O Devin recusou a ação (HTTP ${upstreamStatus}). A administração precisa verificar a conexão ou os parâmetros.`,
+    );
+    this.upstreamStatus = upstreamStatus;
+  }
+}
 export async function devin(
   cfg: Config,
   path: string,
@@ -101,6 +111,11 @@ export async function devin(
         signal: AbortSignal.timeout(20000),
       },
     );
+    if (
+      !response.ok &&
+      [400, 401, 403, 404, 422, 429].includes(response.status)
+    )
+      throw new DevinRejection(response.status);
     if (!response.ok)
       throw new Problem(
         response.status === 429 ? 429 : 502,
