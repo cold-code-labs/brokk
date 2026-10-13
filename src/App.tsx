@@ -8,7 +8,6 @@ import {
   Code2,
   FileText,
   Folder,
-  Hammer,
   Layers3,
   LayoutDashboard,
   MessageSquare,
@@ -47,6 +46,7 @@ import {
   statusLabels,
 } from "../shared/domain.ts";
 import { request } from "./api.ts";
+import brokkLogo from "./assets/brokk.svg";
 
 type Me = {
   user: User | null;
@@ -281,7 +281,7 @@ export default function App() {
   if (!me)
     return (
       <div className="loading">
-        <Hammer />
+        <img src={brokkLogo} alt="Brokk" className="brokk-logo" />
         <p>Preparando seu workspace…</p>
         {error && <p role="alert">{error}</p>}
       </div>
@@ -290,7 +290,7 @@ export default function App() {
     return (
       <main className="signin">
         <div className="signin-brand">
-          <Hammer />
+          <img src={brokkLogo} alt="" className="brokk-logo" />
           <b>
             Brokk<span>DESENVOLVIMENTO</span>
           </b>
@@ -374,9 +374,7 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <Link href="/" className="brand">
-          <div>
-            <Hammer size={24} />
-          </div>
+          <img src={brokkLogo} alt="" className="brokk-logo" />
           <span>
             Brokk<small>DEVELOPMENT HOUSE</small>
           </span>
@@ -1442,7 +1440,7 @@ function RecordEditor({
             <Field label="Valor">
               <input
                 name="value"
-                placeholder="#5AA9E6, 16px, Instrument Sans"
+                placeholder="#F88E2D, 16px, Instrument Sans"
                 defaultValue={initial.value}
                 maxLength={300}
                 required

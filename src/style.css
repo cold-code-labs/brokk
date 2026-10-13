@@ -2,28 +2,28 @@
   font-family: "Instrument Sans Variable", sans-serif;
   color: var(--fg);
   background: var(--bg);
-  color-scheme: dark;
+  color-scheme: light;
   font-synthesis: none;
-  /* Original Brokk: Forge at Night + Yggdrasil cold structure.
-     Recovered from apps/web/app/forge.css and the Yggdrasil token palette. */
-  --bg: #07090f;
-  --bg-soft: #0a0d15;
-  --panel: #0c101a;
-  --panel-2: #132237;
-  --fg: #f1f4f9;
-  --fg-soft: #a3aec2;
-  --muted: #8896ae;
-  --line: #1c2432;
-  --accent: #5aa9e6;
-  --accent-hover: #97c1e3;
-  --accent-ink: #04293a;
-  --ember: #ff7a45;
-  --gold: #ffb454;
-  --ok: #34d399;
-  --warn: #fbbf24;
-  --err: #fb7185;
-  --shadow: #02081440;
-  --overlay: #020814b0;
+  /* Original orange from the recovered Brokk SVG, on light surfaces.
+     Deeper orange keeps small links and status text readable on white. */
+  --bg: #faf9f7;
+  --bg-soft: #f5f4f1;
+  --panel: #fff;
+  --panel-2: #f1f3f5;
+  --fg: #22262d;
+  --fg-soft: #596270;
+  --muted: #6b7481;
+  --line: #e5e3df;
+  --brand: #f88e2d;
+  --accent: #b45309;
+  --accent-hover: #e97c1c;
+  --accent-ink: #3c1b05;
+  --ember: #b45309;
+  --ok: #15803d;
+  --warn: #936000;
+  --err: #b42339;
+  --shadow: #202a3910;
+  --overlay: #26314050;
 }
 * {
   box-sizing: border-box;
@@ -98,12 +98,13 @@ small {
   width: 242px;
   position: fixed;
   inset: 0 auto 0 0;
-  background: var(--bg-soft);
+  background: var(--panel);
   color: var(--fg-soft);
   padding: 29px 19px 16px;
   display: flex;
   flex-direction: column;
   z-index: 20;
+  border-right: 1px solid var(--line);
 }
 .brand {
   display: flex;
@@ -112,15 +113,11 @@ small {
   color: var(--fg);
   margin: 0 12px 33px;
 }
-.brand > div {
-  border: 1px solid var(--line);
-  width: 42px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  transform: rotate(-5deg);
-  border-radius: 12px;
-  color: var(--accent);
+.brokk-logo {
+  width: 46px;
+  height: 65px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 .brand > span {
   font-size: 25px;
@@ -174,8 +171,8 @@ small {
   margin: 2px 0;
 }
 .nav-item.selected {
-  background: var(--panel-2);
-  color: var(--fg);
+  background: color-mix(in srgb, var(--brand) 14%, var(--panel));
+  color: var(--accent);
 }
 .nav-item:hover {
   background: var(--panel);
@@ -278,17 +275,12 @@ small {
 .topbar {
   height: 67px;
   border-bottom: 1px solid var(--line);
-  background: #fff;
+  background: var(--panel);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 43px;
   color: var(--fg);
-  --fg: #141820;
-  --fg-soft: #4a5568;
-  --muted: #6b7385;
-  --line: #e6e9f0;
-  --panel-2: #f4f6f9;
 }
 .breadcrumb {
   display: flex;
@@ -360,7 +352,7 @@ small {
 }
 .primary {
   color: var(--accent-ink);
-  background: var(--accent);
+  background: var(--brand);
   box-shadow: 0 1px 2px var(--shadow);
 }
 .primary:hover {
@@ -667,8 +659,8 @@ small {
   font-size: 10px;
 }
 .flow-step > span.complete {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--brand);
+  border-color: var(--brand);
   color: var(--accent-ink);
 }
 .flow-step b {
@@ -1350,7 +1342,7 @@ dialog::backdrop {
   color: var(--fg-soft);
 }
 .video-placeholder .primary {
-  background: var(--accent);
+  background: var(--brand);
 }
 .call-context {
   border-top: 1px solid var(--line);
@@ -1611,10 +1603,9 @@ dialog::backdrop {
   .brand small {
     display: none;
   }
-  .brand > div {
-    height: 32px;
+  .brand .brokk-logo {
+    height: 45px;
     width: 32px;
-    border-radius: 8px;
   }
   .org-select {
     margin: 0;
