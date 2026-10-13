@@ -23,6 +23,7 @@ export type ProjectEnvironment = {
   updatedAt: string;
 };
 export type EnvironmentResources = {
+  createRepository?: boolean;
   application: string;
   dataProject: string;
   deployment: string;

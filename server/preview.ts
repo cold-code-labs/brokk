@@ -264,6 +264,11 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
         true,
       );
       if (!repo) {
+        if (!env.resources.createRepository)
+          throw new Problem(
+            409,
+            "O repositório autorizado não está acessível. A administração precisa verificar a conexão.",
+          );
         if (persistedStep === "repository.creating") {
           await save({ step: persistedStep });
           throw new Problem(

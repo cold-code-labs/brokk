@@ -405,7 +405,7 @@ export function createStore(url: string) {
             "A administração precisa vincular o ambiente ao repositório existente.",
           );
         const rows =
-          await db`insert into brokk_v2.environments(project_id,slug,repository,preview_url,production_url,profile) values (${id},${input.slug},${input.repository},${input.previewUrl},${input.productionUrl},${input.profile}) returning *`;
+          await db`insert into brokk_v2.environments(project_id,slug,repository,preview_url,production_url,profile,resources) values (${id},${input.slug},${input.repository},${input.previewUrl},${input.productionUrl},${input.profile},${db.json({ application: "", dataProject: "", deployment: "", createRepository: !a.project.repository })}) returning *`;
         await db`update brokk_v2.projects set repository=${input.repository},version=version+1,updated_at=now() where id=${id}`;
         await event(db, id, user, "environment.configured", input.previewUrl);
         return environmentOf(rows[0]);
