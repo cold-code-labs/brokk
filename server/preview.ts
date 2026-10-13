@@ -25,6 +25,8 @@ type DataProject = {
   internal?: { jwtSecret?: string };
 };
 type Deployment = { deployment_uuid: string; status: string; commit: string };
+const isDataReady = (data: DataProject) =>
+  data.status === "ready" || data.status === "live";
 type RawPullRequest = {
   number: number;
   html_url: string;
@@ -374,7 +376,7 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
       }
       env = await save({
         resources: { ...env.resources, dataProject },
-        dataReady: data.status === "ready",
+        dataReady: isDataReady(data),
       });
       let app = await application(env);
       if (!app) {
@@ -442,7 +444,7 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
           is_preview: false,
         },
       ];
-      if (env.profile === "application" && data.status === "ready") {
+      if (env.profile === "application" && isDataReady(data)) {
         const base = String(data.services?.auth?.url || "")
           .replace(/\/auth\/?$/, "")
           .replace(/^http:/, "https:");
@@ -510,7 +512,7 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
       const commit = String(branch.object.sha),
         ciState = await ci(env.repository, commit);
       const result: Partial<EnvironmentRecord> = {
-        dataReady: data.status === "ready",
+        dataReady: isDataReady(data),
         ciState,
         commit,
       };
@@ -529,7 +531,7 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
         if (
           deployment.status === "finished" &&
           deployment.commit === commit &&
-          data.status === "ready"
+          isDataReady(data)
         ) {
           try {
             const response = await fetch(
@@ -576,7 +578,7 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
           "O Woodpecker precisa aprovar o commit atual da preview.",
         );
       const data = await hauldr(`/v1/projects/${env.resources.dataProject}`);
-      if (data.status !== "ready")
+      if (!isDataReady(data))
         throw new Problem(409, "O backend de dev ainda não está pronto.");
       const rows = await coolify<{ deployments: Deployment[] }>(
         `/deployments/applications/${app.uuid}?take=10`,

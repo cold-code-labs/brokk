@@ -63,7 +63,7 @@ test("preparation reuses an active Woodpecker repository instead of activating i
       return new Response("Already activated", { status: 409 });
     } else if (url.includes("/git/ref/heads/preview"))
       body = { object: { sha: "a".repeat(40) } };
-    else if (url.includes("/v1/projects/")) body = { status: "ready" };
+    else if (url.includes("/v1/projects/")) body = { status: "live" };
     else if (url.endsWith("/applications"))
       body = [{ name: "nfcs-preview", uuid: "app-ref" }];
     else if (url.endsWith("/applications/app-ref"))
@@ -148,7 +148,7 @@ test("red CI and changed heads block release; readiness requires the deployed co
           },
         ],
       };
-    else if (url.includes("/v1/projects/")) body = { status: "ready" };
+    else if (url.includes("/v1/projects/")) body = { status: "live" };
     else if (url.includes("/deployments/deploy-ref"))
       body = { status: "finished", commit: "b".repeat(40) };
     else if (url.includes("/pulls/1"))
