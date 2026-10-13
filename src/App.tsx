@@ -46,6 +46,8 @@ import {
   statusLabels,
 } from "../shared/domain.ts";
 import { request } from "./api.ts";
+import { EnvironmentPanel } from "./EnvironmentPanel.tsx";
+import "./environment.css";
 import brokkLogo from "./assets/brokk.svg";
 import { DesignEditor, DesignSystem } from "./DesignSystem.tsx";
 
@@ -1559,6 +1561,7 @@ function Development({
       prompt: string;
       maxAcu: number;
       repository: string | null;
+      contextHash: string;
     } | null>(null),
     [remote, setRemote] = useState<{
       status: string;
@@ -1592,6 +1595,7 @@ function Development({
   }, [selected, ws.project.id]);
   return (
     <>
+      <EnvironmentPanel ws={ws} perform={perform} busy={busy} />
       <div className="integration-strip">
         <div>
           <Sparkles size={21} />
@@ -1805,7 +1809,11 @@ function Development({
                   const run = await request<Artifact>(
                     `/projects/${ws.project.id}/development`,
                     "POST",
-                    { taskId, requestKey: requestKey.current },
+                    {
+                      taskId,
+                      requestKey: requestKey.current,
+                      contextHash: context.contextHash,
+                    },
                   );
                   setSelected(run.id);
                   setContext(null);

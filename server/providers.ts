@@ -1,8 +1,13 @@
 import type { Artifact, Workspace } from "../shared/domain.ts";
+import type { EnvironmentRecord } from "../shared/environment.ts";
 import type { Config } from "./config.ts";
 import { designContract } from "./design.ts";
 import { Problem } from "./store.ts";
-export function contextFor(workspace: Workspace, task: Artifact) {
+export function contextFor(
+  workspace: Workspace,
+  task: Artifact,
+  environment?: EnvironmentRecord | null,
+) {
   const scope = workspace.records.filter((x) => x.kind === "scope");
   const specs = workspace.records.filter((x) =>
     ["screen", "token", "component"].includes(x.kind),
@@ -31,6 +36,15 @@ export function contextFor(workspace: Workspace, task: Artifact) {
       acceptance: task.data.acceptance,
       screenId: task.data.screenId,
     },
+    environment: environment
+      ? {
+          branch: environment.branch,
+          previewUrl: environment.previewUrl,
+          productionUrl: environment.productionUrl,
+          instruction:
+            "Start from the authorized preview branch. Create a feature branch and open a PR targeting preview. Only Brokk integrates checked PRs and publishes the preview. Never push or merge main, access infrastructure or deploy.",
+        }
+      : null,
     designSystem: contract.versions.length
       ? {
           schemaVersion: contract.schemaVersion,

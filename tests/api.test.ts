@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { buildApp } from "../server/app.ts";
 import { readConfig } from "../server/config.ts";
+import type { PreviewProvider } from "../server/preview.ts";
 import { createStore } from "../server/store.ts";
 import type {
   Artifact,
@@ -94,6 +95,7 @@ before(async () => {
   ).json();
 });
 after(() => store.close());
+
 test("requires authentication, rejects crossed origin and unexpected fields", async () => {
   assert.equal((await call("/projects", "GET", undefined, "")).status, 401);
   assert.equal(
@@ -595,6 +597,168 @@ test("design system import is atomic, idempotent, tenant-scoped and read-only fo
   );
   assert.equal(
     (await call(`/projects/${other.id}/design/export?format=contract`)).status,
+    409,
+  );
+});
+
+test("preview preparation is scoped, idempotent and hides provider capabilities", async () => {
+  const previewCfg = readConfig({
+    NODE_ENV: "test",
+    BROKK_DATABASE_URL: url,
+    BROKK_DEV_AUTH: "1",
+    BROKK_COOLIFY_URL: "https://engine.test/api/v1",
+    BROKK_COOLIFY_TOKEN: "private-engine-token",
+    BROKK_COOLIFY_PROJECT: "private-project",
+    BROKK_COOLIFY_SERVER: "private-server",
+    BROKK_COOLIFY_GITHUB_APP: "private-app",
+    BROKK_HAULDR_URL: "https://backend.test",
+    BROKK_HAULDR_KEY: "private-backend-key",
+    BROKK_GITHUB_TOKEN: "private-git-key",
+    BROKK_REPOSITORY_OWNER: "cold-code-labs",
+    BROKK_REPOSITORY_TEMPLATE: "cold-code-labs/template-vite",
+    BROKK_PREVIEW_DOMAIN: "preview.example.test",
+    BROKK_PREVIEW_ALIAS_DOMAIN: "example.test",
+    BROKK_WOODPECKER_URL: "https://ci.test/api",
+    BROKK_WOODPECKER_TOKEN: "private-ci-key",
+  });
+  let preparations = 0,
+    publishes = 0;
+  const provider: PreviewProvider = {
+    async prepare(env, save) {
+      preparations++;
+      return save({
+        state: "waiting",
+        step: "prepared",
+        dataReady: true,
+        resources: {
+          application: "private-resource",
+          dataProject: `${env.slug}_dev`,
+          deployment: "",
+        },
+        detail: "Prepared",
+      });
+    },
+    async inspect() {
+      return {
+        state: "ready",
+        step: "verified",
+        ciState: "success",
+        commit: "a".repeat(40),
+        deployedCommit: "a".repeat(40),
+      };
+    },
+    async deploy() {
+      publishes++;
+      return "private-deployment";
+    },
+    async pullRequests() {
+      return [];
+    },
+    async merge() {
+      throw new Error("unexpected integration");
+    },
+  };
+  const envApp = buildApp(store, previewCfg, { preview: provider });
+  const ec = (path: string, method = "GET", body?: unknown, cookie = admin) =>
+    envApp.request(`/api${path}`, {
+      method,
+      headers: {
+        cookie,
+        origin: previewCfg.origin,
+        "content-type": "application/json",
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  const p = (await (
+    await call("/projects", "POST", {
+      organizationId: org.id,
+      name: "Preview isolation",
+      objective: "Verify preview lifecycle.",
+    })
+  ).json()) as Project;
+  const path = `/projects/${p.id}/environment`;
+  assert.equal(
+    (await ec(path, "PUT", { slug: "scoped-test" }, operator)).status,
+    403,
+  );
+  assert.equal((await ec(`${path}/prepare`, "POST", {}, client)).status, 403);
+  assert.equal((await ec(`${path}/prepare`, "POST", {}, reader)).status, 403);
+  assert.equal((await ec(path, "GET", undefined, stranger)).status, 404);
+  const configured = await ec(path, "PUT", {
+    slug: "scoped-test",
+    hostname: "scoped-test-preview.example.test",
+    productionUrl: "https://scoped-test.example.test",
+    profile: "static",
+  });
+  assert.equal(configured.status, 200, await configured.clone().text());
+  assert.equal(
+    (await ec(path, "PUT", { slug: "other-test", profile: "static" })).status,
+    409,
+  );
+  assert.equal(
+    (
+      await call(`/projects/${p.id}/repository`, "PUT", {
+        repository: "cold-code-labs/another",
+      })
+    ).status,
+    409,
+  );
+  const requests = await Promise.all([
+    ec(`${path}/prepare`, "POST", {}, operator),
+    ec(`${path}/prepare`, "POST", {}, operator),
+  ]);
+  assert.ok(requests.every((r) => [200, 202].includes(r.status)));
+  for (let i = 0; i < 20; i++) {
+    const view = await (await ec(path)).json();
+    if (view.environment?.state === "waiting") break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.equal(preparations, 1);
+  assert.equal((await ec(`${path}/prepare`, "POST", {}, operator)).status, 200);
+  assert.equal(preparations, 1);
+  const view = await ec(path, "GET", undefined, client),
+    text = await view.text();
+  assert.equal(view.status, 200);
+  for (const secret of [
+    "private-resource",
+    "private-engine-token",
+    "private-backend-key",
+    "private-ci-key",
+    '"lease"',
+    '"resources"',
+  ])
+    assert.ok(!text.includes(secret), secret);
+  assert.equal((await ec(`${path}/publish`, "POST", {}, client)).status, 403);
+  assert.equal((await ec(`${path}/refresh`, "POST", {}, operator)).status, 200);
+  assert.equal((await ec(`${path}/publish`, "POST", {}, operator)).status, 202);
+  assert.equal(publishes, 1);
+  assert.equal(
+    (
+      await ec(
+        `${path}/integrate`,
+        "POST",
+        { runId: randomUUID(), head: "a".repeat(40) },
+        operator,
+      )
+    ).status,
+    409,
+  );
+  const duplicate = (await (
+    await call("/projects", "POST", {
+      organizationId: org.id,
+      name: "Collision",
+      objective: "",
+    })
+  ).json()) as Project;
+  assert.equal(
+    (
+      await ec(`/projects/${duplicate.id}/environment`, "PUT", {
+        slug: "scoped-test",
+        hostname: "scoped-test-preview.example.test",
+        productionUrl: "https://scoped-test.example.test",
+        profile: "static",
+      })
+    ).status,
     409,
   );
 });

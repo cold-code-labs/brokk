@@ -35,6 +35,24 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
       roomDomain: env.DAILY_ROOM_DOMAIN || "",
     },
     revision: env.SOURCE_COMMIT || env.BROKK_REVISION || "local",
+    preview: {
+      coolifyUrl: (env.BROKK_COOLIFY_URL || "").replace(/\/$/, ""),
+      coolifyToken: env.BROKK_COOLIFY_TOKEN || "",
+      project: env.BROKK_COOLIFY_PROJECT || "",
+      server: env.BROKK_COOLIFY_SERVER || "",
+      githubApp: env.BROKK_COOLIFY_GITHUB_APP || "",
+      environment: env.BROKK_COOLIFY_ENVIRONMENT || "production",
+      hauldrUrl: (env.BROKK_HAULDR_URL || "").replace(/\/$/, ""),
+      hauldrKey: env.BROKK_HAULDR_KEY || "",
+      githubToken: env.BROKK_GITHUB_TOKEN || "",
+      woodpeckerUrl: (env.BROKK_WOODPECKER_URL || "").replace(/\/$/, ""),
+      woodpeckerToken: env.BROKK_WOODPECKER_TOKEN || "",
+      owner: env.BROKK_REPOSITORY_OWNER || "",
+      template: env.BROKK_REPOSITORY_TEMPLATE || "",
+      domain: env.BROKK_PREVIEW_DOMAIN || "",
+      aliasDomain: env.BROKK_PREVIEW_ALIAS_DOMAIN || "",
+      maxProjects: Number(env.BROKK_PREVIEW_MAX_PROJECTS || 30),
+    },
   };
   if (!config.databaseUrl) throw new Error("BROKK_DATABASE_URL required");
   if (
