@@ -54,7 +54,12 @@ import { DesignEditor, DesignSystem } from "./DesignSystem.tsx";
 type Me = {
   user: User | null;
   devAuth: boolean;
-  integrations?: { devin: boolean; calls: boolean; var: boolean };
+  integrations?: {
+    devin: boolean;
+    cursor: boolean;
+    calls: boolean;
+    var: boolean;
+  };
 };
 type Tab =
   | "overview"
@@ -699,7 +704,10 @@ export default function App() {
                 <Development
                   ws={workspace}
                   editable={editable}
-                  connected={Boolean(me.integrations?.devin)}
+                  providers={{
+                    devin: Boolean(me.integrations?.devin),
+                    cursor: Boolean(me.integrations?.cursor),
+                  }}
                   perform={perform}
                   busy={busy}
                 />
@@ -830,7 +838,7 @@ const tabCopy: Record<Tab, string> = {
   design: "Uma linguagem visual consistente para todo o produto.",
   reviews: "Feedback e decisões vinculados à versão que o cliente revisou.",
   development:
-    "Direcione o trabalho e acompanhe o Devin no contexto do projeto.",
+    "Direcione o trabalho e acompanhe o executor no contexto do projeto.",
   calls:
     "Converse com o cliente, registre decisões e transforme ajustes em trabalho.",
   activity: "Cada mudança com autoria e contexto.",
@@ -1543,18 +1551,21 @@ function RecordEditor({
 function Development({
   ws,
   editable,
-  connected,
+  providers,
   perform,
   busy,
 }: {
   ws: Workspace;
   editable: boolean;
-  connected: boolean;
+  providers: { devin: boolean; cursor: boolean };
   perform: (fn: () => Promise<unknown>, m?: string) => Promise<void>;
   busy: boolean;
 }) {
   const tasks = ws.records.filter((r) => r.kind === "task"),
     runs = ws.records.filter((r) => r.kind === "run"),
+    [provider, setProvider] = useState<"devin" | "cursor">(
+      providers.cursor ? "cursor" : "devin",
+    ),
     [taskId, setTaskId] = useState(""),
     [selected, setSelected] = useState(""),
     [context, setContext] = useState<{
@@ -1570,7 +1581,8 @@ function Development({
     } | null>(null),
     [providerError, setProviderError] = useState(""),
     requestKey = useRef(crypto.randomUUID());
-  const selectedRun = runs.find((r) => r.id === selected);
+  const selectedRun = runs.find((r) => r.id === selected),
+    connected = providers[provider];
   useEffect(() => {
     setRemote(null);
     setProviderError("");
@@ -1603,9 +1615,12 @@ function Development({
         <div>
           <Sparkles size={21} />
           <span>
-            <b>Devin · desenvolvimento assistido</b>
+            <b>
+              {provider === "cursor" ? "Cursor CLI" : "Executor"} ·
+              desenvolvimento assistido
+            </b>
             <small>
-              Contexto do projeto, execução limitada e pedidos em tempo real.
+              O mesmo contrato de design, revisão e preview para cada executor.
             </small>
           </span>
         </div>
@@ -1620,8 +1635,25 @@ function Development({
           <h2>O que vamos desenvolver?</h2>
           <p>
             Selecione uma tarefa. O Brokk compartilha o escopo e as
-            especificações deste projeto com o Devin.
+            especificações deste projeto com o executor selecionado.
           </p>
+          <Field label="Executor">
+            <select
+              value={provider}
+              onChange={(e) => {
+                setProvider(e.target.value as "devin" | "cursor");
+                setContext(null);
+                requestKey.current = crypto.randomUUID();
+              }}
+            >
+              <option value="devin" disabled={!providers.devin}>
+                Devin
+              </option>
+              <option value="cursor" disabled={!providers.cursor}>
+                Cursor CLI · worker
+              </option>
+            </select>
+          </Field>
           <Field label="Tarefa">
             <select
               value={taskId}
@@ -1698,7 +1730,7 @@ function Development({
           ) : (
             <Empty
               title="Pronto para começar."
-              body="As execuções do Devin e seus estados aparecem aqui."
+              body="As execuções e seus estados aparecem aqui."
             />
           )}
         </section>
@@ -1708,7 +1740,9 @@ function Development({
           <div className="section-head">
             <h2>Acompanhar e direcionar</h2>
             <span className="connection on">
-              {remote?.status || "Atualizando"}
+              {remote?.status ||
+                statusLabels[selectedRun?.status || ""] ||
+                "Atualizando"}
             </span>
           </div>
           {providerError && (
@@ -1746,8 +1780,9 @@ function Development({
           )}
           {selectedRun?.status === "failed" && (
             <p>
-              A execução não foi iniciada: {selectedRun.data.providerStatus}.
-              Prepare uma nova tentativa após corrigir a conexão.
+              {selectedRun.data.providerStatus === "reconciled_absent"
+                ? "A sessão não foi localizada no Devin. A tentativa foi reconciliada."
+                : "O Devin recusou a criação da sessão. Verifique saldo, cota e acesso do projeto antes de preparar uma nova tentativa."}
             </p>
           )}
           {remote?.statusDetail && <p>{remote.statusDetail}</p>}
@@ -1759,7 +1794,7 @@ function Development({
                   key={m.event_id || i}
                 >
                   <small>
-                    {m.source === "user" ? "Pedido da equipe" : "Devin"}
+                    {m.source === "user" ? "Pedido da equipe" : "Executor"}
                   </small>
                   <p>{m.message}</p>
                 </div>
@@ -1768,36 +1803,43 @@ function Development({
               <p>A sessão ainda não tem mensagens disponíveis.</p>
             )}
           </div>
-          {editable && selectedRun?.data.sessionId && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const form = e.currentTarget,
-                  data = new FormData(form);
-                void perform(async () => {
-                  await request(
-                    `/projects/${ws.project.id}/development/${selected}/messages`,
-                    "POST",
-                    { message: data.get("message") },
-                  );
-                  form.reset();
-                }, "Pedido enviado ao Devin.");
-              }}
-            >
-              <Field label="Novo direcionamento">
-                <textarea
-                  name="message"
-                  maxLength={4000}
-                  placeholder="Descreva o ajuste que você quer ver…"
-                  required
-                />
-              </Field>
-              <button type="submit" disabled={busy} className="primary">
-                <ArrowUpRight size={16} />
-                Enviar pedido
-              </button>
-            </form>
-          )}
+          {editable &&
+            selectedRun?.data.sessionId &&
+            ["launching", "active"].includes(selectedRun.status) && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const form = e.currentTarget,
+                    data = new FormData(form);
+                  void perform(async () => {
+                    await request(
+                      `/projects/${ws.project.id}/development/${selected}/messages`,
+                      "POST",
+                      { message: data.get("message") },
+                    );
+                    form.reset();
+                  }, "Pedido recebido pelo executor.");
+                }}
+              >
+                {selectedRun?.data.category === "cursor" && (
+                  <p>
+                    Pedidos ficam na fila para o próximo ciclo do Cursor CLI.
+                  </p>
+                )}
+                <Field label="Novo direcionamento">
+                  <textarea
+                    name="message"
+                    maxLength={4000}
+                    placeholder="Descreva o ajuste que você quer ver…"
+                    required
+                  />
+                </Field>
+                <button type="submit" disabled={busy} className="primary">
+                  <ArrowUpRight size={16} />
+                  Enviar pedido
+                </button>
+              </form>
+            )}
         </section>
       )}
       {context && (
@@ -1816,8 +1858,12 @@ function Development({
                 <dd>{tasks.find((t) => t.id === taskId)?.title}</dd>
               </div>
               <div>
-                <dt>Limite por execução</dt>
-                <dd>{context.maxAcu} ACU</dd>
+                <dt>Executor</dt>
+                <dd>
+                  {provider === "cursor"
+                    ? "Cursor CLI · worker com tempo limitado"
+                    : `Devin · até ${context.maxAcu} ACU`}
+                </dd>
               </div>
               <div>
                 <dt>Repositório autorizado</dt>
@@ -1848,6 +1894,7 @@ function Development({
                     "POST",
                     {
                       taskId,
+                      provider,
                       requestKey: requestKey.current,
                       contextHash: context.contextHash,
                     },
@@ -1858,7 +1905,9 @@ function Development({
               }
             >
               <Sparkles size={16} />
-              {busy ? "Solicitando…" : "Enviar ao Devin"}
+              {busy
+                ? "Solicitando…"
+                : `Enviar ao ${provider === "cursor" ? "Cursor CLI" : "Devin"}`}
             </button>
           </div>
         </Modal>

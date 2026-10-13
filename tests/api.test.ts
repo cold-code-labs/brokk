@@ -837,3 +837,138 @@ test("Devin reconciliation is administrative, never launches and preserves incom
     globalThis.fetch = original;
   }
 });
+
+test("Cursor jobs use private single-owner leases and scoped messages without paid retries", async () => {
+  const task = await record("task", "Cursor reconstruction", {}, "ready");
+  const user: User = {
+    id: "local:operator",
+    email: "operator@local.test",
+    name: "Operator",
+    admin: false,
+  };
+  const technical: User = {
+    id: "local:admin@local.test",
+    email: "admin@local.test",
+    name: "Admin",
+    admin: true,
+  };
+  await store.configureEnvironment(
+    project.id,
+    {
+      slug: "cursor-scope",
+      repository: "cold-code-labs/cursor-scope",
+      previewUrl: "https://cursor-scope.preview.example.test",
+      productionUrl: "",
+      profile: "static",
+    },
+    technical,
+    30,
+  );
+  const reservation = await store.reserveEnvironment(project.id, technical);
+  await store.environmentUpdate(
+    project.id,
+    reservation.environment.lease,
+    {
+      state: "waiting",
+      step: "prepared",
+      dataReady: true,
+      resources: {
+        application: "private-app",
+        dataProject: "cursor-scope_dev",
+        deployment: "",
+      },
+    },
+    technical,
+  );
+  const run = (
+    await store.reserveRun(
+      project.id,
+      task.id,
+      randomUUID(),
+      user,
+      20,
+      "Exact complete contract",
+      undefined,
+      "cursor",
+    )
+  ).run;
+  const cc = readConfig({
+    NODE_ENV: "test",
+    BROKK_DATABASE_URL: url,
+    BROKK_DEV_AUTH: "1",
+    BROKK_CURSOR_WORKER_SECRET: "private-worker-key",
+  });
+  const ca = buildApp(store, cc);
+  const wr = (path: string, body: unknown, key = "private-worker-key") =>
+    ca.request(`/api/worker/cursor/${path}`, {
+      method: "POST",
+      headers: {
+        origin: cc.origin,
+        "content-type": "application/json",
+        authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify(body),
+    });
+  assert.equal(
+    (await wr("claim", { owner: "test-worker" }, "wrong-key")).status,
+    401,
+  );
+  const claims = await Promise.all([
+    wr("claim", { owner: "test-worker" }),
+    wr("claim", { owner: "other-worker" }),
+  ]);
+  const jobs = await Promise.all(claims.map((r) => r.json()));
+  assert.equal(jobs.filter(Boolean).length, 1);
+  const job = jobs.find(Boolean);
+  assert.equal(job.runId, run.id);
+  assert.equal(job.prompt, "Exact complete contract");
+  assert.equal(
+    (await wr(`${run.id}/report`, { lease: "f".repeat(64) })).status,
+    409,
+  );
+  const msg = await ca.request(
+    `/api/projects/${project.id}/development/${run.id}/messages`,
+    {
+      method: "POST",
+      headers: {
+        cookie: operator,
+        origin: cc.origin,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ message: "Preserve the Aurora layout." }),
+    },
+  );
+  assert.equal(msg.status, 200);
+  const heartbeat = await wr(`${run.id}/report`, { lease: job.lease });
+  assert.equal(
+    (await heartbeat.json()).messages[0].body,
+    "Preserve the Aurora layout.",
+  );
+  assert.equal(
+    (
+      await wr(`${run.id}/report`, {
+        lease: job.lease,
+        state: "review",
+        resultUrl: "https://github.com/another/repo/pull/1",
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await wr(`${run.id}/report`, {
+        lease: job.lease,
+        state: "failed",
+        message: "Worker stopped without publishing.",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await wr(`${run.id}/report`, { lease: job.lease })).status,
+    409,
+  );
+  const ws = await store.workspace(project.id, user);
+  assert.ok(!JSON.stringify(ws).includes(job.lease));
+  assert.equal(ws.records.find((r) => r.id === run.id)?.status, "failed");
+});

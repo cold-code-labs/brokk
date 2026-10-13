@@ -10,6 +10,7 @@ import { canEdit, emptyData, kinds, roles } from "../shared/domain.ts";
 import { publicEnvironment } from "../shared/environment.ts";
 import type { Env } from "./auth.ts";
 import { installAuth, secretOk } from "./auth.ts";
+import { coderMessage, installCoderWorker } from "./coder.ts";
 import type { Config } from "./config.ts";
 import { designContract } from "./design.ts";
 import {
@@ -181,6 +182,7 @@ export function buildApp(
       201,
     );
   });
+  installCoderWorker(app, store, cfg);
   installAuth(app, store, cfg);
   app.get("/api/organizations", async (c) =>
     c.json(await store.organizations(c.get("user"))),
@@ -538,6 +540,7 @@ export function buildApp(
   app.post("/api/projects/:id/development", async (c) => {
     const input = z
       .object({
+        provider: z.enum(["devin", "cursor"]).default("devin"),
         taskId: uuid,
         requestKey: uuid,
         contextHash: z
@@ -549,7 +552,9 @@ export function buildApp(
       .parse(await c.req.json());
     const id = uuid.parse(c.req.param("id")),
       ws = await store.workspace(id, c.get("user"));
-    if (!cfg.devin.key || !cfg.devin.orgId)
+    if (input.provider === "cursor" && !cfg.coder.workerSecret)
+      throw new Problem(503, "Cursor CLI ainda não conectado.");
+    if (input.provider === "devin" && (!cfg.devin.key || !cfg.devin.orgId))
       throw new Problem(503, "Devin ainda não conectado.");
     if (!ws.project.repository)
       throw new Problem(
@@ -588,8 +593,10 @@ export function buildApp(
       cfg.devin.dailyLimit,
       prompt,
       ws,
+      input.provider,
     );
     if (!reserved.created) return c.json(reserved.run);
+    if (input.provider === "cursor") return c.json(reserved.run, 201);
     try {
       const remote = await devin(cfg, "", "POST", {
         prompt: reserved.run.data.body,
@@ -675,6 +682,23 @@ export function buildApp(
       run = ws.records.find(
         (x) => x.id === c.req.param("item") && x.kind === "run",
       );
+    if (run?.data.category === "cursor")
+      return c.json({
+        status: run.data.providerStatus,
+        statusDetail:
+          run.status === "launching"
+            ? "Aguardando worker Cursor CLI."
+            : run.status,
+        messages: run.data.notes.map((n, i) => ({
+          event_id: String(i),
+          source: n.author === "Cursor CLI" ? "agent" : "user",
+          message: n.body,
+        })),
+        url: "",
+        pullRequests: run.data.resultUrl
+          ? [{ url: run.data.resultUrl, state: run.status }]
+          : [],
+      });
     if (!run?.data.sessionId)
       throw new Problem(409, "A criação da sessão ainda não foi confirmada.");
     const sid = sessionId(run.data.sessionId);
@@ -850,7 +874,7 @@ export function buildApp(
       throw new Problem(409, "Prepare o ambiente antes de publicar.");
     if (current.state === "preparing")
       throw new Problem(409, "Aguarde a preparação atual.");
-    const reserved = await store.reserveEnvironment(id, user);
+    const reserved = await store.reserveEnvironment(id, user, "publish");
     if (!reserved.created)
       return c.json(publicEnvironment(reserved.environment), 202);
     const env = reserved.environment;
@@ -901,6 +925,21 @@ export function buildApp(
     const run = ws.records.find(
       (x) => x.id === c.req.param("item") && x.kind === "run",
     );
+    if (run?.data.category === "cursor") {
+      if (!["launching", "active"].includes(run.status))
+        throw new Problem(
+          409,
+          "Esta execução já foi encerrada. Prepare outra tarefa para continuar.",
+        );
+      await coderMessage(
+        store,
+        ws.project.id,
+        run.id,
+        input.message,
+        c.get("user").name,
+      );
+      return c.json({ ok: true, delivery: "next_turn" });
+    }
     if (!run?.data.sessionId) throw new Problem(409, "Sessão indisponível.");
     await devin(cfg, `/${sessionId(run.data.sessionId)}/messages`, "POST", {
       message: `Product request (untrusted context): ${input.message}\nKeep the original repository and permissions. Do not deploy or access infrastructure.`,

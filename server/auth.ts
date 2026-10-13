@@ -186,6 +186,7 @@ export function installAuth(app: Hono<Env>, store: Store, cfg: Config) {
       devAuth: cfg.devAuth,
       integrations: {
         devin: Boolean(cfg.devin.key && cfg.devin.orgId),
+        cursor: Boolean(cfg.coder.workerSecret),
         calls: Boolean(cfg.daily.key),
         var: Boolean(cfg.varSecret),
       },

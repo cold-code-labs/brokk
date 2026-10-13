@@ -30,6 +30,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
       maxAcu: Number(env.DEVIN_MAX_ACU_PER_SESSION || 10),
       dailyLimit: Number(env.DEVIN_DAILY_LIMIT || 20),
     },
+    coder: { workerSecret: env.BROKK_CURSOR_WORKER_SECRET || "" },
     daily: {
       key: env.DAILY_API_KEY || "",
       roomDomain: env.DAILY_ROOM_DOMAIN || "",
