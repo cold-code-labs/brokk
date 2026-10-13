@@ -411,7 +411,11 @@ export function createStore(url: string) {
         return environmentOf(rows[0]);
       });
     },
-    async reserveEnvironment(id: string, user: User) {
+    async reserveEnvironment(
+      id: string,
+      user: User,
+      purpose: "prepare" | "publish" = "prepare",
+    ) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
         const rows =
@@ -420,8 +424,9 @@ export function createStore(url: string) {
           throw new Problem(409, "Prepare a receita do ambiente.");
         const r = environmentOf(rows[0]);
         if (
-          r.state === "ready" ||
-          (r.state === "waiting" && r.step === "prepared" && r.dataReady)
+          purpose === "prepare" &&
+          (r.state === "ready" ||
+            (r.state === "waiting" && r.step === "prepared" && r.dataReady))
         )
           return { created: false, environment: r };
         if (

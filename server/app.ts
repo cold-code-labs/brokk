@@ -850,7 +850,7 @@ export function buildApp(
       throw new Problem(409, "Prepare o ambiente antes de publicar.");
     if (current.state === "preparing")
       throw new Problem(409, "Aguarde a preparação atual.");
-    const reserved = await store.reserveEnvironment(id, user);
+    const reserved = await store.reserveEnvironment(id, user, "publish");
     if (!reserved.created)
       return c.json(publicEnvironment(reserved.environment), 202);
     const env = reserved.environment;
