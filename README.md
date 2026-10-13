@@ -2,7 +2,7 @@
 
 Organization-scoped development workspace for Cold Code Labs: scope, tasks, screens, design system, client reviews, review calls and supervised Devin development. Operators direct product work without database, shell or infrastructure access.
 
-React 19 + Vite 8 SPA, Hono API and Postgres. One HTTP service serves the SPA and API. [Reconstruction plan](docs/v2/PLANO.md).
+React 19 + Vite 8 SPA, Hono API and Postgres. One HTTP service serves the SPA and API. [Reconstruction plan](docs/v2/PLANO.md). [Design system contract and NFCS validation](docs/v2/DESIGN-SYSTEM.md).
 
 ## Local development
 

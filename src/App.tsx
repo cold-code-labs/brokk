@@ -47,6 +47,7 @@ import {
 } from "../shared/domain.ts";
 import { request } from "./api.ts";
 import brokkLogo from "./assets/brokk.svg";
+import { DesignEditor, DesignSystem } from "./DesignSystem.tsx";
 
 type Me = {
   user: User | null;
@@ -672,9 +673,7 @@ export default function App() {
               {tab === "overview" && (
                 <Overview ws={workspace} editable={editable} create={create} />
               )}{" "}
-              {["scope", "tasks", "screens", "design", "reviews"].includes(
-                tab,
-              ) && (
+              {["scope", "tasks", "screens", "reviews"].includes(tab) && (
                 <Records
                   tab={tab}
                   ws={workspace}
@@ -685,6 +684,14 @@ export default function App() {
                   busy={busy}
                 />
               )}{" "}
+              {tab === "design" && (
+                <DesignSystem
+                  ws={workspace}
+                  editable={editable}
+                  perform={perform}
+                  busy={busy}
+                />
+              )}
               {tab === "activity" && <Activity ws={workspace} />}{" "}
               {tab === "development" && (
                 <Development
@@ -1320,6 +1327,17 @@ function RecordEditor({
         : kind === "review"
           ? ["review"]
           : ["draft"];
+  if (record?.data.design || ["token", "component"].includes(kind))
+    return (
+      <DesignEditor
+        key={record?.id || kind}
+        editing={editing}
+        ws={ws}
+        busy={busy}
+        close={close}
+        perform={perform}
+      />
+    );
   return (
     <Modal
       title={
@@ -1380,7 +1398,9 @@ function RecordEditor({
               <option value="">Selecione uma especificação</option>
               {ws.records
                 .filter((r) =>
-                  ["scope", "screen", "task", "component"].includes(r.kind),
+                  ["scope", "screen", "task", "component", "token"].includes(
+                    r.kind,
+                  ),
                 )
                 .map((r) => (
                   <option key={r.id} value={r.id}>

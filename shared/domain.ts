@@ -1,3 +1,4 @@
+import type { DesignSpec } from "./design.ts";
 export const roles = ["admin", "operator", "client", "reader"] as const;
 export type Role = (typeof roles)[number];
 export const kinds = [
@@ -40,6 +41,7 @@ export type Note = {
 };
 export type RecordData = {
   body: string;
+  design: DesignSpec | null;
   acceptance: string;
   priority: "low" | "normal" | "high";
   screenId: string;
@@ -86,6 +88,7 @@ export type Workspace = {
 };
 export const emptyData = (): RecordData => ({
   body: "",
+  design: null,
   acceptance: "",
   priority: "normal",
   screenId: "",
