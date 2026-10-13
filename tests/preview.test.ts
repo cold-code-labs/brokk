@@ -43,6 +43,58 @@ const env: EnvironmentRecord = {
     deployment: "deploy-ref",
   },
 };
+
+test("preparation reuses an active Woodpecker repository instead of activating it again", async () => {
+  const original = globalThis.fetch;
+  let activation = 0;
+  globalThis.fetch = async (input, _options) => {
+    const url = String(input);
+    let body: unknown = {};
+    if (url.endsWith(`/repos/${env.repository}`))
+      body = {
+        full_name: env.repository,
+        id: 1371850586,
+        default_branch: "main",
+        archived: false,
+      };
+    else if (url.includes("/repos/lookup/")) body = { active: true };
+    else if (url.includes("/repos?forge_remote_id=")) {
+      activation++;
+      return new Response("Already activated", { status: 409 });
+    } else if (url.includes("/git/ref/heads/preview"))
+      body = { object: { sha: "a".repeat(40) } };
+    else if (url.includes("/v1/projects/")) body = { status: "ready" };
+    else if (url.endsWith("/applications"))
+      body = [{ name: "nfcs-preview", uuid: "app-ref" }];
+    else if (url.endsWith("/applications/app-ref"))
+      body = {
+        name: "nfcs-preview",
+        uuid: "app-ref",
+        description: `Brokk project ${env.projectId} preview`,
+        git_repository: env.repository,
+        git_branch: "preview",
+      };
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    let current = structuredClone(env);
+    const result = await createPreviewProvider(cfg).prepare(
+      current,
+      async (patch) => {
+        current = { ...current, ...patch };
+        return current;
+      },
+    );
+    assert.equal(result.step, "prepared");
+    assert.equal(result.dataReady, true);
+    assert.equal(activation, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
 test("recipes cannot redirect credentials or take over protected fleet names", () => {
   assert.equal(env.previewUrl, "https://nfcs-preview.example.test");
   assert.throws(() =>
