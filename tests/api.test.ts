@@ -954,6 +954,21 @@ test("Cursor jobs use private single-owner leases and scoped messages without pa
     ).status,
     400,
   );
+  await store.sql`update brokk_v2.coder_jobs set lease_until=now()-interval '1 minute' where run_id=${run.id}`;
+  assert.equal(
+    (await wr(`${run.id}/report`, { lease: job.lease })).status,
+    409,
+  );
+  assert.equal(
+    (
+      await wr(`${run.id}/report`, {
+        lease: job.lease,
+        state: "review",
+        resultUrl: "https://github.com/cold-code-labs/cursor-scope/pull/1",
+      })
+    ).status,
+    409,
+  );
   assert.equal(
     (
       await wr(`${run.id}/report`, {

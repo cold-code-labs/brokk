@@ -87,7 +87,7 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
     const id = z.uuid().parse(c.req.param("id"));
     const result = await store.sql.begin(async (db) => {
       const rows =
-        await db`select j.*,a.data,p.repository from brokk_v2.coder_jobs j join brokk_v2.artifacts a on a.id=j.run_id join brokk_v2.projects p on p.id=j.project_id where j.run_id=${id} and j.lease_hash=${hash(input.lease)} and j.lease_until>now() and j.state='working' for update of j,a`;
+        await db`select j.*,a.data,p.repository from brokk_v2.coder_jobs j join brokk_v2.artifacts a on a.id=j.run_id join brokk_v2.projects p on p.id=j.project_id where j.run_id=${id} and j.lease_hash=${hash(input.lease)} and (j.lease_until>now() or ${input.state === "failed"}) and j.state='working' for update of j,a`;
       if (!rows.length)
         throw new Problem(
           409,
@@ -102,6 +102,11 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
         ).test(input.resultUrl)
       )
         throw new Problem(400, "Entrega fora do repositório autorizado.");
+      if (input.state === "failed" && input.resultUrl)
+        throw new Problem(
+          400,
+          "Uma execução interrompida não pode apresentar entrega para integrar.",
+        );
       if (input.state === "review" && !input.resultUrl)
         throw new Problem(400, "Informe a PR para revisão.");
       const safe = (s: string) =>
