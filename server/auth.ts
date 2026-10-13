@@ -6,6 +6,9 @@ import type { User } from "../shared/domain.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./store.ts";
 import { Problem } from "./store.ts";
+
+const UA =
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
 export type Env = { Variables: { user: User } };
 export function secretOk(given: string, expected: string) {
   const a = Buffer.from(given),
@@ -38,7 +41,7 @@ export function installAuth(app: Hono<Env>, store: Store, cfg: Config) {
     if (metadata) return metadata;
     const response = await fetch(
       `${cfg.oidc.endpoint}/oidc/.well-known/openid-configuration`,
-      { signal: AbortSignal.timeout(10000) },
+      { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(10000) },
     );
     if (!response.ok) throw new Problem(503, "Identidade indisponível.");
     metadata = await response.json();
@@ -84,6 +87,7 @@ export function installAuth(app: Hono<Env>, store: Store, cfg: Config) {
         method: "POST",
         headers: {
           "content-type": "application/x-www-form-urlencoded",
+          "User-Agent": UA,
           authorization: `Basic ${Buffer.from(`${cfg.oidc.appId}:${cfg.oidc.secret}`).toString("base64")}`,
         },
         body: new URLSearchParams({
@@ -101,13 +105,18 @@ export function installAuth(app: Hono<Env>, store: Store, cfg: Config) {
       };
       const { payload } = await jwtVerify(
         tokens.id_token,
-        createRemoteJWKSet(new URL(m.jwks_uri)),
+        createRemoteJWKSet(new URL(m.jwks_uri), {
+          headers: { "User-Agent": UA },
+        }),
         { issuer: m.issuer, audience: cfg.oidc.appId },
       );
       if (payload.nonce !== saved.nonce || !payload.sub)
         throw new Problem(401, "Login inválido.");
       const profileRes = await fetch(m.userinfo_endpoint, {
-        headers: { authorization: `Bearer ${tokens.access_token}` },
+        headers: {
+          authorization: `Bearer ${tokens.access_token}`,
+          "User-Agent": UA,
+        },
         signal: AbortSignal.timeout(10000),
       });
       if (!profileRes.ok) throw new Problem(401, "Identidade inválida.");
