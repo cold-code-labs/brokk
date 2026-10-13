@@ -1,0 +1,14 @@
+CREATE SCHEMA IF NOT EXISTS brokk_v2;
+REVOKE ALL ON SCHEMA brokk_v2 FROM PUBLIC;
+CREATE TABLE IF NOT EXISTS brokk_v2.organizations (id uuid PRIMARY KEY, name text NOT NULL, external_id text UNIQUE, created_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS brokk_v2.members (organization_id uuid NOT NULL REFERENCES brokk_v2.organizations(id), email text NOT NULL, role text NOT NULL CHECK(role IN ('admin','operator','client','reader')), PRIMARY KEY(organization_id,email));
+CREATE TABLE IF NOT EXISTS brokk_v2.projects (id uuid PRIMARY KEY, organization_id uuid NOT NULL REFERENCES brokk_v2.organizations(id), name text NOT NULL, objective text NOT NULL DEFAULT '', status text NOT NULL DEFAULT 'planning', version integer NOT NULL DEFAULT 1, repository text, external_id text, updated_at timestamptz NOT NULL DEFAULT now(), UNIQUE(organization_id,external_id));
+CREATE TABLE IF NOT EXISTS brokk_v2.artifacts (id uuid PRIMARY KEY, project_id uuid NOT NULL REFERENCES brokk_v2.projects(id), kind text NOT NULL CHECK(kind IN ('scope','task','screen','token','component','review','call','feedback','run')), title text NOT NULL, status text NOT NULL, data jsonb NOT NULL, version integer NOT NULL DEFAULT 1, author text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS brokk_v2.versions (artifact_id uuid NOT NULL REFERENCES brokk_v2.artifacts(id), version integer NOT NULL, snapshot jsonb NOT NULL, actor text NOT NULL, at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(artifact_id,version));
+CREATE TABLE IF NOT EXISTS brokk_v2.events (id uuid PRIMARY KEY, project_id uuid NOT NULL REFERENCES brokk_v2.projects(id), actor text NOT NULL, action text NOT NULL, detail text NOT NULL, at timestamptz NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS brokk_v2.sessions (digest text PRIMARY KEY, identity jsonb NOT NULL, expires_at timestamptz NOT NULL);
+CREATE TABLE IF NOT EXISTS brokk_v2.tickets (digest text PRIMARY KEY, identity jsonb NOT NULL, project_id uuid NOT NULL REFERENCES brokk_v2.projects(id), expires_at timestamptz NOT NULL);
+CREATE INDEX IF NOT EXISTS artifacts_project_idx ON brokk_v2.artifacts(project_id);
+CREATE INDEX IF NOT EXISTS events_project_idx ON brokk_v2.events(project_id,at);
+CREATE UNIQUE INDEX IF NOT EXISTS run_request_idx ON brokk_v2.artifacts(project_id,(data->>'requestKey')) WHERE kind='run';
+REVOKE ALL ON ALL TABLES IN SCHEMA brokk_v2 FROM PUBLIC;

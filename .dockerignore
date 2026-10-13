@@ -1,13 +1,11 @@
-# Keep the build context lean — everything below is rebuilt inside the image.
-**/node_modules
-**/.next
-**/dist
-**/.turbo
 .git
-.github
-**/*.log
+node_modules
+apps
+packages
+dist
 .env
 .env.*
-!.env.example
-backups
-**/coverage
+work
+outputs
+playwright-report
+test-results
