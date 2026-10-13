@@ -48,8 +48,11 @@ const env: EnvironmentRecord = {
 test("preparation reuses an active Woodpecker repository instead of activating it again", async () => {
   const original = globalThis.fetch;
   let activation = 0;
-  globalThis.fetch = async (input, _options) => {
+  let applicationSettings: Record<string, unknown> = {};
+  globalThis.fetch = async (input, options) => {
     const url = String(input);
+    if (url.endsWith("/applications/app-ref") && options?.method === "PATCH")
+      applicationSettings = JSON.parse(String(options.body));
     let body: unknown = {};
     if (url.endsWith(`/repos/${env.repository}`))
       body = {
@@ -92,6 +95,8 @@ test("preparation reuses an active Woodpecker repository instead of activating i
     assert.equal(result.step, "prepared");
     assert.equal(result.dataReady, true);
     assert.equal(activation, 0);
+    assert.equal(applicationSettings.is_auto_deploy_enabled, false);
+    assert.equal(applicationSettings.include_source_commit_in_build, true);
   } finally {
     globalThis.fetch = original;
   }
