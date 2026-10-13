@@ -38,12 +38,16 @@ export function EnvironmentPanel({
     editable = canEdit(ws.organization.role);
   useEffect(() => {
     let live = true;
+    let updating = false;
     const update = async () => {
+      if (updating) return;
+      updating = true;
       try {
         const next = await request<typeof value>(
           `/projects/${ws.project.id}/environment`,
         );
         if (!live) return;
+        setValue(next);
         if (
           next?.connected &&
           next.environment &&
@@ -56,6 +60,7 @@ export function EnvironmentPanel({
             "POST",
             {},
           );
+          if (live) setValue({ ...next });
         }
         const rows =
           next?.connected && next.environment
@@ -75,6 +80,8 @@ export function EnvironmentPanel({
               ? e.message
               : "Não foi possível atualizar a preview.",
           );
+      } finally {
+        updating = false;
       }
     };
     void update();
@@ -104,9 +111,11 @@ export function EnvironmentPanel({
         <span className="connection">
           {env
             ? labels[env.state]
-            : value?.connected
-              ? "Pronto para preparar"
-              : "Aguardando conexão"}
+            : value === null
+              ? "Carregando ambiente"
+              : value.connected
+                ? "Pronto para preparar"
+                : "Aguardando conexão"}
         </span>
       </div>
       <p>

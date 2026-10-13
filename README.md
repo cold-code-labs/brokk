@@ -36,4 +36,4 @@ Devin and Daily credentials stay exclusively on the server. Missing provider cre
 
 The Var catalog integration uses `/api/integrations/var/handoff` with a server-only bearer key. It accepts authorized organization/project context and returns a short-lived single-use workspace ticket. It does not accept repository settings or administrator grants.
 
-Legacy code is preserved by Git history and the local `archive/mimir-recovered-20261013` recovery reference. Preview lanes and Coder integration are deferred.
+Legacy code is preserved by Git history and the local `archive/mimir-recovered-20261013` recovery reference. Preview preparation and checked publication are described in [the preview guide](docs/v2/PREVIEW.md). Coder and production promotion remain separate.

@@ -3,7 +3,12 @@ import type { EnvironmentRecord } from "../shared/environment.ts";
 import type { Config } from "./config.ts";
 import { Problem } from "./store.ts";
 
-type Status = { context: string; state: string; created_at: string };
+type Pipeline = {
+  number: number;
+  commit: string;
+  event: string;
+  status: string;
+};
 type Repository = {
   full_name: string;
   archived: boolean;
@@ -25,6 +30,8 @@ type DataProject = {
   internal?: { jwtSecret?: string };
 };
 type Deployment = { deployment_uuid: string; status: string; commit: string };
+const isDataReady = (data: DataProject) =>
+  data.status === "ready" || data.status === "live";
 type RawPullRequest = {
   number: number;
   html_url: string;
@@ -215,13 +222,24 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
       optional,
     );
   async function ci(repository: string, sha: string) {
-    const result = await github<{ statuses: Status[] }>(
-      `/repos/${repository}/commits/${sha}/status`,
+    const repo = await request<{ id: number; active: boolean }>(
+      c.woodpeckerUrl,
+      c.woodpeckerToken,
+      `/repos/lookup/${repository}`,
     );
-    const checks = (result.statuses || [])
-      .filter((s) => s.context === "ci/woodpecker/push/woodpecker")
-      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-    return checks[0]?.state || "pending";
+    if (!repo.active || !Number.isInteger(repo.id)) return "pending";
+    const rows = await request<Pipeline[]>(
+      c.woodpeckerUrl,
+      c.woodpeckerToken,
+      `/repos/${repo.id}/pipelines?per_page=100`,
+    );
+    const latest = rows
+      .filter((p) => p.commit === sha && ["push", "manual"].includes(p.event))
+      .sort((a, b) => b.number - a.number)[0];
+    if (latest?.status === "success") return "success";
+    if (["failure", "error", "killed"].includes(latest?.status || ""))
+      return "failure";
+    return "pending";
   }
   const appMarker = (env: EnvironmentRecord) =>
     `Brokk project ${env.projectId} preview`;
@@ -374,7 +392,7 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
       }
       env = await save({
         resources: { ...env.resources, dataProject },
-        dataReady: data.status === "ready",
+        dataReady: isDataReady(data),
       });
       let app = await application(env);
       if (!app) {
@@ -442,7 +460,7 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
           is_preview: false,
         },
       ];
-      if (env.profile === "application" && data.status === "ready") {
+      if (env.profile === "application" && isDataReady(data)) {
         const base = String(data.services?.auth?.url || "")
           .replace(/\/auth\/?$/, "")
           .replace(/^http:/, "https:");
@@ -510,7 +528,7 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
       const commit = String(branch.object.sha),
         ciState = await ci(env.repository, commit);
       const result: Partial<EnvironmentRecord> = {
-        dataReady: data.status === "ready",
+        dataReady: isDataReady(data),
         ciState,
         commit,
       };
@@ -529,7 +547,7 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
         if (
           deployment.status === "finished" &&
           deployment.commit === commit &&
-          data.status === "ready"
+          isDataReady(data)
         ) {
           try {
             const response = await fetch(
@@ -576,7 +594,7 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
           "O Woodpecker precisa aprovar o commit atual da preview.",
         );
       const data = await hauldr(`/v1/projects/${env.resources.dataProject}`);
-      if (data.status !== "ready")
+      if (!isDataReady(data))
         throw new Problem(409, "O backend de dev ainda não está pronto.");
       const rows = await coolify<{ deployments: Deployment[] }>(
         `/deployments/applications/${app.uuid}?take=10`,
