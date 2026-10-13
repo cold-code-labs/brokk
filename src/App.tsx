@@ -1570,8 +1570,11 @@ function Development({
     } | null>(null),
     [providerError, setProviderError] = useState(""),
     requestKey = useRef(crypto.randomUUID());
+  const selectedRun = runs.find((r) => r.id === selected);
   useEffect(() => {
-    if (!selected) return;
+    setRemote(null);
+    setProviderError("");
+    if (!selectedRun?.data.sessionId) return;
     let live = true;
     const update = () =>
       request<typeof remote>(
@@ -1592,7 +1595,7 @@ function Development({
       live = false;
       clearInterval(timer);
     };
-  }, [selected, ws.project.id]);
+  }, [selected, ws.project.id, selectedRun?.data.sessionId]);
   return (
     <>
       <EnvironmentPanel ws={ws} perform={perform} busy={busy} />
@@ -1713,6 +1716,40 @@ function Development({
               {providerError}
             </p>
           )}
+          {selectedRun?.status === "uncertain" && (
+            <>
+              <p>
+                A criação não foi confirmada. Verifique a sessão antes de
+                iniciar outra execução.
+              </p>
+              {ws.organization.role === "admin" && (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    perform(
+                      () =>
+                        request(
+                          `/projects/${ws.project.id}/development/${selected}/reconcile`,
+                          "POST",
+                          {},
+                        ),
+                      "Execução reconciliada.",
+                    )
+                  }
+                >
+                  Reconciliar sessão no Devin
+                </button>
+              )}
+            </>
+          )}
+          {selectedRun?.status === "failed" && (
+            <p>
+              A execução não foi iniciada: {selectedRun.data.providerStatus}.
+              Prepare uma nova tentativa após corrigir a conexão.
+            </p>
+          )}
           {remote?.statusDetail && <p>{remote.statusDetail}</p>}
           <div className="messages">
             {remote?.messages?.length ? (
@@ -1731,7 +1768,7 @@ function Development({
               <p>A sessão ainda não tem mensagens disponíveis.</p>
             )}
           </div>
-          {editable && (
+          {editable && selectedRun?.data.sessionId && (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
