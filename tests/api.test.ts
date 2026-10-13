@@ -423,3 +423,178 @@ test("production refuses development identity and incomplete auth config", () =>
   });
   assert.equal(prod.devAuth, false);
 });
+
+test("design system import is atomic, idempotent, tenant-scoped and read-only for clients", async () => {
+  const { nfcsManifest } = await import("../shared/examples/nfcs.ts");
+  const nfcs = (await (
+    await call("/projects", "POST", {
+      organizationId: org.id,
+      name: "NFCS · Design System",
+      objective: "Validate the NFCS contract",
+    })
+  ).json()) as Project;
+  const path = `/projects/${nfcs.id}/design`;
+  assert.equal((await call(path, "GET", undefined, stranger)).status, 404);
+  assert.equal(
+    (await call(`${path}/import`, "POST", nfcsManifest, client)).status,
+    403,
+  );
+  assert.equal(
+    (await call(`${path}/import`, "POST", nfcsManifest, reader)).status,
+    403,
+  );
+  const imported = await call(`${path}/import`, "POST", nfcsManifest, operator);
+  assert.equal(imported.status, 201, await imported.clone().text());
+  assert.equal((await imported.json()).imported, 108);
+  const repeated = await call(`${path}/import`, "POST", nfcsManifest, operator);
+  assert.equal(repeated.status, 200);
+  assert.equal((await repeated.json()).imported, 0);
+  const contract = await (await call(path, "GET", undefined, reader)).json();
+  assert.equal(contract.validation.valid, true);
+  assert.equal(contract.validation.counts.tokens, 86);
+  assert.equal(contract.components.length, 16);
+  assert.equal(
+    (await call(`${path}/export?format=tokens`, "GET", undefined, stranger))
+      .status,
+    404,
+  );
+  const tokens = await call(`${path}/export?format=tokens`);
+  assert.equal(tokens.status, 200);
+  assert.match(
+    tokens.headers.get("Content-Type") || "",
+    /application\/design-tokens\+json/,
+  );
+  assert.equal(
+    (await tokens.json()).color.surface.highlight.$value,
+    "{color.highlight.yellow}",
+  );
+  const ws = await (await call(`/projects/${nfcs.id}`)).json();
+  const yellow = ws.records.find(
+    (x: Artifact) => x.data.design?.key === "color.highlight.yellow",
+  ) as Artifact;
+  const grifo = ws.records.find(
+    (x: Artifact) => x.data.design?.key === "text.grifo",
+  ) as Artifact;
+  const broken = structuredClone(yellow.data.design);
+  if (broken?.kind === "token") broken.value = "{font.family.body}";
+  const failed = await call(
+    `/projects/${nfcs.id}/records/${yellow.id}`,
+    "PATCH",
+    {
+      version: yellow.version,
+      title: yellow.title,
+      status: "draft",
+      data: { design: broken },
+    },
+  );
+  assert.equal(failed.status, 400);
+  const unchanged = await (await call(path)).json();
+  assert.equal(unchanged.checksum, contract.checksum);
+  const review = (await (
+    await call(`/projects/${nfcs.id}/records`, "POST", {
+      kind: "review",
+      title: "Revisão do grifo",
+      status: "review",
+      data: { targetId: grifo.id, targetVersion: grifo.version },
+    })
+  ).json()) as Artifact;
+  assert.equal(
+    (
+      await call(
+        `/projects/${nfcs.id}/reviews/${review.id}/decision`,
+        "POST",
+        {
+          version: review.version,
+          decision: "approved",
+          feedback: "Approved design",
+        },
+        client,
+      )
+    ).status,
+    200,
+  );
+  const next = structuredClone(yellow.data.design);
+  if (next?.kind === "token") next.value = "#efc72e";
+  const change = await call(
+    `/projects/${nfcs.id}/records/${yellow.id}`,
+    "PATCH",
+    {
+      version: yellow.version,
+      title: yellow.title,
+      status: "draft",
+      data: {
+        body: yellow.data.body,
+        acceptance: yellow.data.acceptance,
+        design: next,
+      },
+    },
+    operator,
+  );
+  assert.equal(change.status, 200, await change.clone().text());
+  const updated = await (await call(path)).json();
+  assert.equal(updated.resolvedTokens["color.surface.highlight"], "#efc72e");
+  assert.notEqual(updated.checksum, contract.checksum);
+  const current = await (await call(`/projects/${nfcs.id}`)).json();
+  assert.equal(
+    current.records.find((x: Artifact) => x.id === grifo.id).version,
+    grifo.version + 1,
+  );
+  assert.equal(
+    current.records.find((x: Artifact) => x.id === grifo.id).status,
+    "draft",
+  );
+  assert.equal(
+    current.records.find((x: Artifact) => x.id === review.id).status,
+    "changes",
+  );
+  const history = await (
+    await call(`/projects/${nfcs.id}/records/${grifo.id}/versions`)
+  ).json();
+  assert.equal(history.length, 2);
+  assert.ok(history[0].snapshot.data.design);
+  const snapshot = await call(`${path}/export?format=contract`);
+  assert.equal((await snapshot.json()).checksum, updated.checksum);
+  const conflict = await call(
+    `/projects/${nfcs.id}/records/${yellow.id}`,
+    "PATCH",
+    {
+      version: yellow.version,
+      title: yellow.title,
+      status: "draft",
+      data: { design: next },
+    },
+  );
+  assert.equal(conflict.status, 409);
+  const evil = structuredClone(nfcsManifest);
+  evil.items[0].design.key = "color.some.unknown";
+  const before = current.records.length;
+  assert.equal((await call(`${path}/import`, "POST", evil)).status, 409);
+  assert.equal(
+    (await (await call(`/projects/${nfcs.id}`)).json()).records.length,
+    before,
+  );
+  const other = await (
+    await call("/projects", "POST", {
+      organizationId: org.id,
+      name: "Empty reference",
+      objective: "Atomic failure",
+    })
+  ).json();
+  const incomplete = structuredClone(nfcsManifest);
+  incomplete.items = incomplete.items.filter(
+    (x) => x.design.key !== "color.highlight.yellow",
+  );
+  assert.equal(
+    (await call(`/projects/${other.id}/design/import`, "POST", incomplete))
+      .status,
+    400,
+  );
+  assert.equal(
+    (await (await call(`/projects/${other.id}`)).json()).records.length,
+    0,
+  );
+  assert.equal(
+    (await call(`/projects/${other.id}/design/export?format=contract`)).status,
+    409,
+  );
+});

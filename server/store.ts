@@ -1,6 +1,13 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import postgres from "postgres";
+import {
+  canonicalJson,
+  cssValue,
+  type DesignManifest,
+  designGraph,
+  designSchema,
+} from "../shared/design.ts";
 import type {
   Artifact,
   Event,
@@ -95,6 +102,64 @@ export function createStore(url: string) {
     await snapshot(db, row, user);
     await event(db, projectId, user, `${kind}.created`, title);
     return row;
+  }
+  async function designRecords(db: Db, projectId: string) {
+    const rows =
+      await db`select * from brokk_v2.artifacts where project_id=${projectId} order by id`;
+    return rows.map(artifactOf);
+  }
+  function validateDesign(records: Artifact[]) {
+    const problem = designGraph(records).issues.find(
+      (x) => x.severity === "error",
+    );
+    if (problem) throw new Problem(400, `${problem.key}: ${problem.message}`);
+  }
+  function normalizeDesign(data: RecordData) {
+    if (data.design?.kind === "token")
+      return {
+        ...data,
+        value: cssValue(data.design.type, data.design.value),
+        category: data.design.type,
+      };
+    return data;
+  }
+  async function checkDesign(
+    db: Db,
+    projectId: string,
+    kind: Kind,
+    title: string,
+    data: RecordData,
+    user: User,
+    item?: string,
+  ) {
+    if (data.design && data.design.kind !== kind)
+      throw new Problem(
+        400,
+        "O tipo da especificação deve corresponder ao item.",
+      );
+    if (!["token", "component", "screen"].includes(kind)) return;
+    await db`select id from brokk_v2.projects where id=${projectId} for update`;
+    const records = await designRecords(db, projectId);
+    const old = records.find((x) => x.id === item);
+    if (old?.data.design && !data.design)
+      throw new Problem(
+        400,
+        "Preserve a especificação estruturada deste item.",
+      );
+    validateDesign([
+      ...records.filter((x) => x.id !== item),
+      {
+        id: item || randomUUID(),
+        projectId,
+        kind,
+        title,
+        status: "draft",
+        version: 1,
+        author: user.email,
+        updatedAt: new Date().toISOString(),
+        data,
+      },
+    ]);
   }
   return {
     sql,
@@ -256,9 +321,11 @@ export function createStore(url: string) {
         const a = await access(db, id, user, kind !== "feedback");
         if (kind === "feedback" && a.organization.role === "reader")
           throw new Problem(403, "Acesso somente leitura.");
+        data = normalizeDesign(data);
+        await checkDesign(db, id, kind, title, data, user);
         if (kind === "review") {
           const target =
-            await db`select version from brokk_v2.artifacts where id=${data.targetId} and project_id=${id} and kind in ('scope','task','screen','component')`;
+            await db`select version from brokk_v2.artifacts where id=${data.targetId} and project_id=${id} and kind in ('scope','task','screen','component','token')`;
           if (
             !target.length ||
             Number(target[0].version) !== data.targetVersion
@@ -295,20 +362,134 @@ export function createStore(url: string) {
     ) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
+        await db`select id from brokk_v2.projects where id=${id} for update`;
         const prev =
           await db`select * from brokk_v2.artifacts where project_id=${id} and id=${item} and version=${version} for update`;
         if (!prev.length)
           throw new Problem(409, "O item mudou. Atualize antes de salvar.");
         if (["review", "run", "call"].includes(prev[0].kind))
           throw new Problem(403, "Use a ação específica deste item.");
+        data = normalizeDesign(data);
+        await checkDesign(
+          db,
+          id,
+          prev[0].kind as Kind,
+          title,
+          data,
+          user,
+          item,
+        );
+        if (data.screenId) {
+          const linked =
+            await db`select id from brokk_v2.artifacts where project_id=${id} and id=${data.screenId} and kind='screen'`;
+          if (!linked.length)
+            throw new Problem(400, "Tela não encontrada neste projeto.");
+        }
+        const priorRecords = await designRecords(db, id);
+        const oldSpec = artifactOf(prev[0]).data.design;
+        const graph = designGraph(priorRecords);
+        const affected = new Set<string>();
+        const pending = oldSpec ? [oldSpec.key] : [];
+        while (pending.length) {
+          const key = pending.pop() as string;
+          for (const usage of graph.usages[key] || [])
+            if (!affected.has(usage.key)) {
+              affected.add(usage.key);
+              pending.push(usage.key);
+            }
+        }
         const nextStatus = prev[0].status === "approved" ? "draft" : status;
         const rows =
           await db`update brokk_v2.artifacts set title=${title},status=${nextStatus},data=${db.json(data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
         const row = artifactOf(rows[0]);
         await snapshot(db, row, user);
-        await db`update brokk_v2.artifacts set status='changes',version=version+1,updated_at=now() where project_id=${id} and kind='review' and data->>'targetId'=${item} and status='approved'`;
+        const invalidatedIds = [item];
+        for (const dependent of priorRecords.filter(
+          (x) => x.data.design && affected.has(x.data.design.key),
+        )) {
+          const changed =
+            await db`update brokk_v2.artifacts set status=case when status='approved' then 'draft' else status end,version=version+1,updated_at=now() where id=${dependent.id} returning *`;
+          await snapshot(db, artifactOf(changed[0]), user);
+          await event(
+            db,
+            id,
+            user,
+            "design.dependency.changed",
+            `${dependent.data.design?.key}: depende de ${oldSpec?.key}`,
+          );
+          invalidatedIds.push(dependent.id);
+        }
+        const changedReviews =
+          await db`update brokk_v2.artifacts set status='changes',version=version+1,updated_at=now() where project_id=${id} and kind='review' and data->>'targetId'=any(${invalidatedIds}) and status in ('approved','review') returning *`;
+        for (const review of changedReviews)
+          await snapshot(db, artifactOf(review), user);
         await event(db, id, user, `${row.kind}.updated`, title);
         return row;
+      });
+    },
+    async importDesign(id: string, manifest: DesignManifest, user: User) {
+      return sql.begin(async (db) => {
+        await access(db, id, user, true);
+        await db`select id from brokk_v2.projects where id=${id} for update`;
+        const records = await designRecords(db, id);
+        const existing = new Map(
+          records
+            .filter((x) => x.data.design)
+            .map((x) => [x.data.design?.key, x]),
+        );
+        const matches = manifest.items.filter((x) =>
+          existing.has(x.design.key),
+        );
+        if (matches.length) {
+          const identical =
+            matches.length === manifest.items.length &&
+            manifest.items.every((x) => {
+              const old = existing.get(x.design.key);
+              return (
+                old?.title === x.title &&
+                old.data.body === x.body &&
+                old.data.acceptance === x.acceptance &&
+                canonicalJson(designSchema.parse(old.data.design)) ===
+                  canonicalJson(x.design)
+              );
+            });
+          if (!identical)
+            throw new Problem(
+              409,
+              "A importação conflita com chaves existentes. Edite os itens ou importe em um projeto vazio.",
+            );
+          return { imported: 0, existing: matches.length };
+        }
+        const pending = manifest.items.map(
+          (x) =>
+            ({
+              id: randomUUID(),
+              projectId: id,
+              kind: x.design.kind,
+              title: x.title,
+              status: "draft",
+              version: 1,
+              author: user.email,
+              updatedAt: new Date().toISOString(),
+              data: normalizeDesign({
+                ...emptyData(),
+                body: x.body,
+                acceptance: x.acceptance,
+                design: x.design,
+              }),
+            }) satisfies Artifact,
+        );
+        validateDesign([...records, ...pending]);
+        for (const x of pending)
+          await insert(db, id, x.kind, x.title, "draft", x.data, user);
+        await event(
+          db,
+          id,
+          user,
+          "design.imported",
+          `${manifest.name}: ${pending.length} especificações estruturadas`,
+        );
+        return { imported: pending.length, existing: 0 };
       });
     },
     async review(
@@ -323,6 +504,7 @@ export function createStore(url: string) {
         const a = await access(db, id, user);
         if (a.organization.role === "reader")
           throw new Problem(403, "Acesso somente leitura.");
+        await db`select id from brokk_v2.projects where id=${id} for update`;
         const rows =
           await db`select * from brokk_v2.artifacts where id=${item} and project_id=${id} and kind='review' and version=${version} for update`;
         if (!rows.length)

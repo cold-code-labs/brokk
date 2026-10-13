@@ -4,11 +4,13 @@ import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+import { designSchema, manifestSchema } from "../shared/design.ts";
 import type { Kind } from "../shared/domain.ts";
 import { canEdit, emptyData, kinds, roles } from "../shared/domain.ts";
 import type { Env } from "./auth.ts";
 import { installAuth, secretOk } from "./auth.ts";
 import type { Config } from "./config.ts";
+import { designContract } from "./design.ts";
 import { contextFor, daily, devin, sessionId } from "./providers.ts";
 import type { Store } from "./store.ts";
 import { Problem } from "./store.ts";
@@ -19,6 +21,7 @@ const text = z.string().trim().max(12000),
 const dataSchema = z
   .object({
     body: text.default(""),
+    design: designSchema.nullable().default(null),
     acceptance: text.default(""),
     priority: z.enum(["low", "normal", "high"]).default("normal"),
     screenId: z.union([uuid, z.literal("")]).default(""),
@@ -53,7 +56,7 @@ const states: Record<string, string[]> = {
   scope: ["draft"],
   task: ["backlog", "ready", "building", "review", "done"],
   screen: ["draft", "review"],
-  token: ["draft"],
+  token: ["draft", "review"],
   component: ["draft", "review"],
   review: ["review"],
   call: ["scheduled"],
@@ -237,6 +240,64 @@ export function buildApp(store: Store, cfg: Config) {
       c.get("user"),
     );
     return c.json({ ok: true });
+  });
+  app.get("/api/projects/:id/design", async (c) =>
+    c.json(
+      designContract(
+        await store.workspace(uuid.parse(c.req.param("id")), c.get("user")),
+      ),
+    ),
+  );
+  app.post("/api/projects/:id/design/import", async (c) => {
+    const manifest = manifestSchema.parse(await c.req.json());
+    const result = await store.importDesign(
+      uuid.parse(c.req.param("id")),
+      manifest,
+      c.get("user"),
+    );
+    return c.json(result, result.imported ? 201 : 200);
+  });
+  app.get("/api/projects/:id/design/export", async (c) => {
+    const contract = designContract(
+      await store.workspace(uuid.parse(c.req.param("id")), c.get("user")),
+    );
+    if (!contract.validation.valid)
+      throw new Problem(
+        409,
+        "Corrija a validação do design system antes de exportar.",
+      );
+    const format = z
+      .enum(["contract", "tokens", "css", "manifest"])
+      .parse(c.req.query("format") || "contract");
+    const suffix =
+      format === "css" ? "css" : format === "tokens" ? "tokens.json" : "json";
+    c.header(
+      "Content-Disposition",
+      `attachment; filename="brokk-design-${format}.${suffix}"`,
+    );
+    c.header("Cache-Control", "private, no-store");
+    if (format === "css")
+      return c.body(contract.css, 200, {
+        "Content-Type": "text/css; charset=utf-8",
+      });
+    return c.body(
+      JSON.stringify(
+        format === "tokens"
+          ? contract.tokens
+          : format === "manifest"
+            ? contract.manifest
+            : contract,
+        null,
+        2,
+      ),
+      200,
+      {
+        "Content-Type":
+          format === "tokens"
+            ? "application/design-tokens+json; charset=utf-8"
+            : "application/json; charset=utf-8",
+      },
+    );
   });
   app.post("/api/projects/:id/records", async (c) => {
     const input = recordSchema.parse(await c.req.json());

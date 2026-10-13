@@ -11,3 +11,5 @@
 - Checks: pnpm typecheck, pnpm lint, pnpm test, pnpm build.
 - Release: PR, green Woodpecker CI, merge, official Coolify deployment and production verification. Never GitHub Actions.
 - Legacy code is preserved in Git history; reconstruction plan is docs/v2/PLANO.md.
+
+- Design system changes must preserve typed aliases, project-scoped component/screen links, dependency versions and review invalidation. Read docs/v2/DESIGN-SYSTEM.md. Preview and exports use the same shared contract; never execute operator-supplied HTML, CSS or JS.
