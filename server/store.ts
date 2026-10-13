@@ -420,6 +420,11 @@ export function createStore(url: string) {
           throw new Problem(409, "Prepare a receita do ambiente.");
         const r = environmentOf(rows[0]);
         if (
+          r.state === "ready" ||
+          (r.state === "waiting" && r.step === "prepared" && r.dataReady)
+        )
+          return { created: false, environment: r };
+        if (
           r.state === "preparing" &&
           rows[0].lease_until &&
           new Date(rows[0].lease_until).getTime() > Date.now()
