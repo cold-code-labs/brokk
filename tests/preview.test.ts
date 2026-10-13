@@ -122,6 +122,7 @@ test("recipes cannot redirect credentials or take over protected fleet names", (
 test("red CI and changed heads block release; readiness requires the deployed commit", async () => {
   const original = globalThis.fetch;
   let mutations = 0;
+  let pipelineStatus = "failure";
   const current = "a".repeat(40);
   globalThis.fetch = async (input, options) => {
     if (options?.method && options.method !== "GET") mutations++;
@@ -141,7 +142,11 @@ test("red CI and changed heads block release; readiness requires the deployed co
       body = { object: { sha: current } };
     else if (url.includes("/repos/lookup/")) body = { id: 37, active: true };
     else if (url.includes("/pipelines?"))
-      body = [{ number: 2, event: "push", commit: current, status: "failure" }];
+      body = [
+        { number: 1, event: "push", commit: current, status: "success" },
+        { number: 2, event: "push", commit: current, status: pipelineStatus },
+        { number: 3, event: "push", commit: "b".repeat(40), status: "success" },
+      ];
     else if (url.includes("/v1/projects/")) body = { status: "live" };
     else if (url.includes("/deployments/deploy-ref"))
       body = { status: "finished", commit: "b".repeat(40) };
@@ -165,6 +170,11 @@ test("red CI and changed heads block release; readiness requires the deployed co
     const status = await p.inspect(env);
     assert.notEqual(status.state, "ready");
     assert.equal(status.commit, current);
+    assert.equal(status.ciState, "failure");
+    pipelineStatus = "running";
+    assert.equal((await p.inspect(env)).ciState, "pending");
+    pipelineStatus = "success";
+    assert.equal((await p.inspect(env)).ciState, "success");
     assert.equal(mutations, 0);
   } finally {
     globalThis.fetch = original;
