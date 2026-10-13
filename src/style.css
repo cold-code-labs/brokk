@@ -1303,7 +1303,7 @@ dialog::backdrop {
   display: flex;
   gap: 9px;
   align-items: center;
-  background: white;
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 12px;
