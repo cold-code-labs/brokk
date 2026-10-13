@@ -37,3 +37,5 @@ Use the existing preview routing domain. A custom project alias needs its own in
 The dedicated API lives under /api/projects/:id/environment: GET for public status, PUT for an administrator recipe, POST /prepare, /refresh, /publish, /integrate and GET /deliveries. Integration takes the confirmed run ID and exact head SHA. No endpoint accepts arbitrary provider URLs, environment variables, commands or SQL.
 
 Checks cover tenant/role boundaries, concurrent preparation, hidden capabilities, collisions, red CI, changed PR heads and readiness against the actual deployed commit.
+
+O provisionamento desliga o deploy automático do Coolify e habilita SOURCE_COMMIT na build. Assim, pushes passam pelo Woodpecker e a publicação ocorre pela ação validada do Brokk. Aplicações existentes devem manter esses dois ajustes.

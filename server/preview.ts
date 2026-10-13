@@ -436,6 +436,8 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
       });
       await coolify(`/applications/${app.uuid}`, "PATCH", {
         description: appMarker(env),
+        is_auto_deploy_enabled: false,
+        include_source_commit_in_build: true,
         health_check_enabled: true,
         health_check_path: env.profile === "static" ? "/health" : "/api/health",
         health_check_port: "80",
