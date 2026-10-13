@@ -80,6 +80,16 @@ const clean = (text: string) =>
   text
     .replace(/(?:apk_|cog_)[A-Za-z0-9_-]+/g, "[redigido]")
     .replace(/Bearer\s+[^\s"']+/gi, "[redigido]");
+export class DevinRejection extends Problem {
+  upstreamStatus: number;
+  constructor(
+    upstreamStatus: number,
+    reason = "A administração precisa verificar a conexão ou os parâmetros.",
+  ) {
+    super(422, `O Devin recusou a ação (HTTP ${upstreamStatus}). ${reason}`);
+    this.upstreamStatus = upstreamStatus;
+  }
+}
 export async function devin(
   cfg: Config,
   path: string,
@@ -101,6 +111,24 @@ export async function devin(
         signal: AbortSignal.timeout(20000),
       },
     );
+    if (
+      !response.ok &&
+      [400, 401, 402, 403, 404, 422, 429].includes(response.status)
+    ) {
+      let diagnostic = "";
+      try {
+        const data = await response.json();
+        diagnostic = String(
+          data.detail || data.error_code || data.message || "",
+        ).toLowerCase();
+      } catch {}
+      const reason = /credit|quota|payment|billing/.test(diagnostic)
+        ? "Verifique o saldo e a cota de execução no Devin."
+        : /repo/.test(diagnostic)
+          ? "Verifique a conexão deste repositório no Devin."
+          : "A administração precisa verificar a conexão ou os parâmetros.";
+      throw new DevinRejection(response.status, reason);
+    }
     if (!response.ok)
       throw new Problem(
         response.status === 429 ? 429 : 502,

@@ -18,7 +18,13 @@ import {
   type PreviewProvider,
   previewConfigured,
 } from "./preview.ts";
-import { contextFor, daily, devin, sessionId } from "./providers.ts";
+import {
+  contextFor,
+  DevinRejection,
+  daily,
+  devin,
+  sessionId,
+} from "./providers.ts";
 import type { Store } from "./store.ts";
 import { hash, Problem } from "./store.ts";
 
@@ -611,11 +617,57 @@ export function buildApp(
         id,
         reserved.run.id,
         c.get("user"),
-        "uncertain",
-        { providerStatus: "creation_unconfirmed" },
+        e instanceof DevinRejection ? "failed" : "uncertain",
+        {
+          providerStatus:
+            e instanceof DevinRejection
+              ? `rejected_http_${e.upstreamStatus}`
+              : "creation_unconfirmed",
+        },
       );
       throw e;
     }
+  });
+  app.post("/api/projects/:id/development/:item/reconcile", async (c) => {
+    const id = uuid.parse(c.req.param("id")),
+      ws = await store.workspace(id, c.get("user"));
+    if (ws.organization.role !== "admin")
+      throw new Problem(
+        403,
+        "A administração reconcilia sessões não confirmadas.",
+      );
+    const run = ws.records.find(
+      (r) => r.id === c.req.param("item") && r.kind === "run",
+    );
+    if (run?.status !== "uncertain" || run.data.sessionId)
+      throw new Problem(409, "Esta execução não precisa de reconciliação.");
+    const result = await devin(cfg, "?first=100");
+    const rows = z
+      .array(z.object({ session_id: z.string(), tags: z.array(z.string()) }))
+      .parse(result.items);
+    const matches = rows.filter((r) => r.tags.includes(`brokk:${run.id}`));
+    if (matches.length > 1)
+      throw new Problem(
+        409,
+        "Há mais de uma sessão vinculada. Verifique o provedor.",
+      );
+    if (matches.length === 1)
+      return c.json(
+        await store.providerUpdate(id, run.id, c.get("user"), "active", {
+          sessionId: sessionId(matches[0].session_id),
+          providerStatus: "reconciled",
+        }),
+      );
+    if (result.has_next_page !== false || result.total !== rows.length)
+      throw new Problem(
+        409,
+        "A consulta não confirmou a ausência da sessão. Nenhuma nova execução foi liberada.",
+      );
+    return c.json(
+      await store.providerUpdate(id, run.id, c.get("user"), "failed", {
+        providerStatus: "reconciled_absent",
+      }),
+    );
   });
   app.get("/api/projects/:id/development/:item", async (c) => {
     const id = uuid.parse(c.req.param("id")),

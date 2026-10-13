@@ -762,3 +762,78 @@ test("preview preparation is scoped, idempotent and hides provider capabilities"
     409,
   );
 });
+
+test("Devin reconciliation is administrative, never launches and preserves incomplete results", async () => {
+  const task = await record("task", "Reconcile launch", {}, "ready");
+  const user: User = {
+    id: "local:operator",
+    email: "operator@local.test",
+    name: "Operator",
+    admin: false,
+  };
+  const run = (
+    await store.reserveRun(project.id, task.id, randomUUID(), user, 20)
+  ).run;
+  await store.providerUpdate(project.id, run.id, user, "uncertain", {
+    providerStatus: "creation_unconfirmed",
+  });
+  const dc = readConfig({
+    NODE_ENV: "test",
+    BROKK_DATABASE_URL: url,
+    BROKK_DEV_AUTH: "1",
+    DEVIN_API_KEY: "test-key",
+    DEVIN_ORG_ID: "org-test",
+  });
+  const da = buildApp(store, dc),
+    original = globalThis.fetch;
+  const path = `/api/projects/${project.id}/development/${run.id}/reconcile`;
+  const request = (cookie: string) =>
+    da.request(path, {
+      method: "POST",
+      headers: {
+        cookie,
+        origin: dc.origin,
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+  let complete = false,
+    calls = 0;
+  globalThis.fetch = async (_input, options) => {
+    calls++;
+    assert.equal(options?.method, "GET");
+    return new Response(
+      JSON.stringify({ items: [], total: 0, has_next_page: !complete }),
+      { headers: { "content-type": "application/json" } },
+    );
+  };
+  try {
+    assert.equal((await request(operator)).status, 403);
+    assert.equal((await request(client)).status, 403);
+    assert.equal((await request(stranger)).status, 404);
+    assert.equal(calls, 0);
+    assert.equal((await request(admin)).status, 409);
+    assert.equal(
+      (await store.workspace(project.id, user)).records.find(
+        (r) => r.id === run.id,
+      )?.status,
+      "uncertain",
+    );
+    complete = true;
+    const result = await request(admin);
+    assert.equal(result.status, 200);
+    assert.equal(
+      (await result.json()).data.providerStatus,
+      "reconciled_absent",
+    );
+    assert.equal((await request(admin)).status, 409);
+    assert.equal(calls, 2);
+    assert.equal(
+      (await store.reserveRun(project.id, task.id, randomUUID(), user, 20))
+        .created,
+      true,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
