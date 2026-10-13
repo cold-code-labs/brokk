@@ -1708,7 +1708,9 @@ function Development({
           <div className="section-head">
             <h2>Acompanhar e direcionar</h2>
             <span className="connection on">
-              {remote?.status || "Atualizando"}
+              {remote?.status ||
+                statusLabels[selectedRun?.status || ""] ||
+                "Atualizando"}
             </span>
           </div>
           {providerError && (
@@ -1746,8 +1748,9 @@ function Development({
           )}
           {selectedRun?.status === "failed" && (
             <p>
-              A execução não foi iniciada: {selectedRun.data.providerStatus}.
-              Prepare uma nova tentativa após corrigir a conexão.
+              {selectedRun.data.providerStatus === "reconciled_absent"
+                ? "A sessão não foi localizada no Devin. A tentativa foi reconciliada."
+                : "O Devin recusou a criação da sessão. Verifique saldo, cota e acesso do projeto antes de preparar uma nova tentativa."}
             </p>
           )}
           {remote?.statusDetail && <p>{remote.statusDetail}</p>}
