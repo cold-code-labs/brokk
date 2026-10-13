@@ -243,8 +243,14 @@ test("export to manifest and reimport preserve the resolved design graph and com
     canonicalJson(designGraph(ws.records).resolved),
   );
   assert.equal(
-    canonicalJson([...graph.components.values()]),
-    canonicalJson([...designGraph(ws.records).components.values()]),
+    canonicalJson(
+      [...graph.components.values()].sort((a, b) => a.key.localeCompare(b.key)),
+    ),
+    canonicalJson(
+      [...designGraph(ws.records).components.values()].sort((a, b) =>
+        a.key.localeCompare(b.key),
+      ),
+    ),
   );
 });
 test("the prepared coder context contains the complete versioned contract and valid JSON, including late tokens", () => {
@@ -289,4 +295,15 @@ test("object defaults remain typed and duplicate manifest keys are rejected befo
   if (component.data.design?.kind === "component")
     component.data.design.variants.push(component.data.design.variants[0]);
   assert.ok(errors(ws).some((x) => x.code === "duplicate-option"));
+});
+
+test("contract identity is stable when database record order changes", () => {
+  const ws = fixture();
+  const before = canonicalJson(buildDesignContract(ws));
+  ws.records.reverse();
+  assert.equal(canonicalJson(buildDesignContract(ws)), before);
+  const token = item(ws, "color.highlight.yellow").data.design;
+  assert.ok(token?.kind === "token");
+  token.value = "#eac72f";
+  assert.notEqual(canonicalJson(buildDesignContract(ws)), before);
 });

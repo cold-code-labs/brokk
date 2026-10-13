@@ -914,7 +914,11 @@ function cssTokenValue(type: string, value: TokenValue): string {
   return cssValue(type, value);
 }
 export function buildDesignContract(workspace: Workspace) {
-  const graph = designGraph(workspace.records);
+  const graph = designGraph(
+    [...workspace.records].sort((a, b) =>
+      (a.data.design?.key || "").localeCompare(b.data.design?.key || ""),
+    ),
+  );
   const scope = `[data-design-system="${workspace.project.id}"]`;
   const dtcg: Record<string, unknown> = Object.create(null);
   const declarations: string[] = [];
