@@ -1,172 +1,39 @@
-<p align="center">
-  <img src="apps/web/public/brokk.svg" alt="Brokk" height="160" />
-</p>
+# Brokk
 
-<h1 align="center">Brokk</h1>
+Organization-scoped development workspace for Cold Code Labs: scope, tasks, screens, design system, client reviews, review calls and supervised Devin development. Operators direct product work without database, shell or infrastructure access.
 
-<p align="center"><strong>CCL's open-source AI coding-agent platform — the forge.</strong></p>
+React 19 + Vite 8 SPA, Hono API and Postgres. One HTTP service serves the SPA and API. [Reconstruction plan](docs/v2/PLANO.md).
 
-Brokk is the **code** pillar of the CCL triad:
+## Local development
 
-| | Pillar | Does |
-|---|---|---|
-| **Hauldr** | data | multi-tenant BaaS / Postgres |
-| **Heimdall** | deploy | control plane over Coolify |
-| **Brokk** | **code** | **card → agent forges code → Pull Request** |
+Install Node ≥22.18 and pnpm 9.15.9. Create a Postgres database, load the server-only environment from `.env.example` in your shell, then run:
 
-> **Open-source — Apache-2.0.**
-
-## How it works
-
-A card (issue) goes on the board → a **runner** claims it → spins an isolated git
-worktree → runs an **agent loop** to forge the change → commits, pushes, and opens a
-**PR**. Many runners pull from one queue, in parallel. Every PR gets reviewed by a
-second agent before it can merge.
-
-The loop is ours. Brokk runs on **`@brokk/afl`**, a ~1.4k-LOC native kernel with zero
-runtime dependencies — no agent framework, by [deliberate
-decision](docs/adr/0027-simplify-for-oss-adoption.md). Engine lanes plug into forge
-via `BROKK_FORGE_ENGINE`:
-
-| Lane | What drives the turn |
-|---|---|
-| `openhands` *(default)* | OpenHands CLI → LiteLLM→OmniRoute (`LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`) — [ADR 0072](docs/adr/0072-brokk-openhands-omniroute.md) |
-| `cursor-cli` | Cursor Agent CLI — needs the `cursor-agent` binary + `CURSOR_API_KEY` |
-| `cli` | the genuine Claude Code CLI |
-| `afl` | the native in-process loop, straight to the Messages API |
-
-Set `BROKK_FORGE_ENGINE_STRICT=1` to refuse boot when the wanted lane is unavailable
-(instead of falling back to `afl`).
-
-**Chat = OpenCode** (Plan → Forge). **Forge = OpenHands**.
-**Mímir cortex** was dissolved 2026-07-24 (Edda ledger — use Chat Plan, not `/mimir`).
-**Eitri** still reviews PRs. Chat drives a live preview via Playwright MCP on a
-shared Chromium CDP (same browser as **Assistir o agente**).
-
-## Stack
-
-pnpm monorepo · **Hono** API · **Next 15** web · **Drizzle + Postgres** · Node ≥22.
-(Same mold as Heimdall OSS.)
-
-```
-# apps = processes (trigger-adapters)
-apps/api              @brokk/api               Hono control plane — projects, tasks, runs,
-                                               previews, chat, ingress, SSE logs
-apps/web              @brokk/web               Next 15 workbench — kanban + chat + live preview
-apps/forge            @brokk/forge-app         the runner — claim loop, worktrees, gh,
-                                               preview supervisor
-apps/reviewer         @brokk/reviewer-app      Eitri daemon — polls PRs, scans, reviews, verdict
-apps/chat             @brokk/chat-app          Brokk Chat — OpenCode turns, checkout manager,
-                                               shared Chromium + Playwright MCP (live-view)
-apps/preview-proxy    @brokk/preview-proxy     *.preview reverse proxy (subdomain → live port).
-                                               NOT the AI gateway — that's LiteLLM/OmniRoute
-apps/enclave-manager  @brokk/enclave-manager-app  the one privileged process that holds the
-                                               Docker socket, so workers never do
-
-# packages = capabilities (libraries)
-packages/afl              @brokk/afl       kernel + turn drivers (OpenCode · Claude · Cursor · OpenHands)
-packages/mcp              @brokk/mcp       MCP bridge — operator-configured servers surface as
-                                           tools, namespaced and read-only by default
-packages/repomap          @brokk/repomap   ranked repo map (tree-sitter symbols + PageRank)
-packages/agents/forge     @brokk/forge     Brokkr — worktree → build → verify → PR
-packages/agents/chat      @brokk/chat      Chat — conversational build (OpenCode)
-packages/agents/scout     @brokk/scout     Huginn — read-only repo → structured brief
-packages/agents/reviewer  @brokk/reviewer  Eitri — diff → verdict + markdown review
-packages/core             @brokk/core      domain types + ports (AgentEngine, GitProvider) — no deps
-packages/db               @brokk/db        Drizzle schema + Postgres store
-packages/sdk              @brokk/sdk       typed API client
+```sh
+pnpm install --frozen-lockfile
+pnpm dev:api
+# In another terminal, with the same local environment:
+pnpm dev
 ```
 
-## Quickstart (dev)
+Migrations create `brokk_v2` without modifying legacy tables. Local sign-in requires `BROKK_DEV_AUTH=1` and is always disabled in production. The administrator email allowlist is server-only. A newly signed-in person receives no organization access until assigned.
 
-```bash
-pnpm install
-cp .env.example .env               # BROKK_DATABASE_URL, BROKK_RUNNER_SECRET, GITHUB_TOKEN, …
-pnpm --filter @brokk/db db:push    # create schema
-pnpm dev                           # every app in apps/, in parallel
+## Verification
+
+```sh
+pnpm typecheck
+pnpm lint
+BROKK_TEST_DATABASE_URL=postgresql://user:password@localhost/brokk_test pnpm test
+pnpm build
 ```
 
-Run a worker on a host that has `git`, `gh`, and your chosen engine's CLI:
+Tests require an isolated database with `_test` in its name and truncate only that database's Brokk v2 schema. Browser verification covers actual project, scope, screen, task and review forms, plus responsive layouts.
 
-```bash
-pnpm --filter @brokk/forge-app start
-```
+## Production
 
-## Auth & billing
+Use the root Dockerfile, port 8080, `/api/health`, real OIDC credentials, HTTPS `BROKK_ORIGIN`, a restricted database connection and `BROKK_ADMIN_EMAILS`. Configure the OIDC redirect at `${BROKK_ORIGIN}/api/auth/callback`. No production development fallback exists. The CI gate is Woodpecker; deployment follows the official Coolify route after a green PR is merged. No GitHub Actions are used.
 
-The agent reaches a model one of two ways, set in Afl's config:
+Devin and Daily credentials stay exclusively on the server. Missing provider credentials produce an explicit unavailable state. Review notes and product planning work independently of providers. Every Devin launch has a durable reservation and bounded ACU limit; ambiguous creation cannot automatically relaunch. Scope approval is required before delegation. Technical administration must restrict repositories and provider-side credentials; product operators cannot configure infrastructure through Brokk.
 
-- **`apikey`** — `ANTHROPIC_API_KEY` straight to the API, or any OpenAI-compatible
-  gateway via `ANTHROPIC_BASE_URL`. **The path for self-hosting.** Prompt caching works
-  here, which matters a lot for long agent runs.
-- **`subscription`** — a lent Claude seat (`claude setup-token` →
-  `CLAUDE_CODE_OAUTH_TOKEN`). CCL's internal mode.
-  ⚠️ Server-side automation on a consumer subscription is ToS-gray, shares that seat's
-  interactive rate-limit window, and **does not read prompt cache** — cache writes are
-  billed, cache reads never land. Many-turn agents get expensive fast on this path.
+The Var catalog integration uses `/api/integrations/var/handoff` with a server-only bearer key. It accepts authorized organization/project context and returns a short-lived single-use workspace ticket. It does not accept repository settings or administrator grants.
 
-The `cursor-cli` lane authenticates separately, with `CURSOR_API_KEY`.
-
-## Isolation
-
-Workers forge each change in an isolated git **worktree** — for most repos that is the
-whole isolation story, and it's how CCL runs it.
-
-When the agent needs to *build and run* a target repo, that work goes to an **enclave**:
-`apps/enclave-manager` is the only component holding the Docker socket, and it brokers
-containers on the workers' behalf (optionally on the **gVisor** `runsc` runtime). The
-workers stay unprivileged. Mounting the host socket into a worker directly is still
-possible for single-tenant self-host — see the commented block in `docker-compose.yml` —
-but it is root-equivalent on the host, so multi-tenant wants the enclave path.
-
-## Deploy (self-host)
-
-The whole platform is containers — `docker compose up` and you have the board; add
-`--profile forge` and you have the workers.
-
-```bash
-cp .env.example .env               # POSTGRES_PASSWORD, BROKK_RUNNER_SECRET, ANTHROPIC_API_KEY, …
-docker compose up -d                     # board: Postgres + API + Next web, behind Traefik (:80)
-docker compose --profile forge up -d     # + forge, reviewer, chat, preview-proxy
-```
-
-Only `web` is public, fronted by **Traefik**; the browser reaches the API through
-same-origin Next rewrites. Override the entrypoint port with `BROKK_HTTP_PORT` and the
-host match with `BROKK_TRAEFIK_RULE='Host(\`brokk.example.com\`)'`.
-
-Every service declares a **healthcheck**, and `api` gates `web` (`depends_on:
-service_healthy`), so a compose deploy only routes traffic once the stack is actually up.
-Rolling behaviour is left to the orchestrator — the blue/green replica dance that used to
-live here was collapsed to a single replica for portability.
-
-> CCL runs this on Coolify (a Docker Compose resource → `web` routed at
-> `brokk.coldcodelabs.com`); any orchestrator with healthcheck-aware rolling works the same.
-
-## Running agents unattended
-
-Brokk agents are daemons: they poll, claim, and run without a human in the loop. That
-shape has a failure mode worth knowing before you deploy it — an agent can be **healthy
-and useless at the same time**, burning tokens on a task it can never complete, with
-every metric green.
-
-We hit it: a reviewer loop retried a permanently-failing GitHub call every 30 seconds for
-29 hours, made 13,821 successful API calls, and published nothing. Write-up:
-[**13,821 successful API calls. Zero output.**](https://coldcodelabs.com/blog/13821-successful-api-calls)
-
-If you run this unattended, set a per-key budget with a **rolling window** at your
-gateway, and alert on *agents that produce no artifact*, not just on errors. Note also
-that framework step limits (`maxTurns`, `recursion_limit`) bound turns **inside** one
-invocation — they do not bound how often a daemon re-invokes the agent.
-
-## Status
-
-**Operational (internal).** The full loop runs end-to-end: a card → the planner fans it
-into a DAG of cards → a runner forges each in an isolated worktree → opens a PR; **Eitri**
-reviews every PR (semgrep + trivy + LLM) and a webhook closes the plan on merge. Brokk
-runs in production on **surtr** — container-first, blue/green `web` behind Traefik — and
-powers an on-demand **dev preview lane** (`*.preview.coldcodelabs.com`) that Sindri can
-drive and QA itself.
-
-**Apache-2.0.**
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the design map, [docs/NORTH-STAR.md](docs/NORTH-STAR.md)
-for the doctrine, and [docs/adr/](docs/adr/) for the decisions.
+Legacy code is preserved by Git history and the local `archive/mimir-recovered-20261013` recovery reference. Preview lanes and Coder integration are deferred.

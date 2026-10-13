@@ -1,0 +1,21 @@
+when:
+  - event: [push, manual]
+services:
+  - name: postgres
+    image: postgres:17-alpine@sha256:aa90e97ee862e558111d34cfb8b2c4bec768c2b039fb791341686928560263b3
+    environment:
+      POSTGRES_PASSWORD: brokk_ci_only
+      POSTGRES_DB: brokk_test
+steps:
+  - name: check
+    image: node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
+    environment:
+      BROKK_TEST_DATABASE_URL: postgresql://postgres:brokk_ci_only@postgres:5432/brokk_test
+    commands:
+      - corepack enable
+      - corepack prepare pnpm@9.15.9 --activate
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm test
+      - pnpm build

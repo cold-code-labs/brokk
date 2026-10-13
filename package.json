@@ -1,42 +1,43 @@
 {
   "name": "brokk",
-  "version": "0.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "CCL's open-source AI coding-agent platform — cards, chat and review agents on a native lean kernel (Afl), forging code in isolated worktrees into PRs.",
   "license": "Apache-2.0",
-  "packageManager": "pnpm@9.15.0",
+  "packageManager": "pnpm@9.15.9",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "scripts": {
-    "typecheck": "pnpm -r typecheck",
-    "build": "pnpm -r --if-present build",
-    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
-    "dev:api": "pnpm --filter @brokk/api dev",
-    "dev:web": "pnpm --filter @brokk/web dev",
-    "lint": "pnpm -r --if-present lint",
-    "eval": "tsx evals/run.ts",
-    "test:isolation": "tsx --test packages/afl/src/enclave.test.ts",
-    "lint:compose": "python3 scripts/lint-compose.py docker-compose*.yml"
+    "dev": "vite --host 127.0.0.1",
+    "dev:api": "tsx watch server/index.ts",
+    "start": "node server/index.ts",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.4",
+    "hono": "4.13.13",
+    "jose": "^6.1.3",
+    "postgres": "^3.4.7",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
-    "tsx": "^4.19.2"
-  },
-  "pnpm": {
-    "overrides": {
-      "esbuild": ">=0.28.1",
-      "postcss": ">=8.5.10",
-      "next": "15.5.22",
-      "sharp@<0.35.0": ">=0.35.0",
-      "postcss@<8.5.18": ">=8.5.18",
-      "fast-uri@<3.1.4": ">=3.1.4",
-      "js-yaml@>=4.0.0 <4.3.0": ">=4.3.0",
-      "js-yaml@<3.15.0": ">=3.15.0",
-      "brace-expansion@>=3.0.0 <5.0.7": ">=5.0.7",
-      "shell-quote@<1.9.0": ">=1.9.0",
-      "hono": "4.12.26"
-    }
+    "@biomejs/biome": "2.5.8",
+    "@daily-co/daily-js": "0.93.0",
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@types/node": "^22",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "lucide-react": "^0.564.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tsx": "^4.22.4",
+    "typescript": "5.9.3",
+    "vite": "8.0.0"
   }
 }
