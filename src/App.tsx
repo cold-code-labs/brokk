@@ -1159,7 +1159,7 @@ function Records({
                     style={{
                       backgroundColor: /^#[a-f0-9]{3,8}$/i.test(r.data.value)
                         ? r.data.value
-                        : "#e8ece8",
+                        : "var(--panel-2)",
                     }}
                   />
                   <code>{r.data.value}</code>
@@ -1442,7 +1442,7 @@ function RecordEditor({
             <Field label="Valor">
               <input
                 name="value"
-                placeholder="#244B44, 16px, Instrument Sans"
+                placeholder="#5AA9E6, 16px, Instrument Sans"
                 defaultValue={initial.value}
                 maxLength={300}
                 required
