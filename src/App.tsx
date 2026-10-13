@@ -1782,7 +1782,9 @@ function Development({
             <p>
               {selectedRun.data.providerStatus === "reconciled_absent"
                 ? "A sessão não foi localizada no Devin. A tentativa foi reconciliada."
-                : "O Devin recusou a criação da sessão. Verifique saldo, cota e acesso do projeto antes de preparar uma nova tentativa."}
+                : selectedRun.data.category === "cursor"
+                  ? "O worker do Cursor encerrou a execução. Confira o histórico antes de preparar outra tentativa."
+                  : "O Devin recusou a criação da sessão. Verifique saldo, cota e acesso do projeto antes de preparar uma nova tentativa."}
             </p>
           )}
           {remote?.statusDetail && <p>{remote.statusDetail}</p>}

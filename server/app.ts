@@ -847,7 +847,7 @@ export function buildApp(
       (r) => r.id === input.runId && r.kind === "run",
     );
     const env = await store.environment(id, user);
-    if (!run || !env || !run.data.sessionId)
+    if (!run || !env || !run.data.sessionId || run.status !== "review")
       throw new Problem(409, "A entrega ainda não está vinculada à execução.");
     const expected = `https://github.com/${env.repository}/pull/`,
       url = run.data.resultUrl;
