@@ -317,12 +317,21 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
           409,
           "O repositório não está disponível para desenvolvimento.",
         );
-      await request(
+      const registered = await request<{ active: boolean }>(
         c.woodpeckerUrl,
         c.woodpeckerToken,
-        `/repos?forge_remote_id=${repo.id}`,
-        "POST",
+        `/repos/lookup/${env.repository}`,
+        "GET",
+        undefined,
+        true,
       );
+      if (!registered?.active)
+        await request(
+          c.woodpeckerUrl,
+          c.woodpeckerToken,
+          `/repos?forge_remote_id=${repo.id}`,
+          "POST",
+        );
       const branch = await github<Ref>(
         `/repos/${env.repository}/git/ref/heads/preview`,
         "GET",
