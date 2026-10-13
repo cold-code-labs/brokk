@@ -202,6 +202,12 @@ export function createStore(url: string) {
             "utf8",
           ),
         );
+        await db.unsafe(
+          await readFile(
+            new URL("../db/migrations/0003_coder_jobs.sql", import.meta.url),
+            "utf8",
+          ),
+        );
       });
     },
     async session(token: string) {
@@ -776,6 +782,7 @@ export function createStore(url: string) {
       dailyLimit: number,
       context = "",
       expected?: { project: Project; records: Artifact[] },
+      provider: "devin" | "cursor" = "devin",
     ) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
@@ -834,24 +841,29 @@ export function createStore(url: string) {
           await db`select count(*)::int as n from brokk_v2.artifacts where kind='run' and updated_at>now()-interval '24 hours'`;
         if (counts[0].n >= dailyLimit)
           throw new Problem(429, "Limite diário de desenvolvimento atingido.");
-        return {
-          created: true,
-          run: await insert(
-            db,
-            id,
-            "run",
-            String(task[0].title),
-            "launching",
-            {
-              ...emptyData(),
-              targetId: taskId,
-              requestKey: key,
-              body: context,
-              targetVersion: Number(task[0].version),
-            },
-            user,
-          ),
-        };
+        const run = await insert(
+          db,
+          id,
+          "run",
+          String(task[0].title),
+          "launching",
+          {
+            ...emptyData(),
+            targetId: taskId,
+            requestKey: key,
+            category: provider,
+            body: context,
+            targetVersion: Number(task[0].version),
+          },
+          user,
+        );
+        if (provider === "cursor") {
+          await db`insert into brokk_v2.coder_jobs(run_id,project_id) values (${run.id},${id})`;
+          await db`update brokk_v2.artifacts set data=data || ${db.json({ sessionId: "cursor-" + run.id, providerStatus: "queued" })} where id=${run.id}`;
+          run.data.sessionId = "cursor-" + run.id;
+          run.data.providerStatus = "queued";
+        }
+        return { created: true, run };
       });
     },
     async providerUpdate(
