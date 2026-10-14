@@ -19,6 +19,12 @@ class WorkerBoundaries(unittest.TestCase):
         self.assertFalse(any(arg.startswith('/home/node:') for arg in args))
         self.assertIn('HOME=/workspace/.brokk/home', args)
 
+    def test_verified_source_revision_is_available_without_git_metadata(self):
+        args = runner_args('image', 'network', '/data/jobs/repo', 'job', source_commit='a'*40)
+        self.assertIn('SOURCE_COMMIT='+'a'*40, args)
+        with self.assertRaises(ValueError):
+            runner_args('image', 'network', '/data/jobs/repo', 'job', source_commit='invented')
+
     def test_repository_and_preview_recipe(self):
         job = {'runId': 'a'*8+'-'+ 'a'*4+'-'+ 'a'*4+'-'+ 'a'*4+'-'+ 'a'*12, 'repository': 'cold-code-labs/nfcs', 'baseBranch': 'preview', 'profile': 'static', 'lease': 'a'*64, 'prompt': 'sealed context'}
         self.assertEqual(validate_job(job, 'cold-code-labs'), 'cold-code-labs/nfcs')
