@@ -38,6 +38,27 @@ class WorkerBoundaries(unittest.TestCase):
         self.assertEqual(new_messages(notes, set()), [notes[0]])
         self.assertEqual(new_messages(notes, {'1'}), [])
 
+    def test_real_git_delivery_excludes_ignored_private_runtime_without_failure(self):
+        from worker import Worker
+        worker = object.__new__(Worker)
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = pathlib.Path(tmp)
+            worker.git(['init'], workspace)
+            (workspace / '.gitignore').write_text('.brokk/\n')
+            (workspace / '.cursor').mkdir()
+            (workspace / '.cursor' / 'mcp.json').write_text('{"source": "original"}')
+            worker.git(['add', '.'], workspace)
+            worker.git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@local.test', 'commit', '-m', 'fixture'], workspace)
+            import shutil
+            shutil.rmtree(workspace / '.cursor')
+            (workspace / '.brokk').mkdir()
+            (workspace / '.brokk' / 'private.txt').write_text('fixture_private_runtime')
+            (workspace / 'generated.txt').write_text('product change')
+            worker.stage_delivery(workspace)
+            self.assertEqual(worker.git(['diff', '--cached', '--name-only'], workspace), 'generated.txt')
+            self.assertTrue((workspace / '.cursor' / 'mcp.json').exists())
+            self.assertNotIn('fixture_private_runtime', worker.git(['diff', '--cached'], workspace))
+
     def test_receipt_survives_restart_without_repeating_execution(self):
         from worker import Worker
         worker = object.__new__(Worker)

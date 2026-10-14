@@ -4,6 +4,7 @@ import { after, before, test } from "node:test";
 import { buildApp } from "../server/app.ts";
 import { readConfig } from "../server/config.ts";
 import type { PreviewProvider } from "../server/preview.ts";
+import { contextFor } from "../server/providers.ts";
 import { createStore } from "../server/store.ts";
 import type {
   Artifact,
@@ -968,6 +969,32 @@ test("Cursor jobs use private single-owner leases and scoped messages without pa
     ).status,
     400,
   );
+  assert.equal(
+    (await wr(`${run.id}/report`, { lease: job.lease, phase: "delivery" }))
+      .status,
+    200,
+  );
+  const late = await ca.request(
+    `/api/projects/${project.id}/development/${run.id}/messages`,
+    {
+      method: "POST",
+      headers: {
+        cookie: operator,
+        origin: cc.origin,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ message: "Late direction" }),
+    },
+  );
+  assert.equal(late.status, 409);
+  await wr(`${run.id}/report`, { lease: job.lease });
+  assert.equal(
+    (await store.workspace(project.id, user)).records.find(
+      (r) => r.id === run.id,
+    )?.data.providerStatus,
+    "delivery",
+  );
+  await wr(`${run.id}/report`, { lease: job.lease, phase: "coding" });
   await store.sql`update brokk_v2.coder_jobs set lease_until=now()-interval '1 minute' where run_id=${run.id}`;
   assert.equal(
     (await wr(`${run.id}/report`, { lease: job.lease })).status,
@@ -1181,4 +1208,176 @@ test("automatic fallback preserves sealed context, excludes ambiguous creation a
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test("only administrators recover checked Cursor delivery without launching a model or losing failure history", async () => {
+  const user: User = {
+    id: "local:operator",
+    email: "operator@local.test",
+    name: "Operator",
+    admin: false,
+  };
+  const technical: User = {
+    id: "local:admin@local.test",
+    email: "admin@local.test",
+    name: "Admin",
+    admin: true,
+  };
+  const p = (await (
+    await call("/projects", "POST", {
+      organizationId: org.id,
+      name: "Recovery",
+      objective: "Recover Git only",
+    })
+  ).json()) as Project;
+  await store.configureEnvironment(
+    p.id,
+    {
+      slug: "recovery",
+      repository: "cold-code-labs/recovery",
+      previewUrl: "https://recovery.preview.example.test",
+      productionUrl: "",
+      profile: "static",
+    },
+    technical,
+    30,
+  );
+  const reservation = await store.reserveEnvironment(p.id, technical);
+  await store.environmentUpdate(
+    p.id,
+    reservation.environment.lease,
+    {
+      state: "waiting",
+      step: "prepared",
+      resources: {
+        application: "private",
+        dataProject: "recovery_dev",
+        deployment: "",
+      },
+    },
+    technical,
+  );
+  const scope = await store.create(
+    p.id,
+    "scope",
+    "Approved",
+    "draft",
+    emptyData(),
+    user,
+  );
+  await store.sql`update brokk_v2.artifacts set status='approved' where id=${scope.id}`;
+  const task = await store.create(
+    p.id,
+    "task",
+    "Recover",
+    "ready",
+    emptyData(),
+    user,
+  );
+  const context = contextFor(
+    await store.workspace(p.id, user),
+    task,
+    await store.environment(p.id, user),
+  );
+  const run = (
+    await store.reserveRun(
+      p.id,
+      task.id,
+      randomUUID(),
+      user,
+      100,
+      context,
+      undefined,
+      "cursor",
+    )
+  ).run;
+  await store.providerUpdate(p.id, run.id, user, "failed", {
+    providerStatus: "failed",
+    attempts: [
+      { provider: "cursor", status: "failed", at: new Date().toISOString() },
+    ],
+  });
+  await store.sql`update brokk_v2.coder_jobs set state='failed' where run_id=${run.id}`;
+  const pc = readConfig({
+    NODE_ENV: "test",
+    BROKK_DATABASE_URL: url,
+    BROKK_DEV_AUTH: "1",
+    BROKK_COOLIFY_URL: "https://engine.example.test",
+    BROKK_COOLIFY_TOKEN: "private",
+    BROKK_COOLIFY_PROJECT: "project",
+    BROKK_COOLIFY_SERVER: "server",
+    BROKK_COOLIFY_GITHUB_APP: "app",
+    BROKK_HAULDR_URL: "https://backend.example.test",
+    BROKK_HAULDR_KEY: "private",
+    BROKK_GITHUB_TOKEN: "private",
+    BROKK_WOODPECKER_URL: "https://ci.example.test",
+    BROKK_WOODPECKER_TOKEN: "private",
+    BROKK_REPOSITORY_OWNER: "cold-code-labs",
+    BROKK_REPOSITORY_TEMPLATE: "cold-code-labs/template-vite",
+    BROKK_PREVIEW_DOMAIN: "preview.example.test",
+  });
+  let ciState = "pending",
+    branch = `brokk/cursor-${run.id}`,
+    modelCalls = 0;
+  const preview: PreviewProvider = {
+    prepare: async (e) => e,
+    inspect: async () => ({}),
+    deploy: async () => {
+      modelCalls++;
+      return "";
+    },
+    merge: async () => {
+      modelCalls++;
+    },
+    pullRequests: async () => [
+      {
+        number: 1,
+        url: "https://github.com/cold-code-labs/recovery/pull/1",
+        title: "Recovery",
+        head: "a".repeat(40),
+        repository: "cold-code-labs/recovery",
+        branch,
+        base: "preview",
+        state: "open",
+        ciState,
+        merged: false,
+      },
+    ],
+  };
+  const pa = buildApp(store, pc, { preview });
+  const req = (cookie: string) =>
+    pa.request(`/api/projects/${p.id}/development/${run.id}/recover-delivery`, {
+      method: "POST",
+      headers: {
+        cookie,
+        origin: pc.origin,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        resultUrl: "https://github.com/cold-code-labs/recovery/pull/1",
+        head: "a".repeat(40),
+      }),
+    });
+  assert.equal((await req(operator)).status, 403);
+  assert.equal((await req(client)).status, 403);
+  assert.equal((await req(stranger)).status, 404);
+  assert.equal((await req(admin)).status, 409);
+  ciState = "success";
+  branch = "foreign-branch";
+  assert.equal((await req(admin)).status, 409);
+  branch = `brokk/cursor-${run.id}`;
+  const recovered = await req(admin);
+  assert.equal(recovered.status, 200, await recovered.clone().text());
+  const result = await recovered.json();
+  assert.equal(result.status, "review");
+  assert.equal(result.data.attempts[0].status, "failed");
+  assert.equal(result.data.providerStatus, "recovered_delivery");
+  assert.equal((await req(admin)).status, 409);
+  assert.equal(modelCalls, 0);
+  assert.equal(
+    (
+      await store.sql`select state from brokk_v2.coder_jobs where run_id=${run.id}`
+    )[0].state,
+    "failed",
+  );
 });

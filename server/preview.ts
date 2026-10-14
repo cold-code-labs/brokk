@@ -36,7 +36,7 @@ type RawPullRequest = {
   number: number;
   html_url: string;
   title: string;
-  head: { sha: string; repo?: { full_name: string } };
+  head: { sha: string; ref?: string; repo?: { full_name: string } };
   base: { ref: string };
   state: string;
   draft: boolean;
@@ -46,6 +46,8 @@ export type PullRequest = {
   url: string;
   title: string;
   head: string;
+  branch?: string;
+  repository?: string;
   base: string;
   state: string;
   ciState: string;
@@ -629,6 +631,8 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
           url: r.html_url,
           title: r.title,
           head: r.head.sha,
+          branch: r.head.ref || "",
+          repository: r.head.repo?.full_name || "",
           base: r.base.ref,
           state: r.state,
           merged: false,

@@ -144,8 +144,19 @@ class Worker:
             env.update({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader", "GIT_CONFIG_VALUE_0": "AUTHORIZATION: basic " + base64.b64encode(("x-access-token:" + self.github_key).encode()).decode()})
         result = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-c", "safe.directory=*", "-c", "protocol.file.allow=never", *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
         if result.returncode:
-            raise RuntimeError("Git delivery command failed")
+            raise RuntimeError("Git delivery failed at " + next((arg for arg in args if arg in {"clone", "archive", "add", "diff", "checkout", "commit", "push", "rev-parse", "ls-files", "restore"}), "command"))
         return result.stdout.strip()
+
+    def stage_delivery(self, workspace):
+        # Exclude private runtime in trusted Git metadata; explicit negative pathspecs
+        # can make Git add exit 1 for an already ignored directory after staging code.
+        exclude = workspace / ".git" / "info" / "exclude"
+        with exclude.open("a") as stream:
+            stream.write("\n.brokk/\n.cursor/\n.claude/\n.mcp.json\n")
+        preserved = self.git(["ls-files", "--", ".cursor", ".claude", ".mcp.json"], workspace).splitlines()
+        if preserved:
+            self.git(["restore", "--source=HEAD", "--worktree", "--", *preserved], workspace)
+        self.git(["add", "-A", "--", "."], workspace)
 
     def receipt(self, state, **kwargs):
         path = self.root / (self.job["runId"] + ".json")
@@ -198,7 +209,7 @@ class Worker:
         for turn in range(4):
             name = "brokk-job-" + job["runId"]
             self.receipt("executing", base=base, sessionId=session)
-            self.report(message="Cursor CLI executando no servidor; o código e as verificações permanecem dentro do contêiner deste projeto.")
+            self.report(phase="coding", message="Cursor CLI executando no servidor; o código e as verificações permanecem dentro do contêiner deste projeto.")
             cli = subprocess.Popen([*runner_args(self.image, self.network, workspace, name, session), prompt], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0, env={"PATH": os.environ["PATH"], "CURSOR_API_KEY": os.environ["CURSOR_API_KEY"]})
             last_output = time.time()
             result = None
@@ -241,7 +252,7 @@ class Worker:
                 if cli.poll() is None:
                     self.stop_container(name)
                     cli.wait(timeout=20)
-            pending = new_messages(self.report().get("messages", []), consumed)
+            pending = new_messages(self.report(phase="delivery").get("messages", []), consumed)
             if not pending:
                 break
             if turn == 3:
@@ -256,7 +267,7 @@ class Worker:
         if os.path.lexists(workspace / ".git"):
             raise RuntimeError("Coder wrote forbidden Git metadata")
         shutil.move(str(run / "git"), str(workspace / ".git"))
-        self.git(["add", "-A", "--", ".", ":(exclude).brokk", ":(exclude).cursor", ":(exclude).claude"], workspace)
+        self.stage_delivery(workspace)
         paths = self.git(["diff", "--cached", "--name-only"], workspace).splitlines()
         blocked = guarded_paths(paths)
         if not paths or blocked:

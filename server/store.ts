@@ -939,6 +939,63 @@ export function createStore(url: string) {
         return artifactOf(updated[0]);
       });
     },
+    async recoverCursorDelivery(
+      id: string,
+      item: string,
+      user: User,
+      expected: { project: Project; records: Artifact[] },
+      resultUrl: string,
+    ) {
+      return sql.begin(async (db) => {
+        const accessResult = await access(db, id, user, true);
+        if (accessResult.organization.role !== "admin")
+          throw new Problem(403, "A administração recupera a entrega.");
+        const jobs =
+          await db`select state from brokk_v2.coder_jobs where run_id=${item} for update`;
+        if (jobs[0]?.state !== "failed")
+          throw new Problem(
+            409,
+            "O worker ainda não confirmou o encerramento desta tentativa.",
+          );
+        const project =
+          await db`select version from brokk_v2.projects where id=${id} for update`;
+        const targetId =
+          expected.records.find((r) => r.id === item)?.data.targetId || "";
+        const specs = expected.records.filter(
+          (r) =>
+            ["scope", "screen", "component", "token"].includes(r.kind) ||
+            r.id === targetId ||
+            r.id === item,
+        );
+        const current =
+          await db`select id,version,status from brokk_v2.artifacts where project_id=${id} and (kind in ('scope','screen','component','token') or id::text=${targetId} or id=${item}) for update`;
+        if (
+          project[0].version !== expected.project.version ||
+          current.length !== specs.length ||
+          !specs.every((r) =>
+            current.some(
+              (a) =>
+                a.id === r.id &&
+                a.version === r.version &&
+                a.status === r.status,
+            ),
+          )
+        )
+          throw new Problem(409, "O contexto mudou durante a recuperação.");
+        const updated =
+          await db`update brokk_v2.artifacts set status='review',data=data || ${db.json({ resultUrl, providerStatus: "recovered_delivery", summary: "Entrega Git recuperada pela administração após revisão e CI. A execução do modelo não foi repetida." })},version=version+1,updated_at=now() where id=${item} and project_id=${id} and kind='run' and status='failed' and data->>'category'='cursor' returning *`;
+        if (!updated.length)
+          throw new Problem(409, "Esta entrega já foi recuperada ou mudou.");
+        await event(
+          db,
+          id,
+          user,
+          "run.delivery_recovered",
+          "PR verificada; contrato preservado; sem repetir o modelo.",
+        );
+        return artifactOf(updated[0]);
+      });
+    },
     async providerUpdate(
       id: string,
       item: string,

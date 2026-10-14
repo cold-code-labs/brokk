@@ -1786,7 +1786,8 @@ function Development({
           <div className="section-head">
             <h2>Acompanhar e direcionar</h2>
             <span className="connection on">
-              {remote?.status ||
+              {statusLabels[remote?.status || ""] ||
+                remote?.status ||
                 statusLabels[selectedRun?.status || ""] ||
                 "Atualizando"}
             </span>
@@ -1877,12 +1878,19 @@ function Development({
                 <Field label="Novo direcionamento">
                   <textarea
                     name="message"
+                    disabled={selectedRun?.data.providerStatus === "delivery"}
                     maxLength={4000}
                     placeholder="Descreva o ajuste que você quer ver…"
                     required
                   />
                 </Field>
-                <button type="submit" disabled={busy} className="primary">
+                <button
+                  type="submit"
+                  disabled={
+                    busy || selectedRun?.data.providerStatus === "delivery"
+                  }
+                  className="primary"
+                >
                   <ArrowUpRight size={16} />
                   Enviar pedido
                 </button>
@@ -1908,9 +1916,11 @@ function Development({
               <div>
                 <dt>Executor</dt>
                 <dd>
-                  {provider === "cursor"
-                    ? "Cursor CLI · worker com tempo limitado"
-                    : `Devin · até ${context.maxAcu} ACU`}
+                  {provider === "auto"
+                    ? "Automático · Devin com fallback para Cursor"
+                    : provider === "cursor"
+                      ? "Cursor CLI · worker com tempo limitado"
+                      : `Devin · até ${context.maxAcu} ACU`}
                 </dd>
               </div>
               <div>

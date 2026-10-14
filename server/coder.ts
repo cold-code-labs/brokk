@@ -17,8 +17,16 @@ export async function coderMessage(
 ) {
   await store.sql.begin(async (db) => {
     const rows =
-      await db`select data from brokk_v2.artifacts where id=${runId} and project_id=${projectId} and kind='run' for update`;
+      await db`select data,status from brokk_v2.artifacts where id=${runId} and project_id=${projectId} and kind='run' for update`;
     if (!rows.length) throw new Problem(404, "Execução não encontrada.");
+    if (
+      !["launching", "active"].includes(rows[0].status) ||
+      rows[0].data.providerStatus === "delivery"
+    )
+      throw new Problem(
+        409,
+        "Esta rodada já fechou os pedidos para preparar a entrega. Aguarde a PR e prepare outra tarefa para continuar.",
+      );
     const notes: Note[] = rows[0].data.notes || [];
     if (notes.length >= 200)
       throw new Problem(409, "Limite de mensagens atingido.");
@@ -107,6 +115,7 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
       .object({
         lease: z.string().regex(/^[a-f0-9]{64}$/),
         state: z.enum(["working", "review", "failed"]).default("working"),
+        phase: z.enum(["coding", "delivery"]).optional(),
         sessionId: z
           .string()
           .regex(/^[a-zA-Z0-9_-]{8,100}$/)
@@ -162,12 +171,20 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
               : attempt,
         ),
         notes,
-        providerStatus: input.state,
+        providerStatus:
+          input.state === "working"
+            ? input.phase || row.data.providerStatus || "working"
+            : input.state,
         ...(input.resultUrl ? { resultUrl: input.resultUrl } : {}),
         ...(input.sessionId ? { sessionId: "cursor-" + input.sessionId } : {}),
       };
       await db`update brokk_v2.coder_jobs set state=${input.state},session_id=${input.sessionId || row.session_id},lease_until=now()+interval '2 minutes',updated_at=now() where run_id=${id}`;
-      if (input.message || input.state !== "working" || input.sessionId) {
+      if (
+        input.message ||
+        input.state !== "working" ||
+        input.sessionId ||
+        input.phase
+      ) {
         await db`update brokk_v2.artifacts set status=${input.state === "working" ? "active" : input.state},data=data || ${db.json(patch)},version=version+1,updated_at=now() where id=${id}`;
         await db`insert into brokk_v2.events(id,project_id,actor,action,detail) values (${randomUUID()},${row.project_id},'Cursor CLI',${"run." + input.state},${input.resultUrl || "Execução do worker atualizada."})`;
       }
