@@ -615,7 +615,9 @@ export function createPreviewProvider(cfg: Config): PreviewProvider {
           "A publicação anterior ainda não foi confirmada.",
         );
       const result = await coolify<{ deployments: Deployment[] }>(
-        `/deploy?uuid=${app.uuid}&force=false`,
+        "/deploy",
+        "POST",
+        { uuid: app.uuid, force: false },
       );
       const id = result.deployments?.[0]?.deployment_uuid;
       if (!id) throw new Problem(502, "A publicação não foi confirmada.");
