@@ -36,7 +36,7 @@ def validate_job(job, owner):
     return repo
 
 
-def runner_args(image, network, workspace, name, resume=None):
+def runner_args(image, network, workspace, name, resume=None, source_commit=None):
     args = ["docker", "run", "--rm", "--name", name, "--label", "brokk.executor=cursor", "--init", "--network", network,
             "--user", "1000:1000", "--read-only", "--cap-drop=ALL", "--security-opt", "no-new-privileges:true",
             "--pids-limit", "256", "--memory", "3g", "--memory-swap", "3g", "--cpus", "2", "--ulimit", "nofile=4096:4096",
@@ -45,6 +45,10 @@ def runner_args(image, network, workspace, name, resume=None):
             "--env", "HOME=/workspace/.brokk/home", "--env", "CURSOR_CONFIG_DIR=/workspace/.brokk/config", "--env", "CURSOR_DATA_DIR=/workspace/.brokk/data",
             "--env", "GIT_CONFIG_GLOBAL=/dev/null", "--env", "npm_config_cache=/workspace/.brokk/npm", "--env", "COREPACK_HOME=/workspace/.brokk/corepack",
             "--env", "PNPM_HOME=/workspace/.brokk/pnpm", image, "--print", "--force", "--sandbox", "disabled", "--trust", "--output-format", "stream-json", "--workspace", "/workspace"]
+    if source_commit:
+        if not re.fullmatch(r"[a-f0-9]{40}", source_commit):
+            raise ValueError("Invalid source revision")
+        args[args.index(image):args.index(image)] = ["--env", "SOURCE_COMMIT=" + source_commit]
     if resume:
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,100}", resume):
             raise ValueError("Invalid session identity")
@@ -210,7 +214,7 @@ class Worker:
             name = "brokk-job-" + job["runId"]
             self.receipt("executing", base=base, sessionId=session)
             self.report(phase="coding", message="Cursor CLI executando no servidor; o código e as verificações permanecem dentro do contêiner deste projeto.")
-            cli = subprocess.Popen([*runner_args(self.image, self.network, workspace, name, session), prompt], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0, env={"PATH": os.environ["PATH"], "CURSOR_API_KEY": os.environ["CURSOR_API_KEY"]})
+            cli = subprocess.Popen([*runner_args(self.image, self.network, workspace, name, session, base), prompt], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=0, env={"PATH": os.environ["PATH"], "CURSOR_API_KEY": os.environ["CURSOR_API_KEY"]})
             last_output = time.time()
             result = None
             try:
