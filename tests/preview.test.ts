@@ -185,3 +185,66 @@ test("red CI and changed heads block release; readiness requires the deployed co
     globalThis.fetch = original;
   }
 });
+
+test("publication uses the current Coolify POST API and reuses an existing exact-commit deployment", async () => {
+  const original = globalThis.fetch,
+    current = "a".repeat(40);
+  let existing = false,
+    publications = 0;
+  globalThis.fetch = async (input, options) => {
+    const url = String(input);
+    let body: unknown = {};
+    if (url.endsWith("/applications"))
+      body = [{ name: "nfcs-preview", uuid: "app-ref" }];
+    else if (url.endsWith("/applications/app-ref"))
+      body = {
+        name: "nfcs-preview",
+        uuid: "app-ref",
+        description: `Brokk project ${env.projectId} preview`,
+        git_repository: env.repository,
+        git_branch: "preview",
+      };
+    else if (url.includes("/git/ref/heads/preview"))
+      body = { object: { sha: current } };
+    else if (url.includes("/repos/lookup/")) body = { id: 37, active: true };
+    else if (url.includes("/pipelines?"))
+      body = [{ number: 1, event: "push", commit: current, status: "success" }];
+    else if (url.includes("/v1/projects/")) body = { status: "live" };
+    else if (url.includes("/deployments/applications/"))
+      body = {
+        deployments: existing
+          ? [
+              {
+                deployment_uuid: "existing",
+                commit: current,
+                status: "finished",
+              },
+            ]
+          : [],
+      };
+    else if (url.endsWith("/deploy")) {
+      publications++;
+      assert.equal(options?.method, "POST");
+      assert.deepEqual(JSON.parse(String(options?.body)), {
+        uuid: "app-ref",
+        force: false,
+      });
+      body = { deployments: [{ deployment_uuid: "new" }] };
+    } else throw new Error("Unexpected deployment request");
+    return new Response(JSON.stringify(body), {
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const provider = createPreviewProvider(cfg);
+    assert.equal(await provider.deploy(env), "new");
+    existing = true;
+    assert.equal(
+      await provider.deploy({ ...env, step: "deployment.unconfirmed" }),
+      "existing",
+    );
+    assert.equal(publications, 1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
