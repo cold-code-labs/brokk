@@ -1563,9 +1563,10 @@ function Development({
 }) {
   const tasks = ws.records.filter((r) => r.kind === "task"),
     runs = ws.records.filter((r) => r.kind === "run"),
-    [provider, setProvider] = useState<"devin" | "cursor">(
-      providers.cursor ? "cursor" : "devin",
-    ),
+    [provider, setProvider] = useState<"auto" | "devin" | "cursor">("auto"),
+    [capacity, setCapacity] = useState<{
+      cursor: { available: boolean };
+    } | null>(null),
     [taskId, setTaskId] = useState(""),
     [selected, setSelected] = useState(""),
     [context, setContext] = useState<{
@@ -1582,7 +1583,31 @@ function Development({
     [providerError, setProviderError] = useState(""),
     requestKey = useRef(crypto.randomUUID());
   const selectedRun = runs.find((r) => r.id === selected),
-    connected = providers[provider];
+    connected =
+      provider === "auto"
+        ? providers.devin || Boolean(capacity?.cursor.available)
+        : provider === "cursor"
+          ? Boolean(capacity?.cursor.available)
+          : providers.devin;
+  useEffect(() => {
+    let live = true;
+    const update = () =>
+      request<typeof capacity>("/executors", "GET", undefined, true)
+        .then((data) => {
+          if (live) setCapacity(data);
+        })
+        .catch(() => {
+          if (live) setCapacity(null);
+        });
+    void update();
+    const timer = setInterval(() => {
+      if (!document.hidden) void update();
+    }, 15000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, []);
   useEffect(() => {
     setRemote(null);
     setProviderError("");
@@ -1626,9 +1651,20 @@ function Development({
         </div>
         <span className={`connection ${connected ? "on" : ""}`}>
           <Circle size={7} fill="currentColor" />
-          {connected ? "Conectado" : "Aguardando conexão"}
+          {connected ? "Disponível" : "Sem capacidade disponível"}
         </span>
       </div>
+      {selectedRun?.data.attempts?.length ? (
+        <p className="integration-help">
+          Tentativas:{" "}
+          {selectedRun.data.attempts
+            .map(
+              (a) =>
+                `${a.provider === "devin" ? "Devin" : "Cursor"}: ${a.status}`,
+            )
+            .join(" → ")}
+        </p>
+      ) : null}
       <div className="development-grid">
         <section className="panel">
           <p className="eyebrow">PRÓXIMA ENTREGA</p>
@@ -1641,19 +1677,29 @@ function Development({
             <select
               value={provider}
               onChange={(e) => {
-                setProvider(e.target.value as "devin" | "cursor");
+                setProvider(e.target.value as "auto" | "devin" | "cursor");
                 setContext(null);
                 requestKey.current = crypto.randomUUID();
               }}
             >
+              <option value="auto">Automático · Devin → Cursor</option>
               <option value="devin" disabled={!providers.devin}>
                 Devin
               </option>
               <option value="cursor" disabled={!providers.cursor}>
-                Cursor CLI · worker
+                Cursor CLI · infraestrutura de dev
               </option>
             </select>
           </Field>
+          <p className="integration-help" role="status" aria-live="polite">
+            Worker Cursor:{" "}
+            {capacity?.cursor.available
+              ? "online na infraestrutura de desenvolvimento"
+              : "indisponível"}
+            . No modo automático, recusas definitivas de saldo ou cota no Devin
+            encaminham o mesmo contrato ao Cursor. Execuções sem confirmação não
+            são repetidas.
+          </p>
           <Field label="Tarefa">
             <select
               value={taskId}
@@ -1909,7 +1955,9 @@ function Development({
               <Sparkles size={16} />
               {busy
                 ? "Solicitando…"
-                : `Enviar ao ${provider === "cursor" ? "Cursor CLI" : "Devin"}`}
+                : provider === "auto"
+                  ? "Executar com fallback"
+                  : `Enviar ao ${provider === "cursor" ? "Cursor CLI" : "Devin"}`}
             </button>
           </div>
         </Modal>

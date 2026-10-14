@@ -57,6 +57,8 @@ export type RecordData = {
   providerStatus: string;
   resultUrl: string;
   requestKey: string;
+  executionPolicy: string;
+  attempts: { provider: string; status: string; at: string }[];
   reviewedBy: string;
   reviewedAt: string;
 };
@@ -104,6 +106,8 @@ export const emptyData = (): RecordData => ({
   providerStatus: "",
   resultUrl: "",
   requestKey: "",
+  executionPolicy: "manual",
+  attempts: [],
   reviewedBy: "",
   reviewedAt: "",
 });

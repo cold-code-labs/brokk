@@ -10,7 +10,7 @@ import { canEdit, emptyData, kinds, roles } from "../shared/domain.ts";
 import { publicEnvironment } from "../shared/environment.ts";
 import type { Env } from "./auth.ts";
 import { installAuth, secretOk } from "./auth.ts";
-import { coderMessage, installCoderWorker } from "./coder.ts";
+import { coderMessage, cursorAvailable, installCoderWorker } from "./coder.ts";
 import type { Config } from "./config.ts";
 import { designContract } from "./design.ts";
 import {
@@ -184,6 +184,16 @@ export function buildApp(
   });
   installCoderWorker(app, store, cfg);
   installAuth(app, store, cfg);
+  app.get("/api/executors", async (c) =>
+    c.json({
+      devin: { configured: Boolean(cfg.devin.key && cfg.devin.orgId) },
+      cursor: {
+        configured: Boolean(cfg.coder.workerSecret),
+        available: await cursorAvailable(store),
+      },
+      policy: "definitive-refusal-only",
+    }),
+  );
   app.get("/api/organizations", async (c) =>
     c.json(await store.organizations(c.get("user"))),
   );
@@ -540,7 +550,7 @@ export function buildApp(
   app.post("/api/projects/:id/development", async (c) => {
     const input = z
       .object({
-        provider: z.enum(["devin", "cursor"]).default("devin"),
+        provider: z.enum(["auto", "devin", "cursor"]).default("devin"),
         taskId: uuid,
         requestKey: uuid,
         contextHash: z
@@ -579,6 +589,22 @@ export function buildApp(
         409,
         "Prepare a preview antes de iniciar o desenvolvimento.",
       );
+    const cursorReady = Boolean(
+      cfg.coder.workerSecret &&
+        environment?.resources.application &&
+        (await cursorAvailable(store, ws.project.repository)),
+    );
+    const provider =
+      input.provider === "auto"
+        ? cfg.devin.key && cfg.devin.orgId
+          ? "devin"
+          : "cursor"
+        : input.provider;
+    if (provider === "cursor" && !cursorReady)
+      throw new Problem(
+        503,
+        "Nenhum worker Cursor disponível para este repositório. A administração precisa conectar capacidade de execução.",
+      );
     const prompt = contextFor(ws, task, environment);
     if (input.contextHash && input.contextHash !== hash(prompt))
       throw new Problem(
@@ -593,10 +619,10 @@ export function buildApp(
       cfg.devin.dailyLimit,
       prompt,
       ws,
-      input.provider,
+      provider,
     );
     if (!reserved.created) return c.json(reserved.run);
-    if (input.provider === "cursor") return c.json(reserved.run, 201);
+    if (provider === "cursor") return c.json(reserved.run, 201);
     try {
       const remote = await devin(cfg, "", "POST", {
         prompt: reserved.run.data.body,
@@ -620,6 +646,21 @@ export function buildApp(
         201,
       );
     } catch (e) {
+      if (
+        input.provider === "auto" &&
+        cursorReady &&
+        e instanceof DevinRejection &&
+        [402, 403, 429].includes(e.upstreamStatus)
+      )
+        return c.json(
+          await store.cursorFallback(
+            id,
+            reserved.run.id,
+            c.get("user"),
+            e.upstreamStatus,
+          ),
+          201,
+        );
       await store.providerUpdate(
         id,
         reserved.run.id,

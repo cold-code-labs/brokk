@@ -34,6 +34,11 @@ export async function coderMessage(
     await db`insert into brokk_v2.events(id,project_id,actor,action,detail) values (${randomUUID()},${projectId},${author},'run.message',${body.slice(0, 200)})`;
   });
 }
+export async function cursorAvailable(store: Store, repository = "") {
+  const rows =
+    await store.sql`select owner from brokk_v2.coder_workers where ready and updated_at>now()-interval '60 seconds' and (${repository === ""} or (repositories ? ${repository} or repositories ? ${repository.split("/")[0] + "/*"})) limit 1`;
+  return rows.length > 0;
+}
 export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
   app.use("/api/worker/cursor/*", async (c, next) => {
     if (
@@ -46,14 +51,39 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
       throw new Problem(401, "Worker não autorizado.");
     await next();
   });
+  app.post("/api/worker/cursor/presence", async (c) => {
+    const input = z
+      .object({
+        owner: z.string().regex(/^[a-zA-Z0-9_-]{8,80}$/),
+        revision: z.string().max(100),
+        ready: z.boolean(),
+        repositories: z
+          .array(z.string().regex(/^[A-Za-z0-9_.-]+\/(?:[A-Za-z0-9_.-]+|\*)$/))
+          .min(1)
+          .max(100),
+      })
+      .strict()
+      .parse(await c.req.json());
+    await store.sql.begin(async (db) => {
+      await db`insert into brokk_v2.coder_workers(owner,revision,ready,repositories) values (${input.owner},${input.revision},${input.ready},${db.json(input.repositories)}) on conflict(owner) do update set revision=excluded.revision,ready=excluded.ready,repositories=excluded.repositories,updated_at=now()`;
+      const expired =
+        await db`update brokk_v2.coder_jobs set state='failed',updated_at=now() where state='working' and lease_until<now() returning run_id,project_id`;
+      for (const row of expired) {
+        await db`update brokk_v2.artifacts set status='failed',data=data || ${db.json({ providerStatus: "lease_expired", summary: "O worker perdeu a concessão. Tentativa encerrada; nenhum trabalho foi repetido automaticamente." })},version=version+1,updated_at=now() where id=${row.run_id}`;
+        await db`insert into brokk_v2.events(id,project_id,actor,action,detail) values (${randomUUID()},${row.project_id},'Brokk','run.failed','Worker sem concessão; execução preservada sem repetição.')`;
+      }
+    });
+    return c.json({ ok: true });
+  });
   app.post("/api/worker/cursor/claim", async (c) => {
     const input = z
       .object({ owner: z.string().regex(/^[a-zA-Z0-9_-]{8,80}$/) })
       .strict()
       .parse(await c.req.json());
     const result = await store.sql.begin(async (db) => {
+      await db`select owner from brokk_v2.coder_workers where owner=${input.owner} for update`;
       const rows =
-        await db`select j.run_id,j.project_id,a.title,a.data,p.repository from brokk_v2.coder_jobs j join brokk_v2.artifacts a on a.id=j.run_id join brokk_v2.projects p on p.id=j.project_id join brokk_v2.environments e on e.project_id=j.project_id where j.state='queued' and a.status='launching' and e.resources->>'application'<>'' order by j.updated_at for update of j skip locked limit 1`;
+        await db`select j.run_id,j.project_id,a.title,a.data,p.repository,e.profile from brokk_v2.coder_jobs j join brokk_v2.artifacts a on a.id=j.run_id join brokk_v2.projects p on p.id=j.project_id join brokk_v2.environments e on e.project_id=j.project_id where j.state='queued' and a.status='launching' and exists(select 1 from brokk_v2.coder_workers w where w.owner=${input.owner} and w.ready and w.updated_at>now()-interval '60 seconds' and (w.repositories ? p.repository or w.repositories ? (split_part(p.repository,'/',1) || '/*'))) and not exists(select 1 from brokk_v2.coder_jobs busy where busy.owner=${input.owner} and busy.state='working' and busy.lease_until>now()) and e.resources->>'application'<>'' order by j.updated_at for update of j skip locked limit 1`;
       if (!rows.length) return null;
       const row = rows[0],
         lease = randomBytes(32).toString("hex");
@@ -64,6 +94,8 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
         projectId: row.project_id,
         repository: row.repository,
         title: row.title,
+        baseBranch: "preview",
+        profile: row.profile,
         prompt: row.data.body,
         lease,
       };
@@ -123,6 +155,12 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
           screenId: "",
         });
       const patch = {
+        attempts: (row.data.attempts || []).map(
+          (attempt: { provider: string; status: string; at: string }) =>
+            attempt.provider === "cursor"
+              ? { ...attempt, status: input.state }
+              : attempt,
+        ),
         notes,
         providerStatus: input.state,
         ...(input.resultUrl ? { resultUrl: input.resultUrl } : {}),

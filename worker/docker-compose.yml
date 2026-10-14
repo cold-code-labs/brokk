@@ -1,0 +1,31 @@
+services:
+  controller:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      BROKK_WORKER_ORIGIN: ${BROKK_WORKER_ORIGIN:?}
+      BROKK_CURSOR_WORKER_SECRET: ${BROKK_CURSOR_WORKER_SECRET:?}
+      BROKK_WORKER_GITHUB_TOKEN: ${BROKK_WORKER_GITHUB_TOKEN:?}
+      CURSOR_API_KEY: ${CURSOR_API_KEY:?}
+      BROKK_WORKER_REPOSITORY_OWNER: ${BROKK_WORKER_REPOSITORY_OWNER:-cold-code-labs}
+      BROKK_WORKER_ID: ${BROKK_WORKER_ID:-brokk-cursor-dev}
+      BROKK_RUNNER_IMAGE: ${BROKK_RUNNER_IMAGE:?}
+      BROKK_RUNNER_NETWORK: ${BROKK_RUNNER_NETWORK:-brokk-coder-egress}
+      BROKK_WORKER_ROOT: /data/brokk-worker
+      SOURCE_COMMIT: ${SOURCE_COMMIT:-unknown}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /data/brokk-worker:/data/brokk-worker
+    expose:
+      - "8080"
+    mem_limit: 768m
+    cpus: 0.5
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s

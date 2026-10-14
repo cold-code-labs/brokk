@@ -208,6 +208,12 @@ export function createStore(url: string) {
             "utf8",
           ),
         );
+        await db.unsafe(
+          await readFile(
+            new URL("../db/migrations/0004_coder_workers.sql", import.meta.url),
+            "utf8",
+          ),
+        );
       });
     },
     async session(token: string) {
@@ -852,6 +858,13 @@ export function createStore(url: string) {
             targetId: taskId,
             requestKey: key,
             category: provider,
+            attempts: [
+              {
+                provider,
+                status: provider === "cursor" ? "queued" : "launching",
+                at: new Date().toISOString(),
+              },
+            ],
             body: context,
             targetVersion: Number(task[0].version),
           },
@@ -864,6 +877,66 @@ export function createStore(url: string) {
           run.data.providerStatus = "queued";
         }
         return { created: true, run };
+      });
+    },
+    async cursorFallback(
+      id: string,
+      item: string,
+      user: User,
+      upstreamStatus: number,
+    ) {
+      return sql.begin(async (db) => {
+        await access(db, id, user, true);
+        const rows =
+          await db`select * from brokk_v2.artifacts where id=${item} and project_id=${id} and kind='run' for update`;
+        if (
+          !rows.length ||
+          rows[0].status !== "launching" ||
+          rows[0].data.sessionId
+        )
+          throw new Problem(
+            409,
+            "A criação já foi confirmada ou precisa de reconciliação.",
+          );
+        const notes = rows[0].data.notes || [];
+        notes.push({
+          id: randomUUID(),
+          author: "Brokk",
+          body: `Devin recusou a criação (HTTP ${upstreamStatus}). O mesmo contrato foi encaminhado ao worker Cursor na infraestrutura de desenvolvimento.`,
+          at: new Date().toISOString(),
+          category: "decision",
+          screenId: "",
+        });
+        const patch = {
+          category: "cursor",
+          executionPolicy: "auto",
+          sessionId: "cursor-" + item,
+          providerStatus: "queued",
+          attempts: [
+            {
+              provider: "devin",
+              status: `rejected_http_${upstreamStatus}`,
+              at: new Date().toISOString(),
+            },
+            {
+              provider: "cursor",
+              status: "queued",
+              at: new Date().toISOString(),
+            },
+          ],
+          notes,
+        };
+        await db`insert into brokk_v2.coder_jobs(run_id,project_id) values (${item},${id})`;
+        const updated =
+          await db`update brokk_v2.artifacts set data=data || ${db.json(patch)},version=version+1,updated_at=now() where id=${item} returning *`;
+        await event(
+          db,
+          id,
+          user,
+          "run.fallback",
+          "Devin → Cursor; recusa definitiva; contrato preservado.",
+        );
+        return artifactOf(updated[0]);
       });
     },
     async providerUpdate(
