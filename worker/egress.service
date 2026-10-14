@@ -1,6 +1,7 @@
 [Unit]
 Description=Brokk isolated coder egress boundary
 Requires=docker.service
+PartOf=docker.service
 After=docker.service
 [Service]
 Type=oneshot

@@ -13,6 +13,7 @@ class WorkerBoundaries(unittest.TestCase):
             self.assertIn(required, joined)
         for denied in ['docker.sock', '--privileged', '--network host', 'GITHUB_TOKEN', 'WORKER_SECRET', 'DATABASE_URL', '/root', '/home/valvesss']:
             self.assertNotIn(denied, joined)
+        self.assertIn('dst=/brokk-context.json,readonly', joined)
         self.assertIn('--env CURSOR_API_KEY', joined)
         self.assertNotIn('--api-key', args)
         self.assertFalse(any(arg.startswith('/home/node:') for arg in args))
