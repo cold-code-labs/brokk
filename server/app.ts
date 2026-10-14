@@ -676,6 +676,76 @@ export function buildApp(
       throw e;
     }
   });
+  app.post(
+    "/api/projects/:id/development/:item/recover-delivery",
+    async (c) => {
+      const input = z
+        .object({
+          resultUrl: z.string().url().max(300),
+          head: z.string().regex(/^[a-f0-9]{40}$/),
+        })
+        .strict()
+        .parse(await c.req.json());
+      const id = uuid.parse(c.req.param("id")),
+        user = c.get("user"),
+        ws = await store.workspace(id, user);
+      if (ws.organization.role !== "admin")
+        throw new Problem(
+          403,
+          "Somente a administração recupera uma entrega interrompida.",
+        );
+      const run = ws.records.find(
+          (r) => r.id === c.req.param("item") && r.kind === "run",
+        ),
+        env = await store.environment(id, user);
+      if (
+        !run ||
+        run.status !== "failed" ||
+        run.data.category !== "cursor" ||
+        !env ||
+        !previewEnabled()
+      )
+        throw new Problem(409, "A execução não permite recuperar uma entrega.");
+      const task = ws.records.find(
+        (r) => r.id === run.data.targetId && r.kind === "task",
+      );
+      if (
+        !task ||
+        !ws.records.some(
+          (r) => r.kind === "scope" && r.status === "approved",
+        ) ||
+        contextFor(ws, task, env) !== run.data.body
+      )
+        throw new Problem(
+          409,
+          "O contrato mudou. Revise a entrega em uma nova tarefa aprovada.",
+        );
+      const delivery = (await preview.pullRequests(env)).find(
+        (r) =>
+          r.url === input.resultUrl &&
+          r.head === input.head &&
+          r.branch === `brokk/cursor-${run.id}` &&
+          r.repository === env.repository &&
+          r.base === "preview" &&
+          r.state === "open" &&
+          r.ciState === "success",
+      );
+      if (!delivery)
+        throw new Problem(
+          409,
+          "A recuperação exige a PR desta execução, base preview e Woodpecker verde no commit exato.",
+        );
+      return c.json(
+        await store.recoverCursorDelivery(
+          id,
+          run.id,
+          user,
+          ws,
+          input.resultUrl,
+        ),
+      );
+    },
+  );
   app.post("/api/projects/:id/development/:item/reconcile", async (c) => {
     const id = uuid.parse(c.req.param("id")),
       ws = await store.workspace(id, c.get("user"));

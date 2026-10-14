@@ -137,5 +137,9 @@ export const statusLabels: Record<string, string> = {
   launching: "Conectando",
   uncertain: "Verificar criação",
   failed: "Falhou",
+  working: "Executando",
+  coding: "Gerando código",
+  delivery: "Preparando entrega",
+  recovered_delivery: "Entrega recuperada",
 };
 export const canEdit = (role: Role) => role === "admin" || role === "operator";
