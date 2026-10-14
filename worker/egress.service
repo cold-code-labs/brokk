@@ -1,0 +1,10 @@
+[Unit]
+Description=Brokk isolated coder egress boundary
+Requires=docker.service
+After=docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/brokk-worker/egress.sh
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

@@ -11,6 +11,7 @@ import type {
   Project,
   User,
 } from "../shared/domain.ts";
+import { emptyData } from "../shared/domain.ts";
 
 const url = process.env.BROKK_TEST_DATABASE_URL;
 if (!url || !new URL(url).pathname.includes("_test"))
@@ -913,6 +914,19 @@ test("Cursor jobs use private single-owner leases and scoped messages without pa
     (await wr("claim", { owner: "test-worker" }, "wrong-key")).status,
     401,
   );
+  for (const owner of ["test-worker", "other-worker"]) {
+    assert.equal(
+      (
+        await wr("presence", {
+          owner,
+          revision: "test",
+          ready: true,
+          repositories: ["cold-code-labs/*"],
+        })
+      ).status,
+      200,
+    );
+  }
   const claims = await Promise.all([
     wr("claim", { owner: "test-worker" }),
     wr("claim", { owner: "other-worker" }),
@@ -986,4 +1000,185 @@ test("Cursor jobs use private single-owner leases and scoped messages without pa
   const ws = await store.workspace(project.id, user);
   assert.ok(!JSON.stringify(ws).includes(job.lease));
   assert.equal(ws.records.find((r) => r.id === run.id)?.status, "failed");
+});
+
+test("automatic fallback preserves sealed context, excludes ambiguous creation and requires live capacity", async () => {
+  const user: User = {
+    id: "local:operator",
+    email: "operator@local.test",
+    name: "Operator",
+    admin: false,
+  };
+  const technical: User = {
+    id: "local:admin@local.test",
+    email: "admin@local.test",
+    name: "Admin",
+    admin: true,
+  };
+  const p = (await (
+    await call("/projects", "POST", {
+      organizationId: org.id,
+      name: "Fallback",
+      objective: "Test hosted fallback",
+    })
+  ).json()) as Project;
+  await store.configureEnvironment(
+    p.id,
+    {
+      slug: "fallback",
+      repository: "cold-code-labs/fallback",
+      previewUrl: "https://fallback.preview.example.test",
+      productionUrl: "",
+      profile: "static",
+    },
+    technical,
+    30,
+  );
+  const env = await store.reserveEnvironment(p.id, technical);
+  await store.environmentUpdate(
+    p.id,
+    env.environment.lease,
+    {
+      state: "waiting",
+      step: "prepared",
+      resources: {
+        application: "private",
+        dataProject: "fallback_dev",
+        deployment: "",
+      },
+    },
+    technical,
+  );
+  const scope = await store.create(
+    p.id,
+    "scope",
+    "Approved scope",
+    "draft",
+    { ...emptyData(), body: "Only the approved task" },
+    user,
+  );
+  await store.sql`update brokk_v2.artifacts set status='approved' where id=${scope.id}`;
+  const dc = readConfig({
+    NODE_ENV: "test",
+    BROKK_DATABASE_URL: url,
+    BROKK_DEV_AUTH: "1",
+    DEVIN_API_KEY: "test-key",
+    DEVIN_ORG_ID: "org-test",
+    BROKK_CURSOR_WORKER_SECRET: "private-worker-key",
+    DEVIN_DAILY_LIMIT: "100",
+  });
+  const da = buildApp(store, dc),
+    original = globalThis.fetch;
+  const req = (path: string, body?: unknown, cookie = operator) =>
+    da.request(`/api${path}`, {
+      method: body ? "POST" : "GET",
+      headers: {
+        cookie,
+        origin: dc.origin,
+        "content-type": "application/json",
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  await store.sql`insert into brokk_v2.coder_workers(owner,revision,ready,repositories) values ('fallback-worker','test',true,'["cold-code-labs/*"]') on conflict(owner) do update set ready=true,updated_at=now()`;
+  let status = 403,
+    calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response("{}", {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  try {
+    const task = await store.create(
+      p.id,
+      "task",
+      "Bounded implementation",
+      "ready",
+      emptyData(),
+      user,
+    );
+    const prepared = await (
+      await req(`/projects/${p.id}/development/context`, { taskId: task.id })
+    ).json();
+    const input = {
+      provider: "auto",
+      taskId: task.id,
+      requestKey: randomUUID(),
+      contextHash: prepared.contextHash,
+    };
+    const response = await req(`/projects/${p.id}/development`, input);
+    assert.equal(response.status, 201, await response.clone().text());
+    const run = await response.json();
+    assert.equal(run.data.category, "cursor");
+    assert.equal(run.data.body, prepared.prompt);
+    assert.equal(run.data.attempts[0].status, "rejected_http_403");
+    assert.equal(run.data.attempts[1].provider, "cursor");
+    assert.equal(calls, 1);
+    assert.equal(
+      (await req(`/projects/${p.id}/development`, input)).status,
+      200,
+    );
+    assert.equal(calls, 1);
+    assert.equal(
+      (
+        await req(
+          `/projects/${p.id}/development`,
+          { ...input, requestKey: randomUUID() },
+          client,
+        )
+      ).status,
+      403,
+    );
+    status = 500;
+    const next = await store.create(
+      p.id,
+      "task",
+      "Ambiguous provider",
+      "ready",
+      emptyData(),
+      user,
+    );
+    assert.equal(
+      (
+        await req(`/projects/${p.id}/development`, {
+          provider: "auto",
+          taskId: next.id,
+          requestKey: randomUUID(),
+        })
+      ).status,
+      502,
+    );
+    const ws = await store.workspace(p.id, user);
+    const uncertain = ws.records.find(
+      (r) => r.kind === "run" && r.data.targetId === next.id,
+    );
+    assert.equal(uncertain?.status, "uncertain");
+    const jobs =
+      await store.sql`select run_id from brokk_v2.coder_jobs where project_id=${p.id}`;
+    assert.equal(jobs.length, 1);
+    await store.sql`update brokk_v2.coder_workers set updated_at=now()-interval '2 minutes'`;
+    const capacity = await (await req("/executors")).json();
+    assert.equal(capacity.cursor.available, false);
+    const offline = await store.create(
+      p.id,
+      "task",
+      "Offline",
+      "ready",
+      emptyData(),
+      user,
+    );
+    assert.equal(
+      (
+        await req(`/projects/${p.id}/development`, {
+          provider: "cursor",
+          taskId: offline.id,
+          requestKey: randomUUID(),
+        })
+      ).status,
+      503,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
 });
