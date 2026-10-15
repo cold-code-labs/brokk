@@ -2089,7 +2089,7 @@ function Calls({
                   </p>
                   <a
                     className="secondary"
-                    href="/downloads/brokk-review.zip?v=1.0.0"
+                    href="/downloads/brokk-review.zip?v=1.0.2"
                     download
                   >
                     Baixar extensão Brokk Review
