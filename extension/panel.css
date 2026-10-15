@@ -21,8 +21,9 @@ header {
   background: #fff;
 }
 .mark {
-  background: #d1eb75;
-  padding: 6px 14px;
+  background: #fff;
+  padding: 4px;
+  object-fit: contain;
   font-size: 26px;
   font-weight: 800;
   border-radius: 8px;

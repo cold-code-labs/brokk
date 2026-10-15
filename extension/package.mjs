@@ -23,8 +23,13 @@ function crc32(bytes) {
   }
   return (c ^ 0xffffffff) >>> 0;
 }
-for (const name of (await readdir(dir)).sort()) {
-  if (!/\.(json|js|html|css)$/.test(name)) continue;
+const assets = (await readdir(dir)).filter((name) =>
+  /\.(json|js|html|css)$/.test(name),
+);
+for (const name of await readdir(new URL("icons/", dir))) {
+  if (/^icon-(16|32|48|128)\.png$/.test(name)) assets.push(`icons/${name}`);
+}
+for (const name of assets.sort()) {
   const data = await readFile(new URL(name, dir)),
     file = Buffer.from(name),
     crc = crc32(data);
@@ -47,10 +52,10 @@ for (const name of (await readdir(dir)).sort()) {
   local.push(header, file, data);
   central.push(index, file);
   offset += header.length + file.length + data.length;
-  if (name === "privacy.html")
+  if (["privacy.html", "support.html"].includes(name))
     await copyFile(
       new URL(name, dir),
-      new URL("../public/extension/privacy.html", import.meta.url),
+      new URL(`../public/extension/${name}`, import.meta.url),
     );
 }
 const directory = Buffer.concat(central),
