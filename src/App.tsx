@@ -468,7 +468,15 @@ export default function App() {
               className="icon-btn"
               aria-label="Sair"
               onClick={async () => {
-                await request("/auth/logout", "POST", {});
+                const result = await request<{ redirect?: string }>(
+                  "/auth/logout",
+                  "POST",
+                  {},
+                );
+                if (result.redirect) {
+                  window.location.assign(result.redirect);
+                  return;
+                }
                 setMe(await request("/me"));
               }}
             >

@@ -7,6 +7,7 @@ import {
   type CallAnalysis,
   codeReferenceSchema,
 } from "../shared/review.ts";
+import { a4Identity } from "./a4-suite.ts";
 import type { Env } from "./auth.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./store.ts";
@@ -86,6 +87,26 @@ export function installExtension(app: Hono<Env>, store: Store, cfg: Config) {
   app.use("/api/extension/*", async (c, next) => {
     const token = c.req.header("authorization")?.replace(/^Bearer /, "") || "";
     const grant = await store.extensionAccess(token);
+    if (cfg.suite.authority) {
+      const identity = grant.user.suiteToken
+        ? await a4Identity(cfg.suite, grant.user.suiteToken)
+        : null;
+      if (!identity || identity.user.id !== grant.user.id)
+        throw new Problem(
+          401,
+          "Entre novamente pela A4 e reconecte a extensão.",
+        );
+      if (identity.organization.role === "viewer")
+        throw new Problem(403, "A sessão não permite conectar a extensão.");
+      const organization = await store.suiteOrganization(
+        identity.organization.id,
+        identity.organization.name,
+        identity.user.email,
+        "operator",
+      );
+      if (organization !== grant.user.suiteOrganization)
+        throw new Problem(403, "Empresa da conexão inválida.");
+    }
     // Membership and technical administrator authority are re-evaluated on every request.
     grant.user.admin = cfg.adminEmails.includes(grant.user.email);
     const ws = await store.workspace(grant.projectId, grant.user);

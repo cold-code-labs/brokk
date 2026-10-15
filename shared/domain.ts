@@ -14,7 +14,14 @@ export const kinds = [
   "run",
 ] as const;
 export type Kind = (typeof kinds)[number];
-export type User = { id: string; email: string; name: string; admin: boolean };
+export type User = {
+  id: string;
+  email: string;
+  name: string;
+  admin: boolean;
+  suiteOrganization?: string;
+  suiteToken?: string;
+};
 export type Organization = {
   id: string;
   name: string;

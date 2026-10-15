@@ -190,6 +190,7 @@ export function buildApp(
       })
       .strict()
       .parse(await c.req.json());
+    if (cfg.suite.authority) throw new Problem(403, "Abra o Brokk pela A4.");
     const result = await store.handoff(input);
     return c.json(
       {

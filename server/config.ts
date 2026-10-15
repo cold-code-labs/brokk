@@ -24,6 +24,13 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
       secret: env.LOGTO_APP_SECRET || "",
     },
     varSecret: env.BROKK_VAR_SECRET || "",
+    suite: {
+      authority: (env.A4_SUITE_ORIGIN || "").replace(/\/$/, ""),
+      secret: env.A4_SUITE_CLIENT_SECRET || "",
+      app: "brokk",
+      prefix: "/api/auth/a4",
+      origin,
+    },
     devin: {
       key: env.DEVIN_API_KEY || "",
       orgId: env.DEVIN_ORG_ID || "",

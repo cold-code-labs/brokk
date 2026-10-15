@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
+import { Hono } from "hono";
+import type { A4Identity } from "../server/a4-suite.ts";
 import { buildApp } from "../server/app.ts";
+import type { Env } from "../server/auth.ts";
 import { readConfig } from "../server/config.ts";
 import type { PreviewProvider } from "../server/preview.ts";
 import { contextFor } from "../server/providers.ts";
@@ -1508,4 +1511,67 @@ test("extension grants are call-scoped, preserve original transcript, deduplicat
     ).status,
     401,
   );
+});
+
+test("A4 company selection isolates even administrators and never exposes the app session token", async () => {
+  const suiteConfig = {
+    ...cfg,
+    suite: {
+      ...cfg.suite,
+      authority: "https://app.a4.ia.br",
+      secret: "test".repeat(12),
+    },
+  };
+  let identity: A4Identity | undefined = {
+    user: { id: randomUUID(), email: cfg.adminEmails[0], name: "Suite" },
+    organization: { id: randomUUID(), name: "Suite A", role: "owner" },
+    expiresAt: new Date(Date.now() + 3600000).toISOString(),
+  };
+  const wrapper = new Hono<Env>();
+  wrapper.use("*", async (c, next) => {
+    if (identity) {
+      c.set("a4Identity", identity);
+      c.set("a4Token", "T".repeat(43));
+    }
+    await next();
+  });
+  wrapper.route("/", buildApp(store, suiteConfig));
+  const req = (path: string, body?: unknown) =>
+    wrapper.request(`/api${path}`, {
+      method: body ? "POST" : "GET",
+      headers: {
+        origin: cfg.origin,
+        "content-type": "application/json",
+        cookie: admin,
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  const me = await req("/me");
+  assert.equal(me.status, 200);
+  assert.ok(!(await me.text()).includes("suiteToken"));
+  const organizations = await (await req("/organizations")).json();
+  assert.equal(organizations.length, 1);
+  const created = await req("/projects", {
+    organizationId: organizations[0].id,
+    name: "Suite project",
+    objective: "Validate company scope",
+  });
+  assert.equal(created.status, 201, await created.clone().text());
+  const p = await created.json();
+  assert.equal((await req(`/projects/${p.id}`)).status, 200);
+  identity.organization = { id: randomUUID(), name: "Suite B", role: "owner" };
+  assert.equal((await req(`/projects/${p.id}`)).status, 404);
+  assert.deepEqual(await (await req("/projects")).json(), []);
+  assert.equal(
+    (
+      await req("/projects", {
+        organizationId: organizations[0].id,
+        name: "Foreign",
+        objective: "Reject foreign company",
+      })
+    ).status,
+    404,
+  );
+  identity = undefined;
+  assert.equal((await req("/me")).status, 401);
 });
