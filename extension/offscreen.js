@@ -15,19 +15,31 @@ async function cleanup() {
 }
 async function start(message) {
   stopped = false;
-  tabStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      mandatory: {
-        chromeMediaSource: "tab",
-        chromeMediaSourceId: message.streamId,
+  tabStream = await navigator.mediaDevices
+    .getUserMedia({
+      audio: {
+        mandatory: {
+          chromeMediaSource: "tab",
+          chromeMediaSourceId: message.streamId,
+        },
       },
-    },
-    video: false,
-  });
-  micStream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true },
-    video: false,
-  });
+      video: false,
+    })
+    .catch(() => {
+      throw new Error(
+        "Não foi possível capturar o áudio da aba. Abra a chamada e acione o ícone ou atalho do Brokk nessa aba antes de iniciar.",
+      );
+    });
+  micStream = await navigator.mediaDevices
+    .getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true },
+      video: false,
+    })
+    .catch(() => {
+      throw new Error(
+        "Não encontramos um microfone disponível para a captura. Confira a permissão e o dispositivo de áudio no Chrome.",
+      );
+    });
   context = new AudioContext({ sampleRate: 16000 });
   await context.audioWorklet.addModule("pcm-processor.js");
   const tabSource = context.createMediaStreamSource(tabStream);
