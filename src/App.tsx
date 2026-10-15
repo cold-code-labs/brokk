@@ -53,6 +53,7 @@ import brokkLogo from "./assets/brokk.svg";
 import { DesignEditor, DesignSystem } from "./DesignSystem.tsx";
 
 type Me = {
+  a4Authority?: string;
   user: User | null;
   devAuth: boolean;
   integrations?: {
@@ -445,7 +446,7 @@ export default function App() {
               Acesso técnico protegido.
             </span>
           </div>
-          {me.user.admin && (
+          {me.user.admin && !me.a4Authority && (
             <button
               type="button"
               className="nav-item"
@@ -466,9 +467,17 @@ export default function App() {
             <button
               type="button"
               className="icon-btn"
-              aria-label="Sair"
+              aria-label={me.a4Authority ? "Voltar à A4" : "Sair"}
               onClick={async () => {
-                await request("/auth/logout", "POST", {});
+                const result = await request<{ redirect?: string }>(
+                  "/auth/logout",
+                  "POST",
+                  {},
+                );
+                if (result.redirect) {
+                  window.location.assign(result.redirect);
+                  return;
+                }
                 setMe(await request("/me"));
               }}
             >

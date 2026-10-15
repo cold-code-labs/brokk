@@ -3,13 +3,16 @@ import type { Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { User } from "../shared/domain.ts";
+import type { A4Identity } from "./a4-suite.ts";
 import type { Config } from "./config.ts";
 import type { Store } from "./store.ts";
 import { Problem } from "./store.ts";
 
 const UA =
   "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
-export type Env = { Variables: { user: User } };
+export type Env = {
+  Variables: { user: User; a4Identity?: A4Identity; a4Token?: string };
+};
 export function secretOk(given: string, expected: string) {
   const a = Buffer.from(given),
     b = Buffer.from(expected);
@@ -49,6 +52,7 @@ export function installAuth(app: Hono<Env>, store: Store, cfg: Config) {
     return metadata;
   }
   app.get("/api/auth/start", async (c) => {
+    if (cfg.suite.authority) return c.redirect("/api/auth/a4/start");
     if (!cfg.oidc.appId)
       throw new Problem(503, "O acesso CCL ID precisa ser configurado.");
     const m = await discover();
@@ -71,6 +75,7 @@ export function installAuth(app: Hono<Env>, store: Store, cfg: Config) {
     return c.redirect(url.href);
   });
   app.get("/api/auth/callback", async (c) => {
+    if (cfg.suite.authority) return c.json({ error: "a4_login_required" }, 401);
     try {
       const saved = JSON.parse(getCookie(c, "brokk_oidc") || "{}") as {
         state: string;
@@ -169,6 +174,25 @@ export function installAuth(app: Hono<Env>, store: Store, cfg: Config) {
       c.req.path === "/api/integrations/var/handoff"
     )
       return next();
+    if (cfg.suite.authority) {
+      const identity = c.get("a4Identity");
+      if (!identity) return c.json({ error: "a4_login_required" }, 401);
+      const organization = await store.suiteOrganization(
+        identity.organization.id,
+        identity.organization.name,
+        identity.user.email,
+        identity.organization.role === "viewer" ? "reader" : "operator",
+      );
+      c.set("user", {
+        id: identity.user.id,
+        email: identity.user.email,
+        name: identity.user.name || identity.user.email,
+        admin: cfg.adminEmails.includes(identity.user.email),
+        suiteOrganization: organization,
+        suiteToken: c.get("a4Token"),
+      });
+      return next();
+    }
     const token = getCookie(c, "brokk_session");
     const user = token ? await store.session(token) : undefined;
     if (!user) {
@@ -182,7 +206,10 @@ export function installAuth(app: Hono<Env>, store: Store, cfg: Config) {
   });
   app.get("/api/me", (c) =>
     c.json({
-      user: c.get("user"),
+      user: (({ id, email, name, admin }) => ({ id, email, name, admin }))(
+        c.get("user"),
+      ),
+      a4Authority: cfg.suite.authority || undefined,
       devAuth: cfg.devAuth,
       integrations: {
         devin: Boolean(cfg.devin.key && cfg.devin.orgId),

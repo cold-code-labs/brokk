@@ -93,7 +93,12 @@ export function createStore(url: string) {
   async function access(db: Db, projectId: string, user: User, edit = false) {
     const rows =
       await db`select p.*, o.name as org_name, o.external_id as org_external_id, m.role from brokk_v2.projects p join brokk_v2.organizations o on o.id=p.organization_id left join brokk_v2.members m on m.organization_id=o.id and m.email=${user.email} where p.id=${projectId} and (${user.admin} or m.email is not null)`;
-    if (!rows.length) throw new Problem(404, "Projeto não encontrado.");
+    if (
+      !rows.length ||
+      (user.suiteOrganization &&
+        String(rows[0].organization_id) !== user.suiteOrganization)
+    )
+      throw new Problem(404, "Projeto não encontrado.");
     const role: Role = user.admin ? "admin" : (rows[0].role as Role);
     if (edit && !canEdit(role))
       throw new Problem(
@@ -366,9 +371,23 @@ export function createStore(url: string) {
     async logout(token: string) {
       await sql`delete from brokk_v2.sessions where digest=${hash(token)}`;
     },
+    async suiteOrganization(
+      id: string,
+      name: string,
+      email: string,
+      role: Role,
+    ) {
+      return sql.begin(async (db) => {
+        const rows =
+          await db`insert into brokk_v2.organizations(id,name,external_id) values (${randomUUID()},${name},${`a4:${id}`}) on conflict(external_id) do update set name=excluded.name returning id`;
+        const oid = String(rows[0].id);
+        await db`insert into brokk_v2.members values (${oid},${email},${role}) on conflict(organization_id,email) do update set role=excluded.role`;
+        return oid;
+      });
+    },
     async organizations(user: User) {
       const rows =
-        await sql`select o.*,m.role from brokk_v2.organizations o left join brokk_v2.members m on m.organization_id=o.id and m.email=${user.email} where ${user.admin} or m.email is not null order by o.name`;
+        await sql`select o.*,m.role from brokk_v2.organizations o left join brokk_v2.members m on m.organization_id=o.id and m.email=${user.email} where (${user.admin} or m.email is not null) and (${user.suiteOrganization ?? ""} = '' or o.id::text=${user.suiteOrganization ?? ""}) order by o.name`;
       return rows.map((r) => ({
         id: r.id,
         name: r.name,
@@ -377,8 +396,8 @@ export function createStore(url: string) {
       })) as Organization[];
     },
     async createOrganization(name: string, user: User) {
-      if (!user.admin)
-        throw new Problem(403, "Somente a administração cria organizações.");
+      if (!user.admin || user.suiteOrganization)
+        throw new Problem(403, "Gerencie as empresas na A4.");
       return sql.begin(async (db) => {
         const id = randomUUID();
         await db`insert into brokk_v2.organizations (id,name) values (${id},${name})`;
@@ -387,6 +406,8 @@ export function createStore(url: string) {
       });
     },
     async member(orgId: string, email: string, role: Role, user: User) {
+      if (user.suiteOrganization && user.suiteOrganization !== orgId)
+        throw new Problem(404, "Organização indisponível.");
       return sql.begin(async (db) => {
         const rows =
           await db`select o.id,m.role from brokk_v2.organizations o left join brokk_v2.members m on m.organization_id=o.id and m.email=${user.email} where o.id=${orgId}`;
@@ -407,7 +428,7 @@ export function createStore(url: string) {
     },
     async projects(user: User) {
       const rows =
-        await sql`select p.* from brokk_v2.projects p left join brokk_v2.members m on m.organization_id=p.organization_id and m.email=${user.email} where ${user.admin} or m.email is not null order by p.updated_at desc`;
+        await sql`select p.* from brokk_v2.projects p left join brokk_v2.members m on m.organization_id=p.organization_id and m.email=${user.email} where (${user.admin} or m.email is not null) and (${user.suiteOrganization ?? ""} = '' or p.organization_id::text=${user.suiteOrganization ?? ""}) order by p.updated_at desc`;
       return rows.map(projectOf);
     },
     async createProject(
@@ -416,6 +437,8 @@ export function createStore(url: string) {
       objective: string,
       user: User,
     ) {
+      if (user.suiteOrganization && user.suiteOrganization !== orgId)
+        throw new Problem(404, "Organização indisponível.");
       return sql.begin(async (db) => {
         const rows =
           await db`select o.id,m.role from brokk_v2.organizations o left join brokk_v2.members m on m.organization_id=o.id and m.email=${user.email} where o.id=${orgId} and (${user.admin} or m.role in ('admin','operator'))`;
