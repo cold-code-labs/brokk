@@ -1,4 +1,5 @@
 import type { DesignSpec } from "./design.ts";
+import type { CodeReference, ReviewProposal } from "./review.ts";
 export const roles = ["admin", "operator", "client", "reader"] as const;
 export type Role = (typeof roles)[number];
 export const kinds = [
@@ -38,6 +39,9 @@ export type Note = {
   screenId: string;
   author: string;
   at: string;
+  source?: "manual" | "transcript";
+  clientId?: string;
+  codeReference?: CodeReference;
 };
 export type RecordData = {
   body: string;
@@ -51,6 +55,7 @@ export type RecordData = {
   targetVersion: number;
   notes: Note[];
   summary: string;
+  reviewProposals: ReviewProposal[];
   scheduledAt: string;
   roomName: string;
   sessionId: string;
@@ -100,6 +105,7 @@ export const emptyData = (): RecordData => ({
   targetVersion: 0,
   notes: [],
   summary: "",
+  reviewProposals: [],
   scheduledAt: "",
   roomName: "",
   sessionId: "",

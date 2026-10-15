@@ -272,7 +272,7 @@ test("versioned scope survives reload, receives client approval and reopens afte
     409,
   );
 });
-test("call notes retain authors and close atomically creates exactly one task per adjustment", async () => {
+test("call close proposes adjustments and explicit confirmation creates exactly one task", async () => {
   const screen = await record("screen", "Dashboard", {
     body: "Accessible summary",
   });
@@ -310,8 +310,40 @@ test("call notes retain authors and close atomically creates exactly one task pe
   );
   assert.equal(closed.status, 200);
   const result = await closed.json();
-  assert.equal(result.tasks.length, 1);
-  assert.equal(result.tasks[0].data.screenId, screen.id);
+  assert.equal(result.tasks.length, 0);
+  assert.equal(result.call.data.reviewProposals.length, 1);
+  const proposal = result.call.data.reviewProposals[0];
+  const decision = {
+    version: result.call.version,
+    decision: "accepted",
+    title: "Improve contrast",
+    body: "Increase contrast",
+    acceptance: "Readable dashboard",
+    codeReference: { path: "src/Dashboard.tsx", line: 42 },
+  };
+  const decisions = await Promise.all([
+    call(
+      `/projects/${project.id}/calls/${room.id}/proposals/${proposal.id}`,
+      "POST",
+      decision,
+      operator,
+    ),
+    call(
+      `/projects/${project.id}/calls/${room.id}/proposals/${proposal.id}`,
+      "POST",
+      decision,
+      operator,
+    ),
+  ]);
+  assert.deepEqual(decisions.map((r) => r.status).sort(), [200, 409]);
+  const ws = await (await call(`/projects/${project.id}`)).json();
+  const tasks = ws.records.filter(
+    (r: Artifact) =>
+      r.data.category === `call:${room.id}:proposal:${proposal.id}`,
+  );
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].data.screenId, screen.id);
+  assert.match(tasks[0].data.body, /src\/Dashboard.tsx:42/);
   assert.equal(result.call.data.notes.length, 1);
   assert.equal(
     (
@@ -1379,5 +1411,101 @@ test("only administrators recover checked Cursor delivery without launching a mo
       await store.sql`select state from brokk_v2.coder_jobs where run_id=${run.id}`
     )[0].state,
     "failed",
+  );
+});
+
+test("extension grants are call-scoped, preserve original transcript, deduplicate retries and stop on revocation", async () => {
+  const room = await record("call", "Chrome review", {}, "scheduled");
+  const path = `/projects/${project.id}/calls/${room.id}`;
+  assert.equal(
+    (await call(path + "/extension", "POST", {}, client)).status,
+    403,
+  );
+  const issued = await call(path + "/extension", "POST", {}, operator);
+  assert.equal(issued.status, 201);
+  const { token } = await issued.json();
+  const ext = (route: string, body?: unknown, auth = token) =>
+    app.request("/api/extension/" + route, {
+      method: body ? "POST" : "GET",
+      headers: {
+        authorization: `Bearer ${auth}`,
+        origin: "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "content-type": "application/json",
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  assert.equal((await ext("session")).status, 200);
+  assert.equal((await ext("session", undefined, "invalid")).status, 401);
+  const note = {
+    clientId: randomUUID(),
+    body: "Mudar a cor do botão para azul",
+    category: "decision",
+    source: "transcript",
+    at: new Date().toISOString(),
+  };
+  assert.equal((await ext("notes", { notes: [note, note] })).status, 200);
+  assert.equal((await ext("notes", { notes: [note] })).status, 200);
+  const ws = await (await call(`/projects/${project.id}`)).json();
+  const updated = ws.records.find((r: Artifact) => r.id === room.id);
+  assert.equal(updated.data.notes.length, 1);
+  assert.equal(updated.data.notes[0].author, "operator@local.test");
+  assert.equal(
+    (
+      await ext("notes", {
+        notes: [
+          {
+            ...note,
+            clientId: randomUUID(),
+            codeReference: { path: "../secret", line: 1 },
+          },
+        ],
+      })
+    ).status,
+    400,
+  );
+  await store.extensionCapture(token, true);
+  assert.equal(
+    (
+      await call(
+        path + "/close",
+        "POST",
+        { version: updated.version },
+        operator,
+      )
+    ).status,
+    409,
+  );
+  assert.equal(
+    (await call(path + "/extension", "POST", {}, operator)).status,
+    409,
+  );
+  await store.extensionCapture(token, false);
+  assert.equal(
+    (
+      await call(
+        path + "/close",
+        "POST",
+        { version: updated.version },
+        operator,
+      )
+    ).status,
+    503,
+  );
+  assert.equal(
+    (await call(path + "/extension/revoke", "POST", {}, operator)).status,
+    200,
+  );
+  assert.equal((await ext("notes", { notes: [note] })).status, 401);
+  assert.equal(
+    (
+      await call(
+        "/organizations",
+        "POST",
+        { name: "no extension authority" },
+        "",
+        cfg.origin,
+      )
+    ).status,
+    401,
   );
 });

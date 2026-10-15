@@ -12,6 +12,7 @@ import type {
   Artifact,
   Event,
   Kind,
+  Note,
   Organization,
   Project,
   RecordData,
@@ -23,6 +24,7 @@ import type {
   EnvironmentRecord,
   EnvironmentResources,
 } from "../shared/environment.ts";
+import type { CallAnalysis, CodeReference } from "../shared/review.ts";
 export class Problem extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -214,6 +216,141 @@ export function createStore(url: string) {
             "utf8",
           ),
         );
+        await db.unsafe(
+          await readFile(
+            new URL(
+              "../db/migrations/0005_review_extension.sql",
+              import.meta.url,
+            ),
+            "utf8",
+          ),
+        );
+      });
+    },
+    async extensionGrant(id: string, item: string, user: User) {
+      return sql.begin(async (db) => {
+        await access(db, id, user, true);
+        const rows =
+          await db`select id from brokk_v2.artifacts where id=${item} and project_id=${id} and kind='call' and status<>'closed' for update`;
+        if (!rows.length) throw new Problem(404, "Review indisponível.");
+        const active =
+          await db`select digest from brokk_v2.extension_grants where call_id=${item} and capture_until>now() and not revoked`;
+        if (active.length)
+          throw new Problem(
+            409,
+            "Pare e sincronize a captura antes de gerar outra conexão.",
+          );
+        await db`update brokk_v2.extension_grants set revoked=true,capture_until=null where call_id=${item} and identity->>'email'=${user.email}`;
+        const token = randomBytes(32).toString("base64url");
+        await db`insert into brokk_v2.extension_grants(digest,project_id,call_id,identity,expires_at) values(${hash(token)},${id},${item},${db.json(user)},now()+interval '4 hours')`;
+        await event(
+          db,
+          id,
+          user,
+          "call.extension.paired",
+          "Extensão autorizada por quatro horas para esta review.",
+        );
+        return {
+          token,
+          projectId: id,
+          callId: item,
+          expiresAt: new Date(Date.now() + 14400000).toISOString(),
+        };
+      });
+    },
+    async extensionAccess(token: string) {
+      const rows =
+        await sql`select * from brokk_v2.extension_grants where digest=${hash(token)} and not revoked and expires_at>now()`;
+      if (!rows.length)
+        throw new Problem(401, "Conecte novamente a extensão nesta review.");
+      const grant = rows[0],
+        user = grant.identity as User;
+      return {
+        projectId: String(grant.project_id),
+        callId: String(grant.call_id),
+        user,
+      };
+    },
+    async extensionCapture(token: string, start: boolean) {
+      return sql.begin(async (db) => {
+        const rows =
+          await db`select * from brokk_v2.extension_grants where digest=${hash(token)} and not revoked and expires_at>now() for update`;
+        if (!rows.length)
+          throw new Problem(401, "Conecte novamente a extensão.");
+        const g = rows[0],
+          user = g.identity as User;
+        await access(db, String(g.project_id), user, true);
+        const calls =
+          await db`select id from brokk_v2.artifacts where id=${g.call_id} and status<>'closed' for update`;
+        if (!calls.length) throw new Problem(409, "Review encerrada.");
+        if (start) {
+          const active =
+            await db`select digest from brokk_v2.extension_grants where call_id=${g.call_id} and capture_until>now()`;
+          if (active.length || Number(g.captures) >= 8)
+            throw new Problem(
+              409,
+              "Encerre a captura ativa ou gere uma nova conexão após o limite de oito capturas.",
+            );
+        }
+        await db`update brokk_v2.extension_grants set capture_until=${start ? new Date(Date.now() + 7200000) : null},captures=captures+${start ? 1 : 0} where digest=${hash(token)}`;
+      });
+    },
+    async revokeExtension(id: string, item: string, user: User) {
+      return sql.begin(async (db) => {
+        await access(db, id, user, true);
+        await db`update brokk_v2.extension_grants set revoked=true,capture_until=null where project_id=${id} and call_id=${item}`;
+        await event(
+          db,
+          id,
+          user,
+          "call.extension.revoked",
+          "Conexões da extensão revogadas.",
+        );
+      });
+    },
+    async extensionNotes(token: string, notes: Note[]) {
+      return sql.begin(async (db) => {
+        const grants =
+          await db`select * from brokk_v2.extension_grants where digest=${hash(token)} and not revoked and expires_at>now() for update`;
+        if (!grants.length)
+          throw new Problem(401, "Conecte novamente a extensão.");
+        const g = grants[0],
+          user = g.identity as User;
+        await access(db, String(g.project_id), user, true);
+        const rows =
+          await db`select * from brokk_v2.artifacts where id=${g.call_id} and project_id=${g.project_id} and kind='call' for update`;
+        if (!rows.length || rows[0].status === "closed")
+          throw new Problem(
+            409,
+            "Review encerrada. As observações permanecem na extensão.",
+          );
+        const row = artifactOf(rows[0]);
+        const fresh = [
+          ...new Map(notes.map((n) => [n.clientId, n])).values(),
+        ].filter(
+          (n) => !row.data.notes.some((old) => old.clientId === n.clientId),
+        );
+        if (row.data.notes.length + fresh.length > 2000)
+          throw new Problem(
+            409,
+            "Limite de transcrição atingido. Encerre esta review.",
+          );
+        if (!fresh.length) return row;
+        row.status = "active";
+        row.data.notes.push(
+          ...fresh.map((n) => ({ ...n, id: randomUUID(), author: user.email })),
+        );
+        const updated =
+          await db`update brokk_v2.artifacts set status='active',data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${g.call_id} returning *`;
+        await snapshot(db, artifactOf(updated[0]), user);
+        await event(
+          db,
+          String(g.project_id),
+          user,
+          "call.extension.notes",
+          `${fresh.length} observações recebidas`,
+        );
+        return artifactOf(updated[0]);
       });
     },
     async session(token: string) {
@@ -733,7 +870,13 @@ export function createStore(url: string) {
         return artifactOf(updated[0]);
       });
     },
-    async closeCall(id: string, item: string, version: number, user: User) {
+    async closeCall(
+      id: string,
+      item: string,
+      version: number,
+      user: User,
+      analysis?: CallAnalysis,
+    ) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
         const rows =
@@ -743,30 +886,42 @@ export function createStore(url: string) {
         const row = artifactOf(rows[0]);
         if (row.status === "closed")
           throw new Problem(409, "A call já foi encerrada.");
-        const changes = row.data.notes.filter((n) => n.category === "change");
-        const tasks = [];
-        for (const note of changes)
-          tasks.push(
-            await insert(
-              db,
-              id,
-              "task",
-              note.body.slice(0, 160),
-              "backlog",
-              {
-                ...emptyData(),
-                body: note.body,
-                screenId: note.screenId,
-                category: `call:${item}`,
-                acceptance:
-                  "Confirmar o ajuste na próxima review com o cliente.",
-              },
-              user,
-            ),
+        const active =
+          await db`select digest from brokk_v2.extension_grants where call_id=${item} and capture_until>now() and not revoked`;
+        if (active.length)
+          throw new Problem(
+            409,
+            "Pare a captura e sincronize a extensão antes de encerrar. Se o navegador foi fechado, revogue a conexão.",
           );
-        row.data.summary = row.data.notes
-          .map((n) => `${n.category}: ${n.body}`)
-          .join("\n");
+        row.data.summary =
+          analysis?.summary ||
+          row.data.notes
+            .map(
+              (n) =>
+                `${{ liked: "Gostou", change: "Ajuste", question: "Dúvida", decision: "Decisão" }[n.category]}: ${n.body}`,
+            )
+            .join("\n");
+        const insights =
+          analysis?.proposals ||
+          row.data.notes
+            .filter((n) => n.category === "change" && n.source !== "transcript")
+            .map((n) => ({
+              title: n.body.slice(0, 160),
+              body: n.body,
+              acceptance: "Confirmar o ajuste na próxima review com o cliente.",
+              noteIds: [n.id],
+            }));
+        row.data.reviewProposals = insights.map((p) => ({
+          ...p,
+          id: randomUUID(),
+          status: "pending",
+          taskId: "",
+          reviewedBy: "",
+          codeReference: row.data.notes.find(
+            (n) => p.noteIds.includes(n.id) && n.codeReference,
+          )?.codeReference,
+        }));
+        await db`update brokk_v2.extension_grants set revoked=true where call_id=${item}`;
         const result =
           await db`update brokk_v2.artifacts set status='closed',data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
         await snapshot(db, artifactOf(result[0]), user);
@@ -775,9 +930,70 @@ export function createStore(url: string) {
           id,
           user,
           "call.closed",
-          `${row.title}: ${tasks.length} ajustes criados`,
+          `${row.title}: ${insights.length} propostas aguardando confirmação`,
         );
-        return { call: artifactOf(result[0]), tasks };
+        return { call: artifactOf(result[0]), tasks: [] };
+      });
+    },
+    async decideProposal(
+      id: string,
+      item: string,
+      proposalId: string,
+      version: number,
+      user: User,
+      input: {
+        decision: "accepted" | "rejected";
+        title: string;
+        body: string;
+        acceptance: string;
+        codeReference?: CodeReference;
+      },
+    ) {
+      return sql.begin(async (db) => {
+        await access(db, id, user, true);
+        const rows =
+          await db`select * from brokk_v2.artifacts where id=${item} and project_id=${id} and kind='call' and status='closed' and version=${version} for update`;
+        if (!rows.length)
+          throw new Problem(
+            409,
+            "A review mudou. Atualize antes de confirmar.",
+          );
+        const row = artifactOf(rows[0]),
+          p = row.data.reviewProposals.find((p) => p.id === proposalId);
+        if (!p || p.status !== "pending")
+          throw new Problem(409, "Proposta já decidida ou indisponível.");
+        Object.assign(p, {
+          ...input,
+          status: input.decision,
+          reviewedBy: user.email,
+        });
+        if (input.decision === "accepted") {
+          const source = row.data.notes.find((n) => p.noteIds.includes(n.id));
+          const reference = input.codeReference?.path
+            ? `\n\nReferência indicada pela equipe: ${input.codeReference.path}:${input.codeReference.line}`
+            : "";
+          const task = await insert(
+            db,
+            id,
+            "task",
+            input.title,
+            "backlog",
+            {
+              ...emptyData(),
+              body: input.body + reference,
+              acceptance: input.acceptance,
+              screenId: source?.screenId || "",
+              category: `call:${item}:proposal:${p.id}`,
+            },
+            user,
+          );
+          p.taskId = task.id;
+        }
+        const updated =
+          await db`update brokk_v2.artifacts set data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
+        await snapshot(db, artifactOf(updated[0]), user);
+        await event(db, id, user, `call.proposal.${input.decision}`, p.title);
+        return artifactOf(updated[0]);
       });
     },
     async reserveRun(

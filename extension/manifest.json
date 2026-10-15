@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Brokk Review",
+  "version": "1.0.0",
+  "description": "Transforme calls de review em transcrição, decisões e propostas de alteração para confirmar no Brokk.",
+  "minimum_chrome_version": "116",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "tabCapture",
+    "offscreen",
+    "activeTab",
+    "tabs",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://brokk.a4.ia.br/*",
+    "https://brokk.coldcodelabs.com/*"
+  ],
+  "action": { "default_title": "Abrir Brokk Review" },
+  "background": { "service_worker": "worker.js", "type": "module" },
+  "side_panel": { "default_path": "panel.html" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src https://brokk.a4.ia.br https://brokk.coldcodelabs.com wss://streaming.assemblyai.com"
+  }
+}
