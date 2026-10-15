@@ -61,6 +61,7 @@ async function capture(start) {
         throw new Error(
           "Abra a aba da chamada e clique no ícone do Brokk nela.",
         );
+      await chrome.storage.local.set({ error: "" });
       await chrome.storage.session.set({ captureState: "starting" });
       try {
         if (
@@ -77,10 +78,11 @@ async function capture(start) {
               "Transcrever o áudio da chamada e o microfone durante a review iniciada pelo operador.",
           });
         }
+        // Media stream IDs are short-lived: finish the network request before acquiring one.
+        const speech = await api("speech", {});
         const streamId = await chrome.tabCapture.getMediaStreamId({
           targetTabId,
         });
-        const speech = await api("speech", {});
         const result = await chrome.runtime.sendMessage({
           target: "offscreen",
           type: "START",
