@@ -160,6 +160,8 @@ async function stop() {
       socket.addEventListener("close", resolve, { once: true });
       setTimeout(resolve, 5000);
     });
+    socket.send(JSON.stringify({ type: "ForceEndpoint" }));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
     socket.send(JSON.stringify({ type: "Terminate" }));
     await closed;
   }
