@@ -137,3 +137,27 @@ test("extension acquires short-lived media IDs after network I/O, serializes sta
   assert.equal(session.captureState, "idle");
   assert.equal((local.queue as unknown[]).length, 0);
 });
+
+test("formatted final transcripts are retained while interim turns are ignored", async () => {
+  const { isFinalTurn } = await import(
+    new URL("../extension/transcript.js", import.meta.url).href
+  );
+  for (const turn_is_formatted of [true, false])
+    assert.equal(
+      isFinalTurn({
+        type: "Turn",
+        end_of_turn: true,
+        turn_is_formatted,
+        transcript: "Adicionar botão de contato.",
+      }),
+      true,
+    );
+  assert.equal(
+    isFinalTurn({ type: "Turn", end_of_turn: false, transcript: "Adicionar" }),
+    false,
+  );
+  assert.equal(
+    isFinalTurn({ type: "Turn", end_of_turn: true, transcript: " " }),
+    false,
+  );
+});

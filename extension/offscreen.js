@@ -1,3 +1,5 @@
+import { isFinalTurn } from "./transcript.js";
+
 let tabStream, micStream, context, socket, processor;
 let pending = [],
   unsent = [],
@@ -83,13 +85,8 @@ async function start(message) {
   });
   socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
-    if (
-      data.type === "Turn" &&
-      data.end_of_turn &&
-      !data.turn_is_formatted &&
-      data.transcript?.trim()
-    ) {
-      // The unformatted final turn is delivered once; the formatted duplicate has the same client ID.
+    if (isFinalTurn(data)) {
+      // Providers may finalize directly in formatted form. Both final forms share an id for deduplication.
       const text = data.transcript.trim();
       const id = `${sessionId}:${data.turn_order}`;
       const write = (async () => {
