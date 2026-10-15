@@ -12,7 +12,7 @@
     "dev": "vite --host 127.0.0.1",
     "dev:api": "tsx watch server/index.ts",
     "start": "node server/index.ts",
-    "build": "vite build",
+    "build": "node extension/package.mjs && vite build",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "lint": "biome check ."

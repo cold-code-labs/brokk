@@ -35,6 +35,12 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
       key: env.DAILY_API_KEY || "",
       roomDomain: env.DAILY_ROOM_DOMAIN || "",
     },
+    review: {
+      speechKey: env.ASSEMBLYAI_API_KEY || "",
+      gatewayUrl: (env.BROKK_REVIEW_AI_URL || "").replace(/\/$/, ""),
+      gatewayKey: env.BROKK_REVIEW_AI_KEY || "",
+      model: env.BROKK_REVIEW_AI_MODEL || "gpt-6-luna",
+    },
     revision: env.SOURCE_COMMIT || env.BROKK_REVISION || "local",
     preview: {
       coolifyUrl: (env.BROKK_COOLIFY_URL || "").replace(/\/$/, ""),

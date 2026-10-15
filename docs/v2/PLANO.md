@@ -84,3 +84,13 @@ Lanes de preview, Coder, execução de código, sandbox e promoção de ambiente
 - [Devin v3 mensagens](https://docs.devin.ai/api-reference/v3/sessions/post-organizations-sessions-messages)
 - [Daily salas privadas](https://docs.daily.co/reference/rest-api/rooms/create-room)
 - [Daily tokens de reunião](https://docs.daily.co/reference/rest-api/meeting-tokens/create-meeting-token)
+
+## Reviews externas pela extensão Chrome (outubro de 2026)
+
+O endereço canônico é https://brokk.a4.ia.br. A equipe A⁴ acessa o Brokk pela área interna. O agendamento permanece no calendário habitual; não existe automação de calendário nesta etapa. Mateus cria/seleciona uma review no projeto, gera uma conexão limitada a quatro horas e a cola na extensão Brokk Review. O ZIP interno em `/downloads/brokk-review.zip` contém somente os assets da extensão MV3, sem segredos. Instalação e privacidade estão disponíveis na área Calls de review.
+
+A captura explícita reúne áudio da aba selecionada e microfone em PCM pelo AudioWorklet. O documento offscreen mantém o áudio quando o painel fecha; o worker persiste estado e fila no Chrome. O servidor fornece apenas um token temporário de transcrição AssemblyAI com janela de resgate de dez segundos e sessão máxima de duas horas; a chave principal nunca vai ao navegador. Tokens temporários do provedor não são de uso único. A extensão não lê páginas, histórico, calendário ou vídeo. O operador precisa avisar os participantes. Os termos de retenção dos provedores continuam aplicáveis.
+
+A conexão é limitada a uma review e revalida identidade, associação e papel a cada envio. IDs estáveis tornam reenvios idempotentes. Capture ativa bloqueia encerramento; o operador deve parar e sincronizar ou revogar explicitamente uma conexão abandonada. A revogação bloqueia novos envios; parar a extensão interrompe o áudio. Originais, versões e autores ficam preservados. O gateway de análise recebe somente texto e exige propostas com referências às observações existentes. Falha de transcrição ou análise é visível e não produz sucesso fictício.
+
+Encerrar gera resumo e propostas pendentes, sem tarefas automáticas. A equipe edita título, descrição, critérios de aceite e referência opcional de arquivo/linha, confirma ou descarta. A confirmação transacional cria uma tarefa única no backlog com rastreio à call/proposta; execução continua sendo uma ação no Desenvolvimento. Referências de código são indicações da equipe, não afirmações de inspeção ou alterações já aplicadas. O fluxo existente de executor → PR → Woodpecker → preview continua obrigatório.

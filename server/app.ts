@@ -8,6 +8,7 @@ import { designSchema, manifestSchema } from "../shared/design.ts";
 import type { Kind, User } from "../shared/domain.ts";
 import { canEdit, emptyData, kinds, roles } from "../shared/domain.ts";
 import { publicEnvironment } from "../shared/environment.ts";
+import { codeReferenceSchema } from "../shared/review.ts";
 import type { Env } from "./auth.ts";
 import { installAuth, secretOk } from "./auth.ts";
 import { coderMessage, cursorAvailable, installCoderWorker } from "./coder.ts";
@@ -26,6 +27,7 @@ import {
   devin,
   sessionId,
 } from "./providers.ts";
+import { analyzeCall, installExtension } from "./review.ts";
 import type { Store } from "./store.ts";
 import { hash, Problem } from "./store.ts";
 
@@ -116,12 +118,27 @@ export function buildApp(
   app.use("/api/*", async (c, next) => {
     if (!["GET", "HEAD"].includes(c.req.method)) {
       const origin = c.req.header("origin");
+      const extensionRequest =
+        c.req.path.startsWith("/api/extension/") &&
+        /^Bearer [A-Za-z0-9_-]{43}$/.test(
+          c.req.header("authorization") || "",
+        ) &&
+        (!origin || /^chrome-extension:\/\/[a-p]{32}$/.test(origin));
+      const workerRequest =
+        c.req.path.startsWith("/api/worker/cursor/") &&
+        secretOk(
+          c.req.header("authorization")?.replace(/^Bearer /, "") || "",
+          cfg.coder.workerSecret,
+        ) &&
+        origin === "https://brokk.coldcodelabs.com";
       if (
-        c.req.header("sec-fetch-site") === "cross-site" ||
-        (cfg.production &&
-          !origin &&
-          c.req.path !== "/api/integrations/var/handoff") ||
-        (origin && origin !== cfg.origin)
+        !workerRequest &&
+        !extensionRequest &&
+        (c.req.header("sec-fetch-site") === "cross-site" ||
+          (cfg.production &&
+            !origin &&
+            c.req.path !== "/api/integrations/var/handoff") ||
+          (origin && origin !== cfg.origin))
       )
         return c.json({ error: "Origem não permitida." }, 403);
       if (!c.req.header("content-type")?.startsWith("application/json"))
@@ -183,6 +200,7 @@ export function buildApp(
     );
   });
   installCoderWorker(app, store, cfg);
+  installExtension(app, store, cfg);
   installAuth(app, store, cfg);
   app.get("/api/executors", async (c) =>
     c.json({
@@ -430,6 +448,7 @@ export function buildApp(
         body: z.string().trim().min(1).max(4000),
         category: z.enum(["liked", "change", "question", "decision"]),
         screenId: z.union([uuid, z.literal("")]),
+        codeReference: codeReferenceSchema.optional(),
       })
       .strict()
       .parse(await c.req.json());
@@ -455,6 +474,8 @@ export function buildApp(
             id: randomUUID(),
             body: input.body,
             category: input.category,
+            codeReference: input.codeReference,
+            source: "manual",
             screenId: input.screenId,
             author: c.get("user").email,
             at: new Date().toISOString(),
@@ -503,6 +524,47 @@ export function buildApp(
     });
     return c.json({ url: room.url, token: token.token });
   });
+  app.post("/api/projects/:id/calls/:item/extension", async (c) =>
+    c.json(
+      await store.extensionGrant(
+        uuid.parse(c.req.param("id")),
+        uuid.parse(c.req.param("item")),
+        c.get("user"),
+      ),
+      201,
+    ),
+  );
+  app.post("/api/projects/:id/calls/:item/extension/revoke", async (c) => {
+    await store.revokeExtension(
+      uuid.parse(c.req.param("id")),
+      uuid.parse(c.req.param("item")),
+      c.get("user"),
+    );
+    return c.json({ ok: true });
+  });
+  app.post("/api/projects/:id/calls/:item/proposals/:proposal", async (c) => {
+    const input = z
+      .object({
+        version: z.number().int().positive(),
+        decision: z.enum(["accepted", "rejected"]),
+        title: z.string().trim().min(1).max(200),
+        body: z.string().trim().min(1).max(4000),
+        acceptance: z.string().trim().min(1).max(4000),
+        codeReference: codeReferenceSchema.optional(),
+      })
+      .strict()
+      .parse(await c.req.json());
+    return c.json(
+      await store.decideProposal(
+        uuid.parse(c.req.param("id")),
+        uuid.parse(c.req.param("item")),
+        uuid.parse(c.req.param("proposal")),
+        input.version,
+        c.get("user"),
+        input,
+      ),
+    );
+  });
   app.post("/api/projects/:id/calls/:item/close", async (c) => {
     const input = z
       .object({ version: z.number().int().positive() })
@@ -512,11 +574,25 @@ export function buildApp(
       ws = await store.workspace(id, c.get("user"));
     if (!canEdit(ws.organization.role))
       throw new Problem(403, "A equipe encerra a review.");
+    const call = ws.records.find(
+      (r) => r.id === c.req.param("item") && r.kind === "call",
+    );
+    if (!call || call.version !== input.version || call.status === "closed")
+      throw new Problem(409, "A review mudou. Atualize antes de encerrar.");
+    const active =
+      await store.sql`select digest from brokk_v2.extension_grants where call_id=${call.id} and capture_until>now() and not revoked`;
+    if (active.length)
+      throw new Problem(
+        409,
+        "Pare a captura e sincronize a extensão antes de encerrar, ou revogue a conexão se o navegador foi fechado.",
+      );
+    const analysis = await analyzeCall(call, cfg);
     const result = await store.closeCall(
       id,
       uuid.parse(c.req.param("item")),
       input.version,
       c.get("user"),
+      analysis,
     );
     return c.json(result);
   });
