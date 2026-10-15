@@ -21,6 +21,10 @@ app.use("*", async (c, next) => {
     );
   await next();
 });
+app.use("/downloads/*", async (c, next) => {
+  c.header("Cache-Control", "no-store");
+  await next();
+});
 app.use("*", serveStatic({ root: "./dist" }));
 app.get("*", serveStatic({ path: "./dist/index.html" }));
 const server = serve(
