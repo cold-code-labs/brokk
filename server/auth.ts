@@ -209,6 +209,7 @@ export function installAuth(app: Hono<Env>, store: Store, cfg: Config) {
       user: (({ id, email, name, admin }) => ({ id, email, name, admin }))(
         c.get("user"),
       ),
+      a4Authority: cfg.suite.authority || undefined,
       devAuth: cfg.devAuth,
       integrations: {
         devin: Boolean(cfg.devin.key && cfg.devin.orgId),
