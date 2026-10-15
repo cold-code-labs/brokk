@@ -28,7 +28,7 @@ async function flush() {
   return navigator.locks.request("brokk-queue", async () => {
     let { queue = [] } = await chrome.storage.local.get("queue");
     while (queue.length) {
-      const batch = queue.slice(0, 30);
+      const batch = queue.slice(0, 15);
       const result = await api("notes", { notes: batch });
       queue = queue.filter((note) => !result.received.includes(note.clientId));
       await chrome.storage.local.set({ queue, error: "" });

@@ -43,3 +43,5 @@ Internal unpacked ZIP: /downloads/brokk-review.zip. Extract, enable Developer mo
 ## Version History
 
 1.0.0 — 2026-10-15: first internal release with call-scoped connection, tab/mic capture, transcription, queued notes, optional code reference and human proposal confirmation.
+
+Keyboard shortcut: Ctrl+Shift+Y (Command+Shift+Y on macOS) opens the panel and selects the current tab for capture. Version 1.0.0 internal packaging refinement: batches stay below the API body limit.
