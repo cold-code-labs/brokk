@@ -9,6 +9,7 @@ import type { Kind, User } from "../shared/domain.ts";
 import { canEdit, emptyData, kinds, roles } from "../shared/domain.ts";
 import { publicEnvironment } from "../shared/environment.ts";
 import { codeReferenceSchema } from "../shared/review.ts";
+import { a4Request } from "./a4-suite.ts";
 import type { Env } from "./auth.ts";
 import { installAuth, secretOk } from "./auth.ts";
 import { coderMessage, cursorAvailable, installCoderWorker } from "./coder.ts";
@@ -300,6 +301,18 @@ export function buildApp(
       input.repository,
       c.get("user"),
     );
+    const suiteToken = c.get("a4Token");
+    if (cfg.suite.authority && suiteToken && input.repository) {
+      const published = await a4Request(cfg.suite, "github", {
+        token: suiteToken,
+        url: `https://github.com/${input.repository}`,
+      });
+      if (!published.ok)
+        throw new Problem(
+          502,
+          "Não foi possível registrar o repositório na A4.",
+        );
+    }
     return c.json({ ok: true });
   });
   app.get("/api/projects/:id/design", async (c) =>
