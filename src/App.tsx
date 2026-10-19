@@ -2063,7 +2063,6 @@ function Calls({
                 onClick={() => {
                   setSelected(c.id);
                   setRoom(null);
-                  setPairing("");
                 }}
               >
                 <Video size={16} />
