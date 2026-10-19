@@ -1607,6 +1607,24 @@ test("A4 coach delivers one closed call to the chosen company/project, with pend
     "Review",
     user,
   );
+  assert.equal(
+    await store.suiteProjectOrganization(`/projects/${project.id}/calls`),
+    org,
+  );
+  assert.equal(
+    await store.suiteProjectOrganization(
+      `/projects/${project.id}/calls?org=${randomUUID()}`,
+    ),
+    org,
+  );
+  assert.equal(
+    await store.suiteProjectOrganization(`/projects/${randomUUID()}/calls`),
+    null,
+  );
+  assert.equal(
+    await store.suiteProjectOrganization("/api/projects/not-a-project"),
+    null,
+  );
   const noteId = randomUUID(),
     id = randomUUID();
   const body = {

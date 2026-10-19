@@ -29,6 +29,7 @@ app.use("*", async (c, next) => {
 app.use(
   "*",
   a4Session(cfg.suite, {
+    organization: (path) => store.suiteProjectOrganization(path),
     bypass: (c) =>
       [
         "/api/health",

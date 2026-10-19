@@ -106,6 +106,7 @@ export function a4Session(
     loginPaths?: string[];
     logoutPaths?: string[];
     legacyCallbacks?: string[];
+    organization?: (path: string) => Promise<string | null>;
   } = {},
 ): MiddlewareHandler {
   return async (c, next) => {
@@ -131,9 +132,15 @@ export function a4Session(
       path === `${config.prefix}/start` ||
       options.loginPaths?.includes(path)
     ) {
+      const returnPath = safePath(c.req.query("return"), config.origin);
       const state = nonce(),
         verifier = nonce(),
-        org = c.req.query("org"),
+        requestedOrg =
+          (await options.organization?.(returnPath)) || c.req.query("org"),
+        org =
+          requestedOrg && /^[0-9a-f-]{36}$/i.test(requestedOrg)
+            ? requestedOrg
+            : undefined,
         url = new URL(`${config.authority}/api/suite/${config.app}/authorize`);
       url.searchParams.set("state", state);
       url.searchParams.set(
@@ -148,7 +155,8 @@ export function a4Session(
           JSON.stringify({
             state,
             verifier,
-            returnPath: safePath(c.req.query("return"), config.origin),
+            returnPath,
+            organizationId: org,
           }),
         ).toString("base64url"),
         { ...attributes(config), maxAge: 600 },
@@ -158,7 +166,12 @@ export function a4Session(
     if (path === `${config.prefix}/callback`) {
       const raw = getCookie(c, flowCookie(config));
       deleteCookie(c, flowCookie(config), attributes(config));
-      let flow: { state?: string; verifier?: string; returnPath?: string } = {};
+      let flow: {
+        state?: string;
+        verifier?: string;
+        returnPath?: string;
+        organizationId?: string;
+      } = {};
       try {
         flow = JSON.parse(Buffer.from(raw ?? "", "base64url").toString());
       } catch {
@@ -185,7 +198,11 @@ export function a4Session(
             r.status === 401 ? 401 : 503,
           );
         const data = (await r.json()) as A4Identity & { token: string };
-        if (!opaque(data.token) || !validIdentity(data))
+        if (
+          !opaque(data.token) ||
+          !validIdentity(data) ||
+          (flow.organizationId && data.organization.id !== flow.organizationId)
+        )
           return c.json({ error: "a4_exchange_failed" }, 503);
         setCookie(c, appCookie(config), data.token, {
           ...attributes(config),
@@ -216,16 +233,28 @@ export function a4Session(
     } catch {
       return c.json({ error: "a4_unavailable" }, 503);
     }
-    if (!identity) {
+    const documentPath = safePath(
+      new URL(c.req.url).pathname + new URL(c.req.url).search,
+      config.origin,
+    );
+    const organization =
+      !path.startsWith("/api/") && ["GET", "HEAD"].includes(c.req.method)
+        ? await options.organization?.(documentPath)
+        : null;
+    if (
+      !identity ||
+      (organization && identity.organization.id !== organization)
+    ) {
       deleteCookie(c, appCookie(config), attributes(config));
       if (path === `${config.prefix}/check` || path.startsWith("/api/"))
         return c.json(
           { error: "a4_login_required", loginUrl: `${config.prefix}/start` },
           401,
         );
-      return c.redirect(
-        `${config.prefix}/start?return=${encodeURIComponent(safePath(new URL(c.req.url).pathname + new URL(c.req.url).search, config.origin))}`,
-      );
+      const login = new URL(`${config.origin}${config.prefix}/start`);
+      login.searchParams.set("return", documentPath);
+      if (organization) login.searchParams.set("org", organization);
+      return c.redirect(login.pathname + login.search);
     }
     if (path === `${config.prefix}/check`) return c.body(null, 204);
     c.set("a4Identity", identity);
