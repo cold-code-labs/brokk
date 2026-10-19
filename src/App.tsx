@@ -2002,7 +2002,6 @@ function Calls({
     [selected, setSelected] = useState(""),
     [room, setRoom] = useState<{ url: string; token: string } | null>(null),
     [videoError, setVideoError] = useState(""),
-    [pairing, setPairing] = useState(""),
     call = calls.find((r) => r.id === selected) || calls[0],
     container = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -2064,7 +2063,6 @@ function Calls({
                 onClick={() => {
                   setSelected(c.id);
                   setRoom(null);
-                  setPairing("");
                 }}
               >
                 <Video size={16} />
@@ -2087,122 +2085,40 @@ function Calls({
                     {new Date(call.data.scheduledAt).toLocaleString("pt-BR")}
                   </small>
                 )}
-                <div className="extension-review">
-                  <p className="eyebrow">REVIEW PELO CHROME</p>
-                  <h3>Faça a chamada onde você já agenda.</h3>
+                {call.data.resultUrl?.startsWith(
+                  "https://app.a4.ia.br/live-coach?",
+                ) && (
                   <p>
-                    Abra a reunião normalmente no Google Meet ou outra chamada
-                    no Chrome. O Mateus conecta a extensão a esta review, avisa
-                    os participantes e inicia a captura. Ao terminar, pare e
-                    sincronize antes de gerar o resumo.
-                  </p>
-                  <a
-                    className="secondary"
-                    href="/downloads/brokk-review.zip?v=1.0.2"
-                    download
-                  >
-                    Baixar extensão Brokk Review
-                  </a>
-                  <details>
-                    <summary>Como instalar e usar</summary>
-                    <ol>
-                      <li>
-                        Extraia o ZIP, abra chrome://extensions, ative o modo do
-                        desenvolvedor e escolha Carregar sem compactação.
-                      </li>
-                      <li>
-                        Selecione a pasta extraída. Gere a conexão abaixo e cole
-                        no painel da extensão.
-                      </li>
-                      <li>
-                        Na aba da chamada, clique no ícone do Brokk, autorize o
-                        microfone e inicie a captura.
-                      </li>
-                      <li>
-                        Pare e sincronize. Volte aqui para gerar o resumo e
-                        confirmar cada alteração.
-                      </li>
-                    </ol>
-                    <p>
-                      O agendamento continua no calendário habitual. A extensão
-                      captura o áudio da aba selecionada e seu microfone, sem
-                      gravar vídeo ou navegar pelo conteúdo das páginas.
-                    </p>
                     <a
-                      href="/extension/privacy.html"
+                      href={call.data.resultUrl}
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Privacidade e uso dos dados
+                      Ouvir gravação e ver highlights na A⁴ ↗
                     </a>
-                  </details>
-                  {editable && call.status !== "closed" && (
-                    <>
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={busy}
-                        onClick={() =>
-                          perform(async () => {
-                            const connection = await request<
-                              Record<string, unknown>
-                            >(
-                              `/projects/${ws.project.id}/calls/${call.id}/extension`,
-                              "POST",
-                              {},
-                            );
-                            setPairing(
-                              JSON.stringify({
-                                origin: window.location.origin,
-                                ...connection,
-                              }),
-                            );
-                          }, "Conexão gerada por quatro horas, limitada a esta review.")
-                        }
-                      >
-                        Gerar conexão da extensão
-                      </button>
-                      {pairing && (
-                        <label>
-                          Copie e cole na extensão. Trate esta conexão como
-                          acesso temporário à review.
-                          <textarea
-                            readOnly
-                            value={pairing}
-                            onFocus={(e) => e.currentTarget.select()}
-                          />
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() =>
-                              perform(async () => {
-                                await navigator.clipboard.writeText(pairing);
-                              }, "Conexão copiada.")
-                            }
-                          >
-                            Copiar conexão
-                          </button>
-                        </label>
-                      )}
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() =>
-                          perform(async () => {
-                            await request(
-                              `/projects/${ws.project.id}/calls/${call.id}/extension/revoke`,
-                              "POST",
-                              {},
-                            );
-                            setPairing("");
-                          }, "Conexões revogadas. Pare a captura na extensão para interromper o áudio.")
-                        }
-                      >
-                        Revogar conexões da extensão
-                      </button>
-                    </>
-                  )}
+                  </p>
+                )}
+                <div className="extension-review">
+                  <p className="eyebrow">A⁴ LIVE COACH</p>
+                  <h3>Grave a reunião com o destino definido.</h3>
+                  <p>
+                    Abra o Live Coach na A⁴, conecte a empresa e selecione
+                    Desenvolvimento (Brokk) e este projeto antes da chamada. Ao
+                    encerrar, a reunião chega a Calls com transcrição,
+                    highlights e propostas para confirmação.
+                  </p>
+                  <a
+                    className="secondary"
+                    href="https://app.a4.ia.br/live-coach"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Preparar reunião na A⁴ ↗
+                  </a>
+                  <p>
+                    A gravação de áudio fica protegida na empresa da A⁴. As
+                    propostas só viram tarefas depois da confirmação da equipe.
+                  </p>
                 </div>
                 <details>
                   <summary>Sala de vídeo interna (opcional)</summary>

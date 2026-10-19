@@ -12,6 +12,7 @@ import { codeReferenceSchema } from "../shared/review.ts";
 import { a4Request } from "./a4-suite.ts";
 import type { Env } from "./auth.ts";
 import { installAuth, secretOk } from "./auth.ts";
+import { coachAuthorized, installCoach } from "./coach.ts";
 import { coderMessage, cursorAvailable, installCoderWorker } from "./coder.ts";
 import type { Config } from "./config.ts";
 import { designContract } from "./design.ts";
@@ -112,7 +113,7 @@ export function buildApp(
   app.use(
     "/api/*",
     bodyLimit({
-      maxSize: 100000,
+      maxSize: 400000,
       onError: (c) => c.json({ error: "Conteúdo muito grande." }, 413),
     }),
   );
@@ -134,6 +135,11 @@ export function buildApp(
         origin === "https://brokk.coldcodelabs.com";
       if (
         !workerRequest &&
+        !(
+          c.req.path === "/api/integrations/a4-coach" &&
+          !origin &&
+          coachAuthorized(cfg, c.req.header("authorization"))
+        ) &&
         !extensionRequest &&
         (c.req.header("sec-fetch-site") === "cross-site" ||
           (cfg.production &&
@@ -201,6 +207,7 @@ export function buildApp(
       201,
     );
   });
+  installCoach(app, store, cfg);
   installCoderWorker(app, store, cfg);
   installExtension(app, store, cfg);
   installAuth(app, store, cfg);

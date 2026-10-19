@@ -25,6 +25,7 @@ import type {
   EnvironmentResources,
 } from "../shared/environment.ts";
 import type { CallAnalysis, CodeReference } from "../shared/review.ts";
+import { coachData } from "./coach.ts";
 export class Problem extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -230,6 +231,25 @@ export function createStore(url: string) {
             "utf8",
           ),
         );
+      });
+    },
+    async importCoach(
+      m: Parameters<typeof coachData>[0] & { projectId: string; title: string },
+      user: User,
+    ) {
+      return sql.begin(async (db) => {
+        await access(db, m.projectId, user, true);
+        await db`select pg_advisory_xact_lock(hashtext(${`a4-coach:${m.id}`}))`;
+        const prior =
+          await db`select * from brokk_v2.artifacts where project_id=${m.projectId} and kind='call' and data->>'sessionId'=${m.id}`;
+        if (prior.length) return artifactOf(prior[0]);
+        const data = coachData(m, user);
+        const rows =
+          await db`insert into brokk_v2.artifacts(id,project_id,kind,title,status,data,author) values(${randomUUID()},${m.projectId},'call',${m.title},'closed',${db.json(data as unknown as postgres.JSONValue)},${user.email}) returning *`;
+        const call = artifactOf(rows[0]);
+        await snapshot(db, call, user);
+        await event(db, m.projectId, user, "call.coach.imported", m.title);
+        return call;
       });
     },
     async extensionGrant(id: string, item: string, user: User) {
