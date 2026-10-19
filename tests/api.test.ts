@@ -1575,3 +1575,98 @@ test("A4 company selection isolates even administrators and never exposes the ap
   identity = undefined;
   assert.equal((await req("/me")).status, 401);
 });
+
+test("A4 coach delivers one closed call to the chosen company/project, with pending proposals", async () => {
+  const store = createStore(url as string),
+    secret = "test-only-a4-coach-secret-0123456789";
+  const cfg = readConfig({
+    BROKK_DATABASE_URL: url as string,
+    A4_SUITE_CLIENT_SECRET: secret,
+    A4_SUITE_ORIGIN: "https://app.a4.ia.br",
+  });
+  const app = buildApp(store, cfg),
+    org = randomUUID(),
+    email = `coach-${randomUUID()}@test.local`;
+  await store.migrate();
+  const oid = await store.suiteOrganization(
+    org,
+    "Coach test",
+    email,
+    "operator",
+  );
+  const user = {
+    id: randomUUID(),
+    email,
+    name: "Coach",
+    admin: false,
+    suiteOrganization: oid,
+  };
+  const project = await store.createProject(
+    oid,
+    "Coach project",
+    "Review",
+    user,
+  );
+  const noteId = randomUUID(),
+    id = randomUUID();
+  const body = {
+    operation: "deliver",
+    identity: { id: user.id, email, name: user.name },
+    organizationId: org,
+    meeting: {
+      id,
+      projectId: project.id,
+      title: "Reunião A4",
+      recordingUrl: `https://app.a4.ia.br/live-coach?org=${org}&meeting=${id}`,
+      notes: [
+        {
+          id: noteId,
+          body: "Adicionar ajuda",
+          source: "transcript",
+          at: new Date().toISOString(),
+        },
+      ],
+      analysis: {
+        summary: "Ajuda pedida",
+        highlights: [
+          { title: "Ajuda", body: "Adicionar botão", noteIds: [noteId] },
+        ],
+        proposals: [
+          {
+            title: "Ajuda",
+            body: "Adicionar botão",
+            acceptance: "Abrir ajuda",
+            noteIds: [noteId],
+          },
+        ],
+      },
+    },
+  };
+  const request = (data: unknown, key = secret) =>
+    app.request("/api/integrations/a4-coach", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${key}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+  try {
+    assert.equal((await request(body, "bad")).status, 401);
+    const first = await request(body);
+    assert.equal(first.status, 200, await first.clone().text());
+    const a = await first.json();
+    assert.equal((await (await request(body)).json()).id, a.id);
+    const ws = await store.workspace(project.id, user);
+    const call = ws.records.find((r) => r.id === a.id);
+    assert.ok(call);
+    assert.equal(call.status, "closed");
+    assert.equal(call.data.reviewProposals[0].status, "pending");
+    assert.equal(ws.records.filter((r) => r.kind === "task").length, 0);
+    assert.equal(call.data.resultUrl, body.meeting.recordingUrl);
+    const foreign = { ...body, organizationId: randomUUID() };
+    assert.equal((await request(foreign)).status, 404);
+  } finally {
+    await store.close();
+  }
+});

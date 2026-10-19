@@ -37,3 +37,7 @@ Devin and Daily credentials stay exclusively on the server. Missing provider cre
 The Var catalog integration uses `/api/integrations/var/handoff` with a server-only bearer key. It accepts authorized organization/project context and returns a short-lived single-use workspace ticket. It does not accept repository settings or administrator grants.
 
 Legacy code is preserved by Git history and the local `archive/mimir-recovered-20261013` recovery reference. Preview preparation and checked publication are described in [the preview guide](docs/v2/PREVIEW.md). Coder and production promotion remain separate.
+
+## A4 Live Coach
+
+Reuniões do Meet são preparadas em https://app.a4.ia.br/live-coach. A extensão global A4 Live Coach substitui Brokk Review e entrega reuniões finalizadas a Calls do projeto escolhido. A gravação privada e os highlights ficam na empresa da A4. A importação usa o backchannel da suite, valida empresa/projeto e conserva propostas pendentes de confirmação; repetir a entrega reutiliza a mesma call. A extensão da Contorna é independente.

@@ -1,3 +1,5 @@
+> Superseded on 2026-10-19 by A4 Live Coach, maintained in a4-ia/a4-app (CHROMEWEBSTORE.md). Reuse item jigmgceabpnpkonbgogedgmcohpiikpi; do not create a third item or modify Contorna. The metadata below is historical only.
+
 # Chrome Web Store — Brokk Review
 
 Last Updated: 2026-10-15

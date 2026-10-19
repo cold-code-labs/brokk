@@ -32,6 +32,7 @@ app.use(
     bypass: (c) =>
       [
         "/api/health",
+        "/api/integrations/a4-coach",
         "/extension/privacy.html",
         "/extension/support.html",
         "/downloads/brokk-review.zip",
@@ -62,6 +63,9 @@ app.use("*", async (c, next) => {
     );
   await next();
 });
+app.get("/downloads/brokk-review.zip", (c) =>
+  c.redirect("https://app.a4.ia.br/downloads/a4-live-coach.zip?v=2.0.0", 302),
+);
 app.use("/downloads/*", async (c, next) => {
   c.header("Cache-Control", "no-store");
   await next();
