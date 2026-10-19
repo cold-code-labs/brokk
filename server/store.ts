@@ -391,6 +391,17 @@ export function createStore(url: string) {
     async logout(token: string) {
       await sql`delete from brokk_v2.sessions where digest=${hash(token)}`;
     },
+    // Login hint only. A4 authorizes membership; workspace access remains scoped below.
+    async suiteProjectOrganization(path: string) {
+      const match = new URL(path, "https://brokk.invalid").pathname.match(
+        /^\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i,
+      );
+      if (!match) return null;
+      const rows =
+        await sql`select o.external_id from brokk_v2.projects p join brokk_v2.organizations o on o.id=p.organization_id where p.id=${match[1]}`;
+      const external = String(rows[0]?.external_id || "");
+      return /^a4:[0-9a-f-]{36}$/i.test(external) ? external.slice(3) : null;
+    },
     async suiteOrganization(
       id: string,
       name: string,
