@@ -44,7 +44,7 @@ export function installCoach(app: Hono<Env>, store: Store, cfg: Config) {
                     id: z.uuid(),
                     body: z.string().min(1).max(4000),
                     source: z.enum(["transcript", "manual"]),
-                    at: z.iso.datetime(),
+                    at: z.iso.datetime({ offset: true }),
                   })
                   .strict(),
               )

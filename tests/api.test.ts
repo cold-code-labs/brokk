@@ -1623,7 +1623,7 @@ test("A4 coach delivers one closed call to the chosen company/project, with pend
           id: noteId,
           body: "Adicionar ajuda",
           source: "transcript",
-          at: new Date().toISOString(),
+          at: new Date().toISOString().replace("Z", "+00:00"),
         },
       ],
       analysis: {
