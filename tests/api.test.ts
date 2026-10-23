@@ -72,7 +72,7 @@ async function record(
 }
 before(async () => {
   await store.migrate();
-  await store.sql`truncate brokk_v2.organizations,brokk_v2.members,brokk_v2.projects,brokk_v2.artifacts,brokk_v2.events,brokk_v2.versions,brokk_v2.sessions,brokk_v2.tickets cascade`;
+  await store.sql`truncate brokk.organizations,brokk.members,brokk.projects,brokk.artifacts,brokk.events,brokk.versions,brokk.sessions,brokk.tickets cascade`;
   admin = await login("admin@local.test");
   operator = await login("operator@local.test");
   client = await login("client@local.test");
@@ -1030,7 +1030,7 @@ test("Cursor jobs use private single-owner leases and scoped messages without pa
     "delivery",
   );
   await wr(`${run.id}/report`, { lease: job.lease, phase: "coding" });
-  await store.sql`update brokk_v2.coder_jobs set lease_until=now()-interval '1 minute' where run_id=${run.id}`;
+  await store.sql`update brokk.coder_jobs set lease_until=now()-interval '1 minute' where run_id=${run.id}`;
   assert.equal(
     (await wr(`${run.id}/report`, { lease: job.lease })).status,
     409,
@@ -1119,7 +1119,7 @@ test("automatic fallback preserves sealed context, excludes ambiguous creation a
     { ...emptyData(), body: "Only the approved task" },
     user,
   );
-  await store.sql`update brokk_v2.artifacts set status='approved' where id=${scope.id}`;
+  await store.sql`update brokk.artifacts set status='approved' where id=${scope.id}`;
   const dc = readConfig({
     NODE_ENV: "test",
     BROKK_DATABASE_URL: url,
@@ -1141,7 +1141,7 @@ test("automatic fallback preserves sealed context, excludes ambiguous creation a
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
-  await store.sql`insert into brokk_v2.coder_workers(owner,revision,ready,repositories) values ('fallback-worker','test',true,'["cold-code-labs/*"]') on conflict(owner) do update set ready=true,updated_at=now()`;
+  await store.sql`insert into brokk.coder_workers(owner,revision,ready,repositories) values ('fallback-worker','test',true,'["cold-code-labs/*"]') on conflict(owner) do update set ready=true,updated_at=now()`;
   let status = 403,
     calls = 0;
   globalThis.fetch = async () => {
@@ -1217,9 +1217,9 @@ test("automatic fallback preserves sealed context, excludes ambiguous creation a
     );
     assert.equal(uncertain?.status, "uncertain");
     const jobs =
-      await store.sql`select run_id from brokk_v2.coder_jobs where project_id=${p.id}`;
+      await store.sql`select run_id from brokk.coder_jobs where project_id=${p.id}`;
     assert.equal(jobs.length, 1);
-    await store.sql`update brokk_v2.coder_workers set updated_at=now()-interval '2 minutes'`;
+    await store.sql`update brokk.coder_workers set updated_at=now()-interval '2 minutes'`;
     const capacity = await (await req("/executors")).json();
     assert.equal(capacity.cursor.available, false);
     const offline = await store.create(
@@ -1300,7 +1300,7 @@ test("only administrators recover checked Cursor delivery without launching a mo
     emptyData(),
     user,
   );
-  await store.sql`update brokk_v2.artifacts set status='approved' where id=${scope.id}`;
+  await store.sql`update brokk.artifacts set status='approved' where id=${scope.id}`;
   const task = await store.create(
     p.id,
     "task",
@@ -1332,7 +1332,7 @@ test("only administrators recover checked Cursor delivery without launching a mo
       { provider: "cursor", status: "failed", at: new Date().toISOString() },
     ],
   });
-  await store.sql`update brokk_v2.coder_jobs set state='failed' where run_id=${run.id}`;
+  await store.sql`update brokk.coder_jobs set state='failed' where run_id=${run.id}`;
   const pc = readConfig({
     NODE_ENV: "test",
     BROKK_DATABASE_URL: url,
@@ -1411,7 +1411,7 @@ test("only administrators recover checked Cursor delivery without launching a mo
   assert.equal(modelCalls, 0);
   assert.equal(
     (
-      await store.sql`select state from brokk_v2.coder_jobs where run_id=${run.id}`
+      await store.sql`select state from brokk.coder_jobs where run_id=${run.id}`
     )[0].state,
     "failed",
   );

@@ -9,7 +9,13 @@ import { createStore } from "./store.ts";
 
 const cfg = readConfig(),
   store = createStore(cfg.databaseUrl);
-await store.migrate();
+if (!cfg.production) await store.migrate();
+else {
+  // Deploy migrations separately; the production connection has no DDL grants.
+  const [{ ready }] =
+    await store.sql`select to_regclass('brokk.extension_grants') is not null as ready`;
+  if (!ready) throw new Error("brokk_schema_not_ready");
+}
 const app = new Hono<Env>();
 app.use("*", async (c, next) => {
   if (

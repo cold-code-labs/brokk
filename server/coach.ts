@@ -59,7 +59,7 @@ export function installCoach(app: Hono<Env>, store: Store, cfg: Config) {
       .strict()
       .parse(await c.req.json());
     const rows =
-      await store.sql`select id,name from brokk_v2.organizations where external_id=${`a4:${p.organizationId}`}`;
+      await store.sql`select id,name from brokk.organizations where external_id=${`a4:${p.organizationId}`}`;
     if (!rows.length)
       throw new Problem(
         404,

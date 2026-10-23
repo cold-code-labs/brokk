@@ -179,7 +179,7 @@ function Empty({
         <Layers3 size={26} />
       </div>
       <h3>{title}</h3>
-      <p>{body}</p>
+      {body && <p>{body}</p>}
       {action}
     </div>
   );
@@ -227,6 +227,9 @@ export default function App() {
     [workspace, setWorkspace] = useState<Workspace | null>(null),
     [query, setQuery] = useState(""),
     [error, setError] = useState(""),
+    [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
+      "loading",
+    ),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
     [modal, setModal] = useState<"project" | "organization" | null>(null),
@@ -236,18 +239,25 @@ export default function App() {
   const [, , projectId, rawTab] = path.split("/"),
     tab = tabs.some((t) => t.id === rawTab) ? (rawTab as Tab) : "overview";
   const reload = useCallback(async () => {
-    const [o, p] = await Promise.all([
-      request<Organization[]>("/organizations"),
-      request<Project[]>("/projects"),
-    ]);
-    setOrgs(o);
-    setProjects(p);
-    setOrgId((current) => current || o[0]?.id || "");
-    if (projectId) {
-      const ws = await request<Workspace>(`/projects/${projectId}`);
-      setWorkspace(ws);
-      setOrgId(ws.organization.id);
-    } else setWorkspace(null);
+    setLoadState("loading");
+    try {
+      const [o, p] = await Promise.all([
+        request<Organization[]>("/organizations"),
+        request<Project[]>("/projects"),
+      ]);
+      setOrgs(o);
+      setProjects(p);
+      setOrgId((current) => current || o[0]?.id || "");
+      if (projectId) {
+        const ws = await request<Workspace>(`/projects/${projectId}`);
+        setWorkspace(ws);
+        setOrgId(ws.organization.id);
+      } else setWorkspace(null);
+      setLoadState("ready");
+    } catch (cause) {
+      setLoadState("error");
+      throw cause;
+    }
   }, [projectId]);
   useEffect(() => {
     request<Me>("/me")
@@ -255,7 +265,7 @@ export default function App() {
       .catch((e) => setError(e.message));
   }, []);
   useEffect(() => {
-    if (me?.user) reload().catch((e) => setError(e.message));
+    if (me?.user) reload().catch(() => {});
   }, [me, reload]);
   useEffect(() => {
     if (!me?.user || !projectId) return;
@@ -368,10 +378,11 @@ export default function App() {
       </main>
     );
   const currentOrg = orgs.find((o) => o.id === orgId),
-    shown = projects.filter(
-      (p) =>
-        (!orgId || p.organizationId === orgId) &&
-        `${p.name} ${p.objective}`.toLowerCase().includes(query.toLowerCase()),
+    organizationProjects = projects.filter(
+      (p) => !orgId || p.organizationId === orgId,
+    ),
+    shown = organizationProjects.filter((p) =>
+      `${p.name} ${p.objective}`.toLowerCase().includes(query.toLowerCase()),
     ),
     role =
       workspace?.organization.role ||
@@ -400,7 +411,7 @@ export default function App() {
             }}
           >
             <option value="" disabled>
-              Selecione uma organização
+              Selecionar
             </option>
             {orgs.map((o) => (
               <option key={o.id} value={o.id}>
@@ -438,15 +449,7 @@ export default function App() {
           </>
         )}
         <div className="sidebar-bottom">
-          <div className="secure-note">
-            <ShieldCheck size={16} />
-            <span>
-              Produto nas suas mãos.
-              <br />
-              Acesso técnico protegido.
-            </span>
-          </div>
-          {me.user.admin && !me.a4Authority && (
+          {me.user.admin && !me.a4Authority && orgs.length > 0 && (
             <button
               type="button"
               className="nav-item"
@@ -498,7 +501,7 @@ export default function App() {
           </span>
         </header>
         <main className="content">
-          {error && (
+          {error && loadState !== "error" && (
             <div role="alert" className="banner error">
               <span>{error}</span>
               <button
@@ -516,18 +519,34 @@ export default function App() {
               {notice}
             </div>
           )}
-          {!projectId ? (
+          {loadState === "error" ? (
+            <div role="alert">
+              <Empty
+                title="Não foi possível carregar seu workspace."
+                body=""
+                action={
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => {
+                      setError("");
+                      void reload().catch(() => {});
+                    }}
+                  >
+                    Tentar novamente
+                  </button>
+                }
+              />
+            </div>
+          ) : loadState === "loading" ? (
+            <p role="status">Carregando seu workspace…</p>
+          ) : !projectId ? (
             <>
               <div className="page-heading">
                 <div>
-                  <p className="eyebrow">SEU ESPAÇO DE CONSTRUÇÃO</p>
                   <h1>Projetos</h1>
-                  <p>
-                    Da primeira conversa à próxima entrega. Tudo no mesmo
-                    contexto.
-                  </p>
                 </div>
-                {editable && (
+                {editable && currentOrg && organizationProjects.length > 0 && (
                   <button
                     type="button"
                     className="primary"
@@ -538,37 +557,41 @@ export default function App() {
                   </button>
                 )}
               </div>
-              <div className="stats">
-                <Stat
-                  number={shown.length}
-                  label="Projetos nesta organização"
-                  note="Uma visão de cada entrega"
-                />
-                <Stat
-                  number={shown.filter((p) => p.status === "building").length}
-                  label="Em desenvolvimento"
-                  note="Do escopo à implementação"
-                />
-                <Stat
-                  number={shown.filter((p) => p.status === "review").length}
-                  label="Em revisão"
-                  note="Prontos para sua decisão"
-                />
-              </div>
-              <div className="section-head">
-                <h2>
-                  Carteira de projetos <span>{shown.length}</span>
-                </h2>
-                <label className="search">
-                  <Search size={16} />
-                  <input
-                    aria-label="Buscar projetos"
-                    placeholder="Buscar projeto…"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+              {organizationProjects.length > 0 && (
+                <div className="stats">
+                  <Stat
+                    number={shown.length}
+                    label="Projetos nesta organização"
+                    note="Uma visão de cada entrega"
                   />
-                </label>
-              </div>
+                  <Stat
+                    number={shown.filter((p) => p.status === "building").length}
+                    label="Em desenvolvimento"
+                    note="Do escopo à implementação"
+                  />
+                  <Stat
+                    number={shown.filter((p) => p.status === "review").length}
+                    label="Em revisão"
+                    note="Prontos para sua decisão"
+                  />
+                </div>
+              )}
+              {organizationProjects.length > 0 && (
+                <div className="section-head">
+                  <h2>
+                    Carteira de projetos <span>{shown.length}</span>
+                  </h2>
+                  <label className="search">
+                    <Search size={16} />
+                    <input
+                      aria-label="Buscar projetos"
+                      placeholder="Buscar projeto…"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                    />
+                  </label>
+                </div>
+              )}
               {shown.length ? (
                 <div className="project-grid">
                   {shown.map((p, i) => (
@@ -601,59 +624,62 @@ export default function App() {
               ) : (
                 <Empty
                   title={
-                    orgs.length
-                      ? "O próximo projeto começa aqui."
-                      : "Primeiro, uma organização."
+                    query
+                      ? "Nenhum projeto encontrado."
+                      : currentOrg
+                        ? "Nenhum projeto ainda."
+                        : "Seu workspace está vazio."
                   }
                   body={
-                    orgs.length
-                      ? "Transforme uma necessidade em escopo, telas e entregas que o cliente pode acompanhar."
-                      : "A administração atribui organizações e pessoas. Cada projeto fica no contexto certo."
+                    !currentOrg && !me.user.admin
+                      ? "Solicite acesso à administração."
+                      : ""
                   }
                   action={
-                    editable ? (
-                      <button
-                        type="button"
-                        className="primary"
-                        onClick={() => setModal("project")}
-                      >
-                        <Plus size={16} />
-                        Criar primeiro projeto
-                      </button>
-                    ) : me.user.admin ? (
+                    !currentOrg && me.user.admin && !me.a4Authority ? (
                       <button
                         type="button"
                         className="primary"
                         onClick={() => setModal("organization")}
                       >
-                        Criar organização
+                        <Plus size={16} /> Criar organização
+                      </button>
+                    ) : currentOrg && editable && !query ? (
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() => setModal("project")}
+                      >
+                        <Plus size={16} /> Novo projeto
                       </button>
                     ) : undefined
                   }
                 />
               )}
-              <div className="journey">
-                <div>
-                  <p className="eyebrow">UM FLUXO, DO COMEÇO AO FIM</p>
-                  <h3>
-                    Clareza para construir.
-                    <br />
-                    Contexto para evoluir.
-                  </h3>
-                </div>
-                {[
-                  "Alinhar o escopo",
-                  "Desenhar a experiência",
-                  "Desenvolver com contexto",
-                  "Revisar com o cliente",
-                ].map((s, i) => (
-                  <div className="journey-step" key={s}>
-                    <span>0{i + 1}</span>
-                    <b>{s}</b>
-                    <ArrowRight size={18} />
+              {organizationProjects.length > 0 && (
+                <div className="journey">
+                  <div>
+                    <p className="eyebrow">UM FLUXO, DO COMEÇO AO FIM</p>
+                    <h3>
+                      Clareza para construir.
+                      <br />
+                      Contexto para evoluir.
+                    </h3>
                   </div>
-                ))}
-              </div>
+                  {[
+                    "Alinhar o escopo",
+                    "Desenhar a experiência",
+                    "Desenvolver com contexto",
+                    "Revisar com o cliente",
+                  ].map((s, i) => (
+                    <div className="journey-step" key={s}>
+                      <span>0{i + 1}</span>
+                      <b>{s}</b>
+                      <ArrowRight size={18} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           ) : workspace ? (
             <>
@@ -744,7 +770,6 @@ export default function App() {
         </main>
         <footer className="workspace-footer">
           <span>Brokk · Cold Code Labs</span>
-          <span>Um projeto. Todo o contexto.</span>
         </footer>
       </div>
       {modal && (

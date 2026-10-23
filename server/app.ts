@@ -601,7 +601,7 @@ export function buildApp(
     if (!call || call.version !== input.version || call.status === "closed")
       throw new Problem(409, "A review mudou. Atualize antes de encerrar.");
     const active =
-      await store.sql`select digest from brokk_v2.extension_grants where call_id=${call.id} and capture_until>now() and not revoked`;
+      await store.sql`select digest from brokk.extension_grants where call_id=${call.id} and capture_until>now() and not revoked`;
     if (active.length)
       throw new Problem(
         409,
