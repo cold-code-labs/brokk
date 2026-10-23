@@ -17,7 +17,7 @@ export async function coderMessage(
 ) {
   await store.sql.begin(async (db) => {
     const rows =
-      await db`select data,status from brokk_v2.artifacts where id=${runId} and project_id=${projectId} and kind='run' for update`;
+      await db`select data,status from brokk.artifacts where id=${runId} and project_id=${projectId} and kind='run' for update`;
     if (!rows.length) throw new Problem(404, "Execução não encontrada.");
     if (
       !["launching", "active"].includes(rows[0].status) ||
@@ -38,13 +38,13 @@ export async function coderMessage(
       category: "question",
       screenId: "",
     });
-    await db`update brokk_v2.artifacts set data=data || ${db.json({ notes })},version=version+1,updated_at=now() where id=${runId}`;
-    await db`insert into brokk_v2.events(id,project_id,actor,action,detail) values (${randomUUID()},${projectId},${author},'run.message',${body.slice(0, 200)})`;
+    await db`update brokk.artifacts set data=data || ${db.json({ notes })},version=version+1,updated_at=now() where id=${runId}`;
+    await db`insert into brokk.events(id,project_id,actor,action,detail) values (${randomUUID()},${projectId},${author},'run.message',${body.slice(0, 200)})`;
   });
 }
 export async function cursorAvailable(store: Store, repository = "") {
   const rows =
-    await store.sql`select owner from brokk_v2.coder_workers where ready and updated_at>now()-interval '60 seconds' and (${repository === ""} or (repositories ? ${repository} or repositories ? ${repository.split("/")[0] + "/*"})) limit 1`;
+    await store.sql`select owner from brokk.coder_workers where ready and updated_at>now()-interval '60 seconds' and (${repository === ""} or (repositories ? ${repository} or repositories ? ${repository.split("/")[0] + "/*"})) limit 1`;
   return rows.length > 0;
 }
 export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
@@ -73,12 +73,12 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
       .strict()
       .parse(await c.req.json());
     await store.sql.begin(async (db) => {
-      await db`insert into brokk_v2.coder_workers(owner,revision,ready,repositories) values (${input.owner},${input.revision},${input.ready},${db.json(input.repositories)}) on conflict(owner) do update set revision=excluded.revision,ready=excluded.ready,repositories=excluded.repositories,updated_at=now()`;
+      await db`insert into brokk.coder_workers(owner,revision,ready,repositories) values (${input.owner},${input.revision},${input.ready},${db.json(input.repositories)}) on conflict(owner) do update set revision=excluded.revision,ready=excluded.ready,repositories=excluded.repositories,updated_at=now()`;
       const expired =
-        await db`update brokk_v2.coder_jobs set state='failed',updated_at=now() where state='working' and lease_until<now() returning run_id,project_id`;
+        await db`update brokk.coder_jobs set state='failed',updated_at=now() where state='working' and lease_until<now() returning run_id,project_id`;
       for (const row of expired) {
-        await db`update brokk_v2.artifacts set status='failed',data=data || ${db.json({ providerStatus: "lease_expired", summary: "O worker perdeu a concessão. Tentativa encerrada; nenhum trabalho foi repetido automaticamente." })},version=version+1,updated_at=now() where id=${row.run_id}`;
-        await db`insert into brokk_v2.events(id,project_id,actor,action,detail) values (${randomUUID()},${row.project_id},'Brokk','run.failed','Worker sem concessão; execução preservada sem repetição.')`;
+        await db`update brokk.artifacts set status='failed',data=data || ${db.json({ providerStatus: "lease_expired", summary: "O worker perdeu a concessão. Tentativa encerrada; nenhum trabalho foi repetido automaticamente." })},version=version+1,updated_at=now() where id=${row.run_id}`;
+        await db`insert into brokk.events(id,project_id,actor,action,detail) values (${randomUUID()},${row.project_id},'Brokk','run.failed','Worker sem concessão; execução preservada sem repetição.')`;
       }
     });
     return c.json({ ok: true });
@@ -89,14 +89,14 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
       .strict()
       .parse(await c.req.json());
     const result = await store.sql.begin(async (db) => {
-      await db`select owner from brokk_v2.coder_workers where owner=${input.owner} for update`;
+      await db`select owner from brokk.coder_workers where owner=${input.owner} for update`;
       const rows =
-        await db`select j.run_id,j.project_id,a.title,a.data,p.repository,e.profile from brokk_v2.coder_jobs j join brokk_v2.artifacts a on a.id=j.run_id join brokk_v2.projects p on p.id=j.project_id join brokk_v2.environments e on e.project_id=j.project_id where j.state='queued' and a.status='launching' and exists(select 1 from brokk_v2.coder_workers w where w.owner=${input.owner} and w.ready and w.updated_at>now()-interval '60 seconds' and (w.repositories ? p.repository or w.repositories ? (split_part(p.repository,'/',1) || '/*'))) and not exists(select 1 from brokk_v2.coder_jobs busy where busy.owner=${input.owner} and busy.state='working' and busy.lease_until>now()) and e.resources->>'application'<>'' order by j.updated_at for update of j skip locked limit 1`;
+        await db`select j.run_id,j.project_id,a.title,a.data,p.repository,e.profile from brokk.coder_jobs j join brokk.artifacts a on a.id=j.run_id join brokk.projects p on p.id=j.project_id join brokk.environments e on e.project_id=j.project_id where j.state='queued' and a.status='launching' and exists(select 1 from brokk.coder_workers w where w.owner=${input.owner} and w.ready and w.updated_at>now()-interval '60 seconds' and (w.repositories ? p.repository or w.repositories ? (split_part(p.repository,'/',1) || '/*'))) and not exists(select 1 from brokk.coder_jobs busy where busy.owner=${input.owner} and busy.state='working' and busy.lease_until>now()) and e.resources->>'application'<>'' order by j.updated_at for update of j skip locked limit 1`;
       if (!rows.length) return null;
       const row = rows[0],
         lease = randomBytes(32).toString("hex");
-      await db`update brokk_v2.coder_jobs set state='working',owner=${input.owner},lease_hash=${hash(lease)},lease_until=now()+interval '2 minutes',updated_at=now() where run_id=${row.run_id}`;
-      await db`update brokk_v2.artifacts set status='active',data=data || ${db.json({ providerStatus: "working" })},version=version+1,updated_at=now() where id=${row.run_id}`;
+      await db`update brokk.coder_jobs set state='working',owner=${input.owner},lease_hash=${hash(lease)},lease_until=now()+interval '2 minutes',updated_at=now() where run_id=${row.run_id}`;
+      await db`update brokk.artifacts set status='active',data=data || ${db.json({ providerStatus: "working" })},version=version+1,updated_at=now() where id=${row.run_id}`;
       return {
         runId: row.run_id,
         projectId: row.project_id,
@@ -128,7 +128,7 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
     const id = z.uuid().parse(c.req.param("id"));
     const result = await store.sql.begin(async (db) => {
       const rows =
-        await db`select j.*,a.data,p.repository from brokk_v2.coder_jobs j join brokk_v2.artifacts a on a.id=j.run_id join brokk_v2.projects p on p.id=j.project_id where j.run_id=${id} and j.lease_hash=${hash(input.lease)} and (j.lease_until>now() or ${input.state === "failed"}) and j.state='working' for update of j,a`;
+        await db`select j.*,a.data,p.repository from brokk.coder_jobs j join brokk.artifacts a on a.id=j.run_id join brokk.projects p on p.id=j.project_id where j.run_id=${id} and j.lease_hash=${hash(input.lease)} and (j.lease_until>now() or ${input.state === "failed"}) and j.state='working' for update of j,a`;
       if (!rows.length)
         throw new Problem(
           409,
@@ -178,15 +178,15 @@ export function installCoderWorker(app: Hono<Env>, store: Store, cfg: Config) {
         ...(input.resultUrl ? { resultUrl: input.resultUrl } : {}),
         ...(input.sessionId ? { sessionId: "cursor-" + input.sessionId } : {}),
       };
-      await db`update brokk_v2.coder_jobs set state=${input.state},session_id=${input.sessionId || row.session_id},lease_until=now()+interval '2 minutes',updated_at=now() where run_id=${id}`;
+      await db`update brokk.coder_jobs set state=${input.state},session_id=${input.sessionId || row.session_id},lease_until=now()+interval '2 minutes',updated_at=now() where run_id=${id}`;
       if (
         input.message ||
         input.state !== "working" ||
         input.sessionId ||
         input.phase
       ) {
-        await db`update brokk_v2.artifacts set status=${input.state === "working" ? "active" : input.state},data=data || ${db.json(patch)},version=version+1,updated_at=now() where id=${id}`;
-        await db`insert into brokk_v2.events(id,project_id,actor,action,detail) values (${randomUUID()},${row.project_id},'Cursor CLI',${"run." + input.state},${input.resultUrl || "Execução do worker atualizada."})`;
+        await db`update brokk.artifacts set status=${input.state === "working" ? "active" : input.state},data=data || ${db.json(patch)},version=version+1,updated_at=now() where id=${id}`;
+        await db`insert into brokk.events(id,project_id,actor,action,detail) values (${randomUUID()},${row.project_id},'Cursor CLI',${"run." + input.state},${input.resultUrl || "Execução do worker atualizada."})`;
       }
       return {
         messages: notes

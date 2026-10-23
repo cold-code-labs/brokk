@@ -15,7 +15,7 @@ pnpm dev:api
 pnpm dev
 ```
 
-Migrations create `brokk_v2` without modifying legacy tables. Local sign-in requires `BROKK_DEV_AUTH=1` and is always disabled in production. The administrator email allowlist is server-only. A newly signed-in person receives no organization access until assigned.
+The fresh database contract is `db/schema.sql` in the `brokk` schema. It contains no legacy tables or demo rows. Local tests apply it automatically; production applies it before deployment with a separate migration credential. The web runtime has no DDL privileges. Local sign-in requires `BROKK_DEV_AUTH=1` and is always disabled in production. The administrator email allowlist is server-only. A newly signed-in person receives no organization access until assigned.
 
 ## Verification
 

@@ -89,11 +89,11 @@ export function createStore(url: string) {
     action: string,
     detail: string,
   ) {
-    await db`insert into brokk_v2.events values (${randomUUID()},${projectId},${user.email},${action},${detail},now())`;
+    await db`insert into brokk.events values (${randomUUID()},${projectId},${user.email},${action},${detail},now())`;
   }
   async function access(db: Db, projectId: string, user: User, edit = false) {
     const rows =
-      await db`select p.*, o.name as org_name, o.external_id as org_external_id, m.role from brokk_v2.projects p join brokk_v2.organizations o on o.id=p.organization_id left join brokk_v2.members m on m.organization_id=o.id and m.email=${user.email} where p.id=${projectId} and (${user.admin} or m.email is not null)`;
+      await db`select p.*, o.name as org_name, o.external_id as org_external_id, m.role from brokk.projects p join brokk.organizations o on o.id=p.organization_id left join brokk.members m on m.organization_id=o.id and m.email=${user.email} where p.id=${projectId} and (${user.admin} or m.email is not null)`;
     if (
       !rows.length ||
       (user.suiteOrganization &&
@@ -117,7 +117,7 @@ export function createStore(url: string) {
     };
   }
   async function snapshot(db: Db, row: Artifact, user: User) {
-    await db`insert into brokk_v2.versions values (${row.id},${row.version},${db.json(row as unknown as postgres.JSONValue)},${user.email},now())`;
+    await db`insert into brokk.versions values (${row.id},${row.version},${db.json(row as unknown as postgres.JSONValue)},${user.email},now())`;
   }
   async function insert(
     db: Db,
@@ -129,7 +129,7 @@ export function createStore(url: string) {
     user: User,
   ) {
     const rows =
-      await db`insert into brokk_v2.artifacts (id,project_id,kind,title,status,data,author) values (${randomUUID()},${projectId},${kind},${title},${status},${db.json(data as unknown as postgres.JSONValue)},${user.email}) returning *`;
+      await db`insert into brokk.artifacts (id,project_id,kind,title,status,data,author) values (${randomUUID()},${projectId},${kind},${title},${status},${db.json(data as unknown as postgres.JSONValue)},${user.email}) returning *`;
     const row = artifactOf(rows[0]);
     await snapshot(db, row, user);
     await event(db, projectId, user, `${kind}.created`, title);
@@ -137,7 +137,7 @@ export function createStore(url: string) {
   }
   async function designRecords(db: Db, projectId: string) {
     const rows =
-      await db`select * from brokk_v2.artifacts where project_id=${projectId} order by id`;
+      await db`select * from brokk.artifacts where project_id=${projectId} order by id`;
     return rows.map(artifactOf);
   }
   function validateDesign(records: Artifact[]) {
@@ -170,7 +170,7 @@ export function createStore(url: string) {
         "O tipo da especificação deve corresponder ao item.",
       );
     if (!["token", "component", "screen"].includes(kind)) return;
-    await db`select id from brokk_v2.projects where id=${projectId} for update`;
+    await db`select id from brokk.projects where id=${projectId} for update`;
     const records = await designRecords(db, projectId);
     const old = records.find((x) => x.id === item);
     if (old?.data.design && !data.design)
@@ -199,37 +199,7 @@ export function createStore(url: string) {
       await sql.begin(async (db) => {
         await db`select pg_advisory_xact_lock(42902381)`;
         await db.unsafe(
-          await readFile(
-            new URL("../db/migrations/0001_workspace.sql", import.meta.url),
-            "utf8",
-          ),
-        );
-        await db.unsafe(
-          await readFile(
-            new URL("../db/migrations/0002_environments.sql", import.meta.url),
-            "utf8",
-          ),
-        );
-        await db.unsafe(
-          await readFile(
-            new URL("../db/migrations/0003_coder_jobs.sql", import.meta.url),
-            "utf8",
-          ),
-        );
-        await db.unsafe(
-          await readFile(
-            new URL("../db/migrations/0004_coder_workers.sql", import.meta.url),
-            "utf8",
-          ),
-        );
-        await db.unsafe(
-          await readFile(
-            new URL(
-              "../db/migrations/0005_review_extension.sql",
-              import.meta.url,
-            ),
-            "utf8",
-          ),
+          await readFile(new URL("../db/schema.sql", import.meta.url), "utf8"),
         );
       });
     },
@@ -241,11 +211,11 @@ export function createStore(url: string) {
         await access(db, m.projectId, user, true);
         await db`select pg_advisory_xact_lock(hashtext(${`a4-coach:${m.id}`}))`;
         const prior =
-          await db`select * from brokk_v2.artifacts where project_id=${m.projectId} and kind='call' and data->>'sessionId'=${m.id}`;
+          await db`select * from brokk.artifacts where project_id=${m.projectId} and kind='call' and data->>'sessionId'=${m.id}`;
         if (prior.length) return artifactOf(prior[0]);
         const data = coachData(m, user);
         const rows =
-          await db`insert into brokk_v2.artifacts(id,project_id,kind,title,status,data,author) values(${randomUUID()},${m.projectId},'call',${m.title},'closed',${db.json(data as unknown as postgres.JSONValue)},${user.email}) returning *`;
+          await db`insert into brokk.artifacts(id,project_id,kind,title,status,data,author) values(${randomUUID()},${m.projectId},'call',${m.title},'closed',${db.json(data as unknown as postgres.JSONValue)},${user.email}) returning *`;
         const call = artifactOf(rows[0]);
         await snapshot(db, call, user);
         await event(db, m.projectId, user, "call.coach.imported", m.title);
@@ -256,18 +226,18 @@ export function createStore(url: string) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
         const rows =
-          await db`select id from brokk_v2.artifacts where id=${item} and project_id=${id} and kind='call' and status<>'closed' for update`;
+          await db`select id from brokk.artifacts where id=${item} and project_id=${id} and kind='call' and status<>'closed' for update`;
         if (!rows.length) throw new Problem(404, "Review indisponível.");
         const active =
-          await db`select digest from brokk_v2.extension_grants where call_id=${item} and capture_until>now() and not revoked`;
+          await db`select digest from brokk.extension_grants where call_id=${item} and capture_until>now() and not revoked`;
         if (active.length)
           throw new Problem(
             409,
             "Pare e sincronize a captura antes de gerar outra conexão.",
           );
-        await db`update brokk_v2.extension_grants set revoked=true,capture_until=null where call_id=${item} and identity->>'email'=${user.email}`;
+        await db`update brokk.extension_grants set revoked=true,capture_until=null where call_id=${item} and identity->>'email'=${user.email}`;
         const token = randomBytes(32).toString("base64url");
-        await db`insert into brokk_v2.extension_grants(digest,project_id,call_id,identity,expires_at) values(${hash(token)},${id},${item},${db.json(user)},now()+interval '4 hours')`;
+        await db`insert into brokk.extension_grants(digest,project_id,call_id,identity,expires_at) values(${hash(token)},${id},${item},${db.json(user)},now()+interval '4 hours')`;
         await event(
           db,
           id,
@@ -285,7 +255,7 @@ export function createStore(url: string) {
     },
     async extensionAccess(token: string) {
       const rows =
-        await sql`select * from brokk_v2.extension_grants where digest=${hash(token)} and not revoked and expires_at>now()`;
+        await sql`select * from brokk.extension_grants where digest=${hash(token)} and not revoked and expires_at>now()`;
       if (!rows.length)
         throw new Problem(401, "Conecte novamente a extensão nesta review.");
       const grant = rows[0],
@@ -299,31 +269,31 @@ export function createStore(url: string) {
     async extensionCapture(token: string, start: boolean) {
       return sql.begin(async (db) => {
         const rows =
-          await db`select * from brokk_v2.extension_grants where digest=${hash(token)} and not revoked and expires_at>now() for update`;
+          await db`select * from brokk.extension_grants where digest=${hash(token)} and not revoked and expires_at>now() for update`;
         if (!rows.length)
           throw new Problem(401, "Conecte novamente a extensão.");
         const g = rows[0],
           user = g.identity as User;
         await access(db, String(g.project_id), user, true);
         const calls =
-          await db`select id from brokk_v2.artifacts where id=${g.call_id} and status<>'closed' for update`;
+          await db`select id from brokk.artifacts where id=${g.call_id} and status<>'closed' for update`;
         if (!calls.length) throw new Problem(409, "Review encerrada.");
         if (start) {
           const active =
-            await db`select digest from brokk_v2.extension_grants where call_id=${g.call_id} and capture_until>now()`;
+            await db`select digest from brokk.extension_grants where call_id=${g.call_id} and capture_until>now()`;
           if (active.length || Number(g.captures) >= 8)
             throw new Problem(
               409,
               "Encerre a captura ativa ou gere uma nova conexão após o limite de oito capturas.",
             );
         }
-        await db`update brokk_v2.extension_grants set capture_until=${start ? new Date(Date.now() + 7200000) : null},captures=captures+${start ? 1 : 0} where digest=${hash(token)}`;
+        await db`update brokk.extension_grants set capture_until=${start ? new Date(Date.now() + 7200000) : null},captures=captures+${start ? 1 : 0} where digest=${hash(token)}`;
       });
     },
     async revokeExtension(id: string, item: string, user: User) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
-        await db`update brokk_v2.extension_grants set revoked=true,capture_until=null where project_id=${id} and call_id=${item}`;
+        await db`update brokk.extension_grants set revoked=true,capture_until=null where project_id=${id} and call_id=${item}`;
         await event(
           db,
           id,
@@ -336,14 +306,14 @@ export function createStore(url: string) {
     async extensionNotes(token: string, notes: Note[]) {
       return sql.begin(async (db) => {
         const grants =
-          await db`select * from brokk_v2.extension_grants where digest=${hash(token)} and not revoked and expires_at>now() for update`;
+          await db`select * from brokk.extension_grants where digest=${hash(token)} and not revoked and expires_at>now() for update`;
         if (!grants.length)
           throw new Problem(401, "Conecte novamente a extensão.");
         const g = grants[0],
           user = g.identity as User;
         await access(db, String(g.project_id), user, true);
         const rows =
-          await db`select * from brokk_v2.artifacts where id=${g.call_id} and project_id=${g.project_id} and kind='call' for update`;
+          await db`select * from brokk.artifacts where id=${g.call_id} and project_id=${g.project_id} and kind='call' for update`;
         if (!rows.length || rows[0].status === "closed")
           throw new Problem(
             409,
@@ -366,7 +336,7 @@ export function createStore(url: string) {
           ...fresh.map((n) => ({ ...n, id: randomUUID(), author: user.email })),
         );
         const updated =
-          await db`update brokk_v2.artifacts set status='active',data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${g.call_id} returning *`;
+          await db`update brokk.artifacts set status='active',data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${g.call_id} returning *`;
         await snapshot(db, artifactOf(updated[0]), user);
         await event(
           db,
@@ -380,16 +350,16 @@ export function createStore(url: string) {
     },
     async session(token: string) {
       const rows =
-        await sql`select identity from brokk_v2.sessions where digest=${hash(token)} and expires_at>now()`;
+        await sql`select identity from brokk.sessions where digest=${hash(token)} and expires_at>now()`;
       return rows[0]?.identity as User | undefined;
     },
     async login(user: User) {
       const token = randomBytes(32).toString("base64url");
-      await sql`insert into brokk_v2.sessions values (${hash(token)},${sql.json(user as unknown as postgres.JSONValue)},now()+interval '12 hours')`;
+      await sql`insert into brokk.sessions values (${hash(token)},${sql.json(user as unknown as postgres.JSONValue)},now()+interval '12 hours')`;
       return token;
     },
     async logout(token: string) {
-      await sql`delete from brokk_v2.sessions where digest=${hash(token)}`;
+      await sql`delete from brokk.sessions where digest=${hash(token)}`;
     },
     // Login hint only. A4 authorizes membership; workspace access remains scoped below.
     async suiteProjectOrganization(path: string) {
@@ -398,7 +368,7 @@ export function createStore(url: string) {
       );
       if (!match) return null;
       const rows =
-        await sql`select o.external_id from brokk_v2.projects p join brokk_v2.organizations o on o.id=p.organization_id where p.id=${match[1]}`;
+        await sql`select o.external_id from brokk.projects p join brokk.organizations o on o.id=p.organization_id where p.id=${match[1]}`;
       const external = String(rows[0]?.external_id || "");
       return /^a4:[0-9a-f-]{36}$/i.test(external) ? external.slice(3) : null;
     },
@@ -410,15 +380,15 @@ export function createStore(url: string) {
     ) {
       return sql.begin(async (db) => {
         const rows =
-          await db`insert into brokk_v2.organizations(id,name,external_id) values (${randomUUID()},${name},${`a4:${id}`}) on conflict(external_id) do update set name=excluded.name returning id`;
+          await db`insert into brokk.organizations(id,name,external_id) values (${randomUUID()},${name},${`a4:${id}`}) on conflict(external_id) do update set name=excluded.name returning id`;
         const oid = String(rows[0].id);
-        await db`insert into brokk_v2.members values (${oid},${email},${role}) on conflict(organization_id,email) do update set role=excluded.role`;
+        await db`insert into brokk.members values (${oid},${email},${role}) on conflict(organization_id,email) do update set role=excluded.role`;
         return oid;
       });
     },
     async organizations(user: User) {
       const rows =
-        await sql`select o.*,m.role from brokk_v2.organizations o left join brokk_v2.members m on m.organization_id=o.id and m.email=${user.email} where (${user.admin} or m.email is not null) and (${user.suiteOrganization ?? ""} = '' or o.id::text=${user.suiteOrganization ?? ""}) order by o.name`;
+        await sql`select o.*,m.role from brokk.organizations o left join brokk.members m on m.organization_id=o.id and m.email=${user.email} where (${user.admin} or m.email is not null) and (${user.suiteOrganization ?? ""} = '' or o.id::text=${user.suiteOrganization ?? ""}) order by o.name`;
       return rows.map((r) => ({
         id: r.id,
         name: r.name,
@@ -431,8 +401,8 @@ export function createStore(url: string) {
         throw new Problem(403, "Gerencie as empresas na A4.");
       return sql.begin(async (db) => {
         const id = randomUUID();
-        await db`insert into brokk_v2.organizations (id,name) values (${id},${name})`;
-        await db`insert into brokk_v2.members values (${id},${user.email},'admin')`;
+        await db`insert into brokk.organizations (id,name) values (${id},${name})`;
+        await db`insert into brokk.members values (${id},${user.email},'admin')`;
         return { id, name, role: "admin", externalId: null } as Organization;
       });
     },
@@ -441,12 +411,12 @@ export function createStore(url: string) {
         throw new Problem(404, "Organização indisponível.");
       return sql.begin(async (db) => {
         const rows =
-          await db`select o.id,m.role from brokk_v2.organizations o left join brokk_v2.members m on m.organization_id=o.id and m.email=${user.email} where o.id=${orgId}`;
+          await db`select o.id,m.role from brokk.organizations o left join brokk.members m on m.organization_id=o.id and m.email=${user.email} where o.id=${orgId}`;
         if (!rows.length || (!user.admin && rows[0].role !== "admin"))
           throw new Problem(403, "Somente a administração gerencia acesso.");
-        await db`insert into brokk_v2.members values (${orgId},${email},${role}) on conflict (organization_id,email) do update set role=excluded.role`;
+        await db`insert into brokk.members values (${orgId},${email},${role}) on conflict (organization_id,email) do update set role=excluded.role`;
         const ps =
-          await db`select id from brokk_v2.projects where organization_id=${orgId}`;
+          await db`select id from brokk.projects where organization_id=${orgId}`;
         for (const p of ps)
           await event(
             db,
@@ -459,7 +429,7 @@ export function createStore(url: string) {
     },
     async projects(user: User) {
       const rows =
-        await sql`select p.* from brokk_v2.projects p left join brokk_v2.members m on m.organization_id=p.organization_id and m.email=${user.email} where (${user.admin} or m.email is not null) and (${user.suiteOrganization ?? ""} = '' or p.organization_id::text=${user.suiteOrganization ?? ""}) order by p.updated_at desc`;
+        await sql`select p.* from brokk.projects p left join brokk.members m on m.organization_id=p.organization_id and m.email=${user.email} where (${user.admin} or m.email is not null) and (${user.suiteOrganization ?? ""} = '' or p.organization_id::text=${user.suiteOrganization ?? ""}) order by p.updated_at desc`;
       return rows.map(projectOf);
     },
     async createProject(
@@ -472,7 +442,7 @@ export function createStore(url: string) {
         throw new Problem(404, "Organização indisponível.");
       return sql.begin(async (db) => {
         const rows =
-          await db`select o.id,m.role from brokk_v2.organizations o left join brokk_v2.members m on m.organization_id=o.id and m.email=${user.email} where o.id=${orgId} and (${user.admin} or m.role in ('admin','operator'))`;
+          await db`select o.id,m.role from brokk.organizations o left join brokk.members m on m.organization_id=o.id and m.email=${user.email} where o.id=${orgId} and (${user.admin} or m.role in ('admin','operator'))`;
         if (!rows.length)
           throw new Problem(
             403,
@@ -480,7 +450,7 @@ export function createStore(url: string) {
           );
         const id = randomUUID();
         const p =
-          await db`insert into brokk_v2.projects(id,organization_id,name,objective) values (${id},${orgId},${name},${objective}) returning *`;
+          await db`insert into brokk.projects(id,organization_id,name,objective) values (${id},${orgId},${name},${objective}) returning *`;
         await event(db, id, user, "project.created", name);
         return projectOf(p[0]);
       });
@@ -489,12 +459,12 @@ export function createStore(url: string) {
       return sql.begin(async (db) => {
         const base = await access(db, id, user);
         const records =
-          await db`select * from brokk_v2.artifacts where project_id=${id} order by updated_at desc`;
+          await db`select * from brokk.artifacts where project_id=${id} order by updated_at desc`;
         const events =
-          await db`select * from brokk_v2.events where project_id=${id} order by at desc limit 150`;
+          await db`select * from brokk.events where project_id=${id} order by at desc limit 150`;
         const members =
           base.organization.role === "admin"
-            ? await db`select email,role from brokk_v2.members where organization_id=${base.organization.id} order by email`
+            ? await db`select email,role from brokk.members where organization_id=${base.organization.id} order by email`
             : [];
         return {
           ...base,
@@ -520,7 +490,7 @@ export function createStore(url: string) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
         const rows =
-          await db`update brokk_v2.projects set name=${patch.name},objective=${patch.objective},status=${patch.status},version=version+1,updated_at=now() where id=${id} and version=${version} returning *`;
+          await db`update brokk.projects set name=${patch.name},objective=${patch.objective},status=${patch.status},version=version+1,updated_at=now() where id=${id} and version=${version} returning *`;
         if (!rows.length)
           throw new Problem(409, "O projeto mudou. Atualize antes de salvar.");
         await event(db, id, user, "project.updated", patch.name);
@@ -533,13 +503,13 @@ export function createStore(url: string) {
         if (a.organization.role !== "admin")
           throw new Problem(403, "Repositório exige administração técnica.");
         const bound =
-          await db`select repository from brokk_v2.environments where project_id=${id}`;
+          await db`select repository from brokk.environments where project_id=${id}`;
         if (bound.length && bound[0].repository !== repository)
           throw new Problem(
             409,
             "O ambiente já está vinculado a este repositório.",
           );
-        await db`update brokk_v2.projects set repository=${repository || null},version=version+1,updated_at=now() where id=${id}`;
+        await db`update brokk.projects set repository=${repository || null},version=version+1,updated_at=now() where id=${id}`;
         await event(
           db,
           id,
@@ -553,7 +523,7 @@ export function createStore(url: string) {
       return sql.begin(async (db) => {
         await access(db, id, user);
         const rows =
-          await db`select * from brokk_v2.environments where project_id=${id}`;
+          await db`select * from brokk.environments where project_id=${id}`;
         return rows.length ? environmentOf(rows[0]) : null;
       });
     },
@@ -576,7 +546,7 @@ export function createStore(url: string) {
           throw new Problem(403, "A administração configura a receita.");
         await db`select pg_advisory_xact_lock(42902383)`;
         const old =
-          await db`select * from brokk_v2.environments where project_id=${id}`;
+          await db`select * from brokk.environments where project_id=${id}`;
         if (old.length) {
           const r = environmentOf(old[0]);
           if (
@@ -593,11 +563,11 @@ export function createStore(url: string) {
           return r;
         }
         const counts =
-          await db`select count(*)::int as n from brokk_v2.environments`;
+          await db`select count(*)::int as n from brokk.environments`;
         if (counts[0].n >= limit)
           throw new Problem(429, "Limite de ambientes atingido.");
         const collisions =
-          await db`select project_id from brokk_v2.environments where slug=${input.slug} or repository=${input.repository} or preview_url=${input.previewUrl}`;
+          await db`select project_id from brokk.environments where slug=${input.slug} or repository=${input.repository} or preview_url=${input.previewUrl}`;
         if (collisions.length)
           throw new Problem(409, "Este ambiente pertence a outro projeto.");
         if (a.project.repository && a.project.repository !== input.repository)
@@ -608,8 +578,8 @@ export function createStore(url: string) {
             "A administração precisa vincular o ambiente ao repositório existente.",
           );
         const rows =
-          await db`insert into brokk_v2.environments(project_id,slug,repository,preview_url,production_url,profile,resources) values (${id},${input.slug},${input.repository},${input.previewUrl},${input.productionUrl},${input.profile},${db.json({ application: "", dataProject: "", deployment: "", createRepository: !a.project.repository })}) returning *`;
-        await db`update brokk_v2.projects set repository=${input.repository},version=version+1,updated_at=now() where id=${id}`;
+          await db`insert into brokk.environments(project_id,slug,repository,preview_url,production_url,profile,resources) values (${id},${input.slug},${input.repository},${input.previewUrl},${input.productionUrl},${input.profile},${db.json({ application: "", dataProject: "", deployment: "", createRepository: !a.project.repository })}) returning *`;
+        await db`update brokk.projects set repository=${input.repository},version=version+1,updated_at=now() where id=${id}`;
         await event(db, id, user, "environment.configured", input.previewUrl);
         return environmentOf(rows[0]);
       });
@@ -622,7 +592,7 @@ export function createStore(url: string) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
         const rows =
-          await db`select * from brokk_v2.environments where project_id=${id} for update`;
+          await db`select * from brokk.environments where project_id=${id} for update`;
         if (!rows.length)
           throw new Problem(409, "Prepare a receita do ambiente.");
         const r = environmentOf(rows[0]);
@@ -640,7 +610,7 @@ export function createStore(url: string) {
           return { created: false, environment: r };
         const lease = randomUUID();
         const updated =
-          await db`update brokk_v2.environments set state='preparing',lease=${lease},lease_until=now()+interval '10 minutes',version=version+1,updated_at=now() where project_id=${id} returning *`;
+          await db`update brokk.environments set state='preparing',lease=${lease},lease_until=now()+interval '10 minutes',version=version+1,updated_at=now() where project_id=${id} returning *`;
         await event(db, id, user, "environment.preparing", r.previewUrl);
         return { created: true, environment: environmentOf(updated[0]) };
       });
@@ -654,12 +624,12 @@ export function createStore(url: string) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
         const rows =
-          await db`select * from brokk_v2.environments where project_id=${id} and lease=${lease} for update`;
+          await db`select * from brokk.environments where project_id=${id} and lease=${lease} for update`;
         if (!rows.length)
           throw new Problem(409, "A preparação mudou. Atualize o projeto.");
         const r = { ...environmentOf(rows[0]), ...patch };
         const updated =
-          await db`update brokk_v2.environments set state=${r.state},step=${r.step},detail=${r.detail},data_ready=${r.dataReady},ci_state=${r.ciState},commit=${r.commit},deployed_commit=${r.deployedCommit},resources=${db.json(r.resources)},version=version+1,updated_at=now(),lease_until=now()+interval '10 minutes' where project_id=${id} and lease=${lease} returning *`;
+          await db`update brokk.environments set state=${r.state},step=${r.step},detail=${r.detail},data_ready=${r.dataReady},ci_state=${r.ciState},commit=${r.commit},deployed_commit=${r.deployedCommit},resources=${db.json(r.resources)},version=version+1,updated_at=now(),lease_until=now()+interval '10 minutes' where project_id=${id} and lease=${lease} returning *`;
         if (patch.state && patch.state !== rows[0].state)
           await event(db, id, user, `environment.${patch.state}`, r.previewUrl);
         return environmentOf(updated[0]);
@@ -681,7 +651,7 @@ export function createStore(url: string) {
         await checkDesign(db, id, kind, title, data, user);
         if (kind === "review") {
           const target =
-            await db`select version from brokk_v2.artifacts where id=${data.targetId} and project_id=${id} and kind in ('scope','task','screen','component','token')`;
+            await db`select version from brokk.artifacts where id=${data.targetId} and project_id=${id} and kind in ('scope','task','screen','component','token')`;
           if (
             !target.length ||
             Number(target[0].version) !== data.targetVersion
@@ -690,14 +660,14 @@ export function createStore(url: string) {
         }
         if (data.screenId) {
           const linked =
-            await db`select id from brokk_v2.artifacts where project_id=${id} and id=${data.screenId} and kind='screen'`;
+            await db`select id from brokk.artifacts where project_id=${id} and id=${data.screenId} and kind='screen'`;
           if (!linked.length)
             throw new Problem(400, "Tela não encontrada neste projeto.");
         }
         if (kind === "scope") {
-          await db`select id from brokk_v2.projects where id=${id} for update`;
+          await db`select id from brokk.projects where id=${id} for update`;
           const existing =
-            await db`select id from brokk_v2.artifacts where project_id=${id} and kind='scope'`;
+            await db`select id from brokk.artifacts where project_id=${id} and kind='scope'`;
           if (existing.length)
             throw new Problem(
               409,
@@ -718,9 +688,9 @@ export function createStore(url: string) {
     ) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
-        await db`select id from brokk_v2.projects where id=${id} for update`;
+        await db`select id from brokk.projects where id=${id} for update`;
         const prev =
-          await db`select * from brokk_v2.artifacts where project_id=${id} and id=${item} and version=${version} for update`;
+          await db`select * from brokk.artifacts where project_id=${id} and id=${item} and version=${version} for update`;
         if (!prev.length)
           throw new Problem(409, "O item mudou. Atualize antes de salvar.");
         if (["review", "run", "call"].includes(prev[0].kind))
@@ -737,7 +707,7 @@ export function createStore(url: string) {
         );
         if (data.screenId) {
           const linked =
-            await db`select id from brokk_v2.artifacts where project_id=${id} and id=${data.screenId} and kind='screen'`;
+            await db`select id from brokk.artifacts where project_id=${id} and id=${data.screenId} and kind='screen'`;
           if (!linked.length)
             throw new Problem(400, "Tela não encontrada neste projeto.");
         }
@@ -756,7 +726,7 @@ export function createStore(url: string) {
         }
         const nextStatus = prev[0].status === "approved" ? "draft" : status;
         const rows =
-          await db`update brokk_v2.artifacts set title=${title},status=${nextStatus},data=${db.json(data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
+          await db`update brokk.artifacts set title=${title},status=${nextStatus},data=${db.json(data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
         const row = artifactOf(rows[0]);
         await snapshot(db, row, user);
         const invalidatedIds = [item];
@@ -764,7 +734,7 @@ export function createStore(url: string) {
           (x) => x.data.design && affected.has(x.data.design.key),
         )) {
           const changed =
-            await db`update brokk_v2.artifacts set status=case when status='approved' then 'draft' else status end,version=version+1,updated_at=now() where id=${dependent.id} returning *`;
+            await db`update brokk.artifacts set status=case when status='approved' then 'draft' else status end,version=version+1,updated_at=now() where id=${dependent.id} returning *`;
           await snapshot(db, artifactOf(changed[0]), user);
           await event(
             db,
@@ -776,7 +746,7 @@ export function createStore(url: string) {
           invalidatedIds.push(dependent.id);
         }
         const changedReviews =
-          await db`update brokk_v2.artifacts set status='changes',version=version+1,updated_at=now() where project_id=${id} and kind='review' and data->>'targetId'=any(${invalidatedIds}) and status in ('approved','review') returning *`;
+          await db`update brokk.artifacts set status='changes',version=version+1,updated_at=now() where project_id=${id} and kind='review' and data->>'targetId'=any(${invalidatedIds}) and status in ('approved','review') returning *`;
         for (const review of changedReviews)
           await snapshot(db, artifactOf(review), user);
         await event(db, id, user, `${row.kind}.updated`, title);
@@ -786,7 +756,7 @@ export function createStore(url: string) {
     async importDesign(id: string, manifest: DesignManifest, user: User) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
-        await db`select id from brokk_v2.projects where id=${id} for update`;
+        await db`select id from brokk.projects where id=${id} for update`;
         const records = await designRecords(db, id);
         const existing = new Map(
           records
@@ -860,14 +830,14 @@ export function createStore(url: string) {
         const a = await access(db, id, user);
         if (a.organization.role === "reader")
           throw new Problem(403, "Acesso somente leitura.");
-        await db`select id from brokk_v2.projects where id=${id} for update`;
+        await db`select id from brokk.projects where id=${id} for update`;
         const rows =
-          await db`select * from brokk_v2.artifacts where id=${item} and project_id=${id} and kind='review' and version=${version} for update`;
+          await db`select * from brokk.artifacts where id=${item} and project_id=${id} and kind='review' and version=${version} for update`;
         if (!rows.length)
           throw new Problem(409, "A revisão mudou. Atualize antes de decidir.");
         const r = artifactOf(rows[0]);
         const target =
-          await db`select * from brokk_v2.artifacts where id=${r.data.targetId} and project_id=${id} for update`;
+          await db`select * from brokk.artifacts where id=${r.data.targetId} and project_id=${id} for update`;
         if (
           !target.length ||
           Number(target[0].version) !== r.data.targetVersion
@@ -880,9 +850,9 @@ export function createStore(url: string) {
         r.data.reviewedBy = user.email;
         r.data.reviewedAt = new Date().toISOString();
         const next =
-          await db`update brokk_v2.artifacts set status=${decision},data=${db.json(r.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
+          await db`update brokk.artifacts set status=${decision},data=${db.json(r.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
         if (decision === "approved")
-          await db`update brokk_v2.artifacts set status='approved' where id=${r.data.targetId}`;
+          await db`update brokk.artifacts set status='approved' where id=${r.data.targetId}`;
         await snapshot(db, artifactOf(next[0]), user);
         await event(
           db,
@@ -897,7 +867,7 @@ export function createStore(url: string) {
     async versions(id: string, item: string, user: User) {
       return sql.begin(async (db) => {
         await access(db, id, user);
-        return db`select v.version,v.snapshot,v.actor,v.at from brokk_v2.versions v join brokk_v2.artifacts a on a.id=v.artifact_id where a.project_id=${id} and a.id=${item} order by v.version desc`;
+        return db`select v.version,v.snapshot,v.actor,v.at from brokk.versions v join brokk.artifacts a on a.id=v.artifact_id where a.project_id=${id} and a.id=${item} order by v.version desc`;
       });
     },
     async mutateCall(
@@ -912,13 +882,13 @@ export function createStore(url: string) {
         if (a.organization.role === "reader")
           throw new Problem(403, "Acesso somente leitura.");
         const rows =
-          await db`select * from brokk_v2.artifacts where id=${item} and project_id=${id} and kind='call' and version=${version} for update`;
+          await db`select * from brokk.artifacts where id=${item} and project_id=${id} and kind='call' and version=${version} for update`;
         if (!rows.length)
           throw new Problem(409, "A call mudou. Atualize antes de salvar.");
         const row = artifactOf(rows[0]);
         change(row);
         const updated =
-          await db`update brokk_v2.artifacts set status=${row.status},data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
+          await db`update brokk.artifacts set status=${row.status},data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
         await snapshot(db, artifactOf(updated[0]), user);
         await event(db, id, user, "call.updated", row.title);
         return artifactOf(updated[0]);
@@ -934,14 +904,14 @@ export function createStore(url: string) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
         const rows =
-          await db`select * from brokk_v2.artifacts where id=${item} and project_id=${id} and kind='call' and version=${version} for update`;
+          await db`select * from brokk.artifacts where id=${item} and project_id=${id} and kind='call' and version=${version} for update`;
         if (!rows.length)
           throw new Problem(409, "A call mudou. Atualize antes de encerrar.");
         const row = artifactOf(rows[0]);
         if (row.status === "closed")
           throw new Problem(409, "A call já foi encerrada.");
         const active =
-          await db`select digest from brokk_v2.extension_grants where call_id=${item} and capture_until>now() and not revoked`;
+          await db`select digest from brokk.extension_grants where call_id=${item} and capture_until>now() and not revoked`;
         if (active.length)
           throw new Problem(
             409,
@@ -975,9 +945,9 @@ export function createStore(url: string) {
             (n) => p.noteIds.includes(n.id) && n.codeReference,
           )?.codeReference,
         }));
-        await db`update brokk_v2.extension_grants set revoked=true where call_id=${item}`;
+        await db`update brokk.extension_grants set revoked=true where call_id=${item}`;
         const result =
-          await db`update brokk_v2.artifacts set status='closed',data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
+          await db`update brokk.artifacts set status='closed',data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
         await snapshot(db, artifactOf(result[0]), user);
         await event(
           db,
@@ -1006,7 +976,7 @@ export function createStore(url: string) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
         const rows =
-          await db`select * from brokk_v2.artifacts where id=${item} and project_id=${id} and kind='call' and status='closed' and version=${version} for update`;
+          await db`select * from brokk.artifacts where id=${item} and project_id=${id} and kind='call' and status='closed' and version=${version} for update`;
         if (!rows.length)
           throw new Problem(
             409,
@@ -1044,7 +1014,7 @@ export function createStore(url: string) {
           p.taskId = task.id;
         }
         const updated =
-          await db`update brokk_v2.artifacts set data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
+          await db`update brokk.artifacts set data=${db.json(row.data as unknown as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} returning *`;
         await snapshot(db, artifactOf(updated[0]), user);
         await event(db, id, user, `call.proposal.${input.decision}`, p.title);
         return artifactOf(updated[0]);
@@ -1064,13 +1034,13 @@ export function createStore(url: string) {
         await access(db, id, user, true);
         await db`select pg_advisory_xact_lock(42902382)`;
         const old =
-          await db`select * from brokk_v2.artifacts where project_id=${id} and kind='run' and data->>'requestKey'=${key}`;
+          await db`select * from brokk.artifacts where project_id=${id} and kind='run' and data->>'requestKey'=${key}`;
         if (old.length) return { created: false, run: artifactOf(old[0]) };
         if (expected) {
           const projects =
-            await db`select version,repository from brokk_v2.projects where id=${id} for update`;
+            await db`select version,repository from brokk.projects where id=${id} for update`;
           const current =
-            await db`select id,version,status from brokk_v2.artifacts where project_id=${id} and (kind in ('scope','screen','component','token') or id=${taskId})`;
+            await db`select id,version,status from brokk.artifacts where project_id=${id} and (kind in ('scope','screen','component','token') or id=${taskId})`;
           const specs = expected.records.filter(
             (r) =>
               ["scope", "screen", "component", "token"].includes(r.kind) ||
@@ -1104,17 +1074,17 @@ export function createStore(url: string) {
             );
         }
         const task =
-          await db`select * from brokk_v2.artifacts where id=${taskId} and project_id=${id} and kind='task'`;
+          await db`select * from brokk.artifacts where id=${taskId} and project_id=${id} and kind='task'`;
         if (!task.length) throw new Problem(404, "Tarefa não encontrada.");
         const active =
-          await db`select id from brokk_v2.artifacts where project_id=${id} and kind='run' and data->>'targetId'=${taskId} and status in ('launching','active','uncertain','review')`;
+          await db`select id from brokk.artifacts where project_id=${id} and kind='run' and data->>'targetId'=${taskId} and status in ('launching','active','uncertain','review')`;
         if (active.length)
           throw new Problem(
             409,
             "Esta tarefa já tem uma execução em andamento.",
           );
         const counts =
-          await db`select count(*)::int as n from brokk_v2.artifacts where kind='run' and updated_at>now()-interval '24 hours'`;
+          await db`select count(*)::int as n from brokk.artifacts where kind='run' and updated_at>now()-interval '24 hours'`;
         if (counts[0].n >= dailyLimit)
           throw new Problem(429, "Limite diário de desenvolvimento atingido.");
         const run = await insert(
@@ -1141,8 +1111,8 @@ export function createStore(url: string) {
           user,
         );
         if (provider === "cursor") {
-          await db`insert into brokk_v2.coder_jobs(run_id,project_id) values (${run.id},${id})`;
-          await db`update brokk_v2.artifacts set data=data || ${db.json({ sessionId: "cursor-" + run.id, providerStatus: "queued" })} where id=${run.id}`;
+          await db`insert into brokk.coder_jobs(run_id,project_id) values (${run.id},${id})`;
+          await db`update brokk.artifacts set data=data || ${db.json({ sessionId: "cursor-" + run.id, providerStatus: "queued" })} where id=${run.id}`;
           run.data.sessionId = "cursor-" + run.id;
           run.data.providerStatus = "queued";
         }
@@ -1158,7 +1128,7 @@ export function createStore(url: string) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
         const rows =
-          await db`select * from brokk_v2.artifacts where id=${item} and project_id=${id} and kind='run' for update`;
+          await db`select * from brokk.artifacts where id=${item} and project_id=${id} and kind='run' for update`;
         if (
           !rows.length ||
           rows[0].status !== "launching" ||
@@ -1196,9 +1166,9 @@ export function createStore(url: string) {
           ],
           notes,
         };
-        await db`insert into brokk_v2.coder_jobs(run_id,project_id) values (${item},${id})`;
+        await db`insert into brokk.coder_jobs(run_id,project_id) values (${item},${id})`;
         const updated =
-          await db`update brokk_v2.artifacts set data=data || ${db.json(patch)},version=version+1,updated_at=now() where id=${item} returning *`;
+          await db`update brokk.artifacts set data=data || ${db.json(patch)},version=version+1,updated_at=now() where id=${item} returning *`;
         await event(
           db,
           id,
@@ -1221,14 +1191,14 @@ export function createStore(url: string) {
         if (accessResult.organization.role !== "admin")
           throw new Problem(403, "A administração recupera a entrega.");
         const jobs =
-          await db`select state from brokk_v2.coder_jobs where run_id=${item} for update`;
+          await db`select state from brokk.coder_jobs where run_id=${item} for update`;
         if (jobs[0]?.state !== "failed")
           throw new Problem(
             409,
             "O worker ainda não confirmou o encerramento desta tentativa.",
           );
         const project =
-          await db`select version from brokk_v2.projects where id=${id} for update`;
+          await db`select version from brokk.projects where id=${id} for update`;
         const targetId =
           expected.records.find((r) => r.id === item)?.data.targetId || "";
         const specs = expected.records.filter(
@@ -1238,7 +1208,7 @@ export function createStore(url: string) {
             r.id === item,
         );
         const current =
-          await db`select id,version,status from brokk_v2.artifacts where project_id=${id} and (kind in ('scope','screen','component','token') or id::text=${targetId} or id=${item}) for update`;
+          await db`select id,version,status from brokk.artifacts where project_id=${id} and (kind in ('scope','screen','component','token') or id::text=${targetId} or id=${item}) for update`;
         if (
           project[0].version !== expected.project.version ||
           current.length !== specs.length ||
@@ -1253,7 +1223,7 @@ export function createStore(url: string) {
         )
           throw new Problem(409, "O contexto mudou durante a recuperação.");
         const updated =
-          await db`update brokk_v2.artifacts set status='review',data=data || ${db.json({ resultUrl, providerStatus: "recovered_delivery", summary: "Entrega Git recuperada pela administração após revisão e CI. A execução do modelo não foi repetida." })},version=version+1,updated_at=now() where id=${item} and project_id=${id} and kind='run' and status='failed' and data->>'category'='cursor' returning *`;
+          await db`update brokk.artifacts set status='review',data=data || ${db.json({ resultUrl, providerStatus: "recovered_delivery", summary: "Entrega Git recuperada pela administração após revisão e CI. A execução do modelo não foi repetida." })},version=version+1,updated_at=now() where id=${item} and project_id=${id} and kind='run' and status='failed' and data->>'category'='cursor' returning *`;
         if (!updated.length)
           throw new Problem(409, "Esta entrega já foi recuperada ou mudou.");
         await event(
@@ -1276,7 +1246,7 @@ export function createStore(url: string) {
       return sql.begin(async (db) => {
         await access(db, id, user, true);
         const rows =
-          await db`update brokk_v2.artifacts set status=${status},data=data || ${db.json(patch as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} and project_id=${id} and kind='run' returning *`;
+          await db`update brokk.artifacts set status=${status},data=data || ${db.json(patch as postgres.JSONValue)},version=version+1,updated_at=now() where id=${item} and project_id=${id} and kind='run' returning *`;
         if (!rows.length) throw new Problem(404, "Sessão não encontrada.");
         await event(db, id, user, `run.${status}`, String(rows[0].title));
         return artifactOf(rows[0]);
@@ -1294,11 +1264,11 @@ export function createStore(url: string) {
     }) {
       return sql.begin(async (db) => {
         const organizations =
-          await db`insert into brokk_v2.organizations(id,name,external_id) values (${randomUUID()},${input.organizationName},${input.organizationId}) on conflict(external_id) do update set name=excluded.name returning id`;
+          await db`insert into brokk.organizations(id,name,external_id) values (${randomUUID()},${input.organizationName},${input.organizationId}) on conflict(external_id) do update set name=excluded.name returning id`;
         const oid = String(organizations[0].id);
-        await db`insert into brokk_v2.members values (${oid},${input.email},${input.role}) on conflict (organization_id,email) do update set role=case when brokk_v2.members.role='admin' then 'admin' else excluded.role end`;
+        await db`insert into brokk.members values (${oid},${input.email},${input.role}) on conflict (organization_id,email) do update set role=case when brokk.members.role='admin' then 'admin' else excluded.role end`;
         const projects =
-          await db`insert into brokk_v2.projects(id,organization_id,name,objective,external_id) values (${randomUUID()},${oid},${input.projectName},${input.objective},${input.projectId}) on conflict(organization_id,external_id) do update set external_id=excluded.external_id returning *`;
+          await db`insert into brokk.projects(id,organization_id,name,objective,external_id) values (${randomUUID()},${oid},${input.projectName},${input.objective},${input.projectId}) on conflict(organization_id,external_id) do update set external_id=excluded.external_id returning *`;
         const p = projectOf(projects[0]);
         const token = randomBytes(32).toString("base64url");
         const identity = {
@@ -1307,7 +1277,7 @@ export function createStore(url: string) {
           name: input.name,
           admin: false,
         };
-        await db`insert into brokk_v2.tickets values (${hash(token)},${db.json(identity)},${p.id},now()+interval '60 seconds')`;
+        await db`insert into brokk.tickets values (${hash(token)},${db.json(identity)},${p.id},now()+interval '60 seconds')`;
         await event(
           db,
           p.id,
@@ -1320,7 +1290,7 @@ export function createStore(url: string) {
     },
     async redeem(token: string) {
       const rows =
-        await sql`delete from brokk_v2.tickets where digest=${hash(token)} and expires_at>now() returning identity,project_id`;
+        await sql`delete from brokk.tickets where digest=${hash(token)} and expires_at>now() returning identity,project_id`;
       if (!rows.length)
         throw new Problem(
           401,
