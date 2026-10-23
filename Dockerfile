@@ -13,6 +13,7 @@ FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a5
 WORKDIR /app
 ARG SOURCE_COMMIT
 ENV NODE_ENV=production PORT=8080 HOST=:: NODE_NO_WARNINGS=1 BROKK_REVISION=${SOURCE_COMMIT}
+ENV NODE_EXTRA_CA_CERTS=/app/db/supabase-ca.crt
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
 RUN corepack prepare pnpm@9.15.9 --activate && pnpm install --prod --frozen-lockfile
